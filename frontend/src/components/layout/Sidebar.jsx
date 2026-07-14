@@ -1,0 +1,194 @@
+import { NavLink, useLocation } from "react-router-dom";
+import {
+  LayoutDashboard,
+  CalendarDays,
+  Ticket,
+  Users,
+  Briefcase,
+  ScanLine,
+  LineChart,
+  Settings,
+  QrCode,
+  Home,
+  ChevronsLeft,
+  MoreVertical,
+} from "lucide-react";
+import Avatar from "../ui/Avatar.jsx";
+import { ROLES, roleFromPath } from "../../lib/roles.js";
+
+const NAV_BY_ROLE = {
+  developer: [
+    { label: "Dashboard", icon: LayoutDashboard, path: "/developer", end: true },
+    { label: "Eventos", icon: CalendarDays },
+    { label: "Entradas", icon: Ticket },
+    { label: "Usuarios", icon: Users },
+    { label: "Organizadores", icon: Briefcase },
+    { label: "Scanners", icon: ScanLine },
+    { label: "Ventas", icon: LineChart },
+    { label: "Configuración", icon: Settings },
+  ],
+  organizer: [
+    { label: "Dashboard", icon: LayoutDashboard, path: "/organizador", end: true },
+    {
+      label: "Eventos",
+      icon: CalendarDays,
+      path: "/organizador/eventos",
+      end: false,
+      children: [
+        { label: "Lista", path: "/organizador/eventos", end: true },
+        { label: "Crear evento", path: "/organizador/eventos/nuevo", end: true },
+      ],
+    },
+    { label: "Entradas", icon: Ticket, path: "/organizador/entradas", end: true },
+    { label: "Ventas", icon: LineChart, path: "/organizador/ventas", end: true },
+    { label: "Scanners", icon: ScanLine, path: "/organizador/scanners", end: true },
+    {
+      label: "Configuración",
+      icon: Settings,
+      path: "/organizador/configuracion",
+      end: true,
+    },
+  ],
+  scanner: [
+    { label: "Dashboard", icon: LayoutDashboard, path: "/scanner", end: true },
+    { label: "Escanear", icon: QrCode },
+    { label: "Mi evento", icon: CalendarDays },
+    { label: "Configuración", icon: Settings },
+  ],
+  customer: [
+    { label: "Inicio", icon: Home, path: "/usuario", end: true },
+    { label: "Eventos", icon: CalendarDays },
+    { label: "Mis entradas", icon: Ticket },
+    { label: "Configuración", icon: Settings },
+  ],
+};
+
+function DisabledNavItem({ label, icon: Icon }) {
+  return (
+    <button
+      type="button"
+      disabled
+      className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-medium text-slate-600 opacity-60"
+    >
+      <Icon className="h-[18px] w-[18px] shrink-0 text-slate-600" />
+      {label}
+    </button>
+  );
+}
+
+function TopNavItem({ label, icon: Icon, path, end }) {
+  if (!path) {
+    return <DisabledNavItem label={label} icon={Icon} />;
+  }
+  return (
+    <NavLink
+      to={path}
+      end={end}
+      className={({ isActive }) =>
+        `group relative flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors duration-150 ${
+          isActive
+            ? "bg-violet-500/10 text-violet-300"
+            : "text-slate-400 hover:bg-white/5 hover:text-white"
+        }`
+      }
+    >
+      {({ isActive }) => (
+        <>
+          {isActive && (
+            <span className="absolute -left-2 top-1/2 h-6 w-1 -translate-y-1/2 rounded-full bg-violet-500" />
+          )}
+          <Icon
+            className={`h-[18px] w-[18px] shrink-0 transition-colors duration-150 ${
+              isActive ? "text-violet-400" : "text-slate-500 group-hover:text-white"
+            }`}
+          />
+          {label}
+        </>
+      )}
+    </NavLink>
+  );
+}
+
+export default function Sidebar() {
+  const location = useLocation();
+  const role = roleFromPath(location.pathname);
+  const navItems = NAV_BY_ROLE[role] ?? NAV_BY_ROLE.developer;
+  const roleLabel = ROLES.find((r) => r.id === role)?.label ?? "Developer";
+
+  return (
+    <aside className="fixed inset-y-0 left-0 z-20 w-[var(--sidebar-width)] p-3">
+      <div className="relative flex h-full flex-col overflow-hidden rounded-[28px] bg-[#0B1120] shadow-xl shadow-black/30">
+        <button
+          type="button"
+          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 text-slate-300 transition-colors duration-150 hover:bg-white/10"
+        >
+          <ChevronsLeft className="h-4 w-4" />
+        </button>
+
+        <div className="flex items-center gap-3 px-5 pb-6 pt-6">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 text-lg font-extrabold text-white">
+            P
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-base font-bold leading-tight text-white">
+              PaseCultural
+            </p>
+            <p className="truncate text-xs text-slate-400">
+              Plataforma de gestión
+            </p>
+          </div>
+        </div>
+
+        <nav className="flex-1 space-y-2 overflow-y-auto px-4">
+          {navItems.map((item) => (
+            <div key={item.label}>
+              <TopNavItem {...item} />
+              {item.children && (
+                <div className="ml-6 mt-1 flex flex-col gap-1 border-l border-white/10 pl-4">
+                  {item.children.map((child) => (
+                    <NavLink
+                      key={child.label}
+                      to={child.path}
+                      end={child.end}
+                      className={({ isActive }) =>
+                        `rounded-lg px-3 py-1.5 text-sm transition-colors duration-150 ${
+                          isActive
+                            ? "text-violet-300"
+                            : "text-slate-500 hover:text-white"
+                        }`
+                      }
+                    >
+                      {child.label}
+                    </NavLink>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </nav>
+
+        <div className="flex items-center gap-3 border-t border-white/5 p-4">
+          <div className="relative shrink-0">
+            <Avatar
+              name="Nombre Apellido"
+              className="bg-gradient-to-br from-violet-500 to-blue-500 text-white"
+            />
+            <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0B1120] bg-emerald-400" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-white">
+              Nombre Apellido
+            </p>
+            <p className="truncate text-xs text-slate-400">{roleLabel}</p>
+          </div>
+          <button
+            type="button"
+            className="shrink-0 text-slate-500 transition-colors duration-150 hover:text-slate-300"
+          >
+            <MoreVertical className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </aside>
+  );
+}

@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+:root {
+  --sidebar-width: 280px;
+  --topbar-height: 64px;
+}
+
+body {
+  @apply text-gray-100 antialiased;
+  background-color: #05070b;
+}
