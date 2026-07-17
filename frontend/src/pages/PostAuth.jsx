@@ -11,7 +11,7 @@ export default function PostAuth() {
     if (syncing) return;
 
     const roleId = backendUser?.role?.toLowerCase();
-    navigate(ROLE_HOME[roleId] ?? "/usuario", { replace: true });
+    navigate(ROLE_HOME[roleId] ?? "/", { replace: true });
   }, [syncing, backendUser, navigate]);
 
   return (

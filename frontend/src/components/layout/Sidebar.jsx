@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
   CalendarDays,
@@ -9,20 +9,27 @@ import {
   LineChart,
   Settings,
   QrCode,
-  Home,
   ChevronsLeft,
-  MoreVertical,
 } from "lucide-react";
-import Avatar from "../ui/Avatar.jsx";
-import { ROLES, roleFromPath } from "../../lib/roles.js";
+import { useBackendUser } from "../../context/AuthContext.jsx";
 
 const NAV_BY_ROLE = {
   developer: [
     { label: "Dashboard", icon: LayoutDashboard, path: "/developer", end: true },
     { label: "Eventos", icon: CalendarDays },
     { label: "Entradas", icon: Ticket },
-    { label: "Usuarios", icon: Users },
-    { label: "Organizadores", icon: Briefcase },
+    {
+      label: "Usuarios",
+      icon: Users,
+      path: "/developer/usuarios",
+      end: true,
+    },
+    {
+      label: "Organizaciones",
+      icon: Briefcase,
+      path: "/developer/organizaciones",
+      end: true,
+    },
     { label: "Scanners", icon: ScanLine },
     { label: "Ventas", icon: LineChart },
     { label: "Configuración", icon: Settings },
@@ -53,12 +60,6 @@ const NAV_BY_ROLE = {
     { label: "Dashboard", icon: LayoutDashboard, path: "/scanner", end: true },
     { label: "Escanear", icon: QrCode },
     { label: "Mi evento", icon: CalendarDays },
-    { label: "Configuración", icon: Settings },
-  ],
-  customer: [
-    { label: "Inicio", icon: Home, path: "/usuario", end: true },
-    { label: "Eventos", icon: CalendarDays },
-    { label: "Mis entradas", icon: Ticket },
     { label: "Configuración", icon: Settings },
   ],
 };
@@ -110,10 +111,9 @@ function TopNavItem({ label, icon: Icon, path, end }) {
 }
 
 export default function Sidebar() {
-  const location = useLocation();
-  const role = roleFromPath(location.pathname);
-  const navItems = NAV_BY_ROLE[role] ?? NAV_BY_ROLE.developer;
-  const roleLabel = ROLES.find((r) => r.id === role)?.label ?? "Developer";
+  const { backendUser } = useBackendUser();
+  const role = backendUser?.role?.toLowerCase();
+  const navItems = NAV_BY_ROLE[role] ?? [];
 
   return (
     <aside className="fixed inset-y-0 left-0 z-20 w-[var(--sidebar-width)] p-3">
@@ -125,7 +125,7 @@ export default function Sidebar() {
           <ChevronsLeft className="h-4 w-4" />
         </button>
 
-        <div className="flex items-center gap-3 px-5 pb-6 pt-6">
+        <Link to="/" className="flex items-center gap-3 px-5 pb-6 pt-6">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 text-lg font-extrabold text-white">
             P
           </div>
@@ -137,7 +137,7 @@ export default function Sidebar() {
               Plataforma de gestión
             </p>
           </div>
-        </div>
+        </Link>
 
         <nav className="flex-1 space-y-2 overflow-y-auto px-4">
           {navItems.map((item) => (
@@ -166,28 +166,6 @@ export default function Sidebar() {
             </div>
           ))}
         </nav>
-
-        <div className="flex items-center gap-3 border-t border-white/5 p-4">
-          <div className="relative shrink-0">
-            <Avatar
-              name="Nombre Apellido"
-              className="bg-gradient-to-br from-violet-500 to-blue-500 text-white"
-            />
-            <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0B1120] bg-emerald-400" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold text-white">
-              Nombre Apellido
-            </p>
-            <p className="truncate text-xs text-slate-400">{roleLabel}</p>
-          </div>
-          <button
-            type="button"
-            className="shrink-0 text-slate-500 transition-colors duration-150 hover:text-slate-300"
-          >
-            <MoreVertical className="h-4 w-4" />
-          </button>
-        </div>
       </div>
     </aside>
   );

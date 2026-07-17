@@ -1,33 +1,22 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  Pencil,
-  Eye,
-  EyeOff,
-  Copy,
-  Ban,
-  Trash2,
-  Plus,
-} from "lucide-react";
+import { useAuth } from "@clerk/clerk-react";
+import { Pencil, Rocket, Archive, Ban, Trash2, Plus, ShieldAlert } from "lucide-react";
 import Button from "../../components/ui/Button.jsx";
-import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
-import { EVENT_STATUS } from "../../data/organizerMockData.js";
+import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
+import { apiFetch } from "../../lib/api.js";
+import { getEventCategoryLabel } from "../../lib/eventCategories.js";
+import { EVENT_STATUS_LABEL, EVENT_STATUS_STYLES } from "../../lib/eventStatus.js";
+import { canPublishEvents } from "../../lib/organizationTrust.js";
 
-const STATUS_STYLES = {
-  [EVENT_STATUS.PUBLISHED]: "bg-emerald-500/10 text-emerald-400",
-  [EVENT_STATUS.DRAFT]: "bg-white/10 text-slate-400",
-  [EVENT_STATUS.HIDDEN]: "bg-amber-500/10 text-amber-400",
-  [EVENT_STATUS.CANCELLED]: "bg-rose-500/10 text-rose-400",
-  [EVENT_STATUS.FINISHED]: "bg-sky-500/10 text-sky-400",
-};
-
-function Pill({ children }) {
+function Pill({ status }) {
   return (
     <span
       className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
-        STATUS_STYLES[children] ?? "bg-white/10 text-slate-400"
+        EVENT_STATUS_STYLES[status] ?? "bg-white/10 text-slate-400"
       }`}
     >
-      {children}
+      {EVENT_STATUS_LABEL[status] ?? status}
     </span>
   );
 }
@@ -46,26 +35,91 @@ function IconButton({ title, onClick, disabled, children }) {
   );
 }
 
+function formatDate(iso) {
+  if (!iso) return "Sin fecha";
+  return new Date(iso).toLocaleString("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default function OrganizerEvents() {
-  const { events, updateEvent, duplicateEvent, removeEvent } =
-    useOrganizerData();
+  const { getToken } = useAuth();
+  const [events, setEvents] = useState([]);
+  const [organization, setOrganization] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [updatingId, setUpdatingId] = useState(null);
+  const [eventToDelete, setEventToDelete] = useState(null);
+  const [actionError, setActionError] = useState("");
+
+  async function loadEvents() {
+    try {
+      const token = await getToken();
+      const [{ events: list }, { organization: org }] = await Promise.all([
+        apiFetch("/api/events/mine", { token }),
+        apiFetch("/api/organizations/me", { token }),
+      ]);
+      setEvents(list);
+      setOrganization(org);
+    } catch (err) {
+      console.error("No se pudieron cargar los eventos", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadEvents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const canPublish = canPublishEvents(organization);
+
+  async function patchEvent(id, patch) {
+    setUpdatingId(id);
+    setActionError("");
+    try {
+      const token = await getToken();
+      const { event } = await apiFetch(`/api/events/${id}`, {
+        token,
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      setEvents((prev) => prev.map((e) => (e.id === id ? event : e)));
+    } catch (err) {
+      console.error("No se pudo actualizar el evento", err);
+      setActionError(err.message || "No se pudo actualizar el evento.");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
 
   function togglePublish(event) {
-    const next =
-      event.status === EVENT_STATUS.PUBLISHED
-        ? EVENT_STATUS.HIDDEN
-        : EVENT_STATUS.PUBLISHED;
-    updateEvent(event.id, { status: next });
+    const next = event.status === "PUBLISHED" ? "DRAFT" : "PUBLISHED";
+    patchEvent(event.id, { status: next });
   }
 
   function cancelEvent(event) {
-    updateEvent(event.id, { status: EVENT_STATUS.CANCELLED });
+    patchEvent(event.id, { status: "CANCELLED" });
   }
 
-  function deleteEvent(event) {
-    const hasSales = event.ticketTypes.some((tt) => (tt.sold ?? 0) > 0);
-    if (hasSales) return;
-    removeEvent(event.id);
+  async function confirmDelete() {
+    if (!eventToDelete) return;
+    const id = eventToDelete.id;
+    setUpdatingId(id);
+    try {
+      const token = await getToken();
+      await apiFetch(`/api/events/${id}`, { token, method: "DELETE" });
+      setEvents((prev) => prev.filter((e) => e.id !== id));
+    } catch (err) {
+      console.error("No se pudo eliminar el evento", err);
+    } finally {
+      setUpdatingId(null);
+      setEventToDelete(null);
+    }
   }
 
   return (
@@ -85,6 +139,29 @@ export default function OrganizerEvents() {
         </Link>
       </div>
 
+      {!canPublish && !loading && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-amber-300">
+          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold">
+              Todavía no podés publicar eventos
+            </p>
+            <p className="mt-1 text-xs opacity-90">
+              Tu organización está{" "}
+              {organization?.status === "PENDING"
+                ? "siendo revisada"
+                : "sin aprobar"}
+              . Podés crear y editar eventos como borrador; vas a poder
+              publicarlos apenas un Developer apruebe tu organización.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {actionError && (
+        <p className="text-sm text-rose-400">{actionError}</p>
+      )}
+
       <div className="rounded-xl border border-white/10 bg-[#0B1120]">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -93,91 +170,109 @@ export default function OrganizerEvents() {
                 <th className="px-6 py-3 font-medium">Evento</th>
                 <th className="px-6 py-3 font-medium">Categoría</th>
                 <th className="px-6 py-3 font-medium">Fecha</th>
-                <th className="px-6 py-3 font-medium">Entradas</th>
                 <th className="px-6 py-3 font-medium">Estado</th>
                 <th className="px-6 py-3 font-medium text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              {events.map((event) => {
-                const sold = event.ticketTypes.reduce(
-                  (sum, tt) => sum + (tt.sold ?? 0),
-                  0
-                );
-                const capacity = event.capacity || 0;
-                const hasSales = sold > 0;
-                return (
-                  <tr key={event.id}>
-                    <td className="px-6 py-4">
-                      <p className="font-medium text-white">{event.name}</p>
-                      <p className="text-xs text-slate-500">{event.venue}</p>
-                    </td>
-                    <td className="px-6 py-4 text-slate-300">
-                      {event.category}
-                    </td>
-                    <td className="px-6 py-4 text-slate-300">
-                      {event.date} · {event.time}
-                    </td>
-                    <td className="px-6 py-4 text-slate-300">
-                      {sold}/{capacity}
-                    </td>
-                    <td className="px-6 py-4">
-                      <Pill>{event.status}</Pill>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center justify-end gap-1">
-                        <Link to={`/organizador/eventos/${event.id}/editar`}>
-                          <IconButton title="Editar">
-                            <Pencil className="h-4 w-4" />
-                          </IconButton>
-                        </Link>
-                        <IconButton
-                          title={
-                            event.status === EVENT_STATUS.PUBLISHED
-                              ? "Ocultar"
-                              : "Publicar"
-                          }
-                          onClick={() => togglePublish(event)}
-                        >
-                          {event.status === EVENT_STATUS.PUBLISHED ? (
-                            <EyeOff className="h-4 w-4" />
-                          ) : (
-                            <Eye className="h-4 w-4" />
-                          )}
+              {!loading && events.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-6 py-10 text-center text-slate-500">
+                    Todavía no creaste ningún evento.
+                  </td>
+                </tr>
+              )}
+              {events.map((event) => (
+                <tr key={event.id}>
+                  <td className="px-6 py-4">
+                    <p className="font-medium text-white">{event.title}</p>
+                    <p className="text-xs text-slate-500">
+                      {event.venue || "Lugar a confirmar"}
+                    </p>
+                  </td>
+                  <td className="px-6 py-4 text-slate-300">
+                    {event.category ? getEventCategoryLabel(event) : "—"}
+                  </td>
+                  <td className="px-6 py-4 text-slate-300">
+                    {formatDate(event.startDate)}
+                  </td>
+                  <td className="px-6 py-4">
+                    <Pill status={event.status} />
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center justify-end gap-1">
+                      <Link to={`/organizador/eventos/${event.id}/editar`}>
+                        <IconButton title="Editar">
+                          <Pencil className="h-4 w-4" />
                         </IconButton>
-                        <IconButton
-                          title="Duplicar"
-                          onClick={() => duplicateEvent(event.id)}
-                        >
-                          <Copy className="h-4 w-4" />
-                        </IconButton>
-                        <IconButton
-                          title="Cancelar evento"
-                          onClick={() => cancelEvent(event)}
-                          disabled={event.status === EVENT_STATUS.CANCELLED}
-                        >
-                          <Ban className="h-4 w-4" />
-                        </IconButton>
-                        <IconButton
-                          title={
-                            hasSales
-                              ? "No se puede eliminar: tiene ventas"
-                              : "Eliminar"
-                          }
-                          onClick={() => deleteEvent(event)}
-                          disabled={hasSales}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </IconButton>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+                      </Link>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={event.status === "PUBLISHED" ? "secondary" : "primary"}
+                        onClick={() => togglePublish(event)}
+                        title={
+                          event.status !== "PUBLISHED" && !canPublish
+                            ? "Tu organización todavía no fue aprobada"
+                            : undefined
+                        }
+                        disabled={
+                          updatingId === event.id ||
+                          event.status === "CANCELLED" ||
+                          (event.status !== "PUBLISHED" && !canPublish)
+                        }
+                        className={
+                          event.status === "PUBLISHED"
+                            ? undefined
+                            : "bg-emerald-600 text-white hover:bg-emerald-500"
+                        }
+                      >
+                        {event.status === "PUBLISHED" ? (
+                          <>
+                            <Archive className="h-4 w-4" />
+                            Pasar a borrador
+                          </>
+                        ) : (
+                          <>
+                            <Rocket className="h-4 w-4" />
+                            Publicar
+                          </>
+                        )}
+                      </Button>
+                      <IconButton
+                        title="Cancelar evento"
+                        onClick={() => cancelEvent(event)}
+                        disabled={updatingId === event.id || event.status === "CANCELLED"}
+                      >
+                        <Ban className="h-4 w-4" />
+                      </IconButton>
+                      <IconButton
+                        title="Eliminar"
+                        onClick={() => setEventToDelete(event)}
+                        disabled={updatingId === event.id}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </IconButton>
+                    </div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
       </div>
+
+      {eventToDelete && (
+        <ConfirmDialog
+          title="Eliminar evento"
+          description={`¿Seguro que querés eliminar "${eventToDelete.title}"? Esta acción no se puede deshacer.`}
+          confirmLabel="Eliminar"
+          danger
+          loading={updatingId === eventToDelete.id}
+          onConfirm={confirmDelete}
+          onClose={() => setEventToDelete(null)}
+        />
+      )}
     </div>
   );
 }

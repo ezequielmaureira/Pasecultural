@@ -14,11 +14,46 @@ enum Role {
   CUSTOMER
 }
 
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
 enum OrganizationStatus {
   PENDING
   APPROVED
   REJECTED
   SUSPENDED
+}
+
+enum OrganizationType {
+  TEATRO
+  PRODUCTORA
+  CENTRO_CULTURAL
+  MUNICIPALIDAD
+  CLUB
+  EMPRESA
+  INDEPENDIENTE
+  OTRO
+}
+
+enum EventStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+  CANCELLED
+  FINISHED
+}
+
+enum EventVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum FunctionStatus {
+  SCHEDULED
+  CANCELLED
+  FINISHED
 }
 
 model User {
@@ -29,6 +64,7 @@ model User {
   lastName      String?
   imageUrl      String?
   role          Role           @default(CUSTOMER)
+  status        UserStatus     @default(ACTIVE)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   organizations Organization[]
@@ -37,12 +73,23 @@ model User {
 model Organization {
   id          String             @id @default(cuid())
   name        String
+  type        OrganizationType?
   description String?
   logo        String?
   phone       String?
   email       String
   website     String?
+  instagram   String?
+  facebook    String?
+  tiktok      String?
+  province    String?
+  city        String?
   cuit        String?
+
+  responsibleFirstName String?
+  responsibleLastName  String?
+  responsibleDni        String?
+
   status      OrganizationStatus @default(PENDING)
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
@@ -51,4 +98,164 @@ model Organization {
 
   ownerId String
   owner   User   @relation(fields: [ownerId], references: [id])
+
+  events Event[]
+}
+
+model Event {
+  id          String  @id @default(cuid())
+  title       String
+  slug        String  @unique
+  category    String?
+  // Solo se usa cuando category = "OTRO", para mostrarle al público un nombre
+  // propio sin perder la consistencia de la categoría principal en la base de datos.
+  customCategory String?
+
+  shortDescription String?
+  description      String?
+  coverImage       String?
+
+  // Campos legacy denormalizados (se mantienen sincronizados con la ubicación
+  // de Google Maps de abajo) para no romper el marketplace público existente.
+  venue    String?
+  address  String?
+  city     String?
+  province String?
+
+  // Ubicación con Google Maps (Places + Geocoding). venueName/formattedAddress/
+  // addressLine/latitude/longitude son obligatorios solo para publicar el evento.
+  venueName        String?
+  formattedAddress String?
+  addressLine      String?
+  country          String?
+  postalCode       String?
+  latitude         Float?
+  longitude        Float?
+  googlePlaceId    String?
+
+  startDate    DateTime?
+  endDate      DateTime?
+  doorsOpenAt  DateTime?
+
+  isFree Boolean @default(false)
+
+  status     EventStatus      @default(DRAFT)
+  visibility EventVisibility  @default(PUBLIC)
+  publishedAt DateTime?
+
+  createdBy String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  functions   EventFunction[]
+  ticketTypes TicketType[]
+  links       EventLink[]
+}
+
+// Enlaces relacionados con el evento, los artistas o la organización
+// (redes sociales, video promocional, Spotify, sitio web, etc).
+// "type" es un String libre (no un enum) para poder sumar nuevos tipos
+// desde el frontend sin necesidad de migrar la base de datos. Es la
+// plataforma detectada automáticamente por MediaParser (INSTAGRAM,
+// YOUTUBE, TIKTOK, etc) a partir de la URL pegada por el organizador.
+model EventLink {
+  id String @id @default(cuid())
+
+  type  String
+  title String?
+  url   String
+  order Int    @default(0)
+
+  // Resultado de MediaParser al momento de guardar, para no tener que
+  // volver a detectar la plataforma cada vez que se muestra el enlace.
+  embedUrl     String?
+  thumbnail    String?
+  isEmbeddable Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@map("event_links")
+}
+
+// Una función representa una fecha/horario concreto de un Event.
+// Los precios y el stock viven en TicketType (catálogo del Event), nunca en Event ni en EventFunction.
+model EventFunction {
+  id String @id @default(cuid())
+
+  date        DateTime
+  doorsOpenAt DateTime?
+  endAt       DateTime?
+  venue       String
+  address     String?
+  capacity    Int?
+
+  status FunctionStatus @default(SCHEDULED)
+
+  // Agrupa funciones generadas juntas por recurrencia, para poder aplicar
+  // ediciones con alcance "esta y las siguientes" / "todas" (estilo Google Calendar).
+  recurrenceGroupId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  ticketAssignments FunctionTicketType[]
+
+  @@map("event_functions")
+}
+
+// Catálogo reutilizable de entradas del Event. Las funciones seleccionan
+// qué entradas del catálogo usan a través de FunctionTicketType.
+model TicketType {
+  id String @id @default(cuid())
+
+  name           String
+  price          Decimal @db.Decimal(10, 2)
+  quantity       Int
+  maxPerPurchase Int     @default(10)
+  description    String?
+  visible        Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  assignments FunctionTicketType[]
+
+  @@map("ticket_types")
+}
+
+// Asignación de una entrada del catálogo a una función puntual, con
+// posibilidad de sobrescribir precio/cantidad/visibilidad para esa función.
+model FunctionTicketType {
+  id String @id @default(cuid())
+
+  enabled          Boolean  @default(true)
+  priceOverride    Decimal? @db.Decimal(10, 2)
+  quantityOverride Int?
+  visibleOverride  Boolean?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  functionId String
+  function   EventFunction @relation(fields: [functionId], references: [id], onDelete: Cascade)
+
+  ticketTypeId String
+  ticketType   TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([functionId, ticketTypeId])
+  @@map("function_ticket_types")
 }

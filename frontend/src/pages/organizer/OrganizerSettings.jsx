@@ -1,7 +1,10 @@
-import { useState } from "react";
-import { ImageIcon, Check } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useAuth } from "@clerk/clerk-react";
+import { Check } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
+import ImageUploader from "../../components/ui/ImageUploader.jsx";
+import { apiFetch } from "../../lib/api.js";
 
 const inputClass =
   "h-10 w-full rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-gray-100 outline-none placeholder:text-slate-500 focus:border-violet-500 focus:bg-white/10 focus:ring-2 focus:ring-violet-500/20";
@@ -16,15 +19,17 @@ function Field({ label, children, className = "" }) {
   );
 }
 
-const INITIAL_ORG = {
-  commercialName: "PaseCultural Producciones",
-  cuit: "30-12345678-9",
-  email: "contacto@pasecultural.com",
-  phone: "+54 11 5555-5555",
-  address: "Av. Corrientes 1234, CABA",
-  website: "https://pasecultural.com",
-  socialMedia: "@pasecultural",
-  policies: "Política de reembolsos y términos generales de los eventos.",
+const EMPTY_ORG = {
+  logo: "",
+  name: "",
+  cuit: "",
+  email: "",
+  phone: "",
+  province: "",
+  city: "",
+  website: "",
+  instagram: "",
+  description: "",
 };
 
 const INITIAL_BANK = {
@@ -34,21 +39,75 @@ const INITIAL_BANK = {
 };
 
 export default function OrganizerSettings() {
-  const [org, setOrg] = useState(INITIAL_ORG);
+  const { getToken } = useAuth();
+  const [org, setOrg] = useState(EMPTY_ORG);
   const [bank, setBank] = useState(INITIAL_BANK);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [savedAt, setSavedAt] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const token = await getToken();
+        const { organization } = await apiFetch("/api/organizations/me", { token });
+        if (!cancelled && organization) {
+          setOrg({
+            logo: organization.logo || "",
+            name: organization.name || "",
+            cuit: organization.cuit || "",
+            email: organization.email || "",
+            phone: organization.phone || "",
+            province: organization.province || "",
+            city: organization.city || "",
+            website: organization.website || "",
+            instagram: organization.instagram || "",
+            description: organization.description || "",
+          });
+        }
+      } catch (err) {
+        console.error("No se pudo cargar la organización", err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken]);
 
   function setOrgField(key, value) {
     setOrg((prev) => ({ ...prev, [key]: value }));
+    setSavedAt(null);
   }
 
   function setBankField(key, value) {
     setBank((prev) => ({ ...prev, [key]: value }));
   }
 
-  function handleSave(event) {
+  async function handleSave(event) {
     event.preventDefault();
-    setSavedAt(Date.now());
+    setSaving(true);
+    setSaveError("");
+
+    try {
+      const token = await getToken();
+      const { organization } = await apiFetch("/api/organizations/me", {
+        token,
+        method: "PATCH",
+        body: JSON.stringify(org),
+      });
+      setOrg((prev) => ({ ...prev, logo: organization.logo || "" }));
+      setSavedAt(Date.now());
+    } catch (err) {
+      setSaveError(err.message || "No pudimos guardar los cambios. Probá de nuevo.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -61,34 +120,33 @@ export default function OrganizerSettings() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {savedAt && (
+          {saveError && <span className="text-xs text-rose-400">{saveError}</span>}
+          {savedAt && !saveError && (
             <span className="flex items-center gap-1.5 text-xs text-emerald-400">
               <Check className="h-4 w-4" />
               Cambios guardados
             </span>
           )}
-          <Button type="submit">Guardar cambios</Button>
+          <Button type="submit" disabled={loading || saving}>
+            {saving ? "Guardando..." : "Guardar cambios"}
+          </Button>
         </div>
       </div>
 
       <Card title="Datos del organizador">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="flex items-center gap-4 sm:col-span-2">
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-dashed border-white/15 text-slate-500">
-              <ImageIcon className="h-6 w-6" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-white">Logo</p>
-              <p className="text-xs text-slate-500">
-                La carga de imágenes estará disponible próximamente.
-              </p>
-            </div>
+          <div className="sm:col-span-2 sm:max-w-xs">
+            <ImageUploader
+              label="Logo"
+              value={org.logo}
+              onChange={(url) => setOrgField("logo", url || "")}
+            />
           </div>
           <Field label="Nombre comercial">
             <input
               className={inputClass}
-              value={org.commercialName}
-              onChange={(e) => setOrgField("commercialName", e.target.value)}
+              value={org.name}
+              onChange={(e) => setOrgField("name", e.target.value)}
             />
           </Field>
           <Field label="CUIT">
@@ -113,11 +171,18 @@ export default function OrganizerSettings() {
               onChange={(e) => setOrgField("phone", e.target.value)}
             />
           </Field>
-          <Field label="Dirección" className="sm:col-span-2">
+          <Field label="Provincia">
             <input
               className={inputClass}
-              value={org.address}
-              onChange={(e) => setOrgField("address", e.target.value)}
+              value={org.province}
+              onChange={(e) => setOrgField("province", e.target.value)}
+            />
+          </Field>
+          <Field label="Ciudad">
+            <input
+              className={inputClass}
+              value={org.city}
+              onChange={(e) => setOrgField("city", e.target.value)}
             />
           </Field>
           <Field label="Sitio web">
@@ -127,18 +192,18 @@ export default function OrganizerSettings() {
               onChange={(e) => setOrgField("website", e.target.value)}
             />
           </Field>
-          <Field label="Redes sociales">
+          <Field label="Instagram">
             <input
               className={inputClass}
-              value={org.socialMedia}
-              onChange={(e) => setOrgField("socialMedia", e.target.value)}
+              value={org.instagram}
+              onChange={(e) => setOrgField("instagram", e.target.value)}
             />
           </Field>
-          <Field label="Políticas" className="sm:col-span-2">
+          <Field label="Descripción" className="sm:col-span-2">
             <textarea
               className={textareaClass}
-              value={org.policies}
-              onChange={(e) => setOrgField("policies", e.target.value)}
+              value={org.description}
+              onChange={(e) => setOrgField("description", e.target.value)}
             />
           </Field>
         </div>

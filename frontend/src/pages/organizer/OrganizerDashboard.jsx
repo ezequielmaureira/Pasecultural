@@ -18,9 +18,9 @@ import { apiFetch } from "../../lib/api.js";
 const ORG_STATUS_BANNER = {
   PENDING: {
     className: "border-amber-500/20 bg-amber-500/10 text-amber-300",
-    title: "Tu organización está en revisión",
+    title: "Tu organización está siendo revisada por un administrador.",
     description:
-      "Ya podés crear eventos en borrador y configurar entradas y scanners. Vas a poder publicar en cuanto un administrador apruebe tu organización.",
+      "Ya podés editar tu organización, crear eventos en borrador y configurar entradas y scanners. Vas a poder publicar en cuanto la aprueben.",
   },
   REJECTED: {
     className: "border-rose-500/20 bg-rose-500/10 text-rose-300",
@@ -58,6 +58,15 @@ function OrganizationStatusBanner() {
       cancelled = true;
     };
   }, [getToken]);
+
+  if (organization?.status === "APPROVED") {
+    return (
+      <div className="flex w-fit items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300">
+        <span aria-hidden>🟢</span>
+        Organización verificada
+      </div>
+    );
+  }
 
   const banner = organization && ORG_STATUS_BANNER[organization.status];
   if (!banner) return null;

@@ -1,12 +1,45 @@
 import { Link } from "react-router-dom";
+import { SignedIn, SignedOut } from "@clerk/clerk-react";
 import { ChevronRight, CheckCircle2 } from "lucide-react";
 import Button from "../components/ui/Button.jsx";
 import DashboardPreview from "../components/organizers/DashboardPreview.jsx";
+import { useBackendUser } from "../context/AuthContext.jsx";
 import {
   ORGANIZER_FEATURES,
   ORGANIZER_STEPS,
   ORGANIZER_TRUST_FEATURES,
 } from "../data/organizersLandingData.js";
+
+function OrganizerCta({ size = "lg" }) {
+  const { backendUser } = useBackendUser();
+  const isOrganizer = backendUser?.role?.toLowerCase() === "organizer";
+
+  return (
+    <>
+      <SignedOut>
+        <Link to="/registro?redirect=/para-organizadores">
+          <Button size={size} className="flex items-center gap-2">
+            Comenzar gratis
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </Link>
+        <Link to="/iniciar-sesion?redirect=/para-organizadores">
+          <Button size={size} variant="secondary" className="border border-white/15">
+            Ya tengo una cuenta
+          </Button>
+        </Link>
+      </SignedOut>
+      <SignedIn>
+        <Link to={isOrganizer ? "/organizador" : "/organizador/nueva-organizacion"}>
+          <Button size={size} className="flex items-center gap-2">
+            {isOrganizer ? "Ir a mi panel" : "Cargá tu organización y empezá a crear eventos"}
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </Link>
+      </SignedIn>
+    </>
+  );
+}
 
 function Hero() {
   return (
@@ -25,17 +58,7 @@ function Hero() {
           seguí tus ventas en tiempo real.
         </p>
         <div className="flex flex-wrap items-center gap-3">
-          <Link to="/organizador/nueva-organizacion">
-            <Button size="lg" className="flex items-center gap-2">
-              Comenzar gratis
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </Link>
-          <Link to="/organizador/nueva-organizacion">
-            <Button size="lg" variant="secondary" className="border border-white/15">
-              Ya tengo una cuenta
-            </Button>
-          </Link>
+          <OrganizerCta />
         </div>
         <p className="flex items-center gap-1.5 text-xs text-slate-500">
           <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
@@ -122,17 +145,7 @@ function CtaBanner() {
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-3">
-            <Link to="/organizador/nueva-organizacion">
-              <Button size="lg" className="flex items-center gap-2">
-                Comenzar gratis
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </Link>
-            <Link to="/organizador/nueva-organizacion">
-              <Button size="lg" variant="secondary" className="border border-white/15">
-                Ya tengo una cuenta
-              </Button>
-            </Link>
+            <OrganizerCta />
           </div>
         </div>
       </div>
