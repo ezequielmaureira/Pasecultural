@@ -60,12 +60,23 @@ function createEmptyGeneralForm() {
   };
 }
 
-function StepIndicator({ step }) {
+// `clickable` habilita saltar directo a cualquier sección tocando su círculo
+// (solo tiene sentido al reeditar un evento existente: en la creación desde
+// cero el orden de los pasos todavía importa para no pedir datos fuera de
+// contexto).
+function StepIndicator({ step, onStepClick, clickable }) {
   return (
     <div className="mb-8 flex items-center justify-center gap-2 overflow-x-auto pb-1">
       {STEPS.map((s, index) => (
         <div key={s.id} className="flex shrink-0 items-center gap-2">
-          <div className="flex flex-col items-center gap-1.5">
+          <button
+            type="button"
+            disabled={!clickable}
+            onClick={() => onStepClick(s.id)}
+            className={`flex flex-col items-center gap-1.5 rounded-lg ${
+              clickable ? "cursor-pointer hover:opacity-80" : "cursor-default"
+            }`}
+          >
             <div
               className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold transition-colors duration-150 ${
                 s.id === step
@@ -84,7 +95,7 @@ function StepIndicator({ step }) {
             >
               {s.label}
             </span>
-          </div>
+          </button>
           {index < STEPS.length - 1 && (
             <div className="h-px w-8 shrink-0 bg-white/10 sm:w-12" />
           )}
@@ -671,6 +682,9 @@ export default function OrganizerEventWizard() {
     }
   }
 
+  let publishButtonLabel = isEditing ? "Guardar y publicar" : "Publicar";
+  if (submitting) publishButtonLabel = "Publicando...";
+
   if (loading) {
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-slate-400">
@@ -698,7 +712,7 @@ export default function OrganizerEventWizard() {
         </Link>
       </div>
 
-      <StepIndicator step={step} />
+      <StepIndicator step={step} onStepClick={setStep} clickable={isEditing} />
 
       <Card>
         {step === 1 && (
@@ -995,13 +1009,17 @@ export default function OrganizerEventWizard() {
             )}
           </div>
 
-          <div className="flex items-center gap-2">
-            {step < STEPS.length ? (
-              <Button type="button" onClick={goNext}>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {step < STEPS.length && (
+              <Button type="button" variant={isEditing ? "secondary" : "primary"} onClick={goNext}>
                 Continuar
                 <ChevronRight className="h-4 w-4" />
               </Button>
-            ) : (
+            )}
+
+            {/* Al reeditar, cada sección puede guardarse sola: no hace falta
+                recorrer los 5 pasos si sólo se cambió una cosa puntual. */}
+            {(isEditing || step === STEPS.length) && (
               <>
                 <Button
                   type="button"
@@ -1017,7 +1035,7 @@ export default function OrganizerEventWizard() {
                   disabled={submitting || !canPublish}
                   title={!canPublish ? "Tu organización todavía no fue aprobada" : undefined}
                 >
-                  {submitting ? "Publicando..." : "Publicar"}
+                  {publishButtonLabel}
                 </Button>
               </>
             )}

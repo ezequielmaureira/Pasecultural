@@ -194,12 +194,9 @@ function assertPublishable(event) {
     if (!(event.formattedAddress?.trim() || event.addressLine?.trim())) {
         throw new Error("LOCATION_MISSING_ADDRESS");
     }
-    if (event.latitude === null || event.latitude === undefined) {
-        throw new Error("LOCATION_MISSING_COORDINATES");
-    }
-    if (event.longitude === null || event.longitude === undefined) {
-        throw new Error("LOCATION_MISSING_COORDINATES");
-    }
+    // Las coordenadas (lat/lng) ya no son obligatorias para publicar: alcanza
+    // con nombre de lugar + dirección en texto. Quedan como opcionales para
+    // cuando el organizador las carga vía mapa (Google Maps / picker).
 
     if (!event.functions || event.functions.length === 0) {
         throw new Error("NO_FUNCTIONS");

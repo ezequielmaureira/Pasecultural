@@ -1,0 +1,18 @@
+import { useState } from "react";
+import { ArrowRight } from "lucide-react";
+import Button from "../../../../components/ui/Button.jsx";
+import ImageUploader from "../../../../components/ui/ImageUploader.jsx";
+
+export default function ImageAnswer({ onSubmit, disabled }) {
+  const [url, setUrl] = useState(null);
+
+  return (
+    <div className="flex w-full flex-col items-center gap-4">
+      <ImageUploader value={url} onChange={setUrl} previewHeightClass="h-56" className="w-full max-w-sm" />
+      <Button disabled={disabled || !url} onClick={() => onSubmit(url)}>
+        Continuar
+        <ArrowRight className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+}

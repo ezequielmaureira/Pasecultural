@@ -1,0 +1,113 @@
+import {
+    createEventService,
+    syncEventLinksService,
+    syncEventScheduleService,
+    updateMyEventService,
+    getMyEventByIdService,
+} from "../services/event.service.js";
+import { SOCIAL_NETWORKS } from "../utils/eventCategories.js";
+import { translateEventServiceError } from "./errorMessages.js";
+
+const SOCIAL_NETWORK_LABEL = Object.fromEntries(SOCIAL_NETWORKS.map((s) => [s.id, s.label]));
+
+// Un evento "gratuito" (el organizador respondió "No" en el paso de entradas)
+// igual necesita al menos un TicketType en EventService para poder
+// publicarse (ver assertPublishable en event.service.js) — se genera una
+// entrada general a precio 0 en vez de duplicar esa regla acá.
+const FREE_TICKET_DEFAULT_QUANTITY = 999999;
+
+function buildLocationInput(location) {
+    if (!location) return undefined;
+    // El organizador sólo carga dirección/ciudad/provincia en el flujo
+    // conversacional (sin picker de Google Maps todavía en este canal), así
+    // que venueName usa la dirección como fallback. Publicar seguirá
+    // exigiendo coordenadas (assertPublishable ya lo valida) hasta que el
+    // canal Web integre el mapa en una fase siguiente.
+    return {
+        venueName: location.venueName || location.address,
+        formattedAddress: location.address,
+        addressLine: location.address,
+        city: location.city,
+        province: location.province,
+        latitude: location.latitude ?? null,
+        longitude: location.longitude ?? null,
+        googlePlaceId: location.googlePlaceId ?? null,
+    };
+}
+
+function buildTicketTypesInput(draft) {
+    if (draft.hasTickets && draft.ticketTypes?.length) {
+        return draft.ticketTypes.map((tt) => ({
+            name: tt.name,
+            price: tt.price,
+            quantity: tt.quantity,
+        }));
+    }
+    return [{ name: "Entrada general", price: 0, quantity: FREE_TICKET_DEFAULT_QUANTITY }];
+}
+
+function buildFunctionsInput(draft) {
+    const venue = draft.location?.venueName || draft.location?.address || "";
+    return (draft.functions ?? []).map((fn) => ({
+        date: new Date(`${fn.date.slice(0, 10)}T${fn.startTime}:00`).toISOString(),
+        endAt: new Date(`${fn.date.slice(0, 10)}T${fn.endTime}:00`).toISOString(),
+        venue,
+        address: draft.location?.address ?? null,
+    }));
+}
+
+function buildLinksInput(draft) {
+    const links = [];
+    if (draft.promoVideoUrl) {
+        links.push({ url: draft.promoVideoUrl, title: "Video promocional" });
+    }
+    for (const social of draft.socialLinks ?? []) {
+        links.push({ url: social.url, title: SOCIAL_NETWORK_LABEL[social.network] ?? social.network });
+    }
+    return links;
+}
+
+// Traduce el draftEvent acumulado por el EventCreationEngine a las mismas
+// llamadas que hoy hace OrganizerEventWizard.jsx contra EventService, en el
+// mismo orden: create -> links -> schedule -> (opcional) publish. No se
+// persiste nada hasta que el organizador confirma "Publicar" o "Guardar
+// borrador" en el paso PREVIEW.
+export async function commit(clerkId, draftEvent, action) {
+    try {
+        let event = await createEventService(clerkId, {
+            title: draftEvent.title,
+            description: draftEvent.description,
+            category: draftEvent.category,
+            customCategory: draftEvent.customCategory,
+            coverImage: draftEvent.coverImage,
+            location: buildLocationInput(draftEvent.location),
+        });
+
+        const links = buildLinksInput(draftEvent);
+        if (links.length > 0) {
+            await syncEventLinksService(clerkId, event.id, links);
+        }
+
+        await syncEventScheduleService(clerkId, event.id, {
+            functions: buildFunctionsInput(draftEvent),
+            ticketTypes: buildTicketTypesInput(draftEvent),
+        });
+
+        if (action === "PUBLISH") {
+            event = await updateMyEventService(clerkId, event.id, { status: "PUBLISHED" });
+        } else {
+            event = await getMyEventByIdService(clerkId, event.id);
+        }
+
+        return event;
+    } catch (error) {
+        const message = translateEventServiceError(error);
+        if (message) {
+            const translated = new Error(message);
+            translated.code = error.message;
+            translated.isConversational = true;
+            throw translated;
+        }
+        throw error;
+    }
+}

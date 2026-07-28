@@ -56,6 +56,18 @@ enum FunctionStatus {
   FINISHED
 }
 
+enum ConversationChannel {
+  WEB
+  WHATSAPP
+}
+
+enum ConversationStatus {
+  ACTIVE
+  DRAFT_SAVED
+  PUBLISHED
+  ABANDONED
+}
+
 model User {
   id            String         @id @default(cuid())
   clerkId       String         @unique
@@ -71,7 +83,7 @@ model User {
 }
 
 model Organization {
-  id          String             @id @default(cuid())
+  id          String            @id @default(cuid())
   name        String
   type        OrganizationType?
   description String?
@@ -88,13 +100,13 @@ model Organization {
 
   responsibleFirstName String?
   responsibleLastName  String?
-  responsibleDni        String?
+  responsibleDni       String?
 
-  status      OrganizationStatus @default(PENDING)
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-  approvedAt  DateTime?
-  approvedBy  String?
+  status     OrganizationStatus @default(PENDING)
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+  approvedAt DateTime?
+  approvedBy String?
 
   ownerId String
   owner   User   @relation(fields: [ownerId], references: [id])
@@ -103,10 +115,10 @@ model Organization {
 }
 
 model Event {
-  id          String  @id @default(cuid())
-  title       String
-  slug        String  @unique
-  category    String?
+  id             String  @id @default(cuid())
+  title          String
+  slug           String  @unique
+  category       String?
   // Solo se usa cuando category = "OTRO", para mostrarle al público un nombre
   // propio sin perder la consistencia de la categoría principal en la base de datos.
   customCategory String?
@@ -133,14 +145,14 @@ model Event {
   longitude        Float?
   googlePlaceId    String?
 
-  startDate    DateTime?
-  endDate      DateTime?
-  doorsOpenAt  DateTime?
+  startDate   DateTime?
+  endDate     DateTime?
+  doorsOpenAt DateTime?
 
   isFree Boolean @default(false)
 
-  status     EventStatus      @default(DRAFT)
-  visibility EventVisibility  @default(PUBLIC)
+  status      EventStatus     @default(DRAFT)
+  visibility  EventVisibility @default(PUBLIC)
   publishedAt DateTime?
 
   createdBy String
@@ -168,7 +180,7 @@ model EventLink {
   type  String
   title String?
   url   String
-  order Int    @default(0)
+  order Int     @default(0)
 
   // Resultado de MediaParser al momento de guardar, para no tener que
   // volver a detectar la plataforma cada vez que se muestra el enlace.
@@ -258,4 +270,26 @@ model FunctionTicketType {
 
   @@unique([functionId, ticketTypeId])
   @@map("function_ticket_types")
+}
+
+// Estado persistido del Event Creation Engine: guarda en qué paso del flujo
+// conversacional está un usuario y todo lo que respondió hasta ahora
+// (draftEvent), para poder retomar la conversación desde cualquier canal.
+// El Event real recién se crea en EventService cuando el usuario confirma
+// "Publicar" o "Guardar borrador" (ver EventCreationEngine/EventServicePort).
+model ConversationState {
+  id            String              @id @default(cuid())
+  userId        String?
+  channel       ConversationChannel
+  channelRef    String
+  currentStepId String
+  loopStack     Json                @default("[]")
+  draftEvent    Json                @default("{}")
+  history       Json                @default("[]")
+  status        ConversationStatus  @default(ACTIVE)
+  eventId       String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@map("conversation_states")
 }

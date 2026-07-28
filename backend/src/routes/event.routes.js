@@ -9,6 +9,7 @@ import {
     getPublicEventBySlug,
     saveEventSchedule,
     saveEventLinks,
+    getEventCategories,
 } from "../controllers/event.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 
@@ -17,6 +18,7 @@ const router = Router();
 // Marketplace público (sin autenticación) — deben declararse antes de "/:id"
 router.get("/public", getPublicEvents);
 router.get("/public/:slug", getPublicEventBySlug);
+router.get("/categories", getEventCategories);
 
 router.post("/", requireAuth, createEvent);
 router.get("/mine", requireAuth, getMyEvents);

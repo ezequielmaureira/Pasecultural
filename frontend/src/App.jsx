@@ -26,6 +26,7 @@ import RecoverPurchase from "./pages/public/RecoverPurchase.jsx";
 import OrganizerDashboard from "./pages/organizer/OrganizerDashboard.jsx";
 import OrganizerEvents from "./pages/organizer/OrganizerEvents.jsx";
 import OrganizerEventWizard from "./pages/organizer/OrganizerEventWizard.jsx";
+import OrganizerEventChat from "./pages/organizer/OrganizerEventChat.jsx";
 import OrganizerTickets from "./pages/organizer/OrganizerTickets.jsx";
 import OrganizerSales from "./pages/organizer/OrganizerSales.jsx";
 import OrganizerScanners from "./pages/organizer/OrganizerScanners.jsx";
@@ -90,7 +91,7 @@ export default function App() {
                 >
                   <Route index element={<OrganizerDashboard />} />
                   <Route path="eventos" element={<OrganizerEvents />} />
-                  <Route path="eventos/nuevo" element={<OrganizerEventWizard />} />
+                  <Route path="eventos/nuevo" element={<OrganizerEventChat />} />
                   <Route path="eventos/:id/editar" element={<OrganizerEventWizard />} />
                   <Route path="entradas" element={<OrganizerTickets />} />
                   <Route path="ventas" element={<OrganizerSales />} />

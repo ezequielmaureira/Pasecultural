@@ -7,6 +7,7 @@ import authRoutes from "./routes/auth.routes.js";
 import organizationRoutes from "./routes/organization.routes.js";
 import mediaRoutes from "./routes/media.routes.js";
 import eventRoutes from "./routes/event.routes.js";
+import conversationRoutes from "./routes/conversation.routes.js";
 
 const app = express();
 
@@ -28,5 +29,6 @@ app.use("/api/auth", authRoutes);
 app.use("/api/organizations", organizationRoutes);
 app.use("/api/media", mediaRoutes);
 app.use("/api/events", eventRoutes);
+app.use("/api/conversations", conversationRoutes);
 
 export default app;

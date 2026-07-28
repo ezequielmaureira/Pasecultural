@@ -1,0 +1,439 @@
+import { EVENT_CATEGORIES, SOCIAL_NETWORKS } from "../../utils/eventCategories.js";
+
+// Cada StepDefinition es un objeto de datos, no una clase: agregar un paso
+// nuevo al flujo (ej. "accesibilidad") es agregar una entrada acá, sin tocar
+// EventCreationEngine.js (OCP). "next" decide el siguiente paso mirando el
+// draft/loopStack ya actualizados; los grupos repetibles (funciones, tipos
+// de entrada, redes) usan `loopStack` como una pila de contextos de loop.
+
+export const FIRST_STEP_ID = "NAME";
+export const PREVIEW_STEP_ID = "PREVIEW";
+
+function categoryOptions() {
+    return EVENT_CATEGORIES.map((c) => ({ id: c.id, label: c.label }));
+}
+
+function socialNetworkOptions() {
+    return SOCIAL_NETWORKS.map((s) => ({ id: s.id, label: s.label }));
+}
+
+function topLoop(loopStack) {
+    return loopStack[loopStack.length - 1] ?? null;
+}
+
+function replaceTopLoop(loopStack, nextLoop) {
+    const copy = loopStack.slice(0, -1);
+    if (nextLoop) copy.push(nextLoop);
+    return copy;
+}
+
+// Recorre día por día el rango [from, to] (ambos ISO) y arma una función por
+// cada día cuyo día de semana esté en `weekdays` (0=Lunes..6=Domingo, misma
+// convención que usa el calendario del frontend). "Funciones recurrentes"
+// del paso Funciones se apoya en esto para generar el borrador que después
+// se revisa en FUNCTIONS_LIST antes de confirmarlo.
+function generateRecurringSlots(from, to, weekdays, { startTime, endTime }) {
+    const weekdaySet = new Set(weekdays);
+    const slots = [];
+    const end = new Date(to).getTime();
+
+    for (let cursor = new Date(from); cursor.getTime() <= end; cursor.setDate(cursor.getDate() + 1)) {
+        const isoWeekday = (cursor.getDay() + 6) % 7;
+        if (weekdaySet.has(isoWeekday)) {
+            slots.push({ date: new Date(cursor).toISOString(), startTime, endTime });
+        }
+    }
+
+    return slots;
+}
+
+export const STEPS = {
+    NAME: {
+        id: "NAME",
+        inputType: "SHORT_TEXT",
+        buildPrompt: () => ({ text: "¿Cómo se llama tu evento?" }),
+        apply: (draft, loopStack, value) => ({ draft: { ...draft, title: value }, loopStack }),
+        next: () => "DESCRIPTION",
+    },
+
+    DESCRIPTION: {
+        id: "DESCRIPTION",
+        inputType: "SHORT_TEXT",
+        buildPrompt: () => ({ text: "Contanos de qué trata tu evento." }),
+        apply: (draft, loopStack, value) => ({ draft: { ...draft, description: value }, loopStack }),
+        next: () => "CATEGORY",
+    },
+
+    CATEGORY: {
+        id: "CATEGORY",
+        inputType: "SINGLE_SELECT",
+        buildPrompt: () => ({ text: "Elegí la categoría de tu evento.", options: categoryOptions() }),
+        apply: (draft, loopStack, value) => ({ draft: { ...draft, category: value }, loopStack }),
+        next: (draft) => (draft.category === "OTRO" ? "CUSTOM_CATEGORY" : "COVER_IMAGE"),
+    },
+
+    CUSTOM_CATEGORY: {
+        id: "CUSTOM_CATEGORY",
+        inputType: "SHORT_TEXT",
+        buildPrompt: () => ({ text: "Contanos de qué categoría se trata." }),
+        apply: (draft, loopStack, value) => ({ draft: { ...draft, customCategory: value }, loopStack }),
+        next: () => "COVER_IMAGE",
+    },
+
+    COVER_IMAGE: {
+        id: "COVER_IMAGE",
+        inputType: "IMAGE_URL",
+        buildPrompt: () => ({ text: "Mandame la imagen principal de tu evento." }),
+        apply: (draft, loopStack, value) => ({ draft: { ...draft, coverImage: value }, loopStack }),
+        next: () => "LOCATION",
+    },
+
+    LOCATION: {
+        id: "LOCATION",
+        inputType: "LOCATION",
+        buildPrompt: () => ({ text: "¿Dónde es el evento? Necesito dirección, ciudad y provincia." }),
+        apply: (draft, loopStack, value) => ({ draft: { ...draft, location: value }, loopStack }),
+        next: () => "FUNCTIONS_MODE",
+    },
+
+    // Sirve igual para un recital de una sola fecha que para una temporada
+    // de teatro con 40 funciones: la única diferencia es cuántos clics hacen
+    // falta para cargarlas, no una lógica distinta por tipo de evento.
+    // Todas las ramas arman la lista de funciones en `loopStack.buffer.slots`
+    // (mismo mecanismo de "borrador temporal" que ya usan los loops de
+    // Entradas/Redes) y recién se confirma a `draft.functions` en
+    // FUNCTIONS_SUMMARY — así "Editar funciones" nunca pierde lo cargado.
+    FUNCTIONS_MODE: {
+        id: "FUNCTIONS_MODE",
+        inputType: "SINGLE_SELECT",
+        buildPrompt: () => ({
+            text: "¿Cómo se realizarán las funciones de este evento?",
+            options: [
+                { id: "SINGLE", label: "Una sola función" },
+                { id: "MULTIPLE", label: "Varias funciones" },
+                { id: "RECURRING", label: "Funciones recurrentes" },
+            ],
+        }),
+        // Precarga con lo que ya estaba guardado en draft.functions (si el
+        // organizador vuelve acá desde "Editar" en la vista previa general
+        // del evento, no pierde las funciones que ya había cargado).
+        apply: (draft, loopStack) => ({
+            draft,
+            loopStack: [...loopStack, { type: "FUNCTIONS_BUILD", buffer: { slots: draft.functions ?? [] } }],
+        }),
+        next: (draft, loopStack, value) => {
+            if (value === "SINGLE") return "FUNCTIONS_SINGLE_CARD";
+            if (value === "RECURRING") return "FUNCTIONS_RANGE";
+            return "FUNCTIONS_LIST";
+        },
+    },
+
+    FUNCTIONS_SINGLE_CARD: {
+        id: "FUNCTIONS_SINGLE_CARD",
+        inputType: "FUNCTION_CARD",
+        buildPrompt: () => ({ text: "Contame cuándo es la función." }),
+        apply: (draft, loopStack, value) => {
+            const loop = topLoop(loopStack);
+            const nextLoop = { ...loop, buffer: { ...loop.buffer, slots: [value] } };
+            return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
+        },
+        next: () => "FUNCTIONS_SUMMARY",
+    },
+
+    FUNCTIONS_RANGE: {
+        id: "FUNCTIONS_RANGE",
+        inputType: "DATE_RANGE",
+        buildPrompt: () => ({ text: "¿Desde y hasta qué fecha se repiten las funciones?" }),
+        apply: (draft, loopStack, value) => {
+            const loop = topLoop(loopStack);
+            const nextLoop = { ...loop, buffer: { ...loop.buffer, from: value.from, to: value.to } };
+            return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
+        },
+        next: () => "FUNCTIONS_WEEKDAYS",
+    },
+
+    FUNCTIONS_WEEKDAYS: {
+        id: "FUNCTIONS_WEEKDAYS",
+        inputType: "WEEKDAYS",
+        buildPrompt: () => ({ text: "¿Qué días de la semana?" }),
+        apply: (draft, loopStack, value) => {
+            const loop = topLoop(loopStack);
+            const nextLoop = { ...loop, buffer: { ...loop.buffer, weekdays: value } };
+            return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
+        },
+        next: () => "FUNCTIONS_RECURRING_TIME",
+    },
+
+    FUNCTIONS_RECURRING_TIME: {
+        id: "FUNCTIONS_RECURRING_TIME",
+        inputType: "TIME_RANGE",
+        buildPrompt: () => ({ text: "¿A qué hora empieza y a qué hora termina cada función?" }),
+        apply: (draft, loopStack, value) => {
+            const loop = topLoop(loopStack);
+            const slots = generateRecurringSlots(loop.buffer.from, loop.buffer.to, loop.buffer.weekdays, value);
+            const nextLoop = { ...loop, buffer: { ...loop.buffer, slots } };
+            return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
+        },
+        // No se guardan solas: van al mismo "administrador de funciones" que
+        // "Varias funciones" para poder revisarlas/editarlas antes de confirmar.
+        next: () => "FUNCTIONS_LIST",
+    },
+
+    FUNCTIONS_LIST: {
+        id: "FUNCTIONS_LIST",
+        inputType: "FUNCTIONS_LIST",
+        buildPrompt: (draft, loopStack) => {
+            const loop = topLoop(loopStack);
+            return {
+                text: "Agregá, editá o quitá las funciones que necesites.",
+                slots: loop?.buffer?.slots ?? [],
+            };
+        },
+        apply: (draft, loopStack, value) => {
+            const loop = topLoop(loopStack);
+            const nextLoop = { ...loop, buffer: { ...loop.buffer, slots: value } };
+            return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
+        },
+        next: () => "FUNCTIONS_SUMMARY",
+    },
+
+    FUNCTIONS_SUMMARY: {
+        id: "FUNCTIONS_SUMMARY",
+        inputType: "FUNCTIONS_SUMMARY",
+        buildPrompt: (draft, loopStack) => {
+            const loop = topLoop(loopStack);
+            return {
+                text: "Funciones creadas",
+                functions: loop?.buffer?.slots ?? [],
+                options: [
+                    { id: "EDIT", label: "Editar funciones" },
+                    { id: "CONTINUE", label: "Continuar" },
+                ],
+            };
+        },
+        apply: (draft, loopStack, value) => {
+            if (value === "EDIT") return { draft, loopStack };
+            const loop = topLoop(loopStack);
+            return {
+                draft: { ...draft, functions: loop.buffer.slots },
+                loopStack: loopStack.slice(0, -1),
+            };
+        },
+        next: (draft, loopStack, value) => (value === "EDIT" ? "FUNCTIONS_LIST" : "EVENT_PRICING_TYPE"),
+    },
+
+    // Primero preguntamos gratis/pago (cómo piensa el organizador su evento)
+    // en vez de "¿tendrá entradas?" (pregunta de implementación). El "sí,
+    // tendrá entradas" del flujo viejo pasa a ser implícito en la rama PAID.
+    EVENT_PRICING_TYPE: {
+        id: "EVENT_PRICING_TYPE",
+        inputType: "SINGLE_SELECT",
+        buildPrompt: () => ({
+            text: "¿Este evento es gratuito o de pago?",
+            options: [
+                { id: "FREE", label: "Gratuito" },
+                { id: "PAID", label: "De pago" },
+            ],
+        }),
+        apply: (draft, loopStack, value) => {
+            if (value === "PAID") {
+                return {
+                    draft: { ...draft, hasTickets: true, ticketTypes: [] },
+                    loopStack: [...loopStack, { type: "TICKETS", buffer: {} }],
+                };
+            }
+            return { draft: { ...draft, ticketTypes: draft.ticketTypes ?? [] }, loopStack };
+        },
+        next: (draft, loopStack, value) => (value === "PAID" ? "TICKET_NAME" : "WANTS_FREE_TICKETS"),
+    },
+
+    WANTS_FREE_TICKETS: {
+        id: "WANTS_FREE_TICKETS",
+        inputType: "YES_NO",
+        buildPrompt: () => ({ text: "¿Querés emitir entradas gratuitas para controlar el acceso?" }),
+        apply: (draft, loopStack, value) => ({
+            draft: { ...draft, hasTickets: value, ticketTypes: value ? draft.ticketTypes ?? [] : [] },
+            loopStack,
+        }),
+        next: (draft, loopStack, value) => (value ? "FREE_TICKET_QUANTITY" : "PROMO_VIDEO_ASK"),
+    },
+
+    // Entrada gratuita: un único tipo, sin nombre ni precio a pedir (siempre
+    // "Entrada gratuita" a $0), sólo el stock disponible.
+    FREE_TICKET_QUANTITY: {
+        id: "FREE_TICKET_QUANTITY",
+        inputType: "POSITIVE_INT",
+        buildPrompt: () => ({ text: "¿Cuántas entradas gratuitas vas a emitir?" }),
+        apply: (draft, loopStack, value) => ({
+            draft: { ...draft, ticketTypes: [{ name: "Entrada gratuita", price: 0, quantity: value }] },
+            loopStack,
+        }),
+        next: () => "PROMO_VIDEO_ASK",
+    },
+
+    // Tipos habituales como tarjetas para elegir con un click; "Otro" deriva
+    // a TICKET_NAME_CUSTOM para que el organizador escriba el nombre que
+    // necesite (categorías propias, ej. "Mesa VIP", "Preventa 1").
+    TICKET_NAME: {
+        id: "TICKET_NAME",
+        inputType: "SINGLE_SELECT",
+        buildPrompt: (draft) => ({
+            text: draft.ticketTypes?.length
+                ? "¿Qué tipo de entrada querés agregar ahora?"
+                : "¿Qué tipo de entrada querés agregar primero?",
+            options: [
+                { id: "General", label: "General" },
+                { id: "VIP", label: "VIP" },
+                { id: "Platea", label: "Platea" },
+                { id: "Campo", label: "Campo" },
+                { id: "Anticipada", label: "Anticipada" },
+                { id: "Palco", label: "Palco" },
+                { id: "Mesa", label: "Mesa" },
+                { id: "OTHER", label: "Otro" },
+            ],
+        }),
+        apply: (draft, loopStack, value) => {
+            if (value === "OTHER") return { draft, loopStack };
+            const loop = topLoop(loopStack);
+            const nextLoop = { ...loop, buffer: { ...loop.buffer, name: value } };
+            return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
+        },
+        next: (draft, loopStack, value) => (value === "OTHER" ? "TICKET_NAME_CUSTOM" : "TICKET_PRICE"),
+    },
+
+    TICKET_NAME_CUSTOM: {
+        id: "TICKET_NAME_CUSTOM",
+        inputType: "SHORT_TEXT",
+        buildPrompt: () => ({ text: "¿Cómo se llama esta entrada?" }),
+        apply: (draft, loopStack, value) => {
+            const loop = topLoop(loopStack);
+            const nextLoop = { ...loop, buffer: { ...loop.buffer, name: value } };
+            return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
+        },
+        next: () => "TICKET_PRICE",
+    },
+
+    TICKET_PRICE: {
+        id: "TICKET_PRICE",
+        inputType: "PRICE",
+        buildPrompt: () => ({ text: "¿Qué precio tiene?" }),
+        apply: (draft, loopStack, value) => {
+            const loop = topLoop(loopStack);
+            const nextLoop = { ...loop, buffer: { ...loop.buffer, price: value } };
+            return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
+        },
+        next: () => "TICKET_QUANTITY",
+    },
+
+    TICKET_QUANTITY: {
+        id: "TICKET_QUANTITY",
+        inputType: "POSITIVE_INT",
+        buildPrompt: () => ({ text: "¿Cuántas hay disponibles?" }),
+        apply: (draft, loopStack, value) => {
+            const loop = topLoop(loopStack);
+            const completedTicket = { ...loop.buffer, quantity: value };
+            const ticketTypes = [...draft.ticketTypes, completedTicket];
+            const nextLoop = { ...loop, buffer: {} };
+            return {
+                draft: { ...draft, ticketTypes },
+                loopStack: replaceTopLoop(loopStack, nextLoop),
+            };
+        },
+        next: () => "ADD_ANOTHER_TICKET",
+    },
+
+    ADD_ANOTHER_TICKET: {
+        id: "ADD_ANOTHER_TICKET",
+        inputType: "SINGLE_SELECT",
+        buildPrompt: () => ({
+            text: "¿Querés agregar otro tipo de entrada?",
+            options: [
+                { id: "ADD", label: "Agregar otro tipo" },
+                { id: "CONTINUE", label: "Continuar" },
+            ],
+        }),
+        apply: (draft, loopStack, value) => ({
+            draft,
+            loopStack: value === "ADD" ? loopStack : loopStack.slice(0, -1),
+        }),
+        next: (draft, loopStack, value) => (value === "ADD" ? "TICKET_NAME" : "PROMO_VIDEO_ASK"),
+    },
+
+    PROMO_VIDEO_ASK: {
+        id: "PROMO_VIDEO_ASK",
+        inputType: "YES_NO",
+        buildPrompt: () => ({ text: "¿Querés agregar un video promocional de YouTube?" }),
+        apply: (draft, loopStack, value) => ({ draft: { ...draft, wantsPromoVideo: value }, loopStack }),
+        next: (draft) => (draft.wantsPromoVideo ? "PROMO_VIDEO_URL" : "SOCIAL_LINKS_ASK"),
+    },
+
+    PROMO_VIDEO_URL: {
+        id: "PROMO_VIDEO_URL",
+        inputType: "YOUTUBE_URL",
+        buildPrompt: () => ({ text: "Pasame el link del video (video o Short de YouTube)." }),
+        apply: (draft, loopStack, value) => ({ draft: { ...draft, promoVideoUrl: value }, loopStack }),
+        next: () => "SOCIAL_LINKS_ASK",
+    },
+
+    SOCIAL_LINKS_ASK: {
+        id: "SOCIAL_LINKS_ASK",
+        inputType: "YES_NO",
+        buildPrompt: () => ({ text: "¿Querés agregar redes sociales?" }),
+        apply: (draft, loopStack, value) => ({
+            draft: { ...draft, socialLinks: draft.socialLinks ?? [] },
+            loopStack: value ? [...loopStack, { type: "SOCIALS", buffer: {} }] : loopStack,
+        }),
+        next: (draft, loopStack, value) => (value ? "SOCIAL_NETWORK" : "PREVIEW"),
+    },
+
+    SOCIAL_NETWORK: {
+        id: "SOCIAL_NETWORK",
+        inputType: "SINGLE_SELECT",
+        buildPrompt: () => ({ text: "¿Qué red querés agregar?", options: socialNetworkOptions() }),
+        apply: (draft, loopStack, value) => {
+            const loop = topLoop(loopStack);
+            const nextLoop = { ...loop, buffer: { ...loop.buffer, network: value } };
+            return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
+        },
+        next: () => "SOCIAL_URL",
+    },
+
+    SOCIAL_URL: {
+        id: "SOCIAL_URL",
+        inputType: "URL",
+        buildPrompt: (draft, loopStack) => {
+            const loop = topLoop(loopStack);
+            return { text: `Pasame el link de ${loop.buffer.network}.` };
+        },
+        apply: (draft, loopStack, value) => {
+            const loop = topLoop(loopStack);
+            const completedLink = { ...loop.buffer, url: value };
+            const socialLinks = [...draft.socialLinks, completedLink];
+            const nextLoop = { ...loop, buffer: {} };
+            return {
+                draft: { ...draft, socialLinks },
+                loopStack: replaceTopLoop(loopStack, nextLoop),
+            };
+        },
+        next: () => "ADD_ANOTHER_SOCIAL",
+    },
+
+    ADD_ANOTHER_SOCIAL: {
+        id: "ADD_ANOTHER_SOCIAL",
+        inputType: "YES_NO",
+        buildPrompt: () => ({ text: "¿Querés agregar otra red?" }),
+        apply: (draft, loopStack, value) => ({
+            draft,
+            loopStack: value ? loopStack : loopStack.slice(0, -1),
+        }),
+        next: (draft, loopStack, value) => (value ? "SOCIAL_NETWORK" : "PREVIEW"),
+    },
+};
+
+export function getStep(stepId) {
+    const step = STEPS[stepId];
+    if (!step) {
+        throw new Error(`UNKNOWN_STEP: ${stepId}`);
+    }
+    return step;
+}

@@ -46,12 +46,15 @@ export function createDefaultAssignment() {
   };
 }
 
+// La mayoría de los eventos culturales arrancan de noche: 21hs es un
+// default razonable para no obligar a elegir horario en cada función nueva
+// (el organizador lo puede cambiar con un click en el TimePicker).
 export function createEmptyFunction() {
   return {
     _key: tempId(),
     date: "",
     doorsOpenTime: "",
-    startTime: "",
+    startTime: "21:00",
     endTime: "",
     venue: "",
     address: "",

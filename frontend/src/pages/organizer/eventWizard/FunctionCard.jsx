@@ -1,6 +1,7 @@
 import { Info, Trash2 } from "lucide-react";
 import Accordion from "../../../components/ui/Accordion.jsx";
 import { Field, inputClass } from "../../../components/ui/FormField.jsx";
+import TimePicker from "../../../components/ui/TimePicker.jsx";
 import { FUNCTION_STATUS_LABEL } from "../../../lib/functionStatus.js";
 
 function OverrideRow({ label, useCatalog, catalogValue, overrideValue, onToggle, onOverrideChange }) {
@@ -84,28 +85,13 @@ export default function FunctionCard({
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Field label="Hora de apertura">
-          <input
-            type="time"
-            className={inputClass}
-            value={fn.doorsOpenTime}
-            onChange={(e) => onChange("doorsOpenTime", e.target.value)}
-          />
+          <TimePicker value={fn.doorsOpenTime} onChange={(value) => onChange("doorsOpenTime", value)} />
         </Field>
         <Field label="Hora de inicio">
-          <input
-            type="time"
-            className={inputClass}
-            value={fn.startTime}
-            onChange={(e) => onChange("startTime", e.target.value)}
-          />
+          <TimePicker value={fn.startTime} onChange={(value) => onChange("startTime", value)} />
         </Field>
         <Field label="Hora de finalización">
-          <input
-            type="time"
-            className={inputClass}
-            value={fn.endTime}
-            onChange={(e) => onChange("endTime", e.target.value)}
-          />
+          <TimePicker value={fn.endTime} onChange={(value) => onChange("endTime", value)} />
         </Field>
       </div>
 

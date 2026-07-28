@@ -1,4 +1,6 @@
 import { getAuth } from "@clerk/express";
+import { EVENT_CATEGORIES } from "../utils/eventCategories.js";
+import { EVENT_SERVICE_ERROR_MESSAGES } from "../conversation/errorMessages.js";
 import {
     createEventService,
     getMyEventsService,
@@ -11,25 +13,12 @@ import {
     syncEventLinksService,
 } from "../services/event.service.js";
 
-const PUBLISH_ERROR_MESSAGES = {
-    NO_FUNCTIONS: "El evento necesita al menos una función para poder publicarse",
-    NO_TICKET_TYPES:
-        "El evento necesita al menos una entrada en el catálogo para poder publicarse",
-    TICKET_TYPE_WITHOUT_PRICE: "Todas las entradas del catálogo necesitan un precio",
-    TICKET_TYPE_WITHOUT_QUANTITY: "Todas las entradas del catálogo necesitan una cantidad disponible",
-    FUNCTION_WITHOUT_TICKET_ASSIGNMENTS:
-        "Todas las funciones necesitan al menos una entrada asignada para poder publicarse",
-    LOCATION_MISSING_VENUE_NAME: "El evento necesita un nombre de lugar para poder publicarse",
-    LOCATION_MISSING_ADDRESS: "El evento necesita una dirección para poder publicarse",
-    LOCATION_MISSING_COORDINATES:
-        "El evento necesita una ubicación seleccionada en el mapa para poder publicarse",
-};
+const PUBLISH_ERROR_MESSAGES = EVENT_SERVICE_ERROR_MESSAGES;
 
-const CUSTOM_CATEGORY_REQUIRED_MESSAGE =
-    'Especificá el nombre de la categoría cuando elegís "Otro"';
+const CUSTOM_CATEGORY_REQUIRED_MESSAGE = EVENT_SERVICE_ERROR_MESSAGES.CUSTOM_CATEGORY_REQUIRED;
 
-const INVALID_LATITUDE_MESSAGE = "La latitud de la ubicación no es válida";
-const INVALID_LONGITUDE_MESSAGE = "La longitud de la ubicación no es válida";
+const INVALID_LATITUDE_MESSAGE = EVENT_SERVICE_ERROR_MESSAGES.INVALID_LATITUDE;
+const INVALID_LONGITUDE_MESSAGE = EVENT_SERVICE_ERROR_MESSAGES.INVALID_LONGITUDE;
 
 const VALID_STATUSES = new Set([
     "DRAFT",
@@ -38,6 +27,10 @@ const VALID_STATUSES = new Set([
     "CANCELLED",
     "FINISHED",
 ]);
+
+export const getEventCategories = (req, res) => {
+    res.status(200).json({ categories: EVENT_CATEGORIES });
+};
 
 export const getPublicEvents = async (req, res) => {
     try {
