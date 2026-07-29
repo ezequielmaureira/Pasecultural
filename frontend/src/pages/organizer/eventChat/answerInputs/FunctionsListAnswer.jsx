@@ -36,7 +36,7 @@ export default function FunctionsListAnswer({ onSubmit, disabled, slots }) {
     <div className="flex w-full max-w-lg flex-col gap-3">
       <ScheduleRowsEditor rows={rows} onChange={setRows} withDate addLabel="Agregar función" disabled={disabled} />
 
-      <Button type="button" onClick={submit} disabled={disabled || !canSubmit} className="self-end">
+      <Button type="button" onClick={submit} disabled={disabled || !canSubmit} className="w-full self-stretch sm:w-auto sm:self-end">
         Continuar
         <ArrowRight className="h-4 w-4" />
       </Button>

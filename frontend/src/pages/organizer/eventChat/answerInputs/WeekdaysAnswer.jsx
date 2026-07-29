@@ -48,7 +48,7 @@ export default function WeekdaysAnswer({ onSubmit, disabled }) {
         type="button"
         onClick={submit}
         disabled={disabled || selected.length === 0}
-        className="self-end"
+        className="w-full self-stretch sm:w-auto sm:self-end"
       >
         Continuar
         <ArrowRight className="h-4 w-4" />

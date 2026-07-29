@@ -17,12 +17,14 @@ function SuccessScreen({ result }) {
           ? "Ya está visible en el marketplace de PaseCultural."
           : "Podés retomarlo y publicarlo cuando quieras desde el listado de eventos."}
       </p>
-      <div className="flex gap-2">
-        <Link to="/organizador/eventos">
-          <Button variant="secondary">Ver mis eventos</Button>
+      <div className="flex w-full max-w-xs flex-col gap-2 sm:max-w-none sm:w-auto sm:flex-row">
+        <Link to="/organizador/eventos" className="w-full sm:w-auto">
+          <Button variant="secondary" className="w-full sm:w-auto">
+            Ver mis eventos
+          </Button>
         </Link>
-        <Link to={`/organizador/eventos/${result.event.id}/editar`}>
-          <Button>
+        <Link to={`/organizador/eventos/${result.event.id}/editar`} className="w-full sm:w-auto">
+          <Button className="w-full sm:w-auto">
             Seguir editando
             <ArrowRight className="h-4 w-4" />
           </Button>

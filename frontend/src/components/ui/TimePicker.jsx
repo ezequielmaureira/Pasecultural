@@ -45,7 +45,7 @@ export default function TimePicker({ value, onChange, placeholder = "Elegir hora
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 max-h-72 w-64 overflow-y-auto rounded-lg border border-white/10 bg-[#0B1120] p-3 shadow-xl">
+        <div className="absolute left-1/2 top-full z-20 mt-1 max-h-72 w-64 max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-y-auto rounded-lg border border-white/10 bg-[#0B1120] p-3 shadow-xl">
           {PERIODS.map((period) => (
             <div key={period.label} className="mb-3 flex flex-col gap-1.5 last:mb-0">
               <span className="text-[11px] font-medium text-slate-500">{period.label}</span>

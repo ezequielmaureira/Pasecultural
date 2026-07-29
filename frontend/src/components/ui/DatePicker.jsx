@@ -59,7 +59,7 @@ export default function DatePicker({ value, onChange, placeholder = "Elegir fech
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 w-64 rounded-lg border border-white/10 bg-[#0B1120] p-3 shadow-xl">
+        <div className="absolute left-1/2 top-full z-20 mt-1 w-64 max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-lg border border-white/10 bg-[#0B1120] p-3 shadow-xl">
           <div className="mb-2 flex items-center justify-between">
             <button
               type="button"

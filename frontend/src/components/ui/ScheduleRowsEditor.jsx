@@ -115,7 +115,8 @@ export default function ScheduleRowsEditor({
                 type="button"
                 disabled={disabled}
                 onClick={() => toggleEdit(row._key)}
-                className="rounded-lg p-1.5 text-slate-400 transition-colors duration-150 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed"
+                aria-label="Editar"
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-400 transition-colors duration-150 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed"
               >
                 <Pencil className="h-4 w-4" />
               </button>
@@ -123,7 +124,8 @@ export default function ScheduleRowsEditor({
                 type="button"
                 disabled={disabled}
                 onClick={() => removeRow(row._key)}
-                className="rounded-lg p-1.5 text-slate-400 transition-colors duration-150 hover:bg-rose-500/10 hover:text-rose-400 disabled:cursor-not-allowed"
+                aria-label="Eliminar"
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-400 transition-colors duration-150 hover:bg-rose-500/10 hover:text-rose-400 disabled:cursor-not-allowed"
               >
                 <Trash2 className="h-4 w-4" />
               </button>

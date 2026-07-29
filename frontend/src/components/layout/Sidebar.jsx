@@ -110,20 +110,36 @@ function TopNavItem({ label, icon: Icon, path, end }) {
   );
 }
 
-export default function Sidebar() {
+export default function Sidebar({ open = false, onClose }) {
   const { backendUser } = useBackendUser();
   const role = backendUser?.role?.toLowerCase();
   const navItems = NAV_BY_ROLE[role] ?? [];
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-20 w-[var(--sidebar-width)] p-3">
-      <div className="relative flex h-full flex-col overflow-hidden rounded-[28px] bg-[#0B1120] shadow-xl shadow-black/30">
+    <>
+      {/* Fondo que cierra el panel al tocar afuera; sólo existe en mobile,
+          donde el sidebar es off-canvas en vez de fijo. */}
+      {open && (
         <button
           type="button"
-          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 text-slate-300 transition-colors duration-150 hover:bg-white/10"
-        >
-          <ChevronsLeft className="h-4 w-4" />
-        </button>
+          aria-label="Cerrar menú"
+          onClick={onClose}
+          className="fixed inset-0 z-30 bg-black/60 lg:hidden"
+        />
+      )}
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 w-[var(--sidebar-width)] max-w-[85vw] p-3 transition-transform duration-200 lg:z-20 lg:translate-x-0 ${
+          open ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <div className="relative flex h-full flex-col overflow-hidden rounded-[28px] bg-[#0B1120] shadow-xl shadow-black/30">
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 text-slate-300 transition-colors duration-150 hover:bg-white/10 lg:hidden"
+          >
+            <ChevronsLeft className="h-4 w-4" />
+          </button>
 
         <Link to="/" className="flex items-center gap-3 px-5 pb-6 pt-6">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 text-lg font-extrabold text-white">
@@ -140,33 +156,38 @@ export default function Sidebar() {
         </Link>
 
         <nav className="flex-1 space-y-2 overflow-y-auto px-4">
-          {navItems.map((item) => (
-            <div key={item.label}>
-              <TopNavItem {...item} />
-              {item.children && (
-                <div className="ml-6 mt-1 flex flex-col gap-1 border-l border-white/10 pl-4">
-                  {item.children.map((child) => (
-                    <NavLink
-                      key={child.label}
-                      to={child.path}
-                      end={child.end}
-                      className={({ isActive }) =>
-                        `rounded-lg px-3 py-1.5 text-sm transition-colors duration-150 ${
-                          isActive
-                            ? "text-violet-300"
-                            : "text-slate-500 hover:text-white"
-                        }`
-                      }
-                    >
-                      {child.label}
-                    </NavLink>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
+          {/* onClick acá, no en cada link: cualquier navegación cierra el
+              panel off-canvas en mobile sin pasar onClose a cada NavLink. */}
+          <div onClick={onClose}>
+            {navItems.map((item) => (
+              <div key={item.label}>
+                <TopNavItem {...item} />
+                {item.children && (
+                  <div className="ml-6 mt-1 flex flex-col gap-1 border-l border-white/10 pl-4">
+                    {item.children.map((child) => (
+                      <NavLink
+                        key={child.label}
+                        to={child.path}
+                        end={child.end}
+                        className={({ isActive }) =>
+                          `rounded-lg px-3 py-1.5 text-sm transition-colors duration-150 ${
+                            isActive
+                              ? "text-violet-300"
+                              : "text-slate-500 hover:text-white"
+                          }`
+                        }
+                      >
+                        {child.label}
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </nav>
-      </div>
-    </aside>
+        </div>
+      </aside>
+    </>
   );
 }

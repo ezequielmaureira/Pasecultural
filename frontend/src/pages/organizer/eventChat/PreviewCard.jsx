@@ -20,7 +20,7 @@ function EditButton({ section, onEdit }) {
     <button
       type="button"
       onClick={() => onEdit(EDIT_STEP_BY_SECTION[section])}
-      className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-violet-400 transition-colors duration-150 hover:bg-violet-500/10 hover:text-violet-300"
+      className="inline-flex min-h-[40px] items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium text-violet-400 transition-colors duration-150 hover:bg-violet-500/10 hover:text-violet-300"
     >
       <Pencil className="h-3 w-3" />
       Editar
@@ -54,7 +54,7 @@ export default function PreviewCard({ draft, categoryLabel, onEdit, onSaveDraft,
     <div className="flex w-full max-w-2xl flex-col gap-4">
       {draft.coverImage && (
         <div className="overflow-hidden rounded-xl border border-white/10">
-          <img src={draft.coverImage} alt={draft.title} className="h-56 w-full object-cover" />
+          <img src={draft.coverImage} alt={draft.title} className="h-44 w-full object-cover sm:h-56" />
         </div>
       )}
 
@@ -143,12 +143,17 @@ export default function PreviewCard({ draft, categoryLabel, onEdit, onSaveDraft,
 
       {error && <p className="text-sm text-rose-400">{error}</p>}
 
-      <div className="flex justify-end gap-2">
-        <Button variant="secondary" disabled={submitting} onClick={onSaveDraft}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+        <Button
+          variant="secondary"
+          disabled={submitting}
+          onClick={onSaveDraft}
+          className="w-full sm:w-auto"
+        >
           <Save className="h-4 w-4" />
           Guardar borrador
         </Button>
-        <Button disabled={submitting} onClick={onPublish}>
+        <Button disabled={submitting} onClick={onPublish} className="w-full sm:w-auto">
           <Rocket className="h-4 w-4" />
           Publicar
         </Button>

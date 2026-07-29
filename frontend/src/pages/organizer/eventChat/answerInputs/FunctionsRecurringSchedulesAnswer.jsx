@@ -30,7 +30,7 @@ export default function FunctionsRecurringSchedulesAnswer({ onSubmit, disabled }
         disabled={disabled}
       />
 
-      <Button type="button" onClick={submit} disabled={disabled || !canSubmit} className="self-end">
+      <Button type="button" onClick={submit} disabled={disabled || !canSubmit} className="w-full self-stretch sm:w-auto sm:self-end">
         Continuar
         <ArrowRight className="h-4 w-4" />
       </Button>

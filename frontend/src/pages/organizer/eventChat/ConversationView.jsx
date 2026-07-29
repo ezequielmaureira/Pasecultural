@@ -153,7 +153,7 @@ export default function ConversationView({ onDone }) {
     <button
       type="button"
       onClick={() => setShowDiscardDialog(true)}
-      className="flex items-center gap-1.5 self-end text-xs text-slate-500 transition-colors duration-150 hover:text-rose-400"
+      className="flex min-h-[40px] items-center gap-1.5 self-end rounded-lg px-2 text-xs text-slate-500 transition-colors duration-150 hover:bg-rose-500/10 hover:text-rose-400"
     >
       <Trash2 className="h-3.5 w-3.5" />
       Descartar borrador
@@ -182,7 +182,7 @@ export default function ConversationView({ onDone }) {
             type="button"
             onClick={handleBack}
             disabled={submitting}
-            className="flex items-center gap-1.5 self-start text-sm text-slate-400 transition-colors duration-150 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex min-h-[40px] items-center gap-1.5 self-start rounded-lg px-2 text-sm text-slate-400 transition-colors duration-150 hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             <ArrowLeft className="h-4 w-4" />
             Volver
@@ -217,13 +217,13 @@ export default function ConversationView({ onDone }) {
             type="button"
             onClick={handleBack}
             disabled={submitting}
-            className="flex items-center gap-1.5 self-start text-sm text-slate-400 transition-colors duration-150 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex min-h-[40px] items-center gap-1.5 self-start rounded-lg px-2 text-sm text-slate-400 transition-colors duration-150 hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             <ArrowLeft className="h-4 w-4" />
             Volver
           </button>
         )}
-        <h1 className="text-center text-2xl font-semibold text-white">{prompt.text}</h1>
+        <h1 className="text-center text-xl font-semibold text-white sm:text-2xl">{prompt.text}</h1>
         {prompt.error && <p className="text-sm text-rose-400">{prompt.error}</p>}
         <QuestionRenderer
           prompt={prompt}
