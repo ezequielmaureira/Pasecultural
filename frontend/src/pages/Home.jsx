@@ -1,35 +1,68 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { ChevronRight, ShieldCheck, Ticket, UserCheck, Headset } from "lucide-react";
 import HeroCarousel from "../components/marketplace/HeroCarousel.jsx";
 import CategoryFilterBar from "../components/marketplace/CategoryFilterBar.jsx";
 import EventCard from "../components/marketplace/EventCard.jsx";
+import EventsCarousel from "../components/marketplace/EventsCarousel.jsx";
 import { apiFetch } from "../lib/api.js";
 import { TRUST_FEATURES } from "../data/publicMockData.js";
 
-const TRUST_ICONS = {
-  shield: ShieldCheck,
-  ticket: Ticket,
-  user: UserCheck,
-  headset: Headset,
-};
+const TRUST_ICONS = { shield: ShieldCheck, ticket: Ticket, user: UserCheck, headset: Headset };
 
-function AllEvents({ events }) {
-  if (events.length === 0) return null;
+// Padding horizontal consistente en todas las secciones del Home (mismos
+// pasos que usa el resto de la app para mobile/tablet/desktop).
+const SECTION = "mx-auto max-w-7xl px-4 sm:px-6 lg:px-8";
+const SECTION_SPACING = "py-6 sm:py-8";
 
+function SectionHeader({ title, viewAllHref }) {
   return (
-    <section className="mx-auto max-w-7xl px-6 py-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-bold text-white">Todos los eventos</h2>
+    <div className="mb-4 flex items-center justify-between gap-3">
+      <h2 className="text-lg font-bold text-white sm:text-xl">{title}</h2>
+      {viewAllHref && (
         <Link
-          to="/eventos"
-          className="flex items-center gap-1 text-sm font-medium text-violet-400 transition-colors duration-150 hover:text-violet-300"
+          to={viewAllHref}
+          className="flex shrink-0 items-center gap-1 text-sm font-medium text-violet-400 transition-colors duration-150 hover:text-violet-300"
         >
-          Ver todos
-          <ChevronRight className="h-4 w-4" />
+          Ver todos <ChevronRight className="h-4 w-4" />
         </Link>
+      )}
+    </div>
+  );
+}
+
+function UpcomingSection({ events }) {
+  if (events.length === 0) return null;
+  return (
+    <section className={`${SECTION} ${SECTION_SPACING}`}>
+      <SectionHeader title="Próximos eventos" viewAllHref="/eventos?orden=fecha" />
+      <EventsCarousel events={events} />
+    </section>
+  );
+}
+
+function FeaturedSection({ events }) {
+  if (events.length === 0) return null;
+  return (
+    <section className={`${SECTION} ${SECTION_SPACING}`}>
+      <SectionHeader title="Eventos destacados" viewAllHref="/eventos" />
+      <EventsCarousel events={events} />
+    </section>
+  );
+}
+
+// "Todos los eventos": grilla a partir de `sm` (donde ya hay ancho para
+// mostrar varias columnas cómodas), carrusel horizontal por debajo de eso
+// para no forzar una grilla apretada en el celular.
+function AllEventsSection({ events }) {
+  if (events.length === 0) return null;
+  return (
+    <section className={`${SECTION} ${SECTION_SPACING}`}>
+      <SectionHeader title="Todos los eventos" viewAllHref="/eventos" />
+      <div className="sm:hidden">
+        <EventsCarousel events={events} />
       </div>
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <div className="hidden grid-cols-2 gap-5 sm:grid lg:grid-cols-3 xl:grid-cols-4">
         {events.map((event) => (
           <EventCard key={event.id} event={event} />
         ))}
@@ -41,7 +74,7 @@ function AllEvents({ events }) {
 function TrustBar() {
   return (
     <section className="border-t border-white/5 bg-[#0B1120]">
-      <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-6 py-8 sm:grid-cols-2 lg:grid-cols-4">
+      <div className={`${SECTION} grid grid-cols-1 gap-6 py-8 sm:grid-cols-2 lg:grid-cols-4`}>
         {TRUST_FEATURES.map(({ icon, title, subtitle }) => {
           const Icon = TRUST_ICONS[icon];
           return (
@@ -83,26 +116,42 @@ export default function Home() {
     };
   }, []);
 
+  // Cada sección ordena/filtra la misma lista de una forma distinta en vez
+  // de pedir varios endpoints nuevos: "Próximos" por fecha más cercana,
+  // "Destacados" como los eventos pagos, "Todos" en el orden que ya
+  // devuelve la API. Sin cambios de backend.
+  const upcoming = useMemo(
+    () =>
+      [...events]
+        .filter((e) => e.startDate)
+        .sort((a, b) => new Date(a.startDate) - new Date(b.startDate))
+        .slice(0, 12),
+    [events]
+  );
+
+  const featured = useMemo(() => events.filter((e) => !e.isFree).slice(0, 12), [events]);
+
   return (
     <div className="flex flex-col">
       <HeroCarousel events={events.slice(0, 5)} />
 
-      <section className="mx-auto max-w-7xl px-6 py-6">
+      <section className={`${SECTION} ${SECTION_SPACING}`}>
         <CategoryFilterBar
           value="ALL"
-          onChange={(id) =>
-            navigate(id === "ALL" ? "/eventos" : `/eventos?categoria=${id}`)
-          }
+          onChange={(id) => navigate(id === "ALL" ? "/eventos" : `/eventos?categoria=${id}`)}
         />
       </section>
 
       {!loading && events.length === 0 && (
-        <p className="mx-auto max-w-7xl px-6 py-12 text-center text-sm text-slate-500">
+        <p className={`${SECTION} py-12 text-center text-sm text-slate-500`}>
           Todavía no hay eventos publicados. ¡Volvé pronto!
         </p>
       )}
 
-      <AllEvents events={events.slice(0, 8)} />
+      <UpcomingSection events={upcoming} />
+      <FeaturedSection events={featured} />
+      <AllEventsSection events={events.slice(0, 12)} />
+
       <TrustBar />
     </div>
   );

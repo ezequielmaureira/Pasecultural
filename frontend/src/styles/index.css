@@ -30,3 +30,14 @@ select option {
 .event-chat-question {
   animation: event-chat-fade-in 0.3s ease-out;
 }
+
+/* Carruseles del Home (categorías, shelves de eventos): scroll horizontal
+   nativo con snap, sin barra de scroll visible en ningún navegador. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

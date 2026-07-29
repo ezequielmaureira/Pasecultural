@@ -48,16 +48,16 @@ export default function HeroCarousel({ events }) {
         <div className="absolute inset-0 bg-gradient-to-t from-[#05070B] via-transparent to-transparent" />
       </div>
 
-      <div className="relative mx-auto flex max-w-7xl flex-col gap-4 px-6 py-24 sm:py-32">
+      <div className="relative mx-auto flex max-w-7xl flex-col gap-3 px-4 py-14 sm:gap-4 sm:px-6 sm:py-24 lg:px-8 lg:py-32">
         {event.category && (
           <span className="w-fit rounded-full bg-violet-500/15 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-violet-300">
             {getEventCategoryLabel(event)}
           </span>
         )}
-        <h1 className="max-w-xl text-4xl font-extrabold leading-tight text-white sm:text-5xl">
+        <h1 className="max-w-xl text-3xl font-extrabold leading-tight text-white sm:text-4xl lg:text-5xl">
           {event.title}
         </h1>
-        <div className="flex flex-wrap items-center gap-4 text-sm text-slate-300">
+        <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300 sm:gap-4">
           <span className="flex items-center gap-1.5">
             <CalendarDays className="h-4 w-4" />
             {formatEventDate(event.startDate)}
