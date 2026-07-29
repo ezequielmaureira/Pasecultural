@@ -8,7 +8,13 @@ export default function ImageAnswer({ onSubmit, disabled }) {
 
   return (
     <div className="flex w-full flex-col items-center gap-4">
-      <ImageUploader value={url} onChange={setUrl} previewHeightClass="h-56" className="w-full max-w-sm" />
+      <ImageUploader
+        value={url}
+        onChange={setUrl}
+        previewHeightClass="h-56"
+        className="w-full max-w-sm"
+        aspectRatio={4 / 5}
+      />
       <Button disabled={disabled || !url} onClick={() => onSubmit(url)}>
         Continuar
         <ArrowRight className="h-4 w-4" />

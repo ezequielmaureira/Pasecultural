@@ -9,7 +9,7 @@ export default function EventCard({ event }) {
       to={`/evento/${event.slug}`}
       className="group flex flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0B1120] transition-colors duration-150 hover:border-violet-500/40"
     >
-      <div className="relative aspect-[9/16] w-full overflow-hidden bg-white/5">
+      <div className="relative aspect-[4/5] w-full overflow-hidden bg-white/5">
         {event.coverImage ? (
           <img
             src={event.coverImage}

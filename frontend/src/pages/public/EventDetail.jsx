@@ -78,7 +78,7 @@ export default function EventDetail() {
       </Link>
 
       <div className="mx-auto w-full max-w-xs overflow-hidden rounded-2xl border border-white/10 bg-[#0B1120] sm:max-w-sm">
-        <div className="aspect-[9/16] w-full bg-black/30">
+        <div className="aspect-[4/5] w-full bg-black/30">
           {event.coverImage ? (
             <img
               src={event.coverImage}

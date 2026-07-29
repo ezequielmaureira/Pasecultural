@@ -734,6 +734,7 @@ export default function OrganizerEventWizard() {
               value={general.coverImage}
               onChange={(url) => setGeneralField("coverImage", url || "")}
               previewHeightClass="h-72"
+              aspectRatio={4 / 5}
             />
 
             <Field label="Categoría">
@@ -871,7 +872,7 @@ export default function OrganizerEventWizard() {
 
             <div className="overflow-hidden rounded-xl border border-white/10 bg-[#05070B]">
               <div className="mx-auto w-full max-w-xs sm:max-w-sm">
-                <div className="aspect-[9/16] w-full bg-black/30">
+                <div className="aspect-[4/5] w-full bg-black/30">
                   {general.coverImage ? (
                     <img
                       src={general.coverImage}
