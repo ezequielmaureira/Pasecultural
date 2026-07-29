@@ -4,7 +4,7 @@ import Footer from "./Footer.jsx";
 
 export default function PublicShell() {
   return (
-    <div className="flex min-h-screen flex-col bg-[#05070B]">
+    <div className="flex min-h-screen flex-col overflow-x-hidden bg-[#05070B]">
       <Navbar />
 
       <main className="flex-1">

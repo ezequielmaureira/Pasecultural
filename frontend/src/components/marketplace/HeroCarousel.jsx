@@ -48,13 +48,13 @@ export default function HeroCarousel({ events }) {
         <div className="absolute inset-0 bg-gradient-to-t from-[#05070B] via-transparent to-transparent" />
       </div>
 
-      <div className="relative mx-auto flex max-w-7xl flex-col gap-3 px-4 py-14 sm:gap-4 sm:px-6 sm:py-24 lg:px-8 lg:py-32">
+      <div className="relative mx-auto flex max-w-7xl flex-col gap-3 px-4 py-10 sm:gap-4 sm:px-6 sm:py-16 lg:px-8 lg:py-24">
         {event.category && (
           <span className="w-fit rounded-full bg-violet-500/15 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-violet-300">
             {getEventCategoryLabel(event)}
           </span>
         )}
-        <h1 className="max-w-xl text-3xl font-extrabold leading-tight text-white sm:text-4xl lg:text-5xl">
+        <h1 className="max-w-xl text-2xl font-extrabold leading-tight text-white sm:text-4xl lg:text-5xl">
           {event.title}
         </h1>
         <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300 sm:gap-4">
@@ -85,7 +85,7 @@ export default function HeroCarousel({ events }) {
             type="button"
             aria-label="Evento anterior"
             onClick={() => goTo(index - 1)}
-            className="absolute left-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur transition-colors duration-150 hover:bg-black/60"
+            className="absolute left-2 top-1/2 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur transition-colors duration-150 hover:bg-black/60 sm:left-4 sm:flex"
           >
             <ChevronLeft className="h-5 w-5" />
           </button>
@@ -93,12 +93,12 @@ export default function HeroCarousel({ events }) {
             type="button"
             aria-label="Próximo evento"
             onClick={() => goTo(index + 1)}
-            className="absolute right-4 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur transition-colors duration-150 hover:bg-black/60"
+            className="absolute right-2 top-1/2 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur transition-colors duration-150 hover:bg-black/60 sm:right-4 sm:flex"
           >
             <ChevronRight className="h-5 w-5" />
           </button>
 
-          <div className="absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-2">
+          <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 sm:bottom-5">
             {events.map((e, i) => (
               <button
                 key={e.id}

@@ -74,7 +74,7 @@ function AllEventsSection({ events }) {
 function TrustBar() {
   return (
     <section className="border-t border-white/5 bg-[#0B1120]">
-      <div className={`${SECTION} grid grid-cols-1 gap-6 py-8 sm:grid-cols-2 lg:grid-cols-4`}>
+      <div className={`${SECTION} grid grid-cols-1 gap-6 py-6 sm:grid-cols-2 sm:py-8 lg:grid-cols-4`}>
         {TRUST_FEATURES.map(({ icon, title, subtitle }) => {
           const Icon = TRUST_ICONS[icon];
           return (
@@ -143,7 +143,7 @@ export default function Home() {
       </section>
 
       {!loading && events.length === 0 && (
-        <p className={`${SECTION} py-12 text-center text-sm text-slate-500`}>
+        <p className={`${SECTION} ${SECTION_SPACING} text-center text-sm text-slate-500`}>
           Todavía no hay eventos publicados. ¡Volvé pronto!
         </p>
       )}
