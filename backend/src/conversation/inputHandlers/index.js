@@ -14,7 +14,6 @@ import * as functionsList from "./functionsList.js";
 import * as dateRange from "./dateRange.js";
 import * as weekdays from "./weekdays.js";
 import * as timeRangeList from "./timeRangeList.js";
-import * as functionsSummary from "./functionsSummary.js";
 
 // Registro de InputHandlers por inputType. Agregar un tipo de dato nuevo
 // (voz transcripta, adjunto, etc.) es sumar una entrada acá — el
@@ -36,7 +35,6 @@ export const INPUT_HANDLERS = {
     DATE_RANGE: dateRange,
     WEEKDAYS: weekdays,
     TIME_RANGE_LIST: timeRangeList,
-    FUNCTIONS_SUMMARY: functionsSummary,
 };
 
 export function getInputHandler(inputType) {

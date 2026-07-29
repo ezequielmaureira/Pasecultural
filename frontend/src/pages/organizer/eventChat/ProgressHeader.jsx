@@ -15,7 +15,6 @@ const SECTIONS = [
       "FUNCTIONS_WEEKDAYS",
       "FUNCTIONS_RECURRING_SCHEDULES",
       "FUNCTIONS_LIST",
-      "FUNCTIONS_SUMMARY",
     ],
   },
   {

@@ -15,7 +15,7 @@ function buildPrompt(stepId, draft, loopStack) {
     }
     const step = getStep(stepId);
     // Se reenvía cada campo que devuelva el step, no sólo text/options:
-    // algunos pasos (ej. FUNCTIONS_LIST, FUNCTIONS_SUMMARY) necesitan mandar
+    // algunos pasos (ej. FUNCTIONS_LIST) necesitan mandar
     // datos extra (la lista de funciones armada hasta el momento) sin que el
     // motor tenga que conocer esos campos.
     const { text, ...extra } = step.buildPrompt(draft, loopStack);

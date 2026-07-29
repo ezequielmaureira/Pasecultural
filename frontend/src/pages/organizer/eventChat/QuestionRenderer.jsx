@@ -14,7 +14,6 @@ import FunctionsListAnswer from "./answerInputs/FunctionsListAnswer.jsx";
 import DateRangeAnswer from "./answerInputs/DateRangeAnswer.jsx";
 import WeekdaysAnswer from "./answerInputs/WeekdaysAnswer.jsx";
 import FunctionsRecurringSchedulesAnswer from "./answerInputs/FunctionsRecurringSchedulesAnswer.jsx";
-import FunctionsSummaryAnswer from "./answerInputs/FunctionsSummaryAnswer.jsx";
 import { getCategoryIcon } from "./categoryIcons.js";
 import { getSocialNetworkIcon } from "../../../lib/socialNetworkIcons.js";
 
@@ -37,7 +36,6 @@ const RENDERERS = {
   DATE_RANGE: DateRangeAnswer,
   WEEKDAYS: WeekdaysAnswer,
   TIME_RANGE_LIST: FunctionsRecurringSchedulesAnswer,
-  FUNCTIONS_SUMMARY: FunctionsSummaryAnswer,
 };
 
 // Excepciones puntuales donde el mismo inputType necesita un componente o

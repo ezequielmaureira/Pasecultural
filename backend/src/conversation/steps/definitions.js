@@ -104,8 +104,9 @@ export const STEPS = {
     // falta para cargarlas, no una lógica distinta por tipo de evento.
     // Todas las ramas arman la lista de funciones en `loopStack.buffer.slots`
     // (mismo mecanismo de "borrador temporal" que ya usan los loops de
-    // Entradas/Redes) y recién se confirma a `draft.functions` en
-    // FUNCTIONS_SUMMARY — así "Editar funciones" nunca pierde lo cargado.
+    // Entradas/Redes) y recién se confirma a `draft.functions` al tocar
+    // "Continuar" en FUNCTIONS_LIST (el Administrador de Agenda) — las tres
+    // ramas terminan ahí siempre, así nunca se pierde lo ya cargado.
     FUNCTIONS_MODE: {
         id: "FUNCTIONS_MODE",
         inputType: "SINGLE_SELECT",
@@ -140,7 +141,7 @@ export const STEPS = {
             const nextLoop = { ...loop, buffer: { ...loop.buffer, slots: [value] } };
             return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
         },
-        next: () => "FUNCTIONS_SUMMARY",
+        next: () => "FUNCTIONS_LIST",
     },
 
     FUNCTIONS_RANGE: {
@@ -186,47 +187,26 @@ export const STEPS = {
         next: () => "FUNCTIONS_LIST",
     },
 
+    // Administrador de Agenda: paso terminal único al que llegan las tres
+    // ramas (una sola función, varias, recurrentes). "Continuar" confirma
+    // la lista tal como quedó editada a `draft.functions`; "Volver" ya lo
+    // resuelve el mecanismo genérico de ConversationView (canGoBack), no
+    // hace falta un botón aparte acá.
     FUNCTIONS_LIST: {
         id: "FUNCTIONS_LIST",
         inputType: "FUNCTIONS_LIST",
         buildPrompt: (draft, loopStack) => {
             const loop = topLoop(loopStack);
             return {
-                text: "Agregá, editá o quitá las funciones que necesites.",
+                text: "Administrador de Agenda",
                 slots: loop?.buffer?.slots ?? [],
             };
         },
-        apply: (draft, loopStack, value) => {
-            const loop = topLoop(loopStack);
-            const nextLoop = { ...loop, buffer: { ...loop.buffer, slots: value } };
-            return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
-        },
-        next: () => "FUNCTIONS_SUMMARY",
-    },
-
-    FUNCTIONS_SUMMARY: {
-        id: "FUNCTIONS_SUMMARY",
-        inputType: "FUNCTIONS_SUMMARY",
-        buildPrompt: (draft, loopStack) => {
-            const loop = topLoop(loopStack);
-            return {
-                text: "Funciones creadas",
-                functions: loop?.buffer?.slots ?? [],
-                options: [
-                    { id: "EDIT", label: "Editar funciones" },
-                    { id: "CONTINUE", label: "Continuar" },
-                ],
-            };
-        },
-        apply: (draft, loopStack, value) => {
-            if (value === "EDIT") return { draft, loopStack };
-            const loop = topLoop(loopStack);
-            return {
-                draft: { ...draft, functions: loop.buffer.slots },
-                loopStack: loopStack.slice(0, -1),
-            };
-        },
-        next: (draft, loopStack, value) => (value === "EDIT" ? "FUNCTIONS_LIST" : "EVENT_PRICING_TYPE"),
+        apply: (draft, loopStack, value) => ({
+            draft: { ...draft, functions: value },
+            loopStack: loopStack.slice(0, -1),
+        }),
+        next: () => "EVENT_PRICING_TYPE",
     },
 
     // Primero preguntamos gratis/pago (cómo piensa el organizador su evento)
