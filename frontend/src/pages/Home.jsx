@@ -12,7 +12,7 @@ const TRUST_ICONS = { shield: ShieldCheck, ticket: Ticket, user: UserCheck, head
 
 // Padding horizontal consistente en todas las secciones del Home (mismos
 // pasos que usa el resto de la app para mobile/tablet/desktop).
-const SECTION = "mx-auto max-w-7xl px-4 sm:px-6 lg:px-8";
+const SECTION = "mx-auto min-w-0 max-w-7xl px-4 sm:px-6 lg:px-8";
 const SECTION_SPACING = "py-6 sm:py-8";
 
 function SectionHeader({ title, viewAllHref }) {
@@ -73,7 +73,7 @@ function AllEventsSection({ events }) {
 
 function TrustBar() {
   return (
-    <section className="border-t border-white/5 bg-[#0B1120]">
+    <section className="min-w-0 border-t border-white/5 bg-[#0B1120]">
       <div className={`${SECTION} grid grid-cols-1 gap-6 py-6 sm:grid-cols-2 sm:py-8 lg:grid-cols-4`}>
         {TRUST_FEATURES.map(({ icon, title, subtitle }) => {
           const Icon = TRUST_ICONS[icon];
