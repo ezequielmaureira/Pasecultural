@@ -60,9 +60,20 @@ export default function ConversationView({ onDone }) {
         setCategories(cats);
 
         const savedId = sessionStorage.getItem(STORAGE_KEY);
-        const result = savedId
-          ? await getConversation(token, savedId)
-          : await startConversation(token);
+        let result;
+        if (savedId) {
+          try {
+            result = await getConversation(token, savedId);
+          } catch {
+            // La conversación guardada ya no es válida (ej. quedó parada en
+            // un paso que el motor eliminó/renombró): se descarta y arranca
+            // una nueva en vez de dejar al usuario trabado con un error.
+            sessionStorage.removeItem(STORAGE_KEY);
+            result = await startConversation(token);
+          }
+        } else {
+          result = await startConversation(token);
+        }
 
         if (cancelled) return;
         sessionStorage.setItem(STORAGE_KEY, result.conversationId);

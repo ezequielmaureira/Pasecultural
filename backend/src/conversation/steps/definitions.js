@@ -28,19 +28,22 @@ function replaceTopLoop(loopStack, nextLoop) {
 }
 
 // Recorre día por día el rango [from, to] (ambos ISO) y arma una función por
-// cada día cuyo día de semana esté en `weekdays` (0=Lunes..6=Domingo, misma
-// convención que usa el calendario del frontend). "Funciones recurrentes"
-// del paso Funciones se apoya en esto para generar el borrador que después
-// se revisa en FUNCTIONS_LIST antes de confirmarlo.
-function generateRecurringSlots(from, to, weekdays, { startTime, endTime }) {
+// cada combinación de (día cuyo día de semana esté en `weekdays`, horario de
+// `schedules`) — así "Viernes/Sábado" + "18:00-20:00 y 21:00-23:00" genera
+// las 4 funciones semanales sin repetir el asistente por cada horario.
+// 0=Lunes..6=Domingo, misma convención que usa el calendario del frontend.
+function generateRecurringSlots(from, to, weekdays, schedules) {
     const weekdaySet = new Set(weekdays);
     const slots = [];
     const end = new Date(to).getTime();
 
     for (let cursor = new Date(from); cursor.getTime() <= end; cursor.setDate(cursor.getDate() + 1)) {
         const isoWeekday = (cursor.getDay() + 6) % 7;
-        if (weekdaySet.has(isoWeekday)) {
-            slots.push({ date: new Date(cursor).toISOString(), startTime, endTime });
+        if (!weekdaySet.has(isoWeekday)) continue;
+
+        const isoDate = new Date(cursor).toISOString();
+        for (const { startTime, endTime } of schedules) {
+            slots.push({ date: isoDate, startTime, endTime });
         }
     }
 
@@ -161,21 +164,25 @@ export const STEPS = {
             const nextLoop = { ...loop, buffer: { ...loop.buffer, weekdays: value } };
             return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
         },
-        next: () => "FUNCTIONS_RECURRING_TIME",
+        next: () => "FUNCTIONS_RECURRING_SCHEDULES",
     },
 
-    FUNCTIONS_RECURRING_TIME: {
-        id: "FUNCTIONS_RECURRING_TIME",
-        inputType: "TIME_RANGE",
-        buildPrompt: () => ({ text: "¿A qué hora empieza y a qué hora termina cada función?" }),
+    // Uno o varios horarios para la misma recurrencia (ej. cine con función
+    // a las 18:00 y a las 21:00 los mismos días): el motor arma el producto
+    // cartesiano días × horarios. No se guardan solas: van al mismo
+    // "administrador de agenda" que "Varias funciones" para poder
+    // revisarlas/editarlas antes de confirmar — la recurrencia sólo genera
+    // el punto de partida de la agenda.
+    FUNCTIONS_RECURRING_SCHEDULES: {
+        id: "FUNCTIONS_RECURRING_SCHEDULES",
+        inputType: "TIME_RANGE_LIST",
+        buildPrompt: () => ({ text: "¿A qué horarios se hace la función esos días?" }),
         apply: (draft, loopStack, value) => {
             const loop = topLoop(loopStack);
             const slots = generateRecurringSlots(loop.buffer.from, loop.buffer.to, loop.buffer.weekdays, value);
             const nextLoop = { ...loop, buffer: { ...loop.buffer, slots } };
             return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
         },
-        // No se guardan solas: van al mismo "administrador de funciones" que
-        // "Varias funciones" para poder revisarlas/editarlas antes de confirmar.
         next: () => "FUNCTIONS_LIST",
     },
 

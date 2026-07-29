@@ -81,7 +81,18 @@ export async function resume(conversationId) {
     if (!state) {
         throw new Error("CONVERSATION_NOT_FOUND");
     }
-    return toConversationResult(state);
+    try {
+        return toConversationResult(state);
+    } catch (error) {
+        // Conversación vieja parada en un stepId que ya no existe (ej.
+        // después de renombrar/quitar pasos del motor, como el rediseño de
+        // Funciones). No hay forma de retomarla: se trata como si no
+        // existiera para que el cliente arranque una nueva.
+        if (error.message?.startsWith("UNKNOWN_STEP")) {
+            throw new Error("CONVERSATION_NOT_FOUND");
+        }
+        throw error;
+    }
 }
 
 async function handlePreviewInput(state, rawInput) {

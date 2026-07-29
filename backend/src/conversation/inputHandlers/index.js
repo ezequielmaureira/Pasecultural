@@ -13,7 +13,7 @@ import * as functionCard from "./functionCard.js";
 import * as functionsList from "./functionsList.js";
 import * as dateRange from "./dateRange.js";
 import * as weekdays from "./weekdays.js";
-import * as timeRange from "./timeRange.js";
+import * as timeRangeList from "./timeRangeList.js";
 import * as functionsSummary from "./functionsSummary.js";
 
 // Registro de InputHandlers por inputType. Agregar un tipo de dato nuevo
@@ -35,7 +35,7 @@ export const INPUT_HANDLERS = {
     FUNCTIONS_LIST: functionsList,
     DATE_RANGE: dateRange,
     WEEKDAYS: weekdays,
-    TIME_RANGE: timeRange,
+    TIME_RANGE_LIST: timeRangeList,
     FUNCTIONS_SUMMARY: functionsSummary,
 };
 
