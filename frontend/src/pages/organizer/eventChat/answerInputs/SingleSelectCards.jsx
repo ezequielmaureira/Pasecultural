@@ -9,7 +9,7 @@ const SEARCH_THRESHOLD = 8;
 // Tarjetas seleccionables genéricas para cualquier paso SINGLE_SELECT del
 // motor (categoría, red social, etc). `getIcon` es opcional y se resuelve
 // por afuera según el stepId (ver QuestionRenderer.jsx).
-export default function SingleSelectCards({ options, onSubmit, disabled, getIcon }) {
+export default function SingleSelectCards({ options, onSubmit, disabled, getIcon, currentValue }) {
   const [search, setSearch] = useState("");
   const allOptions = options ?? [];
 
@@ -42,13 +42,18 @@ export default function SingleSelectCards({ options, onSubmit, disabled, getIcon
         <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-3">
           {filteredOptions.map((option) => {
             const Icon = getIcon ? getIcon(option.id) : Circle;
+            const isSelected = currentValue !== undefined && option.id === currentValue;
             return (
               <button
                 key={option.id}
                 type="button"
                 disabled={disabled}
                 onClick={() => onSubmit(option.id)}
-                className="flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-4 text-center text-sm font-medium text-slate-200 transition-colors duration-150 hover:border-violet-500/60 hover:bg-violet-500/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                className={`flex flex-col items-center gap-2 rounded-xl border px-3 py-4 text-center text-sm font-medium transition-colors duration-150 hover:border-violet-500/60 hover:bg-violet-500/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 ${
+                  isSelected
+                    ? "border-violet-500/60 bg-violet-500/15 text-white"
+                    : "border-white/10 bg-white/5 text-slate-200"
+                }`}
               >
                 <Icon className="h-6 w-6 text-violet-400" />
                 {option.label}

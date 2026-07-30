@@ -12,8 +12,8 @@ const DAYS = [
   { id: 6, label: "Domingo" },
 ];
 
-export default function WeekdaysAnswer({ onSubmit, disabled }) {
-  const [selected, setSelected] = useState([]);
+export default function WeekdaysAnswer({ onSubmit, disabled, currentValue }) {
+  const [selected, setSelected] = useState(currentValue ?? []);
 
   function toggle(id) {
     setSelected((prev) => (prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id]));

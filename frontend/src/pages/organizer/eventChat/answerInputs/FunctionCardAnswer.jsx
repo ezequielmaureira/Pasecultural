@@ -8,10 +8,10 @@ import { Field } from "../../../../components/ui/FormField.jsx";
 // Una función completa (fecha + hora de inicio + hora de fin) en una sola
 // tarjeta: se siente como una única respuesta dentro del chat, no como tres
 // preguntas separadas ni como un formulario administrativo aparte.
-export default function FunctionCardAnswer({ onSubmit, disabled }) {
-  const [date, setDate] = useState("");
-  const [startTime, setStartTime] = useState("21:00");
-  const [endTime, setEndTime] = useState("");
+export default function FunctionCardAnswer({ onSubmit, disabled, currentValue }) {
+  const [date, setDate] = useState(currentValue?.date ?? "");
+  const [startTime, setStartTime] = useState(currentValue?.startTime ?? "21:00");
+  const [endTime, setEndTime] = useState(currentValue?.endTime ?? "");
 
   const canSubmit = date && startTime && endTime;
 

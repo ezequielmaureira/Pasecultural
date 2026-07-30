@@ -3,15 +3,22 @@ import { ArrowRight } from "lucide-react";
 import Button from "../../../../components/ui/Button.jsx";
 import ScheduleRowsEditor, {
   emptyScheduleRow,
+  scheduleRowKey,
   rowsAreSubmittable,
 } from "../../../../components/ui/ScheduleRowsEditor.jsx";
+
+function toRow(schedule) {
+  return { _key: scheduleRowKey(), startTime: schedule.startTime, endTime: schedule.endTime, editing: false };
+}
 
 // Uno o varios horarios para la misma recurrencia (ej. Viernes/Sábado con
 // funciones a las 18:00 y a las 21:00): mismo editor de filas que el
 // Administrador de Agenda, sólo que sin fecha. El motor cruza cada horario
 // cargado acá con cada día que matchea el rango + días de semana elegidos.
-export default function FunctionsRecurringSchedulesAnswer({ onSubmit, disabled }) {
-  const [rows, setRows] = useState(() => [emptyScheduleRow(false)]);
+export default function FunctionsRecurringSchedulesAnswer({ onSubmit, disabled, currentValue }) {
+  const [rows, setRows] = useState(() =>
+    currentValue?.length ? currentValue.map(toRow) : [emptyScheduleRow(false)]
+  );
 
   const canSubmit = rowsAreSubmittable(rows, false);
 

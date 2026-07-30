@@ -3,8 +3,8 @@ import { ArrowRight } from "lucide-react";
 import Button from "../../../../components/ui/Button.jsx";
 import { inputClass } from "../../../../components/ui/FormField.jsx";
 
-export default function NumberAnswer({ onSubmit, disabled, inputType }) {
-  const [value, setValue] = useState("");
+export default function NumberAnswer({ onSubmit, disabled, inputType, currentValue }) {
+  const [value, setValue] = useState(currentValue !== undefined && currentValue !== null ? String(currentValue) : "");
   const isPrice = inputType === "PRICE";
 
   function submit() {

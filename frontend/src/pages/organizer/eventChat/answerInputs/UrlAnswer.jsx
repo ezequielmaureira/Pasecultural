@@ -7,8 +7,8 @@ import { getSocialNetworkIcon } from "../../../../lib/socialNetworkIcons.js";
 // `network` es el id elegido en el paso SOCIAL_NETWORK anterior (recordado
 // por ConversationView sólo para elegir el ícono correcto acá — no afecta
 // la navegación ni se manda de vuelta al backend).
-export default function UrlAnswer({ onSubmit, disabled, network }) {
-  const [value, setValue] = useState("");
+export default function UrlAnswer({ onSubmit, disabled, network, currentValue }) {
+  const [value, setValue] = useState(currentValue ?? "");
   const Icon = network ? getSocialNetworkIcon(network) : Link2;
 
   return (

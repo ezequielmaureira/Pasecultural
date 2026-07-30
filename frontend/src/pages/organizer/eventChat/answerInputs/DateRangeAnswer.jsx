@@ -4,9 +4,9 @@ import Button from "../../../../components/ui/Button.jsx";
 import DatePicker from "../../../../components/ui/DatePicker.jsx";
 import { Field } from "../../../../components/ui/FormField.jsx";
 
-export default function DateRangeAnswer({ onSubmit, disabled }) {
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+export default function DateRangeAnswer({ onSubmit, disabled, currentValue }) {
+  const [from, setFrom] = useState(currentValue?.from ?? "");
+  const [to, setTo] = useState(currentValue?.to ?? "");
 
   const canSubmit = from && to;
 

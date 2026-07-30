@@ -8,8 +8,8 @@ import { isValidHttpUrl, parseMediaUrl } from "../../../../utils/mediaParser.js"
 // backend (backend/src/conversation/inputHandlers/youtubeUrl.js). Acá sólo
 // se usa MediaParser para mostrar un preview inmediato, nunca para bloquear
 // el submit por su cuenta.
-export default function YoutubeAnswer({ onSubmit, disabled }) {
-  const [value, setValue] = useState("");
+export default function YoutubeAnswer({ onSubmit, disabled, currentValue }) {
+  const [value, setValue] = useState(currentValue ?? "");
 
   const embedUrl = useMemo(() => {
     if (!isValidHttpUrl(value)) return null;

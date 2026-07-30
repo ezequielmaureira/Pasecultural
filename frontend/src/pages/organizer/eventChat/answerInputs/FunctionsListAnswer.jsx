@@ -22,8 +22,12 @@ function toRow(slot) {
 // "varias funciones" (arranca vacío) como para revisar lo que generó
 // "funciones recurrentes" (arranca precargado, editable antes de confirmar)
 // y para "Editar funciones" desde el resumen (arranca con lo ya cargado).
-export default function FunctionsListAnswer({ onSubmit, disabled, slots }) {
-  const [rows, setRows] = useState(() => (slots ?? []).map(toRow));
+// `currentValue` (lo último confirmado, si se llegó acá con "Volver") gana
+// por sobre `slots` (lo que trae el buffer del loop al entrar de nuevo por
+// el flujo normal) — ambos representan la misma lista, pero currentValue es
+// la versión más reciente que el usuario efectivamente aprobó.
+export default function FunctionsListAnswer({ onSubmit, disabled, slots, currentValue }) {
+  const [rows, setRows] = useState(() => (currentValue ?? slots ?? []).map(toRow));
 
   const canSubmit = rowsAreSubmittable(rows, true);
 

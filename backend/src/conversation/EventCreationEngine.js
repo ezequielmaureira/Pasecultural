@@ -9,7 +9,11 @@ import * as EventServicePort from "./EventServicePort.js";
 // clerkId es la identidad ya resuelta por el ChannelAdapter del canal (en Web,
 // la sesión Clerk; en WhatsApp, el número verificado contra la Organization).
 
-function buildPrompt(stepId, draft, loopStack) {
+// `currentValueOverride` es lo que permite que "Volver" muestre el último
+// valor CONFIRMADO para ese paso (ver handleBack): si no se pasa, se usa
+// `step.getCurrentValue` (derivado del draft — para cuando se entra al paso
+// por el flujo normal o por "Editar" desde el preview, no por un Volver).
+function buildPrompt(stepId, draft, loopStack, currentValueOverride) {
     if (stepId === PREVIEW_STEP_ID) {
         return { stepId, type: "PREVIEW", draft };
     }
@@ -19,14 +23,17 @@ function buildPrompt(stepId, draft, loopStack) {
     // datos extra (la lista de funciones armada hasta el momento) sin que el
     // motor tenga que conocer esos campos.
     const { text, ...extra } = step.buildPrompt(draft, loopStack);
-    const currentValue = step.getCurrentValue ? step.getCurrentValue(draft, loopStack) : undefined;
+    let currentValue = currentValueOverride;
+    if (currentValue === undefined && step.getCurrentValue) {
+        currentValue = step.getCurrentValue(draft, loopStack);
+    }
     return { stepId, type: "QUESTION", text, inputType: step.inputType, currentValue, ...extra };
 }
 
-function toConversationResult(state) {
+function toConversationResult(state, currentValueOverride) {
     return {
         conversationId: state.id,
-        prompt: buildPrompt(state.currentStepId, state.draftEvent, state.loopStack),
+        prompt: buildPrompt(state.currentStepId, state.draftEvent, state.loopStack, currentValueOverride),
         canGoBack: state.history.length > 0,
     };
 }
@@ -190,7 +197,13 @@ async function handleBack(state) {
         },
     });
 
-    return toConversationResult(updated);
+    // `lastEntry.value` es exactamente lo que el usuario había confirmado la
+    // última vez para este paso (fue guardado tal cual al responderlo, ver
+    // handleInput más abajo) — reenviarlo como currentValue es lo que le
+    // permite al frontend precargar la respuesta anterior en vez de mostrar
+    // el paso en blanco, sea cual sea su tipo (texto, imagen, ubicación,
+    // tarjeta de función, rango de fechas, etc.).
+    return toConversationResult(updated, lastEntry.value);
 }
 
 export async function handleInput(conversationId, rawInput) {
