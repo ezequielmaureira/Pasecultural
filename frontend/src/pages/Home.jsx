@@ -3,7 +3,6 @@ import { useNavigate, Link } from "react-router-dom";
 import { ChevronRight, ShieldCheck, Ticket, UserCheck, Headset } from "lucide-react";
 import HeroCarousel from "../components/marketplace/HeroCarousel.jsx";
 import CategoryFilterBar from "../components/marketplace/CategoryFilterBar.jsx";
-import EventCard from "../components/marketplace/EventCard.jsx";
 import EventsCarousel from "../components/marketplace/EventsCarousel.jsx";
 import { apiFetch } from "../lib/api.js";
 import { TRUST_FEATURES } from "../data/publicMockData.js";
@@ -51,22 +50,14 @@ function FeaturedSection({ events }) {
   );
 }
 
-// "Todos los eventos": grilla a partir de `sm` (donde ya hay ancho para
-// mostrar varias columnas cómodas), carrusel horizontal por debajo de eso
-// para no forzar una grilla apretada en el celular.
+// "Todos los eventos": carrusel horizontal en todos los tamaños de pantalla,
+// igual que "Próximos" y "Destacados" (sin variante en grilla).
 function AllEventsSection({ events }) {
   if (events.length === 0) return null;
   return (
     <section className={`${SECTION} ${SECTION_SPACING}`}>
       <SectionHeader title="Todos los eventos" viewAllHref="/eventos" />
-      <div className="sm:hidden">
-        <EventsCarousel events={events} />
-      </div>
-      <div className="hidden grid-cols-2 gap-5 sm:grid lg:grid-cols-3 xl:grid-cols-4">
-        {events.map((event) => (
-          <EventCard key={event.id} event={event} />
-        ))}
-      </div>
+      <EventsCarousel events={events} />
     </section>
   );
 }

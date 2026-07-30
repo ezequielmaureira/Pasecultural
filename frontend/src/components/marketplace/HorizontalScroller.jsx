@@ -20,7 +20,7 @@ export default function HorizontalScroller({ children, className = "" }) {
     <div className="group/scroller relative min-w-0">
       <div
         ref={trackRef}
-        className={`no-scrollbar flex min-w-0 snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth pb-1 ${className}`}
+        className={`no-scrollbar flex min-w-0 flex-nowrap snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth pb-1 ${className}`}
       >
         {children}
       </div>
