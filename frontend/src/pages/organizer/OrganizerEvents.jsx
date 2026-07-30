@@ -145,7 +145,7 @@ export default function OrganizerEvents() {
             Creá y administrá tus eventos
           </p>
         </div>
-        <Link to="/organizador/eventos/nuevo">
+        <Link to="/organizador/eventos/nuevo" state={{ fresh: true }}>
           <Button>
             <Plus className="h-4 w-4" />
             Crear evento

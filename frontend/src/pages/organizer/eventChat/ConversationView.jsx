@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@clerk/clerk-react";
 import { Loader2, ArrowLeft, Trash2 } from "lucide-react";
 import {
@@ -25,7 +25,9 @@ const STORAGE_KEY = "pasecultural:eventChat:conversationId";
 export default function ConversationView({ onDone }) {
   const { getToken } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const toast = useToast();
+  const startFresh = Boolean(location.state?.fresh);
   const [conversationId, setConversationId] = useState(null);
   const [prompt, setPrompt] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -66,7 +68,19 @@ export default function ConversationView({ onDone }) {
 
         const savedId = sessionStorage.getItem(STORAGE_KEY);
         let result;
-        if (savedId) {
+        if (savedId && startFresh) {
+          // "Crear evento" desde el menú/listado: el usuario quiere arrancar
+          // de cero, no retomar un borrador conversacional en el que había
+          // quedado a mitad de camino en una visita anterior.
+          try {
+            await cancelConversation(token, savedId);
+          } catch {
+            // Si ya no existe o no se puede cancelar, no bloquea el inicio
+            // de la conversación nueva.
+          }
+          sessionStorage.removeItem(STORAGE_KEY);
+          result = await startConversation(token);
+        } else if (savedId) {
           try {
             result = await getConversation(token, savedId);
           } catch {

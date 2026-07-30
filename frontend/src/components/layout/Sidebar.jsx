@@ -43,7 +43,12 @@ const NAV_BY_ROLE = {
       end: false,
       children: [
         { label: "Lista", path: "/organizador/eventos", end: true },
-        { label: "Crear evento", path: "/organizador/eventos/nuevo", end: true },
+        {
+          label: "Crear evento",
+          path: "/organizador/eventos/nuevo",
+          end: true,
+          state: { fresh: true },
+        },
       ],
     },
     { label: "Entradas", icon: Ticket, path: "/organizador/entradas", end: true },
@@ -169,6 +174,7 @@ export default function Sidebar({ open = false, onClose }) {
                         key={child.label}
                         to={child.path}
                         end={child.end}
+                        state={child.state}
                         className={({ isActive }) =>
                           `rounded-lg px-3 py-1.5 text-sm transition-colors duration-150 ${
                             isActive
