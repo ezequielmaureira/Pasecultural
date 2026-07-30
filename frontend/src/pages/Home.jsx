@@ -123,7 +123,7 @@ export default function Home() {
   const featured = useMemo(() => events.filter((e) => !e.isFree).slice(0, 12), [events]);
 
   return (
-    <div className="flex flex-col">
+    <div>
       <HeroCarousel events={events.slice(0, 5)} />
 
       <section className={`${SECTION} ${SECTION_SPACING}`}>
