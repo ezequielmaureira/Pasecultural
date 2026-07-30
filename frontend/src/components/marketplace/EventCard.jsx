@@ -9,7 +9,7 @@ export default function EventCard({ event }) {
       to={`/evento/${event.slug}`}
       className="group flex flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0B1120] transition-colors duration-150 hover:border-violet-500/40"
     >
-      <div className="relative aspect-[4/5] w-full overflow-hidden bg-white/5">
+      <div className="relative aspect-[4/3] w-full overflow-hidden bg-white/5">
         {event.coverImage ? (
           <img
             src={event.coverImage}
@@ -28,20 +28,20 @@ export default function EventCard({ event }) {
         )}
       </div>
 
-      <div className="flex flex-1 flex-col gap-2 p-4">
+      <div className="flex flex-1 flex-col gap-1.5 p-3">
         <p className="truncate text-sm font-semibold text-white">{event.title}</p>
         {event.organization?.name && (
           <p className="truncate text-xs text-slate-500">{event.organization.name}</p>
         )}
-        <p className="flex items-center gap-1.5 text-xs text-slate-400">
-          <CalendarDays className="h-3.5 w-3.5" />
-          {formatEventDate(event.startDate)}
+        <p className="flex items-center gap-1.5 truncate text-xs text-slate-400">
+          <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{formatEventDate(event.startDate)}</span>
         </p>
-        <p className="flex items-center gap-1.5 text-xs text-slate-400">
-          <MapPin className="h-3.5 w-3.5" />
-          {formatEventLocation(event)}
+        <p className="flex items-center gap-1.5 truncate text-xs text-slate-400">
+          <MapPin className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{formatEventLocation(event)}</span>
         </p>
-        <div className="mt-auto flex items-center justify-between pt-2">
+        <div className="mt-auto flex items-center justify-between pt-1.5">
           <span className="text-sm font-bold text-violet-400">
             {formatEventPrice(event)}
           </span>

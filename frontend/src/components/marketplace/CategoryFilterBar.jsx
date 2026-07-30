@@ -3,7 +3,7 @@ import { MARKETPLACE_CATEGORIES } from "../../lib/eventCategories.js";
 export default function CategoryFilterBar({ value, onChange, className = "" }) {
   return (
     <div
-      className={`no-scrollbar flex min-w-0 snap-x snap-mandatory gap-2 overflow-x-auto scroll-smooth pb-1 sm:flex-wrap sm:gap-3 sm:overflow-visible sm:snap-none sm:pb-0 ${className}`}
+      className={`no-scrollbar flex min-w-0 snap-x snap-mandatory gap-2 overflow-x-auto scroll-smooth pb-1 [mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] sm:flex-wrap sm:gap-3 sm:overflow-visible sm:snap-none sm:pb-0 sm:[mask-image:none] ${className}`}
     >
       {MARKETPLACE_CATEGORIES.map(({ id, label, icon: Icon }) => {
         const isActive = value === id;

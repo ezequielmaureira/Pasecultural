@@ -9,7 +9,10 @@ export default function EventsCarousel({ events }) {
   return (
     <HorizontalScroller>
       {events.map((event) => (
-        <div key={event.id} className="w-40 shrink-0 snap-start sm:w-48 lg:w-56">
+        <div
+          key={event.id}
+          className="w-[calc((100vw-3rem)/2)] shrink-0 snap-start sm:w-48 lg:w-56"
+        >
           <EventCard event={event} />
         </div>
       ))}
