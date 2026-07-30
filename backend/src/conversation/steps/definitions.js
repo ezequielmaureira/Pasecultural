@@ -86,6 +86,10 @@ export const STEPS = {
     COVER_IMAGE: {
         id: "COVER_IMAGE",
         inputType: "IMAGE_URL",
+        // Campo suelto (no encadena otras preguntas relacionadas): al
+        // editarlo desde el preview, el motor vuelve directo a PREVIEW en
+        // vez de seguir el orden normal de creación (ver EventCreationEngine).
+        editReturnsToPreview: true,
         buildPrompt: () => ({ text: "Mandame la imagen principal de tu evento." }),
         apply: (draft, loopStack, value) => ({ draft: { ...draft, coverImage: value }, loopStack }),
         next: () => "LOCATION",

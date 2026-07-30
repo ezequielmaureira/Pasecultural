@@ -100,10 +100,18 @@ async function handlePreviewInput(state, rawInput) {
 
     if (action === "EDIT") {
         const targetStepId = rawInput.stepId;
-        getStep(targetStepId); // valida que exista, tira UNKNOWN_STEP si no
+        const targetStep = getStep(targetStepId); // valida que exista, tira UNKNOWN_STEP si no
+        // Campos sueltos (ej. la imagen) marcados `editReturnsToPreview`: se
+        // apila un marcador para que, al responder esa única pregunta, el
+        // motor vuelva directo a PREVIEW en vez de seguir la cadena normal
+        // (ej. COVER_IMAGE -> LOCATION -> ...), sin tener que repetir el
+        // resto de los datos ya cargados.
+        const nextLoopStack = targetStep.editReturnsToPreview
+            ? [...state.loopStack, { __editReturnTo: PREVIEW_STEP_ID }]
+            : state.loopStack;
         const updated = await prisma.conversationState.update({
             where: { id: state.id },
-            data: { currentStepId: targetStepId },
+            data: { currentStepId: targetStepId, loopStack: nextLoopStack },
         });
         return toConversationResult(updated);
     }
@@ -212,14 +220,21 @@ export async function handleInput(conversationId, rawInput) {
     }
 
     const { draft, loopStack } = step.apply(state.draftEvent, state.loopStack, value);
-    const nextStepId = step.next(draft, loopStack, value);
+
+    // Si este paso se respondió como una edición puntual desde el preview
+    // (ver handlePreviewInput), el marcador apilado gana por sobre el
+    // encadenamiento normal de `step.next` y se vuelve directo a PREVIEW.
+    const editMarker = loopStack[loopStack.length - 1];
+    const isEditReturn = Boolean(editMarker?.__editReturnTo);
+    const nextStepId = isEditReturn ? editMarker.__editReturnTo : step.next(draft, loopStack, value);
+    const finalLoopStack = isEditReturn ? loopStack.slice(0, -1) : loopStack;
 
     const updated = await prisma.conversationState.update({
         where: { id: state.id },
         data: {
             currentStepId: nextStepId,
             draftEvent: draft,
-            loopStack,
+            loopStack: finalLoopStack,
             history: appendHistory(state.history, {
                 stepId: step.id,
                 value,
