@@ -12,6 +12,7 @@ import { apiFetch } from "../../../lib/api.js";
 import ConfirmDialog from "../../../components/ui/ConfirmDialog.jsx";
 import LoadingOverlay from "../../../components/ui/LoadingOverlay.jsx";
 import { useToast } from "../../../context/ToastContext.jsx";
+import { NEW_EVENT_REQUEST_EVENT } from "../../../lib/eventChatEvents.js";
 import ProgressHeader from "./ProgressHeader.jsx";
 import QuestionRenderer from "./QuestionRenderer.jsx";
 import PreviewCard from "./PreviewCard.jsx";
@@ -39,7 +40,79 @@ export default function ConversationView({ onDone }) {
   const [canGoBack, setCanGoBack] = useState(false);
   const [showDiscardDialog, setShowDiscardDialog] = useState(false);
   const [discarding, setDiscarding] = useState(false);
+  const [showRestartDialog, setShowRestartDialog] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const questionRef = useRef(null);
+
+  // Única responsable de arrancar una conversación completamente nueva:
+  // la usan tanto el primer ingreso a "Crear evento" como cualquier reinicio
+  // posterior (resume inválido, o el usuario pidiendo empezar de nuevo desde
+  // acá mismo), así que ambos casos quedan garantizados de comportarse
+  // exactamente igual. Limpia por completo el estado local de la
+  // conversación anterior (mensajes, borrador, imagen/ubicación/funciones/
+  // entradas cargadas hasta el momento — vive en `prompt`/`draftEvent` del
+  // lado servidor, así que reemplazar `prompt` acá ya descarta esos datos
+  // del lado cliente) antes de pedir una conversación nueva al motor.
+  async function beginNewConversation({ discardPreviousId } = {}) {
+    setLoading(true);
+    setLoadError("");
+    try {
+      const token = await getToken();
+
+      if (discardPreviousId) {
+        try {
+          await cancelConversation(token, discardPreviousId);
+        } catch {
+          // Si ya no existe o no se puede cancelar, no bloquea el inicio
+          // de la conversación nueva.
+        }
+      }
+
+      sessionStorage.removeItem(STORAGE_KEY);
+      const result = await startConversation(token);
+
+      sessionStorage.setItem(STORAGE_KEY, result.conversationId);
+      setConversationId(result.conversationId);
+      setPrompt(result.prompt);
+      setCanGoBack(Boolean(result.canGoBack));
+      setLastSocialNetwork(null);
+      setSubmitting(false);
+      setPublishing(false);
+      setShowDiscardDialog(false);
+      setShowRestartDialog(false);
+    } catch (err) {
+      setLoadError(err.message || "No pudimos iniciar la conversación.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // "Ya hay un evento en progreso" = se contestó al menos una pregunta
+  // (canGoBack) o se llegó al preview final — en ambos casos hay algo que
+  // se perdería al reiniciar. Si todavía está en la primera pregunta sin
+  // tocar nada, reiniciar no pierde ningún dato real: no hace falta
+  // interrumpir con un diálogo de confirmación.
+  function requestNewConversation() {
+    const hasProgress = canGoBack || prompt?.type === "PREVIEW";
+    if (!hasProgress) {
+      beginNewConversation({ discardPreviousId: conversationId });
+      return;
+    }
+    setShowRestartDialog(true);
+  }
+
+  async function handleConfirmRestart() {
+    setRestarting(true);
+    await beginNewConversation({ discardPreviousId: conversationId });
+    setRestarting(false);
+    toast.success("Empezamos un evento nuevo.");
+  }
+
+  useEffect(() => {
+    window.addEventListener(NEW_EVENT_REQUEST_EVENT, requestNewConversation);
+    return () => window.removeEventListener(NEW_EVENT_REQUEST_EVENT, requestNewConversation);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canGoBack, prompt, conversationId]);
 
   async function handleDiscard() {
     setDiscarding(true);
@@ -67,41 +140,36 @@ export default function ConversationView({ onDone }) {
         setCategories(cats);
 
         const savedId = sessionStorage.getItem(STORAGE_KEY);
-        let result;
+
         if (savedId && startFresh) {
           // "Crear evento" desde el menú/listado: el usuario quiere arrancar
           // de cero, no retomar un borrador conversacional en el que había
           // quedado a mitad de camino en una visita anterior.
+          if (!cancelled) await beginNewConversation({ discardPreviousId: savedId });
+          return;
+        }
+
+        if (savedId) {
           try {
-            await cancelConversation(token, savedId);
-          } catch {
-            // Si ya no existe o no se puede cancelar, no bloquea el inicio
-            // de la conversación nueva.
-          }
-          sessionStorage.removeItem(STORAGE_KEY);
-          result = await startConversation(token);
-        } else if (savedId) {
-          try {
-            result = await getConversation(token, savedId);
+            const result = await getConversation(token, savedId);
+            if (cancelled) return;
+            sessionStorage.setItem(STORAGE_KEY, result.conversationId);
+            setConversationId(result.conversationId);
+            setPrompt(result.prompt);
+            setCanGoBack(Boolean(result.canGoBack));
+            setLoading(false);
           } catch {
             // La conversación guardada ya no es válida (ej. quedó parada en
             // un paso que el motor eliminó/renombró): se descarta y arranca
             // una nueva en vez de dejar al usuario trabado con un error.
-            sessionStorage.removeItem(STORAGE_KEY);
-            result = await startConversation(token);
+            if (!cancelled) await beginNewConversation();
           }
-        } else {
-          result = await startConversation(token);
+          return;
         }
 
-        if (cancelled) return;
-        sessionStorage.setItem(STORAGE_KEY, result.conversationId);
-        setConversationId(result.conversationId);
-        setPrompt(result.prompt);
-        setCanGoBack(Boolean(result.canGoBack));
+        if (!cancelled) await beginNewConversation();
       } catch (err) {
         if (!cancelled) setLoadError(err.message || "No pudimos iniciar la conversación.");
-      } finally {
         if (!cancelled) setLoading(false);
       }
     }
@@ -195,6 +263,19 @@ export default function ConversationView({ onDone }) {
     />
   );
 
+  const restartDialog = showRestartDialog && (
+    <ConfirmDialog
+      title="¿Comenzar un nuevo evento?"
+      description="Estás creando un evento. Si continuás, se descartará esta conversación y comenzarás una nueva."
+      confirmLabel="Comenzar de nuevo"
+      cancelLabel="Cancelar"
+      danger
+      loading={restarting}
+      onConfirm={handleConfirmRestart}
+      onClose={() => setShowRestartDialog(false)}
+    />
+  );
+
   if (prompt.type === "PREVIEW") {
     return (
       <div ref={questionRef} className="flex w-full flex-1 flex-col items-center gap-4 py-8">
@@ -221,6 +302,7 @@ export default function ConversationView({ onDone }) {
           onPublish={() => send({ action: "PUBLISH" })}
         />
         {discardDialog}
+        {restartDialog}
         <LoadingOverlay
           open={publishing}
           title="🎭 Publicando tu evento..."
@@ -236,7 +318,7 @@ export default function ConversationView({ onDone }) {
       <ProgressHeader stepId={prompt.stepId} />
 
       <div
-        key={prompt.stepId}
+        key={`${conversationId}-${prompt.stepId}`}
         ref={questionRef}
         className="event-chat-question flex w-full max-w-xl flex-col items-center gap-4"
       >
@@ -261,6 +343,7 @@ export default function ConversationView({ onDone }) {
         />
       </div>
       {discardDialog}
+      {restartDialog}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { Link, NavLink } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   CalendarDays,
@@ -12,6 +12,7 @@ import {
   ChevronsLeft,
 } from "lucide-react";
 import { useBackendUser } from "../../context/AuthContext.jsx";
+import { NEW_EVENT_REQUEST_EVENT } from "../../lib/eventChatEvents.js";
 
 const NAV_BY_ROLE = {
   developer: [
@@ -117,8 +118,23 @@ function TopNavItem({ label, icon: Icon, path, end }) {
 
 export default function Sidebar({ open = false, onClose }) {
   const { backendUser } = useBackendUser();
+  const location = useLocation();
   const role = backendUser?.role?.toLowerCase();
   const navItems = NAV_BY_ROLE[role] ?? [];
+
+  // "Crear evento" ya está resuelto por react-router cuando cambia de
+  // pantalla (ver el efecto `startFresh` en ConversationView.jsx). Pero si
+  // el click pasa por el mismo pathname en el que ya se está parado
+  // (volver a tocar "Crear evento" desde dentro del wizard conversacional),
+  // el Link no navega ni remonta nada — así que ese caso puntual se resuelve
+  // avisándole directamente a ConversationView vía este evento en vez de
+  // depender de la navegación.
+  function handleNavClick(event, item) {
+    if (item.path === "/organizador/eventos/nuevo" && location.pathname === item.path) {
+      event.preventDefault();
+      window.dispatchEvent(new CustomEvent(NEW_EVENT_REQUEST_EVENT));
+    }
+  }
 
   return (
     <>
@@ -175,6 +191,7 @@ export default function Sidebar({ open = false, onClose }) {
                         to={child.path}
                         end={child.end}
                         state={child.state}
+                        onClick={(event) => handleNavClick(event, child)}
                         className={({ isActive }) =>
                           `rounded-lg px-3 py-1.5 text-sm transition-colors duration-150 ${
                             isActive
