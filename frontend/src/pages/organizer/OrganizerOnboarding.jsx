@@ -7,6 +7,7 @@ import Button from "../../components/ui/Button.jsx";
 import { Field, inputClass, textareaClass } from "../../components/ui/FormField.jsx";
 import ImageUploader from "../../components/ui/ImageUploader.jsx";
 import { apiFetch } from "../../lib/api.js";
+import { useToast } from "../../context/ToastContext.jsx";
 import { ORGANIZATION_TYPES } from "../../lib/organizationTypes.js";
 
 const EMAIL_REGEX = /^\S+@\S+\.\S+$/;
@@ -86,6 +87,7 @@ function StepIndicator({ step }) {
 
 export default function OrganizerOnboarding() {
   const { getToken } = useAuth();
+  const toast = useToast();
   const { user } = useUser();
   const navigate = useNavigate();
 
@@ -162,6 +164,7 @@ export default function OrganizerOnboarding() {
         token,
         body: JSON.stringify(form),
       });
+      toast.success("¡Organización creada! La enviamos a revisión.");
       navigate("/organizador", { replace: true });
     } catch (err) {
       console.error(err);
@@ -205,7 +208,7 @@ export default function OrganizerOnboarding() {
                 Paso 1 · Información básica
               </p>
 
-              <Field label="Nombre de la organización">
+              <Field label="Nombre de la organización" required>
                 <input
                   className={inputClass}
                   value={form.name}
@@ -215,7 +218,7 @@ export default function OrganizerOnboarding() {
                 <ErrorText message={errors.name} />
               </Field>
 
-              <Field label="Tipo de organización">
+              <Field label="Tipo de organización" required>
                 <select
                   className={inputClass}
                   value={form.type}
@@ -232,7 +235,7 @@ export default function OrganizerOnboarding() {
               </Field>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Email de contacto">
+                <Field label="Email de contacto" required>
                   <input
                     type="email"
                     className={inputClass}
@@ -242,7 +245,7 @@ export default function OrganizerOnboarding() {
                   />
                   <ErrorText message={errors.email} />
                 </Field>
-                <Field label="Teléfono">
+                <Field label="Teléfono" required>
                   <input
                     className={inputClass}
                     value={form.phone}
@@ -251,7 +254,7 @@ export default function OrganizerOnboarding() {
                   />
                   <ErrorText message={errors.phone} />
                 </Field>
-                <Field label="Nombre del responsable">
+                <Field label="Nombre del responsable" required>
                   <input
                     className={inputClass}
                     value={form.responsibleFirstName}
@@ -260,7 +263,7 @@ export default function OrganizerOnboarding() {
                   />
                   <ErrorText message={errors.responsibleFirstName} />
                 </Field>
-                <Field label="Apellido del responsable">
+                <Field label="Apellido del responsable" required>
                   <input
                     className={inputClass}
                     value={form.responsibleLastName}
@@ -296,7 +299,7 @@ export default function OrganizerOnboarding() {
               </Field>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Provincia">
+                <Field label="Provincia" required>
                   <input
                     className={inputClass}
                     value={form.province}
@@ -305,7 +308,7 @@ export default function OrganizerOnboarding() {
                   />
                   <ErrorText message={errors.province} />
                 </Field>
-                <Field label="Ciudad">
+                <Field label="Ciudad" required>
                   <input
                     className={inputClass}
                     value={form.city}
@@ -353,6 +356,9 @@ export default function OrganizerOnboarding() {
                     onChange={(e) => setField("cuit", e.target.value)}
                     placeholder="30-12345678-9"
                   />
+                  <p className="mt-1 text-xs text-slate-500">
+                    Obligatorio si no cargás el DNI del responsable.
+                  </p>
                   <ErrorText message={errors.cuit} />
                 </Field>
                 <Field label="DNI del responsable">

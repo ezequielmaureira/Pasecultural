@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
 import { ImagePlus, X, Loader2, ImageOff, Move, Check } from "lucide-react";
 import { apiUpload, apiFetch } from "../../lib/api.js";
+import { useToast } from "../../context/ToastContext.jsx";
 
 const ACCEPTED_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
@@ -217,10 +218,12 @@ export default function ImageUploader({
   aspectRatio = null,
 }) {
   const { getToken } = useAuth();
+  const toast = useToast();
   const inputRef = useRef(null);
   const [preview, setPreview] = useState(value || null);
   const [publicId, setPublicId] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const [error, setError] = useState("");
   const [dragActive, setDragActive] = useState(false);
   const [cropFile, setCropFile] = useState(null);
@@ -240,6 +243,7 @@ export default function ImageUploader({
       setPreview(result.url);
       setPublicId(result.publicId);
       onChange?.(result.url);
+      toast.success("Imagen subida correctamente.");
     } catch (err) {
       setError(err.message || "No pudimos subir la imagen. Probá de nuevo.");
       setPreview(value || null);
@@ -283,17 +287,21 @@ export default function ImageUploader({
     setError("");
 
     if (publicId) {
+      setRemoving(true);
       try {
         const token = await getToken();
         await apiFetch(`/api/media/${publicId}`, { token, method: "DELETE" });
       } catch (err) {
         console.error("No se pudo eliminar la imagen en Cloudinary", err);
+      } finally {
+        setRemoving(false);
       }
     }
 
     setPreview(null);
     setPublicId(null);
     onChange?.(null);
+    toast.success("Imagen eliminada.");
   }
 
   let boxToneClass = "border-white/15 bg-white/5 hover:border-violet-500/60 hover:bg-white/10";
@@ -341,10 +349,11 @@ export default function ImageUploader({
             <button
               type="button"
               onClick={handleRemove}
+              disabled={removing}
               aria-label="Eliminar imagen"
-              className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white transition-colors duration-150 hover:bg-black/80"
+              className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white transition-colors duration-150 hover:bg-black/80 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <X className="h-4 w-4" />
+              {removing ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
             </button>
           </>
         ) : (

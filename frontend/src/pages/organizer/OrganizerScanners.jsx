@@ -3,7 +3,9 @@ import { Plus, Power, Trash2, CalendarPlus } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
 import Modal from "../../components/ui/Modal.jsx";
+import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
 import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
+import { useToast } from "../../context/ToastContext.jsx";
 
 const inputClass =
   "h-10 w-full rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-gray-100 outline-none placeholder:text-slate-500 focus:border-violet-500 focus:bg-white/10 focus:ring-2 focus:ring-violet-500/20";
@@ -21,9 +23,11 @@ function formatLastAccess(value) {
 export default function OrganizerScanners() {
   const { events, scanners, addScanner, updateScanner, removeScanner } =
     useOrganizerData();
+  const toast = useToast();
   const [showForm, setShowForm] = useState(false);
   const [newScanner, setNewScanner] = useState({ name: "", email: "" });
   const [assigningId, setAssigningId] = useState(null);
+  const [scannerToDelete, setScannerToDelete] = useState(null);
 
   function handleCreate(event) {
     event.preventDefault();
@@ -31,6 +35,14 @@ export default function OrganizerScanners() {
     addScanner(newScanner);
     setNewScanner({ name: "", email: "" });
     setShowForm(false);
+    toast.success("Scanner agregado.");
+  }
+
+  function confirmDeleteScanner() {
+    if (!scannerToDelete) return;
+    removeScanner(scannerToDelete.id);
+    setScannerToDelete(null);
+    toast.success("Scanner eliminado.");
   }
 
   function toggleStatus(scanner) {
@@ -180,7 +192,7 @@ export default function OrganizerScanners() {
                       <button
                         type="button"
                         title="Eliminar"
-                        onClick={() => removeScanner(scanner.id)}
+                        onClick={() => setScannerToDelete(scanner)}
                         className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors duration-150 hover:bg-white/5 hover:text-rose-400"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -219,6 +231,17 @@ export default function OrganizerScanners() {
             Listo
           </Button>
         </Modal>
+      )}
+
+      {scannerToDelete && (
+        <ConfirmDialog
+          title="Eliminar scanner"
+          description={`¿Seguro que querés eliminar a "${scannerToDelete.name}"? Esta acción no se puede deshacer.`}
+          confirmLabel="Eliminar"
+          danger
+          onConfirm={confirmDeleteScanner}
+          onClose={() => setScannerToDelete(null)}
+        />
       )}
     </div>
   );

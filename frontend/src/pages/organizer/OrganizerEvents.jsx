@@ -4,10 +4,12 @@ import { useAuth } from "@clerk/clerk-react";
 import { Pencil, Rocket, Archive, Ban, Trash2, Plus, ShieldAlert } from "lucide-react";
 import Button from "../../components/ui/Button.jsx";
 import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
+import Spinner from "../../components/ui/Spinner.jsx";
 import { apiFetch } from "../../lib/api.js";
 import { getEventCategoryLabel } from "../../lib/eventCategories.js";
 import { EVENT_STATUS_LABEL, EVENT_STATUS_STYLES } from "../../lib/eventStatus.js";
 import { canPublishEvents } from "../../lib/organizationTrust.js";
+import { useToast } from "../../context/ToastContext.jsx";
 
 function Pill({ status }) {
   return (
@@ -21,16 +23,17 @@ function Pill({ status }) {
   );
 }
 
-function IconButton({ title, onClick, disabled, children }) {
+function IconButton({ title, onClick, disabled, loading, children }) {
   return (
     <button
       type="button"
       title={title}
       onClick={onClick}
-      disabled={disabled}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
       className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors duration-150 hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400"
     >
-      {children}
+      {loading ? <Spinner size="xs" toneClassName="border-slate-500/40 border-t-slate-200" /> : children}
     </button>
   );
 }
@@ -48,10 +51,12 @@ function formatDate(iso) {
 
 export default function OrganizerEvents() {
   const { getToken } = useAuth();
+  const toast = useToast();
   const [events, setEvents] = useState([]);
   const [organization, setOrganization] = useState(null);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState(null);
+  const [updatingAction, setUpdatingAction] = useState(null);
   const [eventToDelete, setEventToDelete] = useState(null);
   const [actionError, setActionError] = useState("");
 
@@ -78,8 +83,9 @@ export default function OrganizerEvents() {
 
   const canPublish = canPublishEvents(organization);
 
-  async function patchEvent(id, patch) {
+  async function patchEvent(id, patch, action) {
     setUpdatingId(id);
+    setUpdatingAction(action);
     setActionError("");
     try {
       const token = await getToken();
@@ -89,35 +95,43 @@ export default function OrganizerEvents() {
         body: JSON.stringify(patch),
       });
       setEvents((prev) => prev.map((e) => (e.id === id ? event : e)));
+      if (event.status === "PUBLISHED") toast.success("Evento publicado correctamente.");
+      else if (event.status === "DRAFT") toast.success("Evento pasado a borrador.");
+      else if (event.status === "CANCELLED") toast.success("Evento cancelado.");
     } catch (err) {
       console.error("No se pudo actualizar el evento", err);
       setActionError(err.message || "No se pudo actualizar el evento.");
     } finally {
       setUpdatingId(null);
+      setUpdatingAction(null);
     }
   }
 
   function togglePublish(event) {
     const next = event.status === "PUBLISHED" ? "DRAFT" : "PUBLISHED";
-    patchEvent(event.id, { status: next });
+    patchEvent(event.id, { status: next }, "publish");
   }
 
   function cancelEvent(event) {
-    patchEvent(event.id, { status: "CANCELLED" });
+    patchEvent(event.id, { status: "CANCELLED" }, "cancel");
   }
 
   async function confirmDelete() {
     if (!eventToDelete) return;
     const id = eventToDelete.id;
     setUpdatingId(id);
+    setUpdatingAction("delete");
     try {
       const token = await getToken();
       await apiFetch(`/api/events/${id}`, { token, method: "DELETE" });
       setEvents((prev) => prev.filter((e) => e.id !== id));
+      toast.success("Evento eliminado.");
     } catch (err) {
       console.error("No se pudo eliminar el evento", err);
+      setActionError(err.message || "No se pudo eliminar el evento.");
     } finally {
       setUpdatingId(null);
+      setUpdatingAction(null);
       setEventToDelete(null);
     }
   }
@@ -175,6 +189,14 @@ export default function OrganizerEvents() {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
+              {loading &&
+                Array.from({ length: 3 }).map((_, i) => (
+                  <tr key={i}>
+                    <td className="px-6 py-4" colSpan={5}>
+                      <div className="h-5 w-full max-w-sm animate-pulse rounded bg-white/5" />
+                    </td>
+                  </tr>
+                ))}
               {!loading && events.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-6 py-10 text-center text-slate-500">
@@ -216,6 +238,8 @@ export default function OrganizerEvents() {
                             ? "Tu organización todavía no fue aprobada"
                             : undefined
                         }
+                        loading={updatingId === event.id && updatingAction === "publish"}
+                        loadingText={event.status === "PUBLISHED" ? "Archivando..." : "Publicando..."}
                         disabled={
                           updatingId === event.id ||
                           event.status === "CANCELLED" ||
@@ -242,6 +266,7 @@ export default function OrganizerEvents() {
                       <IconButton
                         title="Cancelar evento"
                         onClick={() => cancelEvent(event)}
+                        loading={updatingId === event.id && updatingAction === "cancel"}
                         disabled={updatingId === event.id || event.status === "CANCELLED"}
                       >
                         <Ban className="h-4 w-4" />

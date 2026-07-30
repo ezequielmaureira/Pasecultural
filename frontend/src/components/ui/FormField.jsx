@@ -3,10 +3,13 @@ export const inputClass =
 
 export const textareaClass = `${inputClass} h-24 resize-none py-2`;
 
-export function Field({ label, children, className = "" }) {
+export function Field({ label, children, className = "", required = false }) {
   return (
     <label className={`flex flex-col gap-1.5 ${className}`}>
-      <span className="text-xs font-medium text-slate-400">{label}</span>
+      <span className="text-xs font-medium text-slate-400">
+        {label}
+        {required && <span className="ml-0.5 text-rose-400">*</span>}
+      </span>
       {children}
     </label>
   );

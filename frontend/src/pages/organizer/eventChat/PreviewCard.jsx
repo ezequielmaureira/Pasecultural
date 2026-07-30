@@ -49,7 +49,16 @@ function formatDate(iso) {
   });
 }
 
-export default function PreviewCard({ draft, categoryLabel, onEdit, onSaveDraft, onPublish, submitting, error }) {
+export default function PreviewCard({
+  draft,
+  categoryLabel,
+  onEdit,
+  onSaveDraft,
+  onPublish,
+  submitting,
+  publishing,
+  error,
+}) {
   return (
     <div className="flex w-full max-w-2xl flex-col gap-4">
       {draft.coverImage && (
@@ -146,6 +155,8 @@ export default function PreviewCard({ draft, categoryLabel, onEdit, onSaveDraft,
       <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
         <Button
           variant="secondary"
+          loading={submitting && !publishing}
+          loadingText="Guardando..."
           disabled={submitting}
           onClick={onSaveDraft}
           className="w-full sm:w-auto"
@@ -153,7 +164,13 @@ export default function PreviewCard({ draft, categoryLabel, onEdit, onSaveDraft,
           <Save className="h-4 w-4" />
           Guardar borrador
         </Button>
-        <Button disabled={submitting} onClick={onPublish} className="w-full sm:w-auto">
+        <Button
+          loading={publishing}
+          loadingText="Publicando..."
+          disabled={submitting}
+          onClick={onPublish}
+          className="w-full sm:w-auto"
+        >
           <Rocket className="h-4 w-4" />
           Publicar
         </Button>

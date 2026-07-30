@@ -10,6 +10,8 @@ import {
 } from "../../../lib/conversationApi.js";
 import { apiFetch } from "../../../lib/api.js";
 import ConfirmDialog from "../../../components/ui/ConfirmDialog.jsx";
+import LoadingOverlay from "../../../components/ui/LoadingOverlay.jsx";
+import { useToast } from "../../../context/ToastContext.jsx";
 import ProgressHeader from "./ProgressHeader.jsx";
 import QuestionRenderer from "./QuestionRenderer.jsx";
 import PreviewCard from "./PreviewCard.jsx";
@@ -23,10 +25,12 @@ const STORAGE_KEY = "pasecultural:eventChat:conversationId";
 export default function ConversationView({ onDone }) {
   const { getToken } = useAuth();
   const navigate = useNavigate();
+  const toast = useToast();
   const [conversationId, setConversationId] = useState(null);
   const [prompt, setPrompt] = useState(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [lastSocialNetwork, setLastSocialNetwork] = useState(null);
   const [categories, setCategories] = useState([]);
@@ -41,6 +45,7 @@ export default function ConversationView({ onDone }) {
       const token = await getToken();
       if (conversationId) await cancelConversation(token, conversationId);
       sessionStorage.removeItem(STORAGE_KEY);
+      toast.success("Borrador descartado.");
       navigate("/organizador/eventos");
     } catch (err) {
       setDiscarding(false);
@@ -99,7 +104,9 @@ export default function ConversationView({ onDone }) {
   }, [prompt?.stepId]);
 
   async function send(body) {
+    const isPublish = body.action === "PUBLISH";
     setSubmitting(true);
+    if (isPublish) setPublishing(true);
     try {
       const token = await getToken();
       const result = await replyConversation(token, conversationId, body);
@@ -116,6 +123,7 @@ export default function ConversationView({ onDone }) {
       setPrompt((prev) => ({ ...prev, error: err.message || "Algo salió mal, intentá de nuevo." }));
     } finally {
       setSubmitting(false);
+      if (isPublish) setPublishing(false);
     }
   }
 
@@ -192,12 +200,18 @@ export default function ConversationView({ onDone }) {
           draft={prompt.draft}
           categoryLabel={categoryLabel}
           submitting={submitting}
+          publishing={publishing}
           error={prompt.error}
           onEdit={(stepId) => send({ action: "EDIT", stepId })}
           onSaveDraft={() => send({ action: "DRAFT" })}
           onPublish={() => send({ action: "PUBLISH" })}
         />
         {discardDialog}
+        <LoadingOverlay
+          open={publishing}
+          title="🎭 Publicando tu evento..."
+          message="Estamos preparando tu evento para que aparezca en PaseCultural. Esto puede tardar unos segundos."
+        />
       </div>
     );
   }

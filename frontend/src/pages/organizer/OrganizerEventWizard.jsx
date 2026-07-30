@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { useAuth } from "@clerk/clerk-react";
 import {
@@ -16,6 +16,7 @@ import LoadingOverlay from "../../components/ui/LoadingOverlay.jsx";
 import { Field, inputClass, textareaClass } from "../../components/ui/FormField.jsx";
 import ImageUploader from "../../components/ui/ImageUploader.jsx";
 import { apiFetch } from "../../lib/api.js";
+import { useToast } from "../../context/ToastContext.jsx";
 import { EVENT_CATEGORIES, getEventCategoryLabel } from "../../lib/eventCategories.js";
 import { canPublishEvents } from "../../lib/organizationTrust.js";
 import FunctionCard from "./eventWizard/FunctionCard.jsx";
@@ -123,6 +124,7 @@ export default function OrganizerEventWizard() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { getToken } = useAuth();
+  const toast = useToast();
   const isEditing = Boolean(id);
 
   const [step, setStep] = useState(1);
@@ -140,6 +142,32 @@ export default function OrganizerEventWizard() {
   const [submitting, setSubmitting] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [submitError, setSubmitError] = useState("");
+
+  // Cambios sin guardar: cualquier edición marca "dirty" (salvo la primera
+  // carga inicial de datos), para poder avisar antes de perder el trabajo
+  // al cerrar/recargar la pestaña. Se limpia recién cuando persist() resuelve.
+  const isDirtyRef = useRef(false);
+  const skipDirtyRef = useRef(true);
+
+  useEffect(() => {
+    if (loading) return;
+    if (skipDirtyRef.current) {
+      skipDirtyRef.current = false;
+      return;
+    }
+    isDirtyRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [general, location, links, catalog, functions, loading]);
+
+  useEffect(() => {
+    function handleBeforeUnload(event) {
+      if (!isDirtyRef.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -650,6 +678,8 @@ export default function OrganizerEventWizard() {
 
     try {
       await persist();
+      isDirtyRef.current = false;
+      toast.success("Evento guardado como borrador.");
       navigate("/organizador/eventos");
     } catch (err) {
       setSubmitError(err.message || "No pudimos guardar el evento. Probá de nuevo.");
@@ -677,6 +707,8 @@ export default function OrganizerEventWizard() {
         method: "PATCH",
         body: JSON.stringify({ status: "PUBLISHED" }),
       });
+      isDirtyRef.current = false;
+      toast.success("¡Evento publicado correctamente!");
       navigate("/organizador/eventos");
     } catch (err) {
       setSubmitError(err.message || "No pudimos publicar el evento. Probá de nuevo.");

@@ -62,6 +62,19 @@ function AllEventsSection({ events }) {
   );
 }
 
+function CarouselSkeleton() {
+  return (
+    <section className={`${SECTION} ${SECTION_SPACING}`}>
+      <div className="mb-4 h-6 w-40 animate-pulse rounded bg-white/10" />
+      <div className="flex gap-4 overflow-hidden">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-64 w-52 shrink-0 animate-pulse rounded-xl bg-white/5 sm:w-60" />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function TrustBar() {
   return (
     <section className="min-w-0 border-t border-white/5 bg-[#0B1120]">
@@ -133,15 +146,26 @@ export default function Home() {
         />
       </section>
 
+      {loading && (
+        <>
+          <CarouselSkeleton />
+          <CarouselSkeleton />
+        </>
+      )}
+
       {!loading && events.length === 0 && (
         <p className={`${SECTION} ${SECTION_SPACING} text-center text-sm text-slate-500`}>
           Todavía no hay eventos publicados. ¡Volvé pronto!
         </p>
       )}
 
-      <UpcomingSection events={upcoming} />
-      <FeaturedSection events={featured} />
-      <AllEventsSection events={events.slice(0, 12)} />
+      {!loading && (
+        <>
+          <UpcomingSection events={upcoming} />
+          <FeaturedSection events={featured} />
+          <AllEventsSection events={events.slice(0, 12)} />
+        </>
+      )}
 
       <TrustBar />
     </div>

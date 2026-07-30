@@ -12,6 +12,7 @@ import OrganizerOnboarding from "./pages/organizer/OrganizerOnboarding.jsx";
 import HowItWorks from "./pages/HowItWorks.jsx";
 import Profile from "./pages/Profile.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
+import { ToastProvider } from "./context/ToastContext.jsx";
 import { OrganizerDataProvider } from "./context/OrganizerDataContext.jsx";
 import DashboardDeveloper from "./pages/DashboardDeveloper.jsx";
 import DeveloperOrganizations from "./pages/developer/DeveloperOrganizations.jsx";
@@ -46,6 +47,7 @@ function NotFound() {
 export default function App() {
   return (
     <BrowserRouter>
+      <ToastProvider>
       <AuthProvider>
         <Routes>
           <Route element={<PublicShell />}>
@@ -109,6 +111,7 @@ export default function App() {
           </Route>
         </Routes>
       </AuthProvider>
+      </ToastProvider>
     </BrowserRouter>
   );
 }
