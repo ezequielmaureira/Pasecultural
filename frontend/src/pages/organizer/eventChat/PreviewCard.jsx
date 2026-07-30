@@ -62,8 +62,16 @@ export default function PreviewCard({
   return (
     <div className="flex w-full max-w-2xl flex-col gap-4">
       {draft.coverImage && (
-        <div className="overflow-hidden rounded-xl border border-white/10">
+        <div className="group relative overflow-hidden rounded-xl border border-white/10">
           <img src={draft.coverImage} alt={draft.title} className="h-44 w-full object-cover sm:h-56" />
+          <button
+            type="button"
+            onClick={() => onEdit(EDIT_STEP_BY_SECTION.image)}
+            className="absolute right-2 top-2 inline-flex min-h-[40px] items-center gap-1 rounded-lg bg-black/60 px-3 py-2 text-xs font-medium text-white backdrop-blur-sm transition-colors duration-150 hover:bg-black/80"
+          >
+            <Pencil className="h-3 w-3" />
+            Editar foto
+          </button>
         </div>
       )}
 
