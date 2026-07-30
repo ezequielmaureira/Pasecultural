@@ -9,13 +9,29 @@ import * as EventServicePort from "./EventServicePort.js";
 // clerkId es la identidad ya resuelta por el ChannelAdapter del canal (en Web,
 // la sesión Clerk; en WhatsApp, el número verificado contra la Organization).
 
+// `_key` es una identidad interna de bookkeeping (ver steps/definitions.js,
+// upsertLoopItem) que existe sólo para que el motor sepa qué ítem de una
+// lista actualizar al reconfirmar un tipo de entrada o un link social ya
+// cargado — nunca es algo que el frontend o el resto del sistema deba ver.
+function stripInternalKeys(list) {
+    return (list ?? []).map(({ _key, ...rest }) => rest);
+}
+
+function toPreviewDraft(draft) {
+    return {
+        ...draft,
+        ticketTypes: stripInternalKeys(draft.ticketTypes),
+        socialLinks: stripInternalKeys(draft.socialLinks),
+    };
+}
+
 // `currentValueOverride` es lo que permite que "Volver" muestre el último
 // valor CONFIRMADO para ese paso (ver handleBack): si no se pasa, se usa
 // `step.getCurrentValue` (derivado del draft — para cuando se entra al paso
 // por el flujo normal o por "Editar" desde el preview, no por un Volver).
 function buildPrompt(stepId, draft, loopStack, currentValueOverride) {
     if (stepId === PREVIEW_STEP_ID) {
-        return { stepId, type: "PREVIEW", draft };
+        return { stepId, type: "PREVIEW", draft: toPreviewDraft(draft) };
     }
     const step = getStep(stepId);
     // Se reenvía cada campo que devuelva el step, no sólo text/options:
@@ -38,6 +54,11 @@ function toConversationResult(state, currentValueOverride) {
     };
 }
 
+// El history es una bitácora de "qué se respondió en cada paso visitado",
+// no una pila de snapshots para deshacer datos: guarda sólo stepId + value
+// (lo que permite precargar ese valor si se vuelve a ese paso), nunca una
+// foto completa del draft/loopStack. El draftEvent y el loopStack son la
+// única fuente de verdad del estado del evento — "Volver" nunca los toca.
 function appendHistory(history, entry) {
     return [...history, { ...entry, at: new Date().toISOString() }];
 }
@@ -130,7 +151,7 @@ async function handlePreviewInput(state, rawInput) {
             prompt: {
                 stepId: PREVIEW_STEP_ID,
                 type: "PREVIEW",
-                draft: state.draftEvent,
+                draft: toPreviewDraft(state.draftEvent),
                 error: 'Elegí "PUBLISH", "DRAFT" o "EDIT".',
             },
             canGoBack: state.history.length > 0,
@@ -159,7 +180,7 @@ async function handlePreviewInput(state, rawInput) {
             prompt: {
                 stepId: PREVIEW_STEP_ID,
                 type: "PREVIEW",
-                draft: state.draftEvent,
+                draft: toPreviewDraft(state.draftEvent),
                 error: error.isConversational ? error.message : "No pudimos guardar el evento, intentá de nuevo.",
             },
             canGoBack: state.history.length > 0,
@@ -167,11 +188,14 @@ async function handlePreviewInput(state, rawInput) {
     }
 }
 
-// Cada entrada de historial guarda una foto de draftEvent/loopStack tal como
-// estaban ANTES de aplicar esa respuesta. "Volver atrás" es simplemente
-// desapilar la última entrada y restaurar esa foto — funciona igual en medio
-// de un loop (funciones/entradas/redes) porque la foto ya captura en qué
-// iteración del loop estaba el usuario antes de responder.
+// "Volver" es pura navegación de cursor: mueve `currentStepId` al paso
+// anterior y listo. NO revierte draftEvent ni loopStack — si lo hiciera, al
+// avanzar de nuevo el motor volvería a generar cada paso siguiente con
+// valores vacíos, aunque el evento ya los tuviera cargados (exactamente el
+// bug que esto corrige). El estado del evento sólo cambia cuando el usuario
+// vuelve a *responder* un paso (ver handleInput), nunca por el solo hecho de
+// mirar una pregunta anterior — así "Volver" se comporta como un editor
+// (corregir lo ya cargado) y no como un "deshacer" que descarta trabajo.
 async function handleBack(state) {
     if (state.history.length === 0) {
         return {
@@ -191,15 +215,12 @@ async function handleBack(state) {
         where: { id: state.id },
         data: {
             currentStepId: lastEntry.stepId,
-            draftEvent: lastEntry.draftBefore,
-            loopStack: lastEntry.loopStackBefore,
             history: previousHistory,
         },
     });
 
     // `lastEntry.value` es exactamente lo que el usuario había confirmado la
-    // última vez para este paso (fue guardado tal cual al responderlo, ver
-    // handleInput más abajo) — reenviarlo como currentValue es lo que le
+    // última vez para este paso — reenviarlo como currentValue es lo que le
     // permite al frontend precargar la respuesta anterior en vez de mostrar
     // el paso en blanco, sea cual sea su tipo (texto, imagen, ubicación,
     // tarjeta de función, rango de fechas, etc.).
@@ -249,12 +270,7 @@ export async function handleInput(conversationId, rawInput) {
             currentStepId: nextStepId,
             draftEvent: draft,
             loopStack: finalLoopStack,
-            history: appendHistory(state.history, {
-                stepId: step.id,
-                value,
-                draftBefore: state.draftEvent,
-                loopStackBefore: state.loopStack,
-            }),
+            history: appendHistory(state.history, { stepId: step.id, value }),
         },
     });
 

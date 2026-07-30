@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { EVENT_CATEGORIES, SOCIAL_NETWORKS } from "../../utils/eventCategories.js";
 
 // Cada StepDefinition es un objeto de datos, no una clase: agregar un paso
@@ -25,6 +26,39 @@ function replaceTopLoop(loopStack, nextLoop) {
     const copy = loopStack.slice(0, -1);
     if (nextLoop) copy.push(nextLoop);
     return copy;
+}
+
+// Como "Volver" ya no revierte loopStack, es posible llegar a un paso de
+// loop (ej. FUNCTIONS_SINGLE_CARD, TICKET_PRICE) después de que ese loop ya
+// se cerró más adelante en la conversación (el usuario volvió muchos pasos
+// de una — más allá de dónde el loop terminaba). `ensureLoop` garantiza que
+// el paso siempre tenga un buffer válido para trabajar: si el loop activo no
+// es del tipo esperado, lo vuelve a abrir con `seedBuffer` (típicamente
+// reconstruido desde el propio draft), en vez de asumir que ya está ahí.
+function ensureLoop(loopStack, type, seedBuffer) {
+    const loop = topLoop(loopStack);
+    if (loop?.type === type) return loopStack;
+    return [...loopStack, { type, buffer: seedBuffer }];
+}
+
+// Identidad estable de un ítem en construcción dentro de un loop (una
+// entrada, un link social) mientras dura su propia sub-cadena de preguntas.
+// Se asigna una sola vez al empezar el ítem y viaja pegada al buffer — es lo
+// que permite que el paso "commit" (TICKET_QUANTITY, SOCIAL_URL) actualice
+// el ítem correcto en vez de agregar uno nuevo si el usuario vuelve atrás y
+// reconfirma una respuesta ya cargada. Nunca se guarda en draftEvent.
+function withLoopItemKey(buffer) {
+    return buffer._key ? buffer : { ...buffer, _key: randomUUID() };
+}
+
+// "Commit" de un ítem de loop a una lista del draft: si ya existe un ítem
+// con el mismo _key (el usuario está reconfirmando un ítem ya cargado tras
+// volver atrás), lo reemplaza en el lugar; si no, lo agrega. Así ningún paso
+// de tipo "agregar a una lista" duplica datos al revisitarse.
+function upsertLoopItem(list, item) {
+    const index = list.findIndex((existing) => existing._key === item._key);
+    if (index === -1) return [...list, item];
+    return list.map((existing, i) => (i === index ? item : existing));
 }
 
 // Recorre día por día el rango [from, to] (ambos ISO) y arma una función por
@@ -149,10 +183,12 @@ export const STEPS = {
         id: "FUNCTIONS_SINGLE_CARD",
         inputType: "FUNCTION_CARD",
         buildPrompt: () => ({ text: "Contame cuándo es la función." }),
+        getCurrentValue: (draft, loopStack) => topLoop(loopStack)?.buffer?.slots?.[0],
         apply: (draft, loopStack, value) => {
-            const loop = topLoop(loopStack);
+            const stack = ensureLoop(loopStack, "FUNCTIONS_BUILD", { slots: draft.functions ?? [] });
+            const loop = topLoop(stack);
             const nextLoop = { ...loop, buffer: { ...loop.buffer, slots: [value] } };
-            return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
+            return { draft, loopStack: replaceTopLoop(stack, nextLoop) };
         },
         next: () => "FUNCTIONS_LIST",
     },
@@ -161,10 +197,15 @@ export const STEPS = {
         id: "FUNCTIONS_RANGE",
         inputType: "DATE_RANGE",
         buildPrompt: () => ({ text: "¿Desde y hasta qué fecha se repiten las funciones?" }),
+        getCurrentValue: (draft, loopStack) => {
+            const buffer = topLoop(loopStack)?.buffer;
+            return buffer?.from ? { from: buffer.from, to: buffer.to } : undefined;
+        },
         apply: (draft, loopStack, value) => {
-            const loop = topLoop(loopStack);
+            const stack = ensureLoop(loopStack, "FUNCTIONS_BUILD", { slots: draft.functions ?? [] });
+            const loop = topLoop(stack);
             const nextLoop = { ...loop, buffer: { ...loop.buffer, from: value.from, to: value.to } };
-            return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
+            return { draft, loopStack: replaceTopLoop(stack, nextLoop) };
         },
         next: () => "FUNCTIONS_WEEKDAYS",
     },
@@ -173,10 +214,12 @@ export const STEPS = {
         id: "FUNCTIONS_WEEKDAYS",
         inputType: "WEEKDAYS",
         buildPrompt: () => ({ text: "¿Qué días de la semana?" }),
+        getCurrentValue: (draft, loopStack) => topLoop(loopStack)?.buffer?.weekdays,
         apply: (draft, loopStack, value) => {
-            const loop = topLoop(loopStack);
+            const stack = ensureLoop(loopStack, "FUNCTIONS_BUILD", { slots: draft.functions ?? [] });
+            const loop = topLoop(stack);
             const nextLoop = { ...loop, buffer: { ...loop.buffer, weekdays: value } };
-            return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
+            return { draft, loopStack: replaceTopLoop(stack, nextLoop) };
         },
         next: () => "FUNCTIONS_RECURRING_SCHEDULES",
     },
@@ -192,10 +235,11 @@ export const STEPS = {
         inputType: "TIME_RANGE_LIST",
         buildPrompt: () => ({ text: "¿A qué horarios se hace la función esos días?" }),
         apply: (draft, loopStack, value) => {
-            const loop = topLoop(loopStack);
+            const stack = ensureLoop(loopStack, "FUNCTIONS_BUILD", { slots: draft.functions ?? [] });
+            const loop = topLoop(stack);
             const slots = generateRecurringSlots(loop.buffer.from, loop.buffer.to, loop.buffer.weekdays, value);
             const nextLoop = { ...loop, buffer: { ...loop.buffer, slots } };
-            return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
+            return { draft, loopStack: replaceTopLoop(stack, nextLoop) };
         },
         next: () => "FUNCTIONS_LIST",
     },
@@ -212,13 +256,13 @@ export const STEPS = {
             const loop = topLoop(loopStack);
             return {
                 text: "Administrador de Agenda",
-                slots: loop?.buffer?.slots ?? [],
+                slots: loop?.buffer?.slots ?? draft.functions ?? [],
             };
         },
-        apply: (draft, loopStack, value) => ({
-            draft: { ...draft, functions: value },
-            loopStack: loopStack.slice(0, -1),
-        }),
+        apply: (draft, loopStack, value) => {
+            const stack = ensureLoop(loopStack, "FUNCTIONS_BUILD", { slots: draft.functions ?? [] });
+            return { draft: { ...draft, functions: value }, loopStack: stack.slice(0, -1) };
+        },
         next: () => "EVENT_PRICING_TYPE",
     },
 
@@ -238,7 +282,10 @@ export const STEPS = {
         apply: (draft, loopStack, value) => {
             if (value === "PAID") {
                 return {
-                    draft: { ...draft, hasTickets: true, ticketTypes: [] },
+                    // Si el organizador vuelve acá y reconfirma "De pago" no
+                    // se pierden las entradas que ya había cargado (sólo
+                    // arranca vacío la primera vez que elige esta rama).
+                    draft: { ...draft, hasTickets: true, ticketTypes: draft.hasTickets ? draft.ticketTypes ?? [] : [] },
                     loopStack: [...loopStack, { type: "TICKETS", buffer: {} }],
                 };
             }
@@ -292,11 +339,15 @@ export const STEPS = {
                 { id: "OTHER", label: "Otro" },
             ],
         }),
+        getCurrentValue: (draft, loopStack) => topLoop(loopStack)?.buffer?.name,
         apply: (draft, loopStack, value) => {
-            if (value === "OTHER") return { draft, loopStack };
-            const loop = topLoop(loopStack);
-            const nextLoop = { ...loop, buffer: { ...loop.buffer, name: value } };
-            return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
+            const stack = ensureLoop(loopStack, "TICKETS", {});
+            const loop = topLoop(stack);
+            if (value === "OTHER") {
+                return { draft, loopStack: replaceTopLoop(stack, { ...loop, buffer: withLoopItemKey(loop.buffer) }) };
+            }
+            const nextLoop = { ...loop, buffer: { ...withLoopItemKey(loop.buffer), name: value } };
+            return { draft, loopStack: replaceTopLoop(stack, nextLoop) };
         },
         next: (draft, loopStack, value) => (value === "OTHER" ? "TICKET_NAME_CUSTOM" : "TICKET_PRICE"),
     },
@@ -305,10 +356,12 @@ export const STEPS = {
         id: "TICKET_NAME_CUSTOM",
         inputType: "SHORT_TEXT",
         buildPrompt: () => ({ text: "¿Cómo se llama esta entrada?" }),
+        getCurrentValue: (draft, loopStack) => topLoop(loopStack)?.buffer?.name,
         apply: (draft, loopStack, value) => {
-            const loop = topLoop(loopStack);
-            const nextLoop = { ...loop, buffer: { ...loop.buffer, name: value } };
-            return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
+            const stack = ensureLoop(loopStack, "TICKETS", {});
+            const loop = topLoop(stack);
+            const nextLoop = { ...loop, buffer: { ...withLoopItemKey(loop.buffer), name: value } };
+            return { draft, loopStack: replaceTopLoop(stack, nextLoop) };
         },
         next: () => "TICKET_PRICE",
     },
@@ -317,26 +370,37 @@ export const STEPS = {
         id: "TICKET_PRICE",
         inputType: "PRICE",
         buildPrompt: () => ({ text: "¿Qué precio tiene?" }),
+        getCurrentValue: (draft, loopStack) => topLoop(loopStack)?.buffer?.price,
         apply: (draft, loopStack, value) => {
-            const loop = topLoop(loopStack);
+            const stack = ensureLoop(loopStack, "TICKETS", {});
+            const loop = topLoop(stack);
             const nextLoop = { ...loop, buffer: { ...loop.buffer, price: value } };
-            return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
+            return { draft, loopStack: replaceTopLoop(stack, nextLoop) };
         },
         next: () => "TICKET_QUANTITY",
     },
 
+    // "Commit" del tipo de entrada: upsert por _key en vez de un push ciego,
+    // así que si el usuario llega acá de nuevo con "Volver" (para revisar o
+    // corregir un tipo ya cargado) y confirma, actualiza ese mismo ítem en
+    // vez de duplicarlo. El buffer NO se limpia acá — sigue representando
+    // "la entrada que se está editando ahora mismo", así que si se vuelve a
+    // cualquier paso anterior de esta misma entrada (nombre, precio) los
+    // datos siguen disponibles para precargar y para el próximo commit.
     TICKET_QUANTITY: {
         id: "TICKET_QUANTITY",
         inputType: "POSITIVE_INT",
         buildPrompt: () => ({ text: "¿Cuántas hay disponibles?" }),
+        getCurrentValue: (draft, loopStack) => topLoop(loopStack)?.buffer?.quantity,
         apply: (draft, loopStack, value) => {
-            const loop = topLoop(loopStack);
+            const stack = ensureLoop(loopStack, "TICKETS", {});
+            const loop = topLoop(stack);
             const completedTicket = { ...loop.buffer, quantity: value };
-            const ticketTypes = [...draft.ticketTypes, completedTicket];
-            const nextLoop = { ...loop, buffer: {} };
+            const ticketTypes = upsertLoopItem(draft.ticketTypes, completedTicket);
+            const nextLoop = { ...loop, buffer: completedTicket };
             return {
                 draft: { ...draft, ticketTypes },
-                loopStack: replaceTopLoop(loopStack, nextLoop),
+                loopStack: replaceTopLoop(stack, nextLoop),
             };
         },
         next: () => "ADD_ANOTHER_TICKET",
@@ -354,7 +418,13 @@ export const STEPS = {
         }),
         apply: (draft, loopStack, value) => ({
             draft,
-            loopStack: value === "ADD" ? loopStack : loopStack.slice(0, -1),
+            // Recién acá arranca un ítem realmente nuevo: se limpia el
+            // buffer (con él, su _key) para que la próxima entrada no herede
+            // la identidad de la anterior.
+            loopStack:
+                value === "ADD"
+                    ? replaceTopLoop(loopStack, { ...topLoop(loopStack), buffer: {} })
+                    : loopStack.slice(0, -1),
         }),
         next: (draft, loopStack, value) => (value === "ADD" ? "TICKET_NAME" : "PROMO_VIDEO_ASK"),
     },
@@ -390,29 +460,35 @@ export const STEPS = {
         id: "SOCIAL_NETWORK",
         inputType: "SINGLE_SELECT",
         buildPrompt: () => ({ text: "¿Qué red querés agregar?", options: socialNetworkOptions() }),
+        getCurrentValue: (draft, loopStack) => topLoop(loopStack)?.buffer?.network,
         apply: (draft, loopStack, value) => {
-            const loop = topLoop(loopStack);
-            const nextLoop = { ...loop, buffer: { ...loop.buffer, network: value } };
-            return { draft, loopStack: replaceTopLoop(loopStack, nextLoop) };
+            const stack = ensureLoop(loopStack, "SOCIALS", {});
+            const loop = topLoop(stack);
+            const nextLoop = { ...loop, buffer: { ...withLoopItemKey(loop.buffer), network: value } };
+            return { draft, loopStack: replaceTopLoop(stack, nextLoop) };
         },
         next: () => "SOCIAL_URL",
     },
 
+    // Mismo criterio que TICKET_QUANTITY: upsert por _key, buffer no se
+    // limpia acá (sigue siendo "el link que se está editando ahora").
     SOCIAL_URL: {
         id: "SOCIAL_URL",
         inputType: "URL",
         buildPrompt: (draft, loopStack) => {
             const loop = topLoop(loopStack);
-            return { text: `Pasame el link de ${loop.buffer.network}.` };
+            return { text: `Pasame el link de ${loop?.buffer?.network ?? "esa red"}.` };
         },
+        getCurrentValue: (draft, loopStack) => topLoop(loopStack)?.buffer?.url,
         apply: (draft, loopStack, value) => {
-            const loop = topLoop(loopStack);
+            const stack = ensureLoop(loopStack, "SOCIALS", {});
+            const loop = topLoop(stack);
             const completedLink = { ...loop.buffer, url: value };
-            const socialLinks = [...draft.socialLinks, completedLink];
-            const nextLoop = { ...loop, buffer: {} };
+            const socialLinks = upsertLoopItem(draft.socialLinks, completedLink);
+            const nextLoop = { ...loop, buffer: completedLink };
             return {
                 draft: { ...draft, socialLinks },
-                loopStack: replaceTopLoop(loopStack, nextLoop),
+                loopStack: replaceTopLoop(stack, nextLoop),
             };
         },
         next: () => "ADD_ANOTHER_SOCIAL",
@@ -424,7 +500,11 @@ export const STEPS = {
         buildPrompt: () => ({ text: "¿Querés agregar otra red?" }),
         apply: (draft, loopStack, value) => ({
             draft,
-            loopStack: value ? loopStack : loopStack.slice(0, -1),
+            // Recién acá arranca un link realmente nuevo: se limpia el
+            // buffer (y su _key) para no heredar la identidad del anterior.
+            loopStack: value
+                ? replaceTopLoop(loopStack, { ...topLoop(loopStack), buffer: {} })
+                : loopStack.slice(0, -1),
         }),
         next: (draft, loopStack, value) => (value ? "SOCIAL_NETWORK" : "PREVIEW"),
     },
