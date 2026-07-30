@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
+import LoadingOverlay from "../../components/ui/LoadingOverlay.jsx";
 import { Field, inputClass, textareaClass } from "../../components/ui/FormField.jsx";
 import ImageUploader from "../../components/ui/ImageUploader.jsx";
 import { apiFetch } from "../../lib/api.js";
@@ -137,6 +138,7 @@ export default function OrganizerEventWizard() {
   const [loading, setLoading] = useState(isEditing);
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [submitError, setSubmitError] = useState("");
 
   useEffect(() => {
@@ -665,6 +667,7 @@ export default function OrganizerEventWizard() {
     }
 
     setSubmitting(true);
+    setPublishing(true);
     setSubmitError("");
 
     try {
@@ -679,11 +682,11 @@ export default function OrganizerEventWizard() {
       setSubmitError(err.message || "No pudimos publicar el evento. Probá de nuevo.");
     } finally {
       setSubmitting(false);
+      setPublishing(false);
     }
   }
 
-  let publishButtonLabel = isEditing ? "Guardar y publicar" : "Publicar";
-  if (submitting) publishButtonLabel = "Publicando...";
+  const publishButtonLabel = isEditing ? "Guardar y publicar" : "Publicar";
 
   if (loading) {
     return (
@@ -1012,7 +1015,12 @@ export default function OrganizerEventWizard() {
 
           <div className="flex flex-wrap items-center justify-end gap-2">
             {step < STEPS.length && (
-              <Button type="button" variant={isEditing ? "secondary" : "primary"} onClick={goNext}>
+              <Button
+                type="button"
+                variant={isEditing ? "secondary" : "primary"}
+                onClick={goNext}
+                disabled={submitting}
+              >
                 Continuar
                 <ChevronRight className="h-4 w-4" />
               </Button>
@@ -1026,13 +1034,17 @@ export default function OrganizerEventWizard() {
                   type="button"
                   variant="secondary"
                   onClick={handleSaveDraft}
+                  loading={submitting && !publishing}
+                  loadingText="Guardando..."
                   disabled={submitting}
                 >
-                  {submitting ? "Guardando..." : "Guardar borrador"}
+                  Guardar borrador
                 </Button>
                 <Button
                   type="button"
                   onClick={handlePublish}
+                  loading={publishing}
+                  loadingText={publishButtonLabel}
                   disabled={submitting || !canPublish}
                   title={!canPublish ? "Tu organización todavía no fue aprobada" : undefined}
                 >
@@ -1043,6 +1055,12 @@ export default function OrganizerEventWizard() {
           </div>
         </div>
       </Card>
+
+      <LoadingOverlay
+        open={publishing}
+        title="🎭 Publicando tu evento..."
+        message="Estamos preparando tu evento para que aparezca en PaseCultural. Esto puede tardar unos segundos."
+      />
     </div>
   );
 }

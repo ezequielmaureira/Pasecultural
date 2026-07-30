@@ -1,3 +1,5 @@
+import Spinner from "./Spinner.jsx";
+
 const VARIANT_CLASSES = {
   primary: "bg-violet-600 text-white hover:bg-violet-500",
   secondary: "bg-white/10 text-gray-100 hover:bg-white/15",
@@ -10,19 +12,46 @@ const SIZE_CLASSES = {
   lg: "h-12 px-6 text-base",
 };
 
+const SPINNER_SIZE_BY_BUTTON_SIZE = {
+  sm: "xs",
+  md: "sm",
+  lg: "sm",
+};
+
+const SPINNER_TONE_BY_VARIANT = {
+  primary: "border-white/30 border-t-white",
+  secondary: "border-white/20 border-t-gray-100",
+  ghost: "border-slate-500/40 border-t-slate-200",
+};
+
+// `loading` es el estado reutilizable para cualquier accion asincrona
+// (guardar, continuar, publicar, etc.): deshabilita el boton, evita clicks
+// duplicados y muestra un spinner + texto temporal en vez de dejarlo
+// "presionado" sin feedback. Pensado para reemplazar los distintos
+// isSubmitting/submitting sueltos que ya existian por formulario.
 export default function Button({
   children,
   variant = "primary",
   size = "md",
   className = "",
+  loading = false,
+  loadingText,
+  disabled = false,
   ...props
 }) {
+  const isDisabled = disabled || loading;
+
   return (
     <button
       className={`inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]} ${className}`}
+      disabled={isDisabled}
+      aria-busy={loading || undefined}
       {...props}
     >
-      {children}
+      {loading && (
+        <Spinner size={SPINNER_SIZE_BY_BUTTON_SIZE[size]} toneClassName={SPINNER_TONE_BY_VARIANT[variant]} />
+      )}
+      {loading && loadingText ? loadingText : children}
     </button>
   );
 }
