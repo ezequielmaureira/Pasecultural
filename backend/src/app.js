@@ -8,6 +8,7 @@ import organizationRoutes from "./routes/organization.routes.js";
 import mediaRoutes from "./routes/media.routes.js";
 import eventRoutes from "./routes/event.routes.js";
 import conversationRoutes from "./routes/conversation.routes.js";
+import { errorHandler } from "./errors/index.js";
 
 const app = express();
 
@@ -30,5 +31,13 @@ app.use("/api/organizations", organizationRoutes);
 app.use("/api/media", mediaRoutes);
 app.use("/api/events", eventRoutes);
 app.use("/api/conversations", conversationRoutes);
+
+// Único middleware de manejo de errores de toda la app: se registra al
+// final para que Express lo use como fallback de cualquier error que
+// llegue por next(error) (o que Express 5 reenvíe automáticamente desde un
+// handler async). Todavía ningún controller llama a next(error)
+// explícitamente, así que este paso es aditivo puro: no cambia ninguna
+// respuesta existente.
+app.use(errorHandler);
 
 export default app;
