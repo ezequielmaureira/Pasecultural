@@ -55,6 +55,10 @@ export const STEPS = {
         id: "NAME",
         inputType: "SHORT_TEXT",
         buildPrompt: () => ({ text: "¿Cómo se llama tu evento?" }),
+        // Precarga lo ya cargado: si el organizador vuelve a esta pregunta
+        // (botón "Volver" o "Editar" desde el preview), no la ve en blanco
+        // y tiene que retipear lo que ya había puesto.
+        getCurrentValue: (draft) => draft.title,
         apply: (draft, loopStack, value) => ({ draft: { ...draft, title: value }, loopStack }),
         next: () => "DESCRIPTION",
     },
@@ -63,6 +67,7 @@ export const STEPS = {
         id: "DESCRIPTION",
         inputType: "SHORT_TEXT",
         buildPrompt: () => ({ text: "Contanos de qué trata tu evento." }),
+        getCurrentValue: (draft) => draft.description,
         apply: (draft, loopStack, value) => ({ draft: { ...draft, description: value }, loopStack }),
         next: () => "CATEGORY",
     },
@@ -71,6 +76,7 @@ export const STEPS = {
         id: "CATEGORY",
         inputType: "SINGLE_SELECT",
         buildPrompt: () => ({ text: "Elegí la categoría de tu evento.", options: categoryOptions() }),
+        getCurrentValue: (draft) => draft.category,
         apply: (draft, loopStack, value) => ({ draft: { ...draft, category: value }, loopStack }),
         next: (draft) => (draft.category === "OTRO" ? "CUSTOM_CATEGORY" : "COVER_IMAGE"),
     },
@@ -79,6 +85,7 @@ export const STEPS = {
         id: "CUSTOM_CATEGORY",
         inputType: "SHORT_TEXT",
         buildPrompt: () => ({ text: "Contanos de qué categoría se trata." }),
+        getCurrentValue: (draft) => draft.customCategory,
         apply: (draft, loopStack, value) => ({ draft: { ...draft, customCategory: value }, loopStack }),
         next: () => "COVER_IMAGE",
     },
@@ -91,6 +98,7 @@ export const STEPS = {
         // vez de seguir el orden normal de creación (ver EventCreationEngine).
         editReturnsToPreview: true,
         buildPrompt: () => ({ text: "Mandame la imagen principal de tu evento." }),
+        getCurrentValue: (draft) => draft.coverImage,
         apply: (draft, loopStack, value) => ({ draft: { ...draft, coverImage: value }, loopStack }),
         next: () => "LOCATION",
     },
@@ -99,6 +107,7 @@ export const STEPS = {
         id: "LOCATION",
         inputType: "LOCATION",
         buildPrompt: () => ({ text: "¿Dónde es el evento? Necesito dirección, ciudad y provincia." }),
+        getCurrentValue: (draft) => draft.location,
         apply: (draft, loopStack, value) => ({ draft: { ...draft, location: value }, loopStack }),
         next: () => "FUNCTIONS_MODE",
     },

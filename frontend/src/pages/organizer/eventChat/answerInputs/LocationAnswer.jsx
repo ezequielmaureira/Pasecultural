@@ -22,6 +22,24 @@ function toEngineLocation(location) {
   };
 }
 
+// Inversa de toEngineLocation: si el organizador vuelve a esta pregunta con
+// una ubicación ya cargada (Volver / Editar desde el preview), se precarga
+// en vez de mostrar el picker vacío y obligar a elegirla de nuevo.
+function fromEngineLocation(location) {
+  return {
+    venueName: location.venueName || "",
+    formattedAddress: location.address || "",
+    addressLine: location.address || "",
+    city: location.city || "",
+    province: location.province || "",
+    country: location.country || "",
+    postalCode: "",
+    latitude: location.latitude ?? null,
+    longitude: location.longitude ?? null,
+    googlePlaceId: location.googlePlaceId || "",
+  };
+}
+
 // Fallback sin mapa: se usa sólo si Google Maps no está disponible (ej. facturación
 // todavía sin propagar en Google Cloud). No agrega un segundo proveedor de mapas
 // -sigue siendo exclusivamente Google-, sólo permite tipear la dirección a mano
@@ -69,8 +87,10 @@ function ManualLocationForm({ location, onChange }) {
   );
 }
 
-export default function LocationAnswer({ onSubmit, disabled }) {
-  const [location, setLocation] = useState(createEmptyLocation());
+export default function LocationAnswer({ onSubmit, disabled, currentValue }) {
+  const [location, setLocation] = useState(() =>
+    currentValue ? fromEngineLocation(currentValue) : createEmptyLocation()
+  );
   const [manualMode, setManualMode] = useState(false);
 
   const canSubmit = manualMode

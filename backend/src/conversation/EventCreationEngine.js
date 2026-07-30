@@ -19,7 +19,8 @@ function buildPrompt(stepId, draft, loopStack) {
     // datos extra (la lista de funciones armada hasta el momento) sin que el
     // motor tenga que conocer esos campos.
     const { text, ...extra } = step.buildPrompt(draft, loopStack);
-    return { stepId, type: "QUESTION", text, inputType: step.inputType, ...extra };
+    const currentValue = step.getCurrentValue ? step.getCurrentValue(draft, loopStack) : undefined;
+    return { stepId, type: "QUESTION", text, inputType: step.inputType, currentValue, ...extra };
 }
 
 function toConversationResult(state) {

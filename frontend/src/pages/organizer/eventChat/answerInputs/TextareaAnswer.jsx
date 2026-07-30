@@ -3,8 +3,8 @@ import { ArrowRight } from "lucide-react";
 import Button from "../../../../components/ui/Button.jsx";
 import { textareaClass } from "../../../../components/ui/FormField.jsx";
 
-export default function TextareaAnswer({ onSubmit, disabled }) {
-  const [value, setValue] = useState("");
+export default function TextareaAnswer({ onSubmit, disabled, currentValue }) {
+  const [value, setValue] = useState(currentValue ?? "");
 
   function submit() {
     if (!value.trim() || disabled) return;
