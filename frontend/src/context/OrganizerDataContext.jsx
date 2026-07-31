@@ -1,73 +1,67 @@
-import { createContext, useContext, useMemo, useState } from "react";
-import {
-  INITIAL_EVENTS,
-  INITIAL_SALES,
-  INITIAL_SCANNERS,
-  RECENT_SCANS,
-  EVENT_STATUS,
-} from "../data/organizerMockData.js";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useAuth } from "@clerk/clerk-react";
+import { apiFetch } from "../lib/api.js";
 
 const OrganizerDataContext = createContext(null);
 
+// Única fuente de datos del panel de organizador para todo lo que no tiene
+// su propio fetch dedicado (Dashboard, Entradas). `events` viene siempre de
+// la API real — nunca hay datos de ejemplo precargados acá.
+//
+// `sales` y `recentScans` quedan intencionalmente vacíos: todavía no existe
+// un sistema de ventas/escaneos en el backend (no hay endpoint de órdenes ni
+// de escaneos), así que mostrar algo ahí sería inventar información. En
+// cuanto exista ese backend, esto pasa a fetchear igual que `events`.
+//
+// `scanners` tampoco tiene backend propio todavía: alta/baja/edición viven
+// sólo en memoria de esta sesión (se pierden al recargar la página) — no
+// hay ningún scanner de ejemplo precargado, sólo lo que el organizador
+// agregue durante la sesión actual.
 export function OrganizerDataProvider({ children }) {
-  const [events, setEvents] = useState(INITIAL_EVENTS);
-  const [sales] = useState(INITIAL_SALES);
-  const [scanners, setScanners] = useState(INITIAL_SCANNERS);
+  const { getToken } = useAuth();
+  const [events, setEvents] = useState([]);
+  const [loadingEvents, setLoadingEvents] = useState(true);
+  const [sales] = useState([]);
+  const [recentScans] = useState([]);
+  const [scanners, setScanners] = useState([]);
 
-  function addEvent(event) {
-    const id = `ev-${Date.now()}`;
-    setEvents((prev) => [...prev, { ...event, id }]);
-    return id;
-  }
+  const loadEvents = useCallback(async () => {
+    setLoadingEvents(true);
+    try {
+      const token = await getToken();
+      const { events: list } = await apiFetch("/api/events/mine", { token });
+      // "/mine" no trae ticketTypes/functions (es un listado liviano):
+      // se completa cada evento con su detalle real para que Dashboard y
+      // Entradas puedan mostrar tipos de entrada sin inventar nada.
+      const detailed = await Promise.all(
+        list.map((event) =>
+          apiFetch(`/api/events/${event.id}`, { token })
+            .then((res) => res.event)
+            .catch(() => event)
+        )
+      );
+      setEvents(detailed);
+    } catch (error) {
+      console.error("No se pudieron cargar los eventos del organizador", error);
+      setEvents([]);
+    } finally {
+      setLoadingEvents(false);
+    }
+  }, [getToken]);
 
-  function updateEvent(id, patch) {
-    setEvents((prev) =>
-      prev.map((event) => (event.id === id ? { ...event, ...patch } : event))
-    );
-  }
-
-  function removeEvent(id) {
-    setEvents((prev) => prev.filter((event) => event.id !== id));
-  }
-
-  function duplicateEvent(id) {
-    setEvents((prev) => {
-      const source = prev.find((event) => event.id === id);
-      if (!source) return prev;
-      const copy = {
-        ...source,
-        id: `ev-${Date.now()}`,
-        name: `${source.name} (copia)`,
-        status: EVENT_STATUS.DRAFT,
-        ticketTypes: source.ticketTypes.map((tt) => ({
-          ...tt,
-          id: `tt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          sold: 0,
-        })),
-      };
-      return [...prev, copy];
-    });
-  }
+  useEffect(() => {
+    loadEvents();
+  }, [loadEvents]);
 
   function addScanner(scanner) {
     setScanners((prev) => [
       ...prev,
-      {
-        id: `sc-${Date.now()}`,
-        status: "Activo",
-        lastAccess: null,
-        assignedEvents: [],
-        ...scanner,
-      },
+      { id: `sc-${Date.now()}`, status: "Activo", lastAccess: null, assignedEvents: [], ...scanner },
     ]);
   }
 
   function updateScanner(id, patch) {
-    setScanners((prev) =>
-      prev.map((scanner) =>
-        scanner.id === id ? { ...scanner, ...patch } : scanner
-      )
-    );
+    setScanners((prev) => prev.map((scanner) => (scanner.id === id ? { ...scanner, ...patch } : scanner)));
   }
 
   function removeScanner(id) {
@@ -77,33 +71,25 @@ export function OrganizerDataProvider({ children }) {
   const value = useMemo(
     () => ({
       events,
+      loadingEvents,
+      reloadEvents: loadEvents,
       sales,
       scanners,
-      recentScans: RECENT_SCANS,
-      addEvent,
-      updateEvent,
-      removeEvent,
-      duplicateEvent,
+      recentScans,
       addScanner,
       updateScanner,
       removeScanner,
     }),
-    [events, sales, scanners]
+    [events, loadingEvents, loadEvents, sales, scanners, recentScans]
   );
 
-  return (
-    <OrganizerDataContext.Provider value={value}>
-      {children}
-    </OrganizerDataContext.Provider>
-  );
+  return <OrganizerDataContext.Provider value={value}>{children}</OrganizerDataContext.Provider>;
 }
 
 export function useOrganizerData() {
   const ctx = useContext(OrganizerDataContext);
   if (!ctx) {
-    throw new Error(
-      "useOrganizerData debe usarse dentro de OrganizerDataProvider"
-    );
+    throw new Error("useOrganizerData debe usarse dentro de OrganizerDataProvider");
   }
   return ctx;
 }

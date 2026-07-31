@@ -9,10 +9,11 @@ import {
   TicketX,
   DollarSign,
   TrendingUp,
+  Receipt,
+  ScanLine,
 } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
-import { EVENT_STATUS } from "../../data/organizerMockData.js";
 import { apiFetch } from "../../lib/api.js";
 
 const ORG_STATUS_BANNER = {
@@ -107,26 +108,46 @@ function currency(value) {
   return `$${Number(value).toLocaleString("es-AR")}`;
 }
 
-export default function OrganizerDashboard() {
-  const { events, sales, recentScans } = useOrganizerData();
-
-  const activeEvents = events.filter((e) => e.status === EVENT_STATUS.PUBLISHED);
-  const finishedEvents = events.filter((e) => e.status === EVENT_STATUS.FINISHED);
-
-  const allTicketTypes = events.flatMap((e) => e.ticketTypes);
-  const ticketsSold = allTicketTypes.reduce((sum, tt) => sum + (tt.sold ?? 0), 0);
-  const ticketsAvailable = allTicketTypes.reduce(
-    (sum, tt) => sum + (tt.stock - (tt.sold ?? 0)),
-    0
+function StatsSkeleton() {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <Card key={i}>
+          <div className="h-4 w-28 animate-pulse rounded bg-white/10" />
+          <div className="mt-3 h-7 w-16 animate-pulse rounded bg-white/5" />
+        </Card>
+      ))}
+    </div>
   );
+}
+
+function PanelEmptyState({ icon: Icon, children }) {
+  return (
+    <div className="flex flex-col items-center gap-2 py-6 text-center">
+      <Icon className="h-6 w-6 text-slate-600" />
+      <p className="text-sm text-slate-500">{children}</p>
+    </div>
+  );
+}
+
+export default function OrganizerDashboard() {
+  const { events, loadingEvents, sales, recentScans } = useOrganizerData();
+
+  const activeEvents = events.filter((e) => e.status === "PUBLISHED");
+  const finishedEvents = events.filter((e) => e.status === "FINISHED");
+
+  const allTicketTypes = events.flatMap((e) => e.ticketTypes ?? []);
+  // No hay backend de ventas todavía (ver OrganizerDataContext): "vendidas"
+  // se calcula sobre `sales`, que hoy siempre está vacío — el 0 que se ve acá
+  // es real, no un placeholder.
+  const ticketsSold = sales.reduce((sum, s) => sum + (s.quantity ?? 0), 0);
+  const ticketsAvailable = allTicketTypes.reduce((sum, tt) => sum + (tt.quantity ?? 0), 0);
 
   const approvedSales = sales.filter((s) => s.status === "Aprobada");
   const totalRevenue = approvedSales.reduce((sum, s) => sum + s.amount, 0);
-  const latestMonth = sales
-    .reduce((max, s) => (s.date > max ? s.date : max), sales[0]?.date ?? "")
-    .slice(0, 7);
+  const currentMonth = new Date().toISOString().slice(0, 7);
   const monthRevenue = approvedSales
-    .filter((s) => s.date.slice(0, 7) === latestMonth)
+    .filter((s) => s.date?.slice(0, 7) === currentMonth)
     .reduce((sum, s) => sum + s.amount, 0);
 
   const STATS = [
@@ -139,11 +160,12 @@ export default function OrganizerDashboard() {
   ];
 
   const upcomingEvents = [...activeEvents]
-    .sort((a, b) => a.date.localeCompare(b.date))
+    .filter((e) => e.startDate)
+    .sort((a, b) => new Date(a.startDate) - new Date(b.startDate))
     .slice(0, 3);
 
   const latestSales = [...sales]
-    .sort((a, b) => b.date.localeCompare(a.date))
+    .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""))
     .slice(0, 4);
 
   return (
@@ -157,17 +179,21 @@ export default function OrganizerDashboard() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {STATS.map(({ label, value, icon: Icon }) => (
-          <Card key={label}>
-            <div className="flex items-center gap-2 text-sm text-slate-400">
-              <Icon className="h-4 w-4" />
-              {label}
-            </div>
-            <p className="mt-3 text-2xl font-bold text-white">{value}</p>
-          </Card>
-        ))}
-      </div>
+      {loadingEvents ? (
+        <StatsSkeleton />
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {STATS.map(({ label, value, icon: Icon }) => (
+            <Card key={label}>
+              <div className="flex items-center gap-2 text-sm text-slate-400">
+                <Icon className="h-4 w-4" />
+                {label}
+              </div>
+              <p className="mt-3 text-2xl font-bold text-white">{value}</p>
+            </Card>
+          ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card>
@@ -184,14 +210,18 @@ export default function OrganizerDashboard() {
             {upcomingEvents.map((event) => (
               <div key={event.id} className="py-3 first:pt-0 last:pb-0">
                 <p className="truncate text-sm font-medium text-white">
-                  {event.name}
+                  {event.title}
                 </p>
                 <p className="text-xs text-slate-500">
-                  {event.date} · {event.time}
+                  {new Date(event.startDate).toLocaleDateString("es-AR", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "numeric",
+                  })}
                 </p>
               </div>
             ))}
-            {upcomingEvents.length === 0 && (
+            {!loadingEvents && upcomingEvents.length === 0 && (
               <p className="py-3 text-sm text-slate-500">
                 No hay eventos publicados.
               </p>
@@ -209,22 +239,28 @@ export default function OrganizerDashboard() {
               Ver todas
             </Link>
           </div>
-          <div className="flex flex-col divide-y divide-white/10">
-            {latestSales.map((sale) => (
-              <div
-                key={sale.id}
-                className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-white">
-                    {sale.buyer}
-                  </p>
-                  <p className="text-xs text-slate-500">{sale.event}</p>
+          {latestSales.length === 0 ? (
+            <PanelEmptyState icon={Receipt}>
+              Todavía no registrás ventas.
+            </PanelEmptyState>
+          ) : (
+            <div className="flex flex-col divide-y divide-white/10">
+              {latestSales.map((sale) => (
+                <div
+                  key={sale.id}
+                  className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-white">
+                      {sale.buyer}
+                    </p>
+                    <p className="text-xs text-slate-500">{sale.event}</p>
+                  </div>
+                  <Pill>{sale.status}</Pill>
                 </div>
-                <Pill>{sale.status}</Pill>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </Card>
 
         <Card>
@@ -239,24 +275,30 @@ export default function OrganizerDashboard() {
               Ver scanners
             </Link>
           </div>
-          <div className="flex flex-col divide-y divide-white/10">
-            {recentScans.map((scan) => (
-              <div
-                key={scan.code}
-                className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-mono text-sm text-white">
-                    {scan.code}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {scan.event} · {scan.time}
-                  </p>
+          {recentScans.length === 0 ? (
+            <PanelEmptyState icon={ScanLine}>
+              Todavía no se escaneó ninguna entrada.
+            </PanelEmptyState>
+          ) : (
+            <div className="flex flex-col divide-y divide-white/10">
+              {recentScans.map((scan) => (
+                <div
+                  key={scan.code}
+                  className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-mono text-sm text-white">
+                      {scan.code}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {scan.event} · {scan.time}
+                    </p>
+                  </div>
+                  <Pill>{scan.status}</Pill>
                 </div>
-                <Pill>{scan.status}</Pill>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </Card>
       </div>
     </div>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Power, Trash2, CalendarPlus } from "lucide-react";
+import { Plus, Power, Trash2, CalendarPlus, ScanLine } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
 import Modal from "../../components/ui/Modal.jsx";
@@ -201,6 +201,22 @@ export default function OrganizerScanners() {
                   </td>
                 </tr>
               ))}
+              {scanners.length === 0 && (
+                <tr>
+                  <td className="px-6 py-12" colSpan={5}>
+                    <div className="flex flex-col items-center gap-3 text-center">
+                      <ScanLine className="h-8 w-8 text-slate-600" />
+                      <p className="text-sm text-slate-400">
+                        No agregaste ningún scanner.
+                      </p>
+                      <Button size="sm" onClick={() => setShowForm(true)}>
+                        <Plus className="h-4 w-4" />
+                        Invitar mi primer scanner
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

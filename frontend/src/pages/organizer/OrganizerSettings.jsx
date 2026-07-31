@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
-import { Check } from "lucide-react";
+import { Check, Landmark } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
 import ImageUploader from "../../components/ui/ImageUploader.jsx";
@@ -30,17 +30,10 @@ const EMPTY_ORG = {
   description: "",
 };
 
-const INITIAL_BANK = {
-  mercadoPagoConnected: false,
-  cbu: "",
-  alias: "",
-};
-
 export default function OrganizerSettings() {
   const { getToken } = useAuth();
   const toast = useToast();
   const [org, setOrg] = useState(EMPTY_ORG);
-  const [bank, setBank] = useState(INITIAL_BANK);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -82,10 +75,6 @@ export default function OrganizerSettings() {
   function setOrgField(key, value) {
     setOrg((prev) => ({ ...prev, [key]: value }));
     setSavedAt(null);
-  }
-
-  function setBankField(key, value) {
-    setBank((prev) => ({ ...prev, [key]: value }));
   }
 
   async function handleSave(event) {
@@ -220,43 +209,19 @@ export default function OrganizerSettings() {
       </Card>
 
       <Card title="Datos bancarios">
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between rounded-lg border border-white/10 p-4">
-            <div>
-              <p className="text-sm font-medium text-white">Mercado Pago</p>
-              <p className="text-xs text-slate-500">
-                {bank.mercadoPagoConnected
-                  ? "Cuenta conectada"
-                  : "No conectado"}
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() =>
-                setBankField("mercadoPagoConnected", !bank.mercadoPagoConnected)
-              }
-            >
-              {bank.mercadoPagoConnected ? "Desconectar" : "Conectar"}
-            </Button>
+        {/* Todavía no hay integración real de cobro (ni Mercado Pago ni
+            CBU/alias persistidos en el backend) — se muestra como
+            "Próximamente" en vez de un toggle que no conecta nada de
+            verdad y campos que no llegaban a guardarse. */}
+        <div className="flex items-center gap-4 rounded-lg border border-dashed border-white/10 p-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/5">
+            <Landmark className="h-5 w-5 text-slate-500" />
           </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="CBU">
-              <input
-                className={inputClass}
-                value={bank.cbu}
-                onChange={(e) => setBankField("cbu", e.target.value)}
-                placeholder="0000000000000000000000"
-              />
-            </Field>
-            <Field label="Alias">
-              <input
-                className={inputClass}
-                value={bank.alias}
-                onChange={(e) => setBankField("alias", e.target.value)}
-                placeholder="mi.alias.mp"
-              />
-            </Field>
+          <div>
+            <p className="text-sm font-medium text-white">Cobros con Mercado Pago</p>
+            <p className="text-xs text-slate-500">
+              Próximamente vas a poder conectar tu cuenta y recibir el dinero de tus ventas acá.
+            </p>
           </div>
         </div>
       </Card>
