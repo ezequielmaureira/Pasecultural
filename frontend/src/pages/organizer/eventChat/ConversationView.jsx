@@ -13,7 +13,7 @@ import ConfirmDialog from "../../../components/ui/ConfirmDialog.jsx";
 import LoadingOverlay from "../../../components/ui/LoadingOverlay.jsx";
 import { useToast } from "../../../context/ToastContext.jsx";
 import { NEW_EVENT_REQUEST_EVENT } from "../../../lib/eventChatEvents.js";
-import ProgressHeader from "./ProgressHeader.jsx";
+import SectionsNav from "./SectionsNav.jsx";
 import QuestionRenderer from "./QuestionRenderer.jsx";
 import PreviewCard from "./PreviewCard.jsx";
 
@@ -31,6 +31,7 @@ export default function ConversationView({ onDone }) {
   const startFresh = Boolean(location.state?.fresh);
   const [conversationId, setConversationId] = useState(null);
   const [prompt, setPrompt] = useState(null);
+  const [sections, setSections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -75,6 +76,7 @@ export default function ConversationView({ onDone }) {
       setConversationId(result.conversationId);
       setPrompt(result.prompt);
       setCanGoBack(Boolean(result.canGoBack));
+      setSections(result.sections ?? []);
       setLastSocialNetwork(null);
       setSubmitting(false);
       setPublishing(false);
@@ -157,6 +159,7 @@ export default function ConversationView({ onDone }) {
             setConversationId(result.conversationId);
             setPrompt(result.prompt);
             setCanGoBack(Boolean(result.canGoBack));
+            setSections(result.sections ?? []);
             setLoading(false);
           } catch {
             // La conversación guardada ya no es válida (ej. quedó parada en
@@ -201,6 +204,7 @@ export default function ConversationView({ onDone }) {
 
       setPrompt(result.prompt);
       setCanGoBack(Boolean(result.canGoBack));
+      setSections(result.sections ?? []);
     } catch (err) {
       setPrompt((prev) => ({ ...prev, error: err.message || "Algo salió mal, intentá de nuevo." }));
     } finally {
@@ -216,6 +220,14 @@ export default function ConversationView({ onDone }) {
 
   function handleBack() {
     send({ action: "BACK" });
+  }
+
+  // Único punto de entrada del navegador de secciones: clickear una sección
+  // ya alcanzada es, para el motor, exactamente lo mismo que "Editar" desde
+  // el preview — un GOTO al primer paso de esa sección, sin tocar el resto
+  // del evento (ver EventCreationEngine.handleGoto).
+  function handleGoto(stepId) {
+    send({ action: "GOTO", stepId });
   }
 
   if (loading) {
@@ -279,6 +291,7 @@ export default function ConversationView({ onDone }) {
   if (prompt.type === "PREVIEW") {
     return (
       <div ref={questionRef} className="flex w-full flex-1 flex-col items-center gap-4 py-8">
+        <SectionsNav sections={sections} onSelect={handleGoto} disabled={submitting} />
         {discardButton}
         {canGoBack && (
           <button
@@ -297,7 +310,7 @@ export default function ConversationView({ onDone }) {
           submitting={submitting}
           publishing={publishing}
           error={prompt.error}
-          onEdit={(stepId) => send({ action: "EDIT", stepId })}
+          onEdit={handleGoto}
           onSaveDraft={() => send({ action: "DRAFT" })}
           onPublish={() => send({ action: "PUBLISH" })}
         />
@@ -314,8 +327,8 @@ export default function ConversationView({ onDone }) {
 
   return (
     <div className="flex w-full flex-1 flex-col items-center justify-center gap-6 py-8">
+      <SectionsNav sections={sections} onSelect={handleGoto} disabled={submitting} />
       {discardButton}
-      <ProgressHeader stepId={prompt.stepId} />
 
       <div
         key={`${conversationId}-${prompt.stepId}`}

@@ -1,5 +1,6 @@
 import prisma from "../config/prisma.js";
 import { FIRST_STEP_ID, PREVIEW_STEP_ID, getStep } from "./steps/definitions.js";
+import { SECTIONS } from "./steps/sections.js";
 import { getInputHandler } from "./inputHandlers/index.js";
 import * as EventServicePort from "./EventServicePort.js";
 
@@ -53,11 +54,60 @@ function buildPrompt(stepId, draft) {
     return { stepId, type: "QUESTION", text, inputType: step.inputType, currentValue: step.getValue(draft), ...extra };
 }
 
+// Deriva el estado de cada sección (steps/sections.js) exclusivamente a
+// partir de `history` (qué stepIds se visitaron) y `currentStepId` — nunca
+// mira de qué trata cada paso, así que agregar una sección nueva (ej.
+// "Patrocinadores") no requiere tocar esta función.
+//
+// Cada sección se evalúa de forma independiente, por evidencia directa (¿se
+// visitó alguno de sus propios steps?) y no por posición en el array: el
+// orden de SECTIONS es el orden de *visualización* que pidió el organizador
+// (ej. "Fecha y hora" antes que "Ubicación"), que no necesariamente coincide
+// con el orden real en que el motor recorre los pasos (ej. la imagen se
+// pregunta antes que la ubicación). Inferir "completada" a partir de la
+// posición en el array asumiría que ambos órdenes coinciden, y no es así.
+//
+//  - "current" si el paso en el que está parado el usuario pertenece a ella.
+//  - "completed" si se visitó alguno de sus pasos en algún momento (todavía
+//    no distingue "completa" de "empezada pero incompleta" — eso queda para
+//    cuando se agregue validación de errores/campos faltantes, más adelante).
+//  - "pending" si nunca se visitó — y por lo tanto no navegable: el
+//    navegador de secciones no debe ofrecer saltar a algo que todavía no se
+//    alcanzó.
+function computeSectionStatuses(draftEvent, currentStepId, history) {
+    const currentSectionId =
+        currentStepId === PREVIEW_STEP_ID
+            ? "PUBLICACION"
+            : SECTIONS.find((section) => section.steps.includes(currentStepId))?.id;
+
+    const visited = new Set(history);
+
+    return SECTIONS.map((section) => {
+        const reached =
+            section.id === "PUBLICACION" ? visited.has(PREVIEW_STEP_ID) : section.steps.some((id) => visited.has(id));
+
+        let status = "pending";
+        if (section.id === currentSectionId) status = "current";
+        else if (reached) status = "completed";
+
+        return {
+            id: section.id,
+            label: section.label,
+            status,
+            // A dónde saltar si se hace click: el primer paso de la sección,
+            // salvo "Publicación" que no es un StepDefinition sino el estado
+            // especial PREVIEW.
+            targetStepId: section.id === "PUBLICACION" ? PREVIEW_STEP_ID : section.steps[0],
+        };
+    });
+}
+
 function toConversationResult(state) {
     return {
         conversationId: state.id,
         prompt: buildPrompt(state.currentStepId, state.draftEvent),
         canGoBack: state.history.length > 1,
+        sections: computeSectionStatuses(state.draftEvent, state.currentStepId, state.history),
     };
 }
 
@@ -173,6 +223,7 @@ async function handleBack(state) {
                 error: "Ya estás en la primera pregunta.",
             },
             canGoBack: false,
+            sections: computeSectionStatuses(state.draftEvent, state.currentStepId, state.history),
         };
     }
 
@@ -204,6 +255,7 @@ async function handlePreviewInput(state, rawInput) {
                 error: 'Elegí "PUBLISH", "DRAFT" o "EDIT".',
             },
             canGoBack: state.history.length > 1,
+            sections: computeSectionStatuses(state.draftEvent, state.currentStepId, state.history),
         };
     }
 
@@ -233,6 +285,7 @@ async function handlePreviewInput(state, rawInput) {
                 error: error.isConversational ? error.message : "No pudimos guardar el evento, intentá de nuevo.",
             },
             canGoBack: state.history.length > 1,
+            sections: computeSectionStatuses(state.draftEvent, state.currentStepId, state.history),
         };
     }
 }
@@ -264,6 +317,7 @@ export async function handleInput(conversationId, rawInput) {
             conversationId: state.id,
             prompt: { ...buildPrompt(state.currentStepId, state.draftEvent), error },
             canGoBack: state.history.length > 1,
+            sections: computeSectionStatuses(state.draftEvent, state.currentStepId, state.history),
         };
     }
 
