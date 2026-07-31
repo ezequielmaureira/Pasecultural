@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import prisma from "../config/prisma.js";
 import { generateUniqueSlug } from "../utils/generateSlug.js";
 import { canPublishEvents } from "../utils/organizationTrust.js";
@@ -321,49 +322,71 @@ export const syncEventScheduleService = async (clerkId, eventId, input) => {
         }
     }
 
+    // IDs generados acá (no delegados a @default(cuid()) de Prisma) para
+    // poder insertar en batch con `createMany` y de todas formas saber de
+    // antemano qué id le corresponde a cada fila — así se arman las
+    // asignaciones función↔tipo de entrada sin esperar la respuesta de cada
+    // INSERT uno por uno. Es sólo una clave primaria de tipo string; un
+    // uuid es tan válido como el cuid que generaba Prisma antes.
+    //
+    // `createdAt` se fija a mano y escalonado (1ms por fila, en el mismo
+    // orden en que ya se armaban antes) porque en un `createMany` todas las
+    // filas se insertan en el mismo instante: sin esto, el `ORDER BY
+    // createdAt` que ya usa EVENT_DETAIL_INCLUDE (y el resto de la app)
+    // dejaría de ser estable entre lecturas. Mismos datos, mismo orden.
+    const baseCreatedAt = Date.now();
+    let tick = 0;
+    const nextCreatedAt = () => new Date(baseCreatedAt + tick++);
+
+    const ticketTypeRows = ticketTypesInput.map((tt) => ({
+        id: randomUUID(),
+        ...buildTicketTypeData(tt),
+        eventId,
+        createdAt: nextCreatedAt(),
+    }));
+
+    const functionRows = [];
+    const assignmentRows = [];
+    for (const fn of functionsInput) {
+        const functionId = randomUUID();
+        functionRows.push({ id: functionId, ...buildFunctionData(fn), eventId, createdAt: nextCreatedAt() });
+
+        ticketTypeRows.forEach((ticketType, index) => {
+            const assignment = fn.ticketAssignments?.[index] ?? {};
+            assignmentRows.push({
+                id: randomUUID(),
+                functionId,
+                ticketTypeId: ticketType.id,
+                enabled: assignment.enabled ?? true,
+                priceOverride:
+                    assignment.priceOverride === undefined || assignment.priceOverride === null
+                        ? null
+                        : Number(assignment.priceOverride),
+                quantityOverride:
+                    assignment.quantityOverride === undefined || assignment.quantityOverride === null
+                        ? null
+                        : Number(assignment.quantityOverride),
+                visibleOverride:
+                    assignment.visibleOverride === undefined || assignment.visibleOverride === null
+                        ? null
+                        : Boolean(assignment.visibleOverride),
+                createdAt: nextCreatedAt(),
+            });
+        });
+    }
+
     await prisma.$transaction(async (tx) => {
         await tx.eventFunction.deleteMany({ where: { eventId } });
         await tx.ticketType.deleteMany({ where: { eventId } });
 
-        const createdTicketTypes = [];
-        for (const tt of ticketTypesInput) {
-            const created = await tx.ticketType.create({
-                data: { ...buildTicketTypeData(tt), eventId },
-            });
-            createdTicketTypes.push(created);
+        if (ticketTypeRows.length > 0) {
+            await tx.ticketType.createMany({ data: ticketTypeRows });
         }
-
-        for (const fn of functionsInput) {
-            await tx.eventFunction.create({
-                data: {
-                    ...buildFunctionData(fn),
-                    eventId,
-                    ticketAssignments: {
-                        create: createdTicketTypes.map((ticketType, index) => {
-                            const assignment = fn.ticketAssignments?.[index] ?? {};
-                            return {
-                                ticketTypeId: ticketType.id,
-                                enabled: assignment.enabled ?? true,
-                                priceOverride:
-                                    assignment.priceOverride === undefined ||
-                                    assignment.priceOverride === null
-                                        ? null
-                                        : Number(assignment.priceOverride),
-                                quantityOverride:
-                                    assignment.quantityOverride === undefined ||
-                                    assignment.quantityOverride === null
-                                        ? null
-                                        : Number(assignment.quantityOverride),
-                                visibleOverride:
-                                    assignment.visibleOverride === undefined ||
-                                    assignment.visibleOverride === null
-                                        ? null
-                                        : Boolean(assignment.visibleOverride),
-                            };
-                        }),
-                    },
-                },
-            });
+        if (functionRows.length > 0) {
+            await tx.eventFunction.createMany({ data: functionRows });
+        }
+        if (assignmentRows.length > 0) {
+            await tx.functionTicketType.createMany({ data: assignmentRows });
         }
 
         const summary = recomputeEventSummary(functionsInput, ticketTypesInput);

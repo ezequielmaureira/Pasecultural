@@ -62,6 +62,27 @@ export const cancelConversation = async (req, res) => {
     }
 };
 
+// Pensado para que el frontend confirme qué pasó realmente después de un
+// timeout de red en /reply — nunca decide nada, sólo refleja el estado ya
+// persistido (ver EventCreationEngine.getStatus).
+export const getConversationStatus = async (req, res) => {
+    try {
+        const { userId } = getAuth(req);
+        if (!userId) {
+            return res.status(401).json({ message: "No autenticado" });
+        }
+
+        const result = await EventCreationEngine.getStatus(req.params.id);
+        res.status(200).json(result);
+    } catch (error) {
+        if (error.message === "CONVERSATION_NOT_FOUND") {
+            return res.status(404).json({ message: "No encontramos esa conversación" });
+        }
+        console.error(error);
+        res.status(500).json({ message: "Error al consultar el estado de la conversación" });
+    }
+};
+
 export const getConversation = async (req, res) => {
     try {
         const { userId } = getAuth(req);

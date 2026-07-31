@@ -161,6 +161,23 @@ export async function cancel(conversationId, clerkId) {
     await prisma.conversationState.delete({ where: { id: conversationId } });
 }
 
+// Consulta liviana de "¿qué pasó realmente con esto?", pensada para el caso
+// en que el cliente sufrió un timeout esperando la respuesta de /reply (ver
+// ConversationView.jsx): el fetch se cae por las suyas, pero el commit
+// puede haber terminado igual del lado del servidor. No arma ningún prompt
+// ni toca nada — sólo expone el status/eventId ya persistidos para que el
+// frontend pueda confirmar el resultado real en vez de asumir que falló.
+export async function getStatus(conversationId) {
+    const state = await prisma.conversationState.findUnique({
+        where: { id: conversationId },
+        select: { status: true, eventId: true },
+    });
+    if (!state) {
+        throw new Error("CONVERSATION_NOT_FOUND");
+    }
+    return state;
+}
+
 export async function resume(conversationId) {
     const state = await prisma.conversationState.findUnique({ where: { id: conversationId } });
     if (!state) {

@@ -6,6 +6,7 @@ import {
   startConversation,
   replyConversation,
   getConversation,
+  getConversationStatus,
   cancelConversation,
 } from "../../../lib/conversationApi.js";
 import { apiFetch } from "../../../lib/api.js";
@@ -18,6 +19,18 @@ import QuestionRenderer from "./QuestionRenderer.jsx";
 import PreviewCard from "./PreviewCard.jsx";
 
 const STORAGE_KEY = "pasecultural:eventChat:conversationId";
+
+// Cuánto y cada cuánto reintentar confirmar el resultado real después de un
+// timeout en Publicar/Guardar borrador (ver resolveOutcomeAfterTimeout):
+// 15 intentos cada 2s = hasta 30s extra, sobre una operación que en el peor
+// caso ya optimizado tarda unos 7-8s — margen de sobra sin inventar un
+// timeout más largo para el fetch original.
+const PUBLISH_POLL_ATTEMPTS = 15;
+const PUBLISH_POLL_INTERVAL_MS = 2000;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // Dueño del estado de la conversación. No decide el siguiente paso: sólo
 // guarda el último `prompt` que devolvió el Event Creation Engine y lo
@@ -35,6 +48,7 @@ export default function ConversationView({ onDone }) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [checkingOutcome, setCheckingOutcome] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [lastSocialNetwork, setLastSocialNetwork] = useState(null);
   const [categories, setCategories] = useState([]);
@@ -188,8 +202,43 @@ export default function ConversationView({ onDone }) {
     questionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [prompt?.stepId]);
 
+  // Se llama sólo cuando el fetch de /reply se abortó por timeout en una
+  // acción que persiste el evento (Publicar/Guardar borrador): el corte es
+  // del lado del cliente, el backend puede haber terminado igual (ver
+  // EventCreationEngine.getStatus). En vez de asumir que falló, confirma el
+  // estado real antes de decirle cualquier cosa al usuario. Devuelve `true`
+  // si logró confirmar un resultado (y ya disparó onDone), `false` si se
+  // quedó sin intentos sin poder confirmarlo.
+  async function resolveOutcomeAfterTimeout() {
+    setCheckingOutcome(true);
+    try {
+      for (let attempt = 0; attempt < PUBLISH_POLL_ATTEMPTS; attempt++) {
+        await sleep(PUBLISH_POLL_INTERVAL_MS);
+        let status;
+        try {
+          const token = await getToken();
+          status = await getConversationStatus(token, conversationId);
+        } catch {
+          continue; // problema de red puntual en el chequeo: reintenta en la próxima vuelta
+        }
+
+        if (status.status !== "ACTIVE" && status.eventId) {
+          const token = await getToken();
+          const { event } = await apiFetch(`/api/events/${status.eventId}`, { token });
+          sessionStorage.removeItem(STORAGE_KEY);
+          onDone({ done: true, status: status.status, event });
+          return true;
+        }
+      }
+      return false;
+    } finally {
+      setCheckingOutcome(false);
+    }
+  }
+
   async function send(body) {
     const isPublish = body.action === "PUBLISH";
+    const isPersistAction = isPublish || body.action === "DRAFT";
     setSubmitting(true);
     if (isPublish) setPublishing(true);
     try {
@@ -206,7 +255,16 @@ export default function ConversationView({ onDone }) {
       setCanGoBack(Boolean(result.canGoBack));
       setSections(result.sections ?? []);
     } catch (err) {
-      setPrompt((prev) => ({ ...prev, error: err.message || "Algo salió mal, intentá de nuevo." }));
+      if (isPersistAction && err.isTimeout) {
+        const confirmed = await resolveOutcomeAfterTimeout();
+        if (confirmed) return;
+        setPrompt((prev) => ({
+          ...prev,
+          error: "No pudimos confirmar si se guardó. Revisá la lista de tus eventos antes de reintentar para no duplicarlo.",
+        }));
+      } else {
+        setPrompt((prev) => ({ ...prev, error: err.message || "Algo salió mal, intentá de nuevo." }));
+      }
     } finally {
       setSubmitting(false);
       if (isPublish) setPublishing(false);
@@ -317,9 +375,13 @@ export default function ConversationView({ onDone }) {
         {discardDialog}
         {restartDialog}
         <LoadingOverlay
-          open={publishing}
-          title="🎭 Publicando tu evento..."
-          message="Estamos preparando tu evento para que aparezca en PaseCultural. Esto puede tardar unos segundos."
+          open={publishing || checkingOutcome}
+          title={checkingOutcome ? "🔎 Confirmando..." : "🎭 Publicando tu evento..."}
+          message={
+            checkingOutcome
+              ? "La respuesta está tardando más de lo normal. Estamos confirmando si tu evento ya quedó guardado — no cierres esta pantalla."
+              : "Estamos preparando tu evento para que aparezca en PaseCultural. Esto puede tardar unos segundos."
+          }
         />
       </div>
     );

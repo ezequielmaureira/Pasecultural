@@ -20,6 +20,13 @@ export function getConversation(token, conversationId) {
   return apiFetch(`/api/conversations/${conversationId}`, { token });
 }
 
+// Consulta liviana de "¿qué pasó realmente?" — la usa ConversationView tras
+// un timeout de red en replyConversation, para confirmar el resultado real
+// en vez de asumir que la operación falló.
+export function getConversationStatus(token, conversationId) {
+  return apiFetch(`/api/conversations/${conversationId}/status`, { token });
+}
+
 export function cancelConversation(token, conversationId) {
   return apiFetch(`/api/conversations/${conversationId}`, { token, method: "DELETE" });
 }
