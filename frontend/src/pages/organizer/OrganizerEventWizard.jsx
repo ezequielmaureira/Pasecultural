@@ -12,7 +12,8 @@ import {
 } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
-import LoadingOverlay from "../../components/ui/LoadingOverlay.jsx";
+import PublishOverlay from "../../components/ui/PublishOverlay.jsx";
+import { usePublishFlow } from "../../hooks/usePublishFlow.js";
 import { Field, inputClass, textareaClass } from "../../components/ui/FormField.jsx";
 import ImageUploader from "../../components/ui/ImageUploader.jsx";
 import { apiFetch } from "../../lib/api.js";
@@ -140,7 +141,7 @@ export default function OrganizerEventWizard() {
   const [loading, setLoading] = useState(isEditing);
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
-  const [publishing, setPublishing] = useState(false);
+  const { publishing, setPublishing, checkingOutcome, confirmAfterTimeout } = usePublishFlow();
   const [submitError, setSubmitError] = useState("");
 
   // Cambios sin guardar: cualquier edición marca "dirty" (salvo la primera
@@ -148,6 +149,10 @@ export default function OrganizerEventWizard() {
   // al cerrar/recargar la pestaña. Se limpia recién cuando persist() resuelve.
   const isDirtyRef = useRef(false);
   const skipDirtyRef = useRef(true);
+  // Id del evento ya conocido, aunque persist() no haya terminado por
+  // completo (ver el comentario en persist()) — lo necesita handlePublish
+  // para poder confirmar el resultado real después de un timeout.
+  const eventIdRef = useRef(id ?? null);
 
   useEffect(() => {
     if (loading) return;
@@ -650,6 +655,11 @@ export default function OrganizerEventWizard() {
         body: JSON.stringify(generalPayload),
       });
       eventId = event.id;
+      // Se guarda apenas se conoce, aunque un paso posterior (links/agenda/
+      // publish) termine en timeout: es lo que permite confirmar el
+      // resultado real después (ver handlePublish) incluso para un evento
+      // recién creado, no sólo al editar uno que ya tenía id.
+      eventIdRef.current = eventId;
     }
 
     await apiFetch(`/api/events/${eventId}/links`, {
@@ -711,7 +721,28 @@ export default function OrganizerEventWizard() {
       toast.success("¡Evento publicado correctamente!");
       navigate("/organizador/eventos");
     } catch (err) {
-      setSubmitError(err.message || "No pudimos publicar el evento. Probá de nuevo.");
+      if (err.isTimeout && eventIdRef.current) {
+        // El fetch se abortó por timeout, pero el backend puede haber
+        // terminado igual — antes de avisar que falló, se confirma el
+        // estado real del evento (mismo mecanismo que usa el wizard
+        // conversacional, ver hooks/usePublishFlow.js).
+        const outcome = await confirmAfterTimeout(async () => {
+          const checkToken = await getToken();
+          const { event } = await apiFetch(`/api/events/${eventIdRef.current}`, { token: checkToken });
+          return event.status === "PUBLISHED" ? event : null;
+        });
+        if (outcome) {
+          isDirtyRef.current = false;
+          toast.success("¡Evento publicado correctamente!");
+          navigate("/organizador/eventos");
+          return;
+        }
+        setSubmitError(
+          "No pudimos confirmar si se publicó. Revisá la lista de tus eventos antes de reintentar para no duplicarlo."
+        );
+      } else {
+        setSubmitError(err.message || "No pudimos publicar el evento. Probá de nuevo.");
+      }
     } finally {
       setSubmitting(false);
       setPublishing(false);
@@ -1088,11 +1119,7 @@ export default function OrganizerEventWizard() {
         </div>
       </Card>
 
-      <LoadingOverlay
-        open={publishing}
-        title="🎭 Publicando tu evento..."
-        message="Estamos preparando tu evento para que aparezca en PaseCultural. Esto puede tardar unos segundos."
-      />
+      <PublishOverlay open={publishing || checkingOutcome} checking={checkingOutcome} />
     </div>
   );
 }
