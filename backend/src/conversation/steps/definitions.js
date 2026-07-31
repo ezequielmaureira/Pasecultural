@@ -169,12 +169,14 @@ export const STEPS = {
             ],
         }),
         getValue: (draft) => draft._functionsDraft?.mode,
-        // Precarga con lo que ya estaba guardado en draft.functions: si el
-        // organizador vuelve acá (Volver, o saltando a la sección) no
-        // pierde las funciones que ya había cargado.
+        // Precarga con lo que ya estaba guardado en draft.functions y
+        // conserva el resto del borrador en curso (from/to/weekdays/
+        // schedules) si ya existía: si el organizador vuelve acá (Volver, o
+        // saltando a la sección) y reconfirma el mismo modo, no pierde lo
+        // que ya había completado en los pasos siguientes de esta sección.
         setValue: (draft, value) => ({
             ...draft,
-            _functionsDraft: { mode: value, slots: draft.functions ?? [] },
+            _functionsDraft: { ...draft._functionsDraft, mode: value, slots: draft.functions ?? [] },
         }),
         next: (draft, value) => {
             if (value === "SINGLE") return "FUNCTIONS_SINGLE_CARD";
@@ -258,10 +260,13 @@ export const STEPS = {
             slots: draft._functionsDraft?.slots ?? draft.functions ?? [],
         }),
         getValue: (draft) => draft._functionsDraft?.slots ?? draft.functions,
-        setValue: (draft, value) => {
-            const { _functionsDraft, ...rest } = draft;
-            return { ...rest, functions: value };
-        },
+        // No se borra `_functionsDraft` acá: aunque `draft.functions` (la
+        // lista final, ya confirmada) pasa a ser la fuente de verdad, la
+        // "receta" que la generó (rango de fechas, días, horarios elegidos
+        // en el modo recurrente) sólo vive en `_functionsDraft` — si se
+        // pierde acá, retroceder más allá de este paso deja esas tres
+        // preguntas sin nada que precargar.
+        setValue: (draft, value) => ({ ...draft, functions: value }),
         next: () => "EVENT_PRICING_TYPE",
     },
 
@@ -279,18 +284,25 @@ export const STEPS = {
                 { id: "PAID", label: "De pago" },
             ],
         }),
-        getValue: (draft) => {
-            if (draft.hasTickets === undefined) return undefined;
-            return draft.hasTickets ? "PAID" : "FREE";
-        },
+        // No usa `draft.hasTickets` para precargarse: WANTS_FREE_TICKETS (un
+        // paso más adelante) también escribe `hasTickets` con otro sentido
+        // ("¿quiere emitir entradas gratuitas?"), así que reusarlo acá haría
+        // que este paso se muestre precargado mal después de pasar por ese
+        // otro. `pricingType` es un campo propio, sólo para esto.
+        getValue: (draft) => draft.pricingType,
         setValue: (draft, value) => {
             if (value === "PAID") {
                 // Si el organizador vuelve acá y reconfirma "De pago" no se
                 // pierden las entradas que ya había cargado (sólo arranca
                 // vacío la primera vez que elige esta rama).
-                return { ...draft, hasTickets: true, ticketTypes: draft.hasTickets ? draft.ticketTypes ?? [] : [] };
+                return {
+                    ...draft,
+                    pricingType: "PAID",
+                    hasTickets: true,
+                    ticketTypes: draft.hasTickets ? draft.ticketTypes ?? [] : [],
+                };
             }
-            return { ...draft, hasTickets: false, ticketTypes: draft.ticketTypes ?? [] };
+            return { ...draft, pricingType: "FREE", hasTickets: false, ticketTypes: draft.ticketTypes ?? [] };
         },
         next: (draft, value) => (value === "PAID" ? "TICKET_NAME" : "WANTS_FREE_TICKETS"),
     },
