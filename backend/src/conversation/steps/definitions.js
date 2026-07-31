@@ -1,11 +1,35 @@
 import { randomUUID } from "node:crypto";
 import { EVENT_CATEGORIES, SOCIAL_NETWORKS } from "../../utils/eventCategories.js";
 
-// Cada StepDefinition es un objeto de datos, no una clase: agregar un paso
-// nuevo al flujo (ej. "accesibilidad") es agregar una entrada acá, sin tocar
-// EventCreationEngine.js (OCP). "next" decide el siguiente paso mirando el
-// draft/loopStack ya actualizados; los grupos repetibles (funciones, tipos
-// de entrada, redes) usan `loopStack` como una pila de contextos de loop.
+// Cada StepDefinition es un objeto de datos, no una clase, y todos cumplen
+// el MISMO contrato — sin excepciones por tipo de dato:
+//
+//   id            string único
+//   section       a qué sección pertenece (ver steps/sections.js)
+//   inputType     qué componente de respuesta usar en el frontend
+//   buildPrompt(draft) -> { text, ...extra }   texto/opciones a mostrar
+//   getValue(draft)    -> el valor ya confirmado para este paso (o
+//                         undefined si todavía no se respondió). Es la
+//                         única fuente para precargar un paso, sea al
+//                         avanzar, volver, saltar a una sección o editar
+//                         desde el preview — no hay un mecanismo aparte.
+//   setValue(draft, value) -> nuevo draft con ese valor aplicado. Nunca
+//                         debe asumir en qué paso estaba el usuario antes:
+//                         sólo transforma draft + value.
+//   next(draft, value)    -> stepId siguiente. Casi siempre alcanza con
+//                         mirar `draft` (ya actualizado por setValue);
+//                         `value` es sólo para bifurcaciones cuya elección
+//                         no amerita guardarse como un campo durable del
+//                         evento (ej. "elegí SINGLE/MULTIPLE/RECURRING").
+//
+// No existe loopStack ni ningún estado fuera de `draft`. Los pasos que
+// arman un ítem de una lista de a poco (una entrada, un link social, una
+// función) guardan su borrador en curso en un campo del propio draft
+// prefijado con "_" (ej. `_ticketDraft`) — nunca se pierde ni se reinicia
+// solo por navegar, y se limpia del draft antes de mandarlo al frontend o
+// de persistir el evento (ver EventCreationEngine.js:toPreviewDraft y
+// EventServicePort.js, que sólo lee campos explícitos, nunca hace spread
+// del draft completo).
 
 export const FIRST_STEP_ID = "NAME";
 export const PREVIEW_STEP_ID = "PREVIEW";
@@ -18,44 +42,21 @@ function socialNetworkOptions() {
     return SOCIAL_NETWORKS.map((s) => ({ id: s.id, label: s.label }));
 }
 
-function topLoop(loopStack) {
-    return loopStack[loopStack.length - 1] ?? null;
-}
-
-function replaceTopLoop(loopStack, nextLoop) {
-    const copy = loopStack.slice(0, -1);
-    if (nextLoop) copy.push(nextLoop);
-    return copy;
-}
-
-// Como "Volver" ya no revierte loopStack, es posible llegar a un paso de
-// loop (ej. FUNCTIONS_SINGLE_CARD, TICKET_PRICE) después de que ese loop ya
-// se cerró más adelante en la conversación (el usuario volvió muchos pasos
-// de una — más allá de dónde el loop terminaba). `ensureLoop` garantiza que
-// el paso siempre tenga un buffer válido para trabajar: si el loop activo no
-// es del tipo esperado, lo vuelve a abrir con `seedBuffer` (típicamente
-// reconstruido desde el propio draft), en vez de asumir que ya está ahí.
-function ensureLoop(loopStack, type, seedBuffer) {
-    const loop = topLoop(loopStack);
-    if (loop?.type === type) return loopStack;
-    return [...loopStack, { type, buffer: seedBuffer }];
-}
-
-// Identidad estable de un ítem en construcción dentro de un loop (una
+// Identidad estable de un ítem en construcción dentro de una lista (una
 // entrada, un link social) mientras dura su propia sub-cadena de preguntas.
-// Se asigna una sola vez al empezar el ítem y viaja pegada al buffer — es lo
-// que permite que el paso "commit" (TICKET_QUANTITY, SOCIAL_URL) actualice
-// el ítem correcto en vez de agregar uno nuevo si el usuario vuelve atrás y
-// reconfirma una respuesta ya cargada. Nunca se guarda en draftEvent.
-function withLoopItemKey(buffer) {
-    return buffer._key ? buffer : { ...buffer, _key: randomUUID() };
+// Se asigna una sola vez al empezar el ítem y viaja pegada al borrador — es
+// lo que permite que el paso "commit" (TICKET_QUANTITY, SOCIAL_URL)
+// actualice el ítem correcto en vez de agregar uno nuevo si el usuario
+// vuelve atrás y reconfirma una respuesta ya cargada. Nunca se persiste.
+function withItemKey(scratch) {
+    return scratch?._key ? scratch : { ...scratch, _key: randomUUID() };
 }
 
-// "Commit" de un ítem de loop a una lista del draft: si ya existe un ítem
-// con el mismo _key (el usuario está reconfirmando un ítem ya cargado tras
-// volver atrás), lo reemplaza en el lugar; si no, lo agrega. Así ningún paso
-// de tipo "agregar a una lista" duplica datos al revisitarse.
-function upsertLoopItem(list, item) {
+// "Commit" de un ítem a una lista del draft: si ya existe un ítem con el
+// mismo _key (el usuario está reconfirmando uno ya cargado), lo reemplaza
+// en el lugar; si no, lo agrega. Así ningún paso de tipo "agregar a una
+// lista" duplica datos al revisitarse.
+function upsertItem(list, item) {
     const index = list.findIndex((existing) => existing._key === item._key);
     if (index === -1) return [...list, item];
     return list.map((existing, i) => (i === index ? item : existing));
@@ -87,75 +88,77 @@ function generateRecurringSlots(from, to, weekdays, schedules) {
 export const STEPS = {
     NAME: {
         id: "NAME",
+        section: "INFO",
         inputType: "SHORT_TEXT",
         buildPrompt: () => ({ text: "¿Cómo se llama tu evento?" }),
-        // Precarga lo ya cargado: si el organizador vuelve a esta pregunta
-        // (botón "Volver" o "Editar" desde el preview), no la ve en blanco
-        // y tiene que retipear lo que ya había puesto.
-        getCurrentValue: (draft) => draft.title,
-        apply: (draft, loopStack, value) => ({ draft: { ...draft, title: value }, loopStack }),
+        getValue: (draft) => draft.title,
+        setValue: (draft, value) => ({ ...draft, title: value }),
         next: () => "DESCRIPTION",
     },
 
     DESCRIPTION: {
         id: "DESCRIPTION",
+        section: "INFO",
         inputType: "SHORT_TEXT",
         buildPrompt: () => ({ text: "Contanos de qué trata tu evento." }),
-        getCurrentValue: (draft) => draft.description,
-        apply: (draft, loopStack, value) => ({ draft: { ...draft, description: value }, loopStack }),
+        getValue: (draft) => draft.description,
+        setValue: (draft, value) => ({ ...draft, description: value }),
         next: () => "CATEGORY",
     },
 
     CATEGORY: {
         id: "CATEGORY",
+        section: "INFO",
         inputType: "SINGLE_SELECT",
         buildPrompt: () => ({ text: "Elegí la categoría de tu evento.", options: categoryOptions() }),
-        getCurrentValue: (draft) => draft.category,
-        apply: (draft, loopStack, value) => ({ draft: { ...draft, category: value }, loopStack }),
+        getValue: (draft) => draft.category,
+        setValue: (draft, value) => ({ ...draft, category: value }),
         next: (draft) => (draft.category === "OTRO" ? "CUSTOM_CATEGORY" : "COVER_IMAGE"),
     },
 
     CUSTOM_CATEGORY: {
         id: "CUSTOM_CATEGORY",
+        section: "INFO",
         inputType: "SHORT_TEXT",
         buildPrompt: () => ({ text: "Contanos de qué categoría se trata." }),
-        getCurrentValue: (draft) => draft.customCategory,
-        apply: (draft, loopStack, value) => ({ draft: { ...draft, customCategory: value }, loopStack }),
+        getValue: (draft) => draft.customCategory,
+        setValue: (draft, value) => ({ ...draft, customCategory: value }),
         next: () => "COVER_IMAGE",
     },
 
     COVER_IMAGE: {
         id: "COVER_IMAGE",
+        section: "IMAGEN",
         inputType: "IMAGE_URL",
         // Campo suelto (no encadena otras preguntas relacionadas): al
         // editarlo desde el preview, el motor vuelve directo a PREVIEW en
         // vez de seguir el orden normal de creación (ver EventCreationEngine).
         editReturnsToPreview: true,
         buildPrompt: () => ({ text: "Mandame la imagen principal de tu evento." }),
-        getCurrentValue: (draft) => draft.coverImage,
-        apply: (draft, loopStack, value) => ({ draft: { ...draft, coverImage: value }, loopStack }),
+        getValue: (draft) => draft.coverImage,
+        setValue: (draft, value) => ({ ...draft, coverImage: value }),
         next: () => "LOCATION",
     },
 
     LOCATION: {
         id: "LOCATION",
+        section: "UBICACION",
         inputType: "LOCATION",
         buildPrompt: () => ({ text: "¿Dónde es el evento? Necesito dirección, ciudad y provincia." }),
-        getCurrentValue: (draft) => draft.location,
-        apply: (draft, loopStack, value) => ({ draft: { ...draft, location: value }, loopStack }),
+        getValue: (draft) => draft.location,
+        setValue: (draft, value) => ({ ...draft, location: value }),
         next: () => "FUNCTIONS_MODE",
     },
 
     // Sirve igual para un recital de una sola fecha que para una temporada
     // de teatro con 40 funciones: la única diferencia es cuántos clics hacen
-    // falta para cargarlas, no una lógica distinta por tipo de evento.
-    // Todas las ramas arman la lista de funciones en `loopStack.buffer.slots`
-    // (mismo mecanismo de "borrador temporal" que ya usan los loops de
-    // Entradas/Redes) y recién se confirma a `draft.functions` al tocar
-    // "Continuar" en FUNCTIONS_LIST (el Administrador de Agenda) — las tres
-    // ramas terminan ahí siempre, así nunca se pierde lo ya cargado.
+    // falta para cargarlas, no una lógica distinta por tipo de evento. Las
+    // tres ramas arman la agenda en `draft._functionsDraft` (borrador en
+    // curso, nunca visible fuera del motor) y recién se confirma a
+    // `draft.functions` al tocar "Continuar" en FUNCTIONS_LIST.
     FUNCTIONS_MODE: {
         id: "FUNCTIONS_MODE",
+        section: "FECHA",
         inputType: "SINGLE_SELECT",
         buildPrompt: () => ({
             text: "¿Cómo se realizarán las funciones de este evento?",
@@ -165,14 +168,15 @@ export const STEPS = {
                 { id: "RECURRING", label: "Funciones recurrentes" },
             ],
         }),
-        // Precarga con lo que ya estaba guardado en draft.functions (si el
-        // organizador vuelve acá desde "Editar" en la vista previa general
-        // del evento, no pierde las funciones que ya había cargado).
-        apply: (draft, loopStack) => ({
-            draft,
-            loopStack: [...loopStack, { type: "FUNCTIONS_BUILD", buffer: { slots: draft.functions ?? [] } }],
+        getValue: (draft) => draft._functionsDraft?.mode,
+        // Precarga con lo que ya estaba guardado en draft.functions: si el
+        // organizador vuelve acá (Volver, o saltando a la sección) no
+        // pierde las funciones que ya había cargado.
+        setValue: (draft, value) => ({
+            ...draft,
+            _functionsDraft: { mode: value, slots: draft.functions ?? [] },
         }),
-        next: (draft, loopStack, value) => {
+        next: (draft, value) => {
             if (value === "SINGLE") return "FUNCTIONS_SINGLE_CARD";
             if (value === "RECURRING") return "FUNCTIONS_RANGE";
             return "FUNCTIONS_LIST";
@@ -181,46 +185,43 @@ export const STEPS = {
 
     FUNCTIONS_SINGLE_CARD: {
         id: "FUNCTIONS_SINGLE_CARD",
+        section: "FECHA",
         inputType: "FUNCTION_CARD",
         buildPrompt: () => ({ text: "Contame cuándo es la función." }),
-        getCurrentValue: (draft, loopStack) => topLoop(loopStack)?.buffer?.slots?.[0],
-        apply: (draft, loopStack, value) => {
-            const stack = ensureLoop(loopStack, "FUNCTIONS_BUILD", { slots: draft.functions ?? [] });
-            const loop = topLoop(stack);
-            const nextLoop = { ...loop, buffer: { ...loop.buffer, slots: [value] } };
-            return { draft, loopStack: replaceTopLoop(stack, nextLoop) };
-        },
+        getValue: (draft) => draft._functionsDraft?.slots?.[0],
+        setValue: (draft, value) => ({
+            ...draft,
+            _functionsDraft: { ...draft._functionsDraft, slots: [value] },
+        }),
         next: () => "FUNCTIONS_LIST",
     },
 
     FUNCTIONS_RANGE: {
         id: "FUNCTIONS_RANGE",
+        section: "FECHA",
         inputType: "DATE_RANGE",
         buildPrompt: () => ({ text: "¿Desde y hasta qué fecha se repiten las funciones?" }),
-        getCurrentValue: (draft, loopStack) => {
-            const buffer = topLoop(loopStack)?.buffer;
-            return buffer?.from ? { from: buffer.from, to: buffer.to } : undefined;
+        getValue: (draft) => {
+            const fd = draft._functionsDraft;
+            return fd?.from ? { from: fd.from, to: fd.to } : undefined;
         },
-        apply: (draft, loopStack, value) => {
-            const stack = ensureLoop(loopStack, "FUNCTIONS_BUILD", { slots: draft.functions ?? [] });
-            const loop = topLoop(stack);
-            const nextLoop = { ...loop, buffer: { ...loop.buffer, from: value.from, to: value.to } };
-            return { draft, loopStack: replaceTopLoop(stack, nextLoop) };
-        },
+        setValue: (draft, value) => ({
+            ...draft,
+            _functionsDraft: { ...draft._functionsDraft, from: value.from, to: value.to },
+        }),
         next: () => "FUNCTIONS_WEEKDAYS",
     },
 
     FUNCTIONS_WEEKDAYS: {
         id: "FUNCTIONS_WEEKDAYS",
+        section: "FECHA",
         inputType: "WEEKDAYS",
         buildPrompt: () => ({ text: "¿Qué días de la semana?" }),
-        getCurrentValue: (draft, loopStack) => topLoop(loopStack)?.buffer?.weekdays,
-        apply: (draft, loopStack, value) => {
-            const stack = ensureLoop(loopStack, "FUNCTIONS_BUILD", { slots: draft.functions ?? [] });
-            const loop = topLoop(stack);
-            const nextLoop = { ...loop, buffer: { ...loop.buffer, weekdays: value } };
-            return { draft, loopStack: replaceTopLoop(stack, nextLoop) };
-        },
+        getValue: (draft) => draft._functionsDraft?.weekdays,
+        setValue: (draft, value) => ({
+            ...draft,
+            _functionsDraft: { ...draft._functionsDraft, weekdays: value },
+        }),
         next: () => "FUNCTIONS_RECURRING_SCHEDULES",
     },
 
@@ -228,40 +229,38 @@ export const STEPS = {
     // a las 18:00 y a las 21:00 los mismos días): el motor arma el producto
     // cartesiano días × horarios. No se guardan solas: van al mismo
     // "administrador de agenda" que "Varias funciones" para poder
-    // revisarlas/editarlas antes de confirmar — la recurrencia sólo genera
-    // el punto de partida de la agenda.
+    // revisarlas/editarlas antes de confirmar.
     FUNCTIONS_RECURRING_SCHEDULES: {
         id: "FUNCTIONS_RECURRING_SCHEDULES",
+        section: "FECHA",
         inputType: "TIME_RANGE_LIST",
         buildPrompt: () => ({ text: "¿A qué horarios se hace la función esos días?" }),
-        apply: (draft, loopStack, value) => {
-            const stack = ensureLoop(loopStack, "FUNCTIONS_BUILD", { slots: draft.functions ?? [] });
-            const loop = topLoop(stack);
-            const slots = generateRecurringSlots(loop.buffer.from, loop.buffer.to, loop.buffer.weekdays, value);
-            const nextLoop = { ...loop, buffer: { ...loop.buffer, slots } };
-            return { draft, loopStack: replaceTopLoop(stack, nextLoop) };
+        getValue: (draft) => draft._functionsDraft?.schedules,
+        setValue: (draft, value) => {
+            const fd = draft._functionsDraft ?? {};
+            const slots = generateRecurringSlots(fd.from, fd.to, fd.weekdays, value);
+            return { ...draft, _functionsDraft: { ...fd, schedules: value, slots } };
         },
         next: () => "FUNCTIONS_LIST",
     },
 
     // Administrador de Agenda: paso terminal único al que llegan las tres
     // ramas (una sola función, varias, recurrentes). "Continuar" confirma
-    // la lista tal como quedó editada a `draft.functions`; "Volver" ya lo
-    // resuelve el mecanismo genérico de ConversationView (canGoBack), no
-    // hace falta un botón aparte acá.
+    // la lista tal como quedó editada a `draft.functions` y descarta el
+    // borrador en curso (ya no hace falta, la lista confirmada es la nueva
+    // fuente de verdad).
     FUNCTIONS_LIST: {
         id: "FUNCTIONS_LIST",
+        section: "FECHA",
         inputType: "FUNCTIONS_LIST",
-        buildPrompt: (draft, loopStack) => {
-            const loop = topLoop(loopStack);
-            return {
-                text: "Administrador de Agenda",
-                slots: loop?.buffer?.slots ?? draft.functions ?? [],
-            };
-        },
-        apply: (draft, loopStack, value) => {
-            const stack = ensureLoop(loopStack, "FUNCTIONS_BUILD", { slots: draft.functions ?? [] });
-            return { draft: { ...draft, functions: value }, loopStack: stack.slice(0, -1) };
+        buildPrompt: (draft) => ({
+            text: "Administrador de Agenda",
+            slots: draft._functionsDraft?.slots ?? draft.functions ?? [],
+        }),
+        getValue: (draft) => draft._functionsDraft?.slots ?? draft.functions,
+        setValue: (draft, value) => {
+            const { _functionsDraft, ...rest } = draft;
+            return { ...rest, functions: value };
         },
         next: () => "EVENT_PRICING_TYPE",
     },
@@ -271,6 +270,7 @@ export const STEPS = {
     // tendrá entradas" del flujo viejo pasa a ser implícito en la rama PAID.
     EVENT_PRICING_TYPE: {
         id: "EVENT_PRICING_TYPE",
+        section: "ENTRADAS",
         inputType: "SINGLE_SELECT",
         buildPrompt: () => ({
             text: "¿Este evento es gratuito o de pago?",
@@ -279,41 +279,52 @@ export const STEPS = {
                 { id: "PAID", label: "De pago" },
             ],
         }),
-        apply: (draft, loopStack, value) => {
-            if (value === "PAID") {
-                return {
-                    // Si el organizador vuelve acá y reconfirma "De pago" no
-                    // se pierden las entradas que ya había cargado (sólo
-                    // arranca vacío la primera vez que elige esta rama).
-                    draft: { ...draft, hasTickets: true, ticketTypes: draft.hasTickets ? draft.ticketTypes ?? [] : [] },
-                    loopStack: [...loopStack, { type: "TICKETS", buffer: {} }],
-                };
-            }
-            return { draft: { ...draft, ticketTypes: draft.ticketTypes ?? [] }, loopStack };
+        getValue: (draft) => {
+            if (draft.hasTickets === undefined) return undefined;
+            return draft.hasTickets ? "PAID" : "FREE";
         },
-        next: (draft, loopStack, value) => (value === "PAID" ? "TICKET_NAME" : "WANTS_FREE_TICKETS"),
+        setValue: (draft, value) => {
+            if (value === "PAID") {
+                // Si el organizador vuelve acá y reconfirma "De pago" no se
+                // pierden las entradas que ya había cargado (sólo arranca
+                // vacío la primera vez que elige esta rama).
+                return { ...draft, hasTickets: true, ticketTypes: draft.hasTickets ? draft.ticketTypes ?? [] : [] };
+            }
+            return { ...draft, hasTickets: false, ticketTypes: draft.ticketTypes ?? [] };
+        },
+        next: (draft, value) => (value === "PAID" ? "TICKET_NAME" : "WANTS_FREE_TICKETS"),
     },
 
     WANTS_FREE_TICKETS: {
         id: "WANTS_FREE_TICKETS",
+        section: "ENTRADAS",
         inputType: "YES_NO",
         buildPrompt: () => ({ text: "¿Querés emitir entradas gratuitas para controlar el acceso?" }),
-        apply: (draft, loopStack, value) => ({
-            draft: { ...draft, hasTickets: value, ticketTypes: value ? draft.ticketTypes ?? [] : [] },
-            loopStack,
+        // Campo propio (no reutiliza `hasTickets`, que ya lo pisa
+        // EVENT_PRICING_TYPE con otro sentido) para poder distinguir "no
+        // contestado todavía" de "contestó que no".
+        getValue: (draft) => draft.wantsFreeTickets,
+        setValue: (draft, value) => ({
+            ...draft,
+            wantsFreeTickets: value,
+            hasTickets: value,
+            ticketTypes: value ? draft.ticketTypes ?? [] : [],
         }),
-        next: (draft, loopStack, value) => (value ? "FREE_TICKET_QUANTITY" : "PROMO_VIDEO_ASK"),
+        next: (draft, value) => (value ? "FREE_TICKET_QUANTITY" : "PROMO_VIDEO_ASK"),
     },
 
     // Entrada gratuita: un único tipo, sin nombre ni precio a pedir (siempre
     // "Entrada gratuita" a $0), sólo el stock disponible.
     FREE_TICKET_QUANTITY: {
         id: "FREE_TICKET_QUANTITY",
+        section: "ENTRADAS",
         inputType: "POSITIVE_INT",
         buildPrompt: () => ({ text: "¿Cuántas entradas gratuitas vas a emitir?" }),
-        apply: (draft, loopStack, value) => ({
-            draft: { ...draft, ticketTypes: [{ name: "Entrada gratuita", price: 0, quantity: value }] },
-            loopStack,
+        getValue: (draft) =>
+            draft.ticketTypes?.[0]?.name === "Entrada gratuita" ? draft.ticketTypes[0].quantity : undefined,
+        setValue: (draft, value) => ({
+            ...draft,
+            ticketTypes: [{ name: "Entrada gratuita", price: 0, quantity: value }],
         }),
         next: () => "PROMO_VIDEO_ASK",
     },
@@ -323,6 +334,7 @@ export const STEPS = {
     // necesite (categorías propias, ej. "Mesa VIP", "Preventa 1").
     TICKET_NAME: {
         id: "TICKET_NAME",
+        section: "ENTRADAS",
         inputType: "SINGLE_SELECT",
         buildPrompt: (draft) => ({
             text: draft.ticketTypes?.length
@@ -339,75 +351,65 @@ export const STEPS = {
                 { id: "OTHER", label: "Otro" },
             ],
         }),
-        getCurrentValue: (draft, loopStack) => topLoop(loopStack)?.buffer?.name,
-        apply: (draft, loopStack, value) => {
-            const stack = ensureLoop(loopStack, "TICKETS", {});
-            const loop = topLoop(stack);
-            if (value === "OTHER") {
-                return { draft, loopStack: replaceTopLoop(stack, { ...loop, buffer: withLoopItemKey(loop.buffer) }) };
-            }
-            const nextLoop = { ...loop, buffer: { ...withLoopItemKey(loop.buffer), name: value } };
-            return { draft, loopStack: replaceTopLoop(stack, nextLoop) };
+        getValue: (draft) => draft._ticketDraft?.name,
+        setValue: (draft, value) => {
+            const scratch = withItemKey(draft._ticketDraft);
+            if (value === "OTHER") return { ...draft, _ticketDraft: scratch };
+            return { ...draft, _ticketDraft: { ...scratch, name: value } };
         },
-        next: (draft, loopStack, value) => (value === "OTHER" ? "TICKET_NAME_CUSTOM" : "TICKET_PRICE"),
+        next: (draft, value) => (value === "OTHER" ? "TICKET_NAME_CUSTOM" : "TICKET_PRICE"),
     },
 
     TICKET_NAME_CUSTOM: {
         id: "TICKET_NAME_CUSTOM",
+        section: "ENTRADAS",
         inputType: "SHORT_TEXT",
         buildPrompt: () => ({ text: "¿Cómo se llama esta entrada?" }),
-        getCurrentValue: (draft, loopStack) => topLoop(loopStack)?.buffer?.name,
-        apply: (draft, loopStack, value) => {
-            const stack = ensureLoop(loopStack, "TICKETS", {});
-            const loop = topLoop(stack);
-            const nextLoop = { ...loop, buffer: { ...withLoopItemKey(loop.buffer), name: value } };
-            return { draft, loopStack: replaceTopLoop(stack, nextLoop) };
-        },
+        getValue: (draft) => draft._ticketDraft?.name,
+        setValue: (draft, value) => ({
+            ...draft,
+            _ticketDraft: { ...withItemKey(draft._ticketDraft), name: value },
+        }),
         next: () => "TICKET_PRICE",
     },
 
     TICKET_PRICE: {
         id: "TICKET_PRICE",
+        section: "ENTRADAS",
         inputType: "PRICE",
         buildPrompt: () => ({ text: "¿Qué precio tiene?" }),
-        getCurrentValue: (draft, loopStack) => topLoop(loopStack)?.buffer?.price,
-        apply: (draft, loopStack, value) => {
-            const stack = ensureLoop(loopStack, "TICKETS", {});
-            const loop = topLoop(stack);
-            const nextLoop = { ...loop, buffer: { ...loop.buffer, price: value } };
-            return { draft, loopStack: replaceTopLoop(stack, nextLoop) };
-        },
+        getValue: (draft) => draft._ticketDraft?.price,
+        setValue: (draft, value) => ({
+            ...draft,
+            _ticketDraft: { ...draft._ticketDraft, price: value },
+        }),
         next: () => "TICKET_QUANTITY",
     },
 
     // "Commit" del tipo de entrada: upsert por _key en vez de un push ciego,
-    // así que si el usuario llega acá de nuevo con "Volver" (para revisar o
-    // corregir un tipo ya cargado) y confirma, actualiza ese mismo ítem en
-    // vez de duplicarlo. El buffer NO se limpia acá — sigue representando
-    // "la entrada que se está editando ahora mismo", así que si se vuelve a
-    // cualquier paso anterior de esta misma entrada (nombre, precio) los
-    // datos siguen disponibles para precargar y para el próximo commit.
+    // así que si el usuario vuelve acá (Volver, o saltando a la sección) a
+    // revisar o corregir un tipo ya cargado y confirma, actualiza ese mismo
+    // ítem en vez de duplicarlo. El borrador en curso NO se limpia acá —
+    // sigue representando "la entrada que se está editando ahora mismo", así
+    // que si se vuelve a cualquier paso anterior de esta misma entrada
+    // (nombre, precio) los datos siguen disponibles para precargar.
     TICKET_QUANTITY: {
         id: "TICKET_QUANTITY",
+        section: "ENTRADAS",
         inputType: "POSITIVE_INT",
         buildPrompt: () => ({ text: "¿Cuántas hay disponibles?" }),
-        getCurrentValue: (draft, loopStack) => topLoop(loopStack)?.buffer?.quantity,
-        apply: (draft, loopStack, value) => {
-            const stack = ensureLoop(loopStack, "TICKETS", {});
-            const loop = topLoop(stack);
-            const completedTicket = { ...loop.buffer, quantity: value };
-            const ticketTypes = upsertLoopItem(draft.ticketTypes, completedTicket);
-            const nextLoop = { ...loop, buffer: completedTicket };
-            return {
-                draft: { ...draft, ticketTypes },
-                loopStack: replaceTopLoop(stack, nextLoop),
-            };
+        getValue: (draft) => draft._ticketDraft?.quantity,
+        setValue: (draft, value) => {
+            const completedTicket = { ...draft._ticketDraft, quantity: value };
+            const ticketTypes = upsertItem(draft.ticketTypes ?? [], completedTicket);
+            return { ...draft, ticketTypes, _ticketDraft: completedTicket };
         },
         next: () => "ADD_ANOTHER_TICKET",
     },
 
     ADD_ANOTHER_TICKET: {
         id: "ADD_ANOTHER_TICKET",
+        section: "ENTRADAS",
         inputType: "SINGLE_SELECT",
         buildPrompt: () => ({
             text: "¿Querés agregar otro tipo de entrada?",
@@ -416,97 +418,87 @@ export const STEPS = {
                 { id: "CONTINUE", label: "Continuar" },
             ],
         }),
-        apply: (draft, loopStack, value) => ({
-            draft,
-            // Recién acá arranca un ítem realmente nuevo: se limpia el
-            // buffer (con él, su _key) para que la próxima entrada no herede
-            // la identidad de la anterior.
-            loopStack:
-                value === "ADD"
-                    ? replaceTopLoop(loopStack, { ...topLoop(loopStack), buffer: {} })
-                    : loopStack.slice(0, -1),
-        }),
-        next: (draft, loopStack, value) => (value === "ADD" ? "TICKET_NAME" : "PROMO_VIDEO_ASK"),
+        // Es un paso de navegación pura (no guarda un dato propio del
+        // evento), por eso no tiene un valor "confirmado" que precargar.
+        getValue: () => undefined,
+        // Recién acá arranca un ítem realmente nuevo: se limpia el
+        // borrador (con él, su _key) para que la próxima entrada no herede
+        // la identidad de la anterior.
+        setValue: (draft, value) => ({ ...draft, _ticketDraft: value === "ADD" ? {} : draft._ticketDraft }),
+        next: (draft, value) => (value === "ADD" ? "TICKET_NAME" : "PROMO_VIDEO_ASK"),
     },
 
     PROMO_VIDEO_ASK: {
         id: "PROMO_VIDEO_ASK",
+        section: "VIDEO",
         inputType: "YES_NO",
         buildPrompt: () => ({ text: "¿Querés agregar un video promocional de YouTube?" }),
-        apply: (draft, loopStack, value) => ({ draft: { ...draft, wantsPromoVideo: value }, loopStack }),
+        getValue: (draft) => draft.wantsPromoVideo,
+        setValue: (draft, value) => ({ ...draft, wantsPromoVideo: value }),
         next: (draft) => (draft.wantsPromoVideo ? "PROMO_VIDEO_URL" : "SOCIAL_LINKS_ASK"),
     },
 
     PROMO_VIDEO_URL: {
         id: "PROMO_VIDEO_URL",
+        section: "VIDEO",
         inputType: "YOUTUBE_URL",
         buildPrompt: () => ({ text: "Pasame el link del video (video o Short de YouTube)." }),
-        apply: (draft, loopStack, value) => ({ draft: { ...draft, promoVideoUrl: value }, loopStack }),
+        getValue: (draft) => draft.promoVideoUrl,
+        setValue: (draft, value) => ({ ...draft, promoVideoUrl: value }),
         next: () => "SOCIAL_LINKS_ASK",
     },
 
     SOCIAL_LINKS_ASK: {
         id: "SOCIAL_LINKS_ASK",
+        section: "REDES",
         inputType: "YES_NO",
         buildPrompt: () => ({ text: "¿Querés agregar redes sociales?" }),
-        apply: (draft, loopStack, value) => ({
-            draft: { ...draft, socialLinks: draft.socialLinks ?? [] },
-            loopStack: value ? [...loopStack, { type: "SOCIALS", buffer: {} }] : loopStack,
+        getValue: (draft) => draft.wantsSocialLinks,
+        setValue: (draft, value) => ({
+            ...draft,
+            wantsSocialLinks: value,
+            socialLinks: draft.socialLinks ?? [],
         }),
-        next: (draft, loopStack, value) => (value ? "SOCIAL_NETWORK" : "PREVIEW"),
+        next: (draft, value) => (value ? "SOCIAL_NETWORK" : "PREVIEW"),
     },
 
     SOCIAL_NETWORK: {
         id: "SOCIAL_NETWORK",
+        section: "REDES",
         inputType: "SINGLE_SELECT",
         buildPrompt: () => ({ text: "¿Qué red querés agregar?", options: socialNetworkOptions() }),
-        getCurrentValue: (draft, loopStack) => topLoop(loopStack)?.buffer?.network,
-        apply: (draft, loopStack, value) => {
-            const stack = ensureLoop(loopStack, "SOCIALS", {});
-            const loop = topLoop(stack);
-            const nextLoop = { ...loop, buffer: { ...withLoopItemKey(loop.buffer), network: value } };
-            return { draft, loopStack: replaceTopLoop(stack, nextLoop) };
-        },
+        getValue: (draft) => draft._socialDraft?.network,
+        setValue: (draft, value) => ({
+            ...draft,
+            _socialDraft: { ...withItemKey(draft._socialDraft), network: value },
+        }),
         next: () => "SOCIAL_URL",
     },
 
-    // Mismo criterio que TICKET_QUANTITY: upsert por _key, buffer no se
+    // Mismo criterio que TICKET_QUANTITY: upsert por _key, el borrador no se
     // limpia acá (sigue siendo "el link que se está editando ahora").
     SOCIAL_URL: {
         id: "SOCIAL_URL",
+        section: "REDES",
         inputType: "URL",
-        buildPrompt: (draft, loopStack) => {
-            const loop = topLoop(loopStack);
-            return { text: `Pasame el link de ${loop?.buffer?.network ?? "esa red"}.` };
-        },
-        getCurrentValue: (draft, loopStack) => topLoop(loopStack)?.buffer?.url,
-        apply: (draft, loopStack, value) => {
-            const stack = ensureLoop(loopStack, "SOCIALS", {});
-            const loop = topLoop(stack);
-            const completedLink = { ...loop.buffer, url: value };
-            const socialLinks = upsertLoopItem(draft.socialLinks, completedLink);
-            const nextLoop = { ...loop, buffer: completedLink };
-            return {
-                draft: { ...draft, socialLinks },
-                loopStack: replaceTopLoop(stack, nextLoop),
-            };
+        buildPrompt: (draft) => ({ text: `Pasame el link de ${draft._socialDraft?.network ?? "esa red"}.` }),
+        getValue: (draft) => draft._socialDraft?.url,
+        setValue: (draft, value) => {
+            const completedLink = { ...draft._socialDraft, url: value };
+            const socialLinks = upsertItem(draft.socialLinks ?? [], completedLink);
+            return { ...draft, socialLinks, _socialDraft: completedLink };
         },
         next: () => "ADD_ANOTHER_SOCIAL",
     },
 
     ADD_ANOTHER_SOCIAL: {
         id: "ADD_ANOTHER_SOCIAL",
+        section: "REDES",
         inputType: "YES_NO",
         buildPrompt: () => ({ text: "¿Querés agregar otra red?" }),
-        apply: (draft, loopStack, value) => ({
-            draft,
-            // Recién acá arranca un link realmente nuevo: se limpia el
-            // buffer (y su _key) para no heredar la identidad del anterior.
-            loopStack: value
-                ? replaceTopLoop(loopStack, { ...topLoop(loopStack), buffer: {} })
-                : loopStack.slice(0, -1),
-        }),
-        next: (draft, loopStack, value) => (value ? "SOCIAL_NETWORK" : "PREVIEW"),
+        getValue: () => undefined,
+        setValue: (draft, value) => ({ ...draft, _socialDraft: value ? {} : draft._socialDraft }),
+        next: (draft, value) => (value ? "SOCIAL_NETWORK" : "PREVIEW"),
     },
 };
 

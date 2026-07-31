@@ -8,59 +8,66 @@ import * as EventServicePort from "./EventServicePort.js";
 // ConversationState: Web y WhatsApp son sólo "clientes" de start/handleInput/resume.
 // clerkId es la identidad ya resuelta por el ChannelAdapter del canal (en Web,
 // la sesión Clerk; en WhatsApp, el número verificado contra la Organization).
+//
+// El estado del evento entero vive en un único lugar: `draftEvent` (JSON).
+// No hay ninguna pila auxiliar — cada StepDefinition (steps/definitions.js)
+// cumple el mismo contrato (getValue/setValue/next, todos función pura de
+// draft) y el motor nunca necesita saber qué tipo de paso es para navegar.
+// Eso es lo que hace que Volver, saltar a una sección y "Editar" desde el
+// preview sean, en el fondo, la misma operación: mover `currentStepId` sin
+// tocar `draftEvent`.
 
-// `_key` es una identidad interna de bookkeeping (ver steps/definitions.js,
-// upsertLoopItem) que existe sólo para que el motor sepa qué ítem de una
-// lista actualizar al reconfirmar un tipo de entrada o un link social ya
-// cargado — nunca es algo que el frontend o el resto del sistema deba ver.
-function stripInternalKeys(list) {
+// `_key` (identidad interna de un ítem de lista, ver steps/definitions.js)
+// y cualquier campo de borrador en curso (prefijo "_", ej. `_ticketDraft`)
+// son bookkeeping del motor — nunca deben cruzar hacia el frontend ni hacia
+// la persistencia final del evento.
+function stripItemKeys(list) {
     return (list ?? []).map(({ _key, ...rest }) => rest);
 }
 
 function toPreviewDraft(draft) {
+    const visible = Object.fromEntries(Object.entries(draft).filter(([key]) => !key.startsWith("_")));
     return {
-        ...draft,
-        ticketTypes: stripInternalKeys(draft.ticketTypes),
-        socialLinks: stripInternalKeys(draft.socialLinks),
+        ...visible,
+        ticketTypes: stripItemKeys(visible.ticketTypes),
+        socialLinks: stripItemKeys(visible.socialLinks),
     };
 }
 
-// `currentValueOverride` es lo que permite que "Volver" muestre el último
-// valor CONFIRMADO para ese paso (ver handleBack): si no se pasa, se usa
-// `step.getCurrentValue` (derivado del draft — para cuando se entra al paso
-// por el flujo normal o por "Editar" desde el preview, no por un Volver).
-function buildPrompt(stepId, draft, loopStack, currentValueOverride) {
+// `currentValueOverride` existe sólo para el mensaje de error "Ya estás en
+// la primera pregunta" (necesita re-mostrar el prompt actual tal cual). En
+// cualquier otro caso el valor a precargar es siempre `step.getValue(draft)`
+// — no hace falta distinguir si se llegó por flujo normal, Volver, GOTO o
+// edición desde el preview: todas dejan el draft intacto salvo por lo que el
+// usuario efectivamente confirmó.
+function buildPrompt(stepId, draft) {
     if (stepId === PREVIEW_STEP_ID) {
         return { stepId, type: "PREVIEW", draft: toPreviewDraft(draft) };
     }
     const step = getStep(stepId);
     // Se reenvía cada campo que devuelva el step, no sólo text/options:
-    // algunos pasos (ej. FUNCTIONS_LIST) necesitan mandar
-    // datos extra (la lista de funciones armada hasta el momento) sin que el
-    // motor tenga que conocer esos campos.
-    const { text, ...extra } = step.buildPrompt(draft, loopStack);
-    let currentValue = currentValueOverride;
-    if (currentValue === undefined && step.getCurrentValue) {
-        currentValue = step.getCurrentValue(draft, loopStack);
-    }
-    return { stepId, type: "QUESTION", text, inputType: step.inputType, currentValue, ...extra };
+    // algunos pasos (ej. FUNCTIONS_LIST) necesitan mandar datos extra (la
+    // lista de funciones armada hasta el momento) sin que el motor tenga
+    // que conocer esos campos.
+    const { text, ...extra } = step.buildPrompt(draft);
+    return { stepId, type: "QUESTION", text, inputType: step.inputType, currentValue: step.getValue(draft), ...extra };
 }
 
-function toConversationResult(state, currentValueOverride) {
+function toConversationResult(state) {
     return {
         conversationId: state.id,
-        prompt: buildPrompt(state.currentStepId, state.draftEvent, state.loopStack, currentValueOverride),
-        canGoBack: state.history.length > 0,
+        prompt: buildPrompt(state.currentStepId, state.draftEvent),
+        canGoBack: state.history.length > 1,
     };
 }
 
-// El history es una bitácora de "qué se respondió en cada paso visitado",
-// no una pila de snapshots para deshacer datos: guarda sólo stepId + value
-// (lo que permite precargar ese valor si se vuelve a ese paso), nunca una
-// foto completa del draft/loopStack. El draftEvent y el loopStack son la
-// única fuente de verdad del estado del evento — "Volver" nunca los toca.
-function appendHistory(history, entry) {
-    return [...history, { ...entry, at: new Date().toISOString() }];
+// El history es sólo el camino de stepIds visitados, en orden — no guarda
+// snapshots de datos (no hace falta: draftEvent nunca se revierte, es
+// siempre la única fuente de verdad). Sirve para que "Volver" sepa a qué
+// paso ir; GOTO simplemente lo extiende con el destino, igual que el botón
+// atrás del navegador registra una página nueva al entrar por un link.
+function appendHistory(history, stepId) {
+    return [...history, stepId];
 }
 
 export async function start({ clerkId, channel, channelRef }) {
@@ -70,9 +77,8 @@ export async function start({ clerkId, channel, channelRef }) {
             channel,
             channelRef,
             currentStepId: FIRST_STEP_ID,
-            loopStack: [],
             draftEvent: {},
-            history: [],
+            history: [FIRST_STEP_ID],
             status: "ACTIVE",
         },
     });
@@ -124,25 +130,68 @@ export async function resume(conversationId) {
     }
 }
 
+// Único mecanismo de salto: mueve el cursor a cualquier stepId sin tocar
+// draftEvent. Lo usan tanto "Editar" desde el preview como (a futuro) el
+// navegador de secciones — ambos son, en el fondo, "quiero ver/corregir
+// este paso" sin perder nada de lo que ya está confirmado más adelante.
+//
+// Si el paso destino está marcado `editReturnsToPreview`, se guarda un
+// recordatorio (`draft._returnTo`) para que, apenas se responda esa única
+// pregunta, el motor vuelva derecho a PREVIEW en vez de seguir la cadena
+// normal (ej. COVER_IMAGE -> LOCATION -> ...) — sin este marcador, editar la
+// foto desde el resumen obligaría a repasar el resto del evento.
+async function handleGoto(state, targetStepId) {
+    const targetStep = getStep(targetStepId); // valida que exista, tira UNKNOWN_STEP si no
+    const draft = targetStep.editReturnsToPreview
+        ? { ...state.draftEvent, _returnTo: PREVIEW_STEP_ID }
+        : state.draftEvent;
+
+    const updated = await prisma.conversationState.update({
+        where: { id: state.id },
+        data: {
+            currentStepId: targetStepId,
+            draftEvent: draft,
+            history: appendHistory(state.history, targetStepId),
+        },
+    });
+
+    return toConversationResult(updated);
+}
+
+// "Volver" es GOTO al paso anterior en el camino ya recorrido — nunca
+// revierte draftEvent. Si lo hiciera, al avanzar de nuevo el motor volvería
+// a generar cada paso siguiente con valores vacíos, aunque el evento ya los
+// tuviera cargados (el bug que este diseño evita de raíz: el estado del
+// evento sólo cambia cuando el usuario *responde* un paso, nunca por el
+// solo hecho de mirar uno anterior).
+async function handleBack(state) {
+    if (state.history.length <= 1) {
+        return {
+            conversationId: state.id,
+            prompt: {
+                ...buildPrompt(state.currentStepId, state.draftEvent),
+                error: "Ya estás en la primera pregunta.",
+            },
+            canGoBack: false,
+        };
+    }
+
+    const previousHistory = state.history.slice(0, -1);
+    const targetStepId = previousHistory[previousHistory.length - 1];
+
+    const updated = await prisma.conversationState.update({
+        where: { id: state.id },
+        data: { currentStepId: targetStepId, history: previousHistory },
+    });
+
+    return toConversationResult(updated);
+}
+
 async function handlePreviewInput(state, rawInput) {
     const action = rawInput?.action;
 
-    if (action === "EDIT") {
-        const targetStepId = rawInput.stepId;
-        const targetStep = getStep(targetStepId); // valida que exista, tira UNKNOWN_STEP si no
-        // Campos sueltos (ej. la imagen) marcados `editReturnsToPreview`: se
-        // apila un marcador para que, al responder esa única pregunta, el
-        // motor vuelva directo a PREVIEW en vez de seguir la cadena normal
-        // (ej. COVER_IMAGE -> LOCATION -> ...), sin tener que repetir el
-        // resto de los datos ya cargados.
-        const nextLoopStack = targetStep.editReturnsToPreview
-            ? [...state.loopStack, { __editReturnTo: PREVIEW_STEP_ID }]
-            : state.loopStack;
-        const updated = await prisma.conversationState.update({
-            where: { id: state.id },
-            data: { currentStepId: targetStepId, loopStack: nextLoopStack },
-        });
-        return toConversationResult(updated);
+    if (action === "EDIT" || action === "GOTO") {
+        return handleGoto(state, rawInput.stepId);
     }
 
     if (action !== "PUBLISH" && action !== "DRAFT") {
@@ -154,7 +203,7 @@ async function handlePreviewInput(state, rawInput) {
                 draft: toPreviewDraft(state.draftEvent),
                 error: 'Elegí "PUBLISH", "DRAFT" o "EDIT".',
             },
-            canGoBack: state.history.length > 0,
+            canGoBack: state.history.length > 1,
         };
     }
 
@@ -165,7 +214,7 @@ async function handlePreviewInput(state, rawInput) {
             data: {
                 status: action === "PUBLISH" ? "PUBLISHED" : "DRAFT_SAVED",
                 eventId: event.id,
-                history: appendHistory(state.history, { stepId: PREVIEW_STEP_ID, action }),
+                history: appendHistory(state.history, PREVIEW_STEP_ID),
             },
         });
         return {
@@ -183,48 +232,9 @@ async function handlePreviewInput(state, rawInput) {
                 draft: toPreviewDraft(state.draftEvent),
                 error: error.isConversational ? error.message : "No pudimos guardar el evento, intentá de nuevo.",
             },
-            canGoBack: state.history.length > 0,
+            canGoBack: state.history.length > 1,
         };
     }
-}
-
-// "Volver" es pura navegación de cursor: mueve `currentStepId` al paso
-// anterior y listo. NO revierte draftEvent ni loopStack — si lo hiciera, al
-// avanzar de nuevo el motor volvería a generar cada paso siguiente con
-// valores vacíos, aunque el evento ya los tuviera cargados (exactamente el
-// bug que esto corrige). El estado del evento sólo cambia cuando el usuario
-// vuelve a *responder* un paso (ver handleInput), nunca por el solo hecho de
-// mirar una pregunta anterior — así "Volver" se comporta como un editor
-// (corregir lo ya cargado) y no como un "deshacer" que descarta trabajo.
-async function handleBack(state) {
-    if (state.history.length === 0) {
-        return {
-            conversationId: state.id,
-            prompt: {
-                ...buildPrompt(state.currentStepId, state.draftEvent, state.loopStack),
-                error: "Ya estás en la primera pregunta.",
-            },
-            canGoBack: false,
-        };
-    }
-
-    const previousHistory = state.history.slice(0, -1);
-    const lastEntry = state.history[state.history.length - 1];
-
-    const updated = await prisma.conversationState.update({
-        where: { id: state.id },
-        data: {
-            currentStepId: lastEntry.stepId,
-            history: previousHistory,
-        },
-    });
-
-    // `lastEntry.value` es exactamente lo que el usuario había confirmado la
-    // última vez para este paso — reenviarlo como currentValue es lo que le
-    // permite al frontend precargar la respuesta anterior en vez de mostrar
-    // el paso en blanco, sea cual sea su tipo (texto, imagen, ubicación,
-    // tarjeta de función, rango de fechas, etc.).
-    return toConversationResult(updated, lastEntry.value);
 }
 
 export async function handleInput(conversationId, rawInput) {
@@ -238,39 +248,46 @@ export async function handleInput(conversationId, rawInput) {
         return handlePreviewInput(state, rawInput);
     }
 
+    if (rawInput?.action === "GOTO") {
+        return handleGoto(state, rawInput.stepId);
+    }
+
     const step = getStep(state.currentStepId);
     const handler = getInputHandler(step.inputType);
     const { value, error } = handler.parse(rawInput?.value, {
         draft: state.draftEvent,
-        loopStack: state.loopStack,
-        options: buildPrompt(state.currentStepId, state.draftEvent, state.loopStack).options,
+        options: buildPrompt(state.currentStepId, state.draftEvent).options,
     });
 
     if (error) {
         return {
             conversationId: state.id,
-            prompt: { ...buildPrompt(state.currentStepId, state.draftEvent, state.loopStack), error },
-            canGoBack: state.history.length > 0,
+            prompt: { ...buildPrompt(state.currentStepId, state.draftEvent), error },
+            canGoBack: state.history.length > 1,
         };
     }
 
-    const { draft, loopStack } = step.apply(state.draftEvent, state.loopStack, value);
+    let draft = step.setValue(state.draftEvent, value);
 
-    // Si este paso se respondió como una edición puntual desde el preview
-    // (ver handlePreviewInput), el marcador apilado gana por sobre el
-    // encadenamiento normal de `step.next` y se vuelve directo a PREVIEW.
-    const editMarker = loopStack[loopStack.length - 1];
-    const isEditReturn = Boolean(editMarker?.__editReturnTo);
-    const nextStepId = isEditReturn ? editMarker.__editReturnTo : step.next(draft, loopStack, value);
-    const finalLoopStack = isEditReturn ? loopStack.slice(0, -1) : loopStack;
+    // Si se llegó a este paso editando puntualmente desde el preview (ver
+    // handleGoto), el recordatorio gana por sobre el encadenamiento normal
+    // de `step.next` y se vuelve directo a PREVIEW.
+    const returnTo = draft._returnTo;
+    let nextStepId;
+    if (returnTo) {
+        const { _returnTo, ...rest } = draft;
+        draft = rest;
+        nextStepId = returnTo;
+    } else {
+        nextStepId = step.next(draft, value);
+    }
 
     const updated = await prisma.conversationState.update({
         where: { id: state.id },
         data: {
             currentStepId: nextStepId,
             draftEvent: draft,
-            loopStack: finalLoopStack,
-            history: appendHistory(state.history, { stepId: step.id, value }),
+            history: appendHistory(state.history, nextStepId),
         },
     });
 
