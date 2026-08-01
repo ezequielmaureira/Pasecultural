@@ -141,7 +141,7 @@ export default function OrganizerEventWizard() {
   const [loading, setLoading] = useState(isEditing);
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
-  const { publishing, setPublishing, checkingOutcome, confirmAfterTimeout } = usePublishFlow();
+  const { publishing, checkingOutcome, run } = usePublishFlow();
   const [submitError, setSubmitError] = useState("");
 
   // Cambios sin guardar: cualquier edición marca "dirty" (salvo la primera
@@ -707,45 +707,40 @@ export default function OrganizerEventWizard() {
     }
 
     setSubmitting(true);
-    setPublishing(true);
     setSubmitError("");
 
     try {
-      const { token, eventId } = await persist();
-      await apiFetch(`/api/events/${eventId}`, {
-        token,
-        method: "PATCH",
-        body: JSON.stringify({ status: "PUBLISHED" }),
-      });
+      await run(
+        async () => {
+          const { token, eventId } = await persist();
+          await apiFetch(`/api/events/${eventId}`, {
+            token,
+            method: "PATCH",
+            body: JSON.stringify({ status: "PUBLISHED" }),
+          });
+          return true;
+        },
+        {
+          // El fetch (o alguno de los que hace persist()) se abortó por
+          // timeout, pero el backend puede haber terminado igual — antes de
+          // avisar que falló, se confirma el estado real del evento (mismo
+          // mecanismo que usa el wizard conversacional, ver
+          // hooks/usePublishFlow.js).
+          checkOutcome: async () => {
+            if (!eventIdRef.current) return null;
+            const checkToken = await getToken();
+            const { event } = await apiFetch(`/api/events/${eventIdRef.current}`, { token: checkToken });
+            return event.status === "PUBLISHED" ? event : null;
+          },
+        }
+      );
       isDirtyRef.current = false;
       toast.success("¡Evento publicado correctamente!");
       navigate("/organizador/eventos");
     } catch (err) {
-      if (err.isTimeout && eventIdRef.current) {
-        // El fetch se abortó por timeout, pero el backend puede haber
-        // terminado igual — antes de avisar que falló, se confirma el
-        // estado real del evento (mismo mecanismo que usa el wizard
-        // conversacional, ver hooks/usePublishFlow.js).
-        const outcome = await confirmAfterTimeout(async () => {
-          const checkToken = await getToken();
-          const { event } = await apiFetch(`/api/events/${eventIdRef.current}`, { token: checkToken });
-          return event.status === "PUBLISHED" ? event : null;
-        });
-        if (outcome) {
-          isDirtyRef.current = false;
-          toast.success("¡Evento publicado correctamente!");
-          navigate("/organizador/eventos");
-          return;
-        }
-        setSubmitError(
-          "No pudimos confirmar si se publicó. Revisá la lista de tus eventos antes de reintentar para no duplicarlo."
-        );
-      } else {
-        setSubmitError(err.message || "No pudimos publicar el evento. Probá de nuevo.");
-      }
+      setSubmitError(err.message || "No pudimos publicar el evento. Probá de nuevo.");
     } finally {
       setSubmitting(false);
-      setPublishing(false);
     }
   }
 

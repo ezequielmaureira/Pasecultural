@@ -36,7 +36,7 @@ export default function ConversationView({ onDone }) {
   const [sections, setSections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const { publishing, setPublishing, checkingOutcome, confirmAfterTimeout } = usePublishFlow();
+  const { publishing, setPublishing, checkingOutcome, run } = usePublishFlow();
   const [loadError, setLoadError] = useState("");
   const [lastSocialNetwork, setLastSocialNetwork] = useState(null);
   const [categories, setCategories] = useState([]);
@@ -194,10 +194,21 @@ export default function ConversationView({ onDone }) {
     const isPublish = body.action === "PUBLISH";
     const isPersistAction = isPublish || body.action === "DRAFT";
     setSubmitting(true);
-    if (isPublish) setPublishing(true);
     try {
-      const token = await getToken();
-      const result = await replyConversation(token, conversationId, body);
+      const checkOutcome = async () => {
+        const checkToken = await getToken();
+        const status = await getConversationStatus(checkToken, conversationId);
+        if (status.status === "ACTIVE" || !status.eventId) return null;
+        const { event } = await apiFetch(`/api/events/${status.eventId}`, { token: checkToken });
+        return { done: true, status: status.status, event };
+      };
+
+      const action = async () => {
+        const token = await getToken();
+        return replyConversation(token, conversationId, body);
+      };
+
+      const result = isPersistAction ? await run(action, { checkOutcome }) : await action();
 
       if (result.done) {
         sessionStorage.removeItem(STORAGE_KEY);
@@ -209,33 +220,12 @@ export default function ConversationView({ onDone }) {
       setCanGoBack(Boolean(result.canGoBack));
       setSections(result.sections ?? []);
     } catch (err) {
-      if (isPersistAction && err.isTimeout) {
-        // El fetch se abortó por timeout, pero el backend puede haber
-        // terminado igual (ver EventCreationEngine.getStatus) — en vez de
-        // asumir que falló, se confirma el estado real antes de decirle
-        // cualquier cosa al usuario.
-        const outcome = await confirmAfterTimeout(async () => {
-          const checkToken = await getToken();
-          const status = await getConversationStatus(checkToken, conversationId);
-          if (status.status === "ACTIVE" || !status.eventId) return null;
-          const { event } = await apiFetch(`/api/events/${status.eventId}`, { token: checkToken });
-          return { done: true, status: status.status, event };
-        });
-        if (outcome) {
-          sessionStorage.removeItem(STORAGE_KEY);
-          onDone(outcome);
-          return;
-        }
-        setPrompt((prev) => ({
-          ...prev,
-          error: "No pudimos confirmar si se guardó. Revisá la lista de tus eventos antes de reintentar para no duplicarlo.",
-        }));
-      } else {
-        setPrompt((prev) => ({ ...prev, error: err.message || "Algo salió mal, intentá de nuevo." }));
-      }
+      setPrompt((prev) => ({
+        ...prev,
+        error: err.message || "Algo salió mal, intentá de nuevo.",
+      }));
     } finally {
       setSubmitting(false);
-      if (isPublish) setPublishing(false);
     }
   }
 

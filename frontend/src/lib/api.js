@@ -1,5 +1,5 @@
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
-const DEFAULT_TIMEOUT_MS = 20000;
+export const DEFAULT_TIMEOUT_MS = 20000;
 
 const TIMEOUT_MESSAGE = "La operación está tardando más de lo esperado. Probá de nuevo en unos segundos.";
 const NETWORK_ERROR_MESSAGE = "No pudimos conectarnos con el servidor. Revisá tu conexión e intentá de nuevo.";
