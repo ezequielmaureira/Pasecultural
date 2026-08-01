@@ -148,7 +148,7 @@ export default function Navbar() {
               </Link>
             )}
           </nav>
-          <div className="mt-3 flex items-center justify-between border-t border-white/5 pt-3 sm:hidden">
+          <div className="mt-3 flex items-center justify-end border-t border-white/5 pt-3 sm:hidden">
             <UserMenu />
           </div>
         </div>
