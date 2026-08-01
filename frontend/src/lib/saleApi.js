@@ -1,12 +1,14 @@
 import { apiFetch } from "./api.js";
 
 // Sin token: el comprador nunca necesita sesión de Clerk para comprar.
-// `buyer` es { firstName, lastName, email } — el backend lo resuelve como
+// firstName/lastName/email viajan sueltos en el body (no anidados bajo
+// "buyer") — así es exactamente como los separa sale.controller.js del
+// resto de los datos de la venta. El backend resuelve al comprador como
 // invitado (o reutiliza la cuenta si ese email ya existe).
-export async function createSale({ eventId, functionId, items, buyer }) {
+export async function createSale({ eventId, functionId, items, firstName, lastName, email }) {
     const { sale } = await apiFetch("/api/sales", {
         method: "POST",
-        body: JSON.stringify({ eventId, functionId, items, buyer }),
+        body: JSON.stringify({ eventId, functionId, items, firstName, lastName, email }),
     });
     return sale;
 }

@@ -13,7 +13,14 @@ import { createSale, confirmSaleByBuyer, getSaleStatus } from "../saleApi.js";
 // verificar exactamente ESA venta si `confirmSaleByBuyer` se cae por
 // timeout.
 export async function processPayment({ eventId, functionId, items, buyer }, { onSaleCreated } = {}) {
-    const sale = await createSale({ eventId, functionId, items, buyer });
+    const sale = await createSale({
+        eventId,
+        functionId,
+        items,
+        firstName: buyer?.firstName,
+        lastName: buyer?.lastName,
+        email: buyer?.email,
+    });
     onSaleCreated?.(sale.id);
     return confirmSaleByBuyer(sale.id);
 }

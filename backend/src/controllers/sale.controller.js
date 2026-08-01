@@ -3,7 +3,6 @@ import { AppError } from "../errors/AppError.js";
 import prisma from "../config/prisma.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import {
-    createSaleService,
     createGuestSaleService,
     confirmSaleService,
     cancelSaleService,
@@ -16,16 +15,20 @@ import {
 // validación de negocio vive en sale.service.js — acá no hay ningún if de
 // reglas de dominio.
 
-// El comprador NUNCA necesita sesión de Clerk para comprar: si no hay
-// usuario autenticado, se toma req.body.buyer ({firstName,lastName,email})
-// y se resuelve como invitado. Si alguien SÍ está logueado (caso interno/
-// futuro), se sigue usando su cuenta real — mismo endpoint, dos caminos.
+// El comprador NUNCA necesita sesión de Clerk para comprar — este endpoint
+// no lee getAuth/req.auth/userId en absoluto. firstName/lastName/email
+// viajan sueltos en el body (no anidados bajo "buyer"); el resto del body
+// es exactamente lo que necesita createGuestSaleService como datos de la
+// venta.
 export const createSale = async (req, res, next) => {
     try {
-        const { userId } = getAuth(req);
-        const sale = userId
-            ? await createSaleService(userId, req.body)
-            : await createGuestSaleService(req.body?.buyer, req.body);
+        const { firstName, lastName, email, ...saleData } = req.body;
+
+        const sale = await createGuestSaleService(
+            { firstName, lastName, email },
+            saleData
+        );
+
         res.status(201).json({ sale });
     } catch (error) {
         next(AppError.from(error));
