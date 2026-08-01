@@ -13,17 +13,15 @@ const OrganizerDataContext = createContext(null);
 // de escaneos), así que mostrar algo ahí sería inventar información. En
 // cuanto exista ese backend, esto pasa a fetchear igual que `events`.
 //
-// `scanners` tampoco tiene backend propio todavía: alta/baja/edición viven
-// sólo en memoria de esta sesión (se pierden al recargar la página) — no
-// hay ningún scanner de ejemplo precargado, sólo lo que el organizador
-// agregue durante la sesión actual.
+// Scanners ya NO vive acá: es información por-evento (EventScanner), no una
+// lista global del organizador — ver OrganizerScanners.jsx, que fetchea
+// directo GET/POST/DELETE /api/events/:id/scanners para el evento elegido.
 export function OrganizerDataProvider({ children }) {
   const { getToken } = useAuth();
   const [events, setEvents] = useState([]);
   const [loadingEvents, setLoadingEvents] = useState(true);
   const [sales] = useState([]);
   const [recentScans] = useState([]);
-  const [scanners, setScanners] = useState([]);
 
   const loadEvents = useCallback(async () => {
     setLoadingEvents(true);
@@ -53,34 +51,15 @@ export function OrganizerDataProvider({ children }) {
     loadEvents();
   }, [loadEvents]);
 
-  function addScanner(scanner) {
-    setScanners((prev) => [
-      ...prev,
-      { id: `sc-${Date.now()}`, status: "Activo", lastAccess: null, assignedEvents: [], ...scanner },
-    ]);
-  }
-
-  function updateScanner(id, patch) {
-    setScanners((prev) => prev.map((scanner) => (scanner.id === id ? { ...scanner, ...patch } : scanner)));
-  }
-
-  function removeScanner(id) {
-    setScanners((prev) => prev.filter((scanner) => scanner.id !== id));
-  }
-
   const value = useMemo(
     () => ({
       events,
       loadingEvents,
       reloadEvents: loadEvents,
       sales,
-      scanners,
       recentScans,
-      addScanner,
-      updateScanner,
-      removeScanner,
     }),
-    [events, loadingEvents, loadEvents, sales, scanners, recentScans]
+    [events, loadingEvents, loadEvents, sales, recentScans]
   );
 
   return <OrganizerDataContext.Provider value={value}>{children}</OrganizerDataContext.Provider>;

@@ -1,7 +1,9 @@
-import { CalendarDays, Clock, MapPin, Ticket, ImageOff, QrCode, User } from "lucide-react";
+import { Link } from "react-router-dom";
+import { CalendarDays, Clock, MapPin, Ticket, ImageOff, QrCode, User, Timer, ExternalLink } from "lucide-react";
 import Modal from "../../../components/ui/Modal.jsx";
 import Button from "../../../components/ui/Button.jsx";
 import { TICKET_STATUS_LABEL, TICKET_STATUS_TONE, formatEventDate, formatEventTime } from "./ticketStatus.js";
+import { useEventCountdown } from "./eventCountdown.js";
 
 function Row({ icon: Icon, label, value }) {
     if (!value) return null;
@@ -23,6 +25,8 @@ function Row({ icon: Icon, label, value }) {
 // TicketService no expone (no se modifica el backend en esta fase).
 export default function TicketDetailModal({ ticket, buyerName, onClose, onShowQr }) {
     const time = formatEventTime(ticket.function?.date);
+    const showCountdown = ticket.status === "ACTIVE" || ticket.status === "USED";
+    const countdown = useEventCountdown(showCountdown ? ticket.function?.date : null);
 
     return (
         <Modal title="Detalle de la entrada" onClose={onClose} maxWidth="max-w-lg">
@@ -50,6 +54,17 @@ export default function TicketDetailModal({ ticket, buyerName, onClose, onShowQr
                     </span>
                 </div>
 
+                {countdown && (
+                    <p
+                        className={`-mt-3 flex items-center gap-1.5 text-sm font-medium ${
+                            countdown.phase === "upcoming" ? "text-violet-400" : "text-slate-500"
+                        }`}
+                    >
+                        <Timer className="h-4 w-4 shrink-0" />
+                        {countdown.label}
+                    </p>
+                )}
+
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <Row icon={CalendarDays} label="Fecha" value={formatEventDate(ticket.function?.date)} />
                     <Row icon={Clock} label="Hora" value={time ? `${time} hs` : null} />
@@ -60,10 +75,20 @@ export default function TicketDetailModal({ ticket, buyerName, onClose, onShowQr
                     <Row icon={User} label="Propietario" value={buyerName} />
                 </div>
 
-                <Button className="w-full justify-center" onClick={() => onShowQr(ticket)}>
-                    <QrCode className="h-4 w-4" />
-                    Mostrar QR
-                </Button>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button className="flex-1 justify-center" onClick={() => onShowQr(ticket)}>
+                        <QrCode className="h-4 w-4" />
+                        Mostrar QR
+                    </Button>
+                    {ticket.event?.slug && (
+                        <Link to={`/evento/${ticket.event.slug}`} className="flex-1">
+                            <Button variant="secondary" className="w-full justify-center">
+                                <ExternalLink className="h-4 w-4" />
+                                Ver evento
+                            </Button>
+                        </Link>
+                    )}
+                </div>
             </div>
         </Modal>
     );

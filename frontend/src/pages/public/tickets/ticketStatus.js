@@ -27,8 +27,11 @@ export function formatEventDate(dateValue) {
 
 export function formatEventTime(dateValue) {
     if (!dateValue) return null;
+    // hour12: false a propósito — sin esto, ICU devuelve "06:00 p. m." para
+    // es-AR en vez de "18:00".
     return new Date(dateValue).toLocaleTimeString("es-AR", {
         hour: "2-digit",
         minute: "2-digit",
+        hour12: false,
     });
 }

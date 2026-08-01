@@ -425,8 +425,9 @@ model Ticket {
   ownerId String
   owner   User   @relation("TicketOwner", fields: [ownerId], references: [id])
 
-  qr      TicketQr?
-  checkIn CheckIn?
+  qr           TicketQr?
+  checkIn      CheckIn?
+  scanAttempts ScanAttempt[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -477,7 +478,14 @@ model CheckIn {
 model ScanAttempt {
   id String @id @default(cuid())
 
-  ticketId  String?
+  // ticketId es null sólo cuando el token ni siquiera resolvió a un ticket
+  // real (NOT_FOUND de un id inexistente). Cuando no es null, siempre
+  // apunta a un Ticket real — por eso es una relación de verdad (permite
+  // recorrer hasta function/ticketType/buyer para el historial del scanner
+  // sin una segunda query manual), no sólo un id suelto.
+  ticketId String?
+  ticket   Ticket? @relation(fields: [ticketId], references: [id])
+
   eventId   String
   result    ScanResult
   scannedBy String

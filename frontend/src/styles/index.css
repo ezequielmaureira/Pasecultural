@@ -87,3 +87,14 @@ select option {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* qr-scanner dibuja su propio recuadro de escaneo (marco con esquinas
+   animado) como un SVG inyectado junto al <video>, con su color por
+   default (amarillo). Se pisa acá para que use el violeta de marca en vez
+   de tocar el paquete o reimplementar el marco a mano. */
+.scan-region-highlight-svg {
+  stroke: #8b5cf6 !important;
+}
+.code-outline-highlight {
+  stroke: #8b5cf6 !important;
+}

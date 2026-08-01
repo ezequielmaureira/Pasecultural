@@ -45,14 +45,20 @@ export async function apiFetch(path, { token, timeoutMs = DEFAULT_TIMEOUT_MS, ..
 
   if (!res.ok) {
     let message = `Error ${res.status} al llamar ${path}`;
+    let code;
     try {
       const body = await res.json();
       if (body?.message) message = body.message;
+      code = body?.error?.code;
     } catch {
       // respuesta sin body JSON, se mantiene el mensaje genérico
     }
     const error = new Error(message);
     error.status = res.status;
+    // Código estable de ErrorCatalog (ej. "SCANNER_NOT_AUTHORIZED") para
+    // cuando un caller necesita distinguir el motivo exacto, no sólo
+    // mostrar el mensaje — `undefined` si el backend no lo mandó.
+    error.code = code;
     throw error;
   }
 

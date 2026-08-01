@@ -1,8 +1,11 @@
-import { CalendarDays, Clock, MapPin, Ticket, ImageOff } from "lucide-react";
+import { CalendarDays, Clock, MapPin, Ticket, ImageOff, Timer } from "lucide-react";
 import { TICKET_STATUS_LABEL, TICKET_STATUS_TONE, formatEventDate, formatEventTime } from "./ticketStatus.js";
+import { useEventCountdown } from "./eventCountdown.js";
 
 export default function TicketCard({ ticket, onOpen }) {
     const time = formatEventTime(ticket.function?.date);
+    const showCountdown = ticket.status === "ACTIVE" || ticket.status === "USED";
+    const countdown = useEventCountdown(showCountdown ? ticket.function?.date : null);
 
     return (
         <button
@@ -48,6 +51,16 @@ export default function TicketCard({ ticket, onOpen }) {
                     <p className="flex items-center gap-1.5 truncate text-xs text-slate-400">
                         <MapPin className="h-3.5 w-3.5 shrink-0" />
                         <span className="truncate">{ticket.function.venue}</span>
+                    </p>
+                )}
+                {countdown && (
+                    <p
+                        className={`flex items-center gap-1.5 truncate text-xs font-medium ${
+                            countdown.phase === "upcoming" ? "text-violet-400" : "text-slate-500"
+                        }`}
+                    >
+                        <Timer className="h-3.5 w-3.5 shrink-0" />
+                        {countdown.label}
                     </p>
                 )}
 

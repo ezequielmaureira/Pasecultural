@@ -5,6 +5,7 @@ import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { getUserByClerkId } from "../utils/getUserByClerkId.js";
 import { buildTicketNumber } from "../utils/ticketNumber.js";
 import { encryptSecret } from "../config/qrEncryption.js";
+import { effectiveCapacity } from "./functionCapacity.service.js";
 import { logger } from "../logging/logger.js";
 
 const ACTIVE_TICKET_STATUSES = ["ACTIVE", "USED"];
@@ -86,7 +87,7 @@ export const createSaleService = async (clerkId, input) => {
             throw new AppError(ErrorCodes.TICKET_TYPE_NOT_AVAILABLE);
         }
 
-        const capacity = assignment.quantityOverride ?? assignment.ticketType.quantity;
+        const capacity = effectiveCapacity(assignment);
         const sold = await getSoldCount(prisma, item.ticketTypeId, eventFunction.id);
         if (sold + item.quantity > capacity) {
             throw new AppError(ErrorCodes.INSUFFICIENT_STOCK, { details: { ticketTypeId: item.ticketTypeId } });
@@ -179,12 +180,13 @@ export const confirmSaleService = async (clerkId, saleId) => {
         // (incluye el update de status del paso 2).
         const assignments = await tx.functionTicketType.findMany({
             where: { functionId: sale.functionId, ticketTypeId: { in: uniqueTicketTypeIds } },
+            include: { ticketType: { select: { quantity: true } } },
         });
         const assignmentByTicketTypeId = new Map(assignments.map((a) => [a.ticketTypeId, a]));
 
         for (const item of sale.items) {
             const assignment = assignmentByTicketTypeId.get(item.ticketTypeId);
-            const capacity = assignment?.quantityOverride ?? item.ticketType.quantity;
+            const capacity = assignment ? effectiveCapacity(assignment) : item.ticketType.quantity;
             const sold = await getSoldCount(tx, item.ticketTypeId, sale.functionId);
             if (sold + item.quantity > capacity) {
                 throw new AppError(ErrorCodes.INSUFFICIENT_STOCK, { details: { ticketTypeId: item.ticketTypeId } });

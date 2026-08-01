@@ -11,6 +11,11 @@ import {
     saveEventLinks,
     getEventCategories,
 } from "../controllers/event.controller.js";
+import {
+    listEventScanners,
+    addEventScanner,
+    removeEventScanner,
+} from "../controllers/eventScanner.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 
 const router = Router();
@@ -26,6 +31,9 @@ router.get("/:id", requireAuth, getMyEventById);
 router.patch("/:id", requireAuth, updateMyEvent);
 router.put("/:id/schedule", requireAuth, saveEventSchedule);
 router.put("/:id/links", requireAuth, saveEventLinks);
+router.get("/:id/scanners", requireAuth, listEventScanners);
+router.post("/:id/scanners", requireAuth, addEventScanner);
+router.delete("/:id/scanners/:userId", requireAuth, removeEventScanner);
 router.delete("/:id", requireAuth, deleteMyEvent);
 
 export default router;

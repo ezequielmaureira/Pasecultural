@@ -8,7 +8,6 @@ import {
   ScanLine,
   LineChart,
   Settings,
-  QrCode,
   ChevronsLeft,
 } from "lucide-react";
 import { useBackendUser } from "../../context/AuthContext.jsx";
@@ -62,12 +61,9 @@ const NAV_BY_ROLE = {
       end: true,
     },
   ],
-  scanner: [
-    { label: "Dashboard", icon: LayoutDashboard, path: "/scanner", end: true },
-    { label: "Escanear", icon: QrCode },
-    { label: "Mi evento", icon: CalendarDays },
-    { label: "Configuración", icon: Settings },
-  ],
+  // El Scanner ya no usa AppShell/Sidebar — tiene su propio shell (ver
+  // pages/scanner/ScannerShell.jsx) y el acceso no depende del rol de la
+  // cuenta, sino de EventScanner.
 };
 
 function DisabledNavItem({ label, icon: Icon }) {

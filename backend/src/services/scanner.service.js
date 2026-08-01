@@ -3,7 +3,9 @@ import prisma from "../config/prisma.js";
 import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { getUserByClerkId } from "../utils/getUserByClerkId.js";
+import { assertScannerAuthorized } from "../utils/assertScannerAuthorized.js";
 import { decryptSecret } from "../config/qrEncryption.js";
+import { getFunctionCounters } from "./functionCapacity.service.js";
 import { logger } from "../logging/logger.js";
 
 const RESULT_MESSAGES = {
@@ -73,12 +75,7 @@ export const validateScanService = async (clerkId, input) => {
     const ip = input?.ip || null;
     const userAgent = input?.userAgent || null;
 
-    const eventScanner = await prisma.eventScanner.findUnique({
-        where: { eventId_userId: { eventId, userId: scannerUser.id } },
-    });
-    if (!eventScanner || !eventScanner.active || eventScanner.deletedAt) {
-        throw new AppError(ErrorCodes.SCANNER_NOT_AUTHORIZED);
-    }
+    await assertScannerAuthorized(prisma, eventId, scannerUser.id);
 
     const scannerName = buyerName({ buyer: scannerUser }) ?? scannerUser.email;
 
@@ -96,15 +93,31 @@ export const validateScanService = async (clerkId, input) => {
             });
         }
 
+        // Ampliación del contrato (no rompe nada existente: `status`/`message`/
+        // `data` quedan intactos, esto agrega una clave más al objeto de nivel
+        // superior). El scanner necesita actualizar su contador "ingresados/
+        // restantes" después de CADA scan sin hacer una segunda request — así
+        // que `stats` se calcula siempre en base a `functionId` (la función
+        // activa de la sesión del scanner), no a `ticket.functionId`. Se hace
+        // a propósito incluso en NOT_FOUND/WRONG_EVENT/CANCELLED: la pantalla
+        // del scanner debe seguir mostrando el contador correcto de SU función
+        // activa aunque el QR escaneado no haya sido válido para ella. Si no
+        // se mandó `functionId` (llamador no lo tiene todavía), `stats` es
+        // `null` — no se inventa un valor.
+        async function withStats(coreResult) {
+            const stats = functionId ? await getFunctionCounters(tx, functionId) : null;
+            return { ...coreResult, stats };
+        }
+
         if (!ticketId || !providedSecret) {
             await recordAttempt("NOT_FOUND", null);
-            return buildResult("NOT_FOUND");
+            return withStats(buildResult("NOT_FOUND"));
         }
 
         const ticket = await tx.ticket.findUnique({ where: { id: ticketId }, include: buildTicketInclude() });
         if (!ticket || ticket.deletedAt) {
             await recordAttempt("NOT_FOUND", null);
-            return buildResult("NOT_FOUND");
+            return withStats(buildResult("NOT_FOUND"));
         }
 
         let secretMatches;
@@ -122,23 +135,23 @@ export const validateScanService = async (clerkId, input) => {
             // No se distingue de "no existe": no hay que confirmarle a quien
             // escanea un token adulterado que el ticketId sí era real.
             await recordAttempt("NOT_FOUND", ticket.id);
-            return buildResult("NOT_FOUND");
+            return withStats(buildResult("NOT_FOUND"));
         }
 
         if (ticket.eventId !== eventId || (functionId && ticket.functionId !== functionId)) {
             await recordAttempt("WRONG_EVENT", ticket.id);
-            return buildResult("WRONG_EVENT");
+            return withStats(buildResult("WRONG_EVENT"));
         }
 
         if (ticket.status === "CANCELLED" || ticket.status === "REFUNDED") {
             await recordAttempt("CANCELLED", ticket.id);
-            return buildResult("CANCELLED", { ticket });
+            return withStats(buildResult("CANCELLED", { ticket }));
         }
 
         if (ticket.status === "USED") {
             const checkIn = await tx.checkIn.findUnique({ where: { ticketId: ticket.id } });
             await recordAttempt("ALREADY_USED", ticket.id);
-            return buildResult("ALREADY_USED", { ticket, checkIn });
+            return withStats(buildResult("ALREADY_USED", { ticket, checkIn }));
         }
 
         // Update condicional atómico ACTIVE -> USED: si dos escaneos del mismo
@@ -148,7 +161,7 @@ export const validateScanService = async (clerkId, input) => {
             // Perdió la carrera contra otro scan simultáneo.
             const checkIn = await tx.checkIn.findUnique({ where: { ticketId: ticket.id } });
             await recordAttempt("ALREADY_USED", ticket.id);
-            return buildResult("ALREADY_USED", { ticket, checkIn });
+            return withStats(buildResult("ALREADY_USED", { ticket, checkIn }));
         }
 
         // El @unique de CheckIn.ticketId es el último respaldo: si por lo que
@@ -161,7 +174,7 @@ export const validateScanService = async (clerkId, input) => {
         await tx.ticketQr.update({ where: { ticketId: ticket.id }, data: { usedAt: new Date() } });
         await recordAttempt("VALID", ticket.id);
 
-        return buildResult("VALID", { ticket, checkIn, scannerName, gate });
+        return withStats(buildResult("VALID", { ticket, checkIn, scannerName, gate }));
     });
 
     logger.info("Scan validated", { eventId, functionId, scannerId: scannerUser.id, result: result.status });

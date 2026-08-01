@@ -17,7 +17,8 @@ import { OrganizerDataProvider } from "./context/OrganizerDataContext.jsx";
 import DashboardDeveloper from "./pages/DashboardDeveloper.jsx";
 import DeveloperOrganizations from "./pages/developer/DeveloperOrganizations.jsx";
 import DeveloperUsers from "./pages/developer/DeveloperUsers.jsx";
-import DashboardScanner from "./pages/DashboardScanner.jsx";
+import ScannerShell from "./pages/scanner/ScannerShell.jsx";
+import ScannerHome from "./pages/scanner/ScannerHome.jsx";
 import EventsList from "./pages/public/EventsList.jsx";
 import EventDetail from "./pages/public/EventDetail.jsx";
 import Checkout from "./pages/public/Checkout.jsx";
@@ -74,6 +75,14 @@ export default function App() {
               element={<OrganizerOnboarding />}
             />
 
+            {/* Shell propio, sin AppShell/sidebar — el acceso no depende de
+                un rol de cuenta: lo resuelve EventScanner del lado del
+                backend, la propia pantalla maneja el estado "sin eventos
+                asignados" en vez de un guard por rol. */}
+            <Route path="/scanner" element={<ScannerShell />}>
+              <Route index element={<ScannerHome />} />
+            </Route>
+
             <Route element={<AppShell />}>
               <Route element={<RoleGuard allowedRoles={["developer"]} />}>
                 <Route path="/developer" element={<DashboardDeveloper />} />
@@ -102,10 +111,6 @@ export default function App() {
                   <Route path="scanners" element={<OrganizerScanners />} />
                   <Route path="configuracion" element={<OrganizerSettings />} />
                 </Route>
-              </Route>
-
-              <Route element={<RoleGuard allowedRoles={["scanner"]} />}>
-                <Route path="/scanner" element={<DashboardScanner />} />
               </Route>
 
               <Route path="*" element={<NotFound />} />
