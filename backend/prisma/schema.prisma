@@ -69,6 +69,33 @@ enum ConversationStatus {
   ABANDONED
 }
 
+enum SaleStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentMethod {
+  MANUAL
+  MERCADO_PAGO
+}
+
+enum TicketStatus {
+  ACTIVE
+  USED
+  CANCELLED
+  REFUNDED
+}
+
+enum ScanResult {
+  VALID
+  ALREADY_USED
+  CANCELLED
+  NOT_FOUND
+  WRONG_EVENT
+}
+
 model User {
   id            String         @id @default(cuid())
   clerkId       String         @unique
@@ -81,6 +108,11 @@ model User {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   organizations Organization[]
+
+  salesAsBuyer    Sale[]
+  ticketsAsBuyer  Ticket[]       @relation("TicketBuyer")
+  ticketsAsOwner  Ticket[]       @relation("TicketOwner")
+  eventScanners   EventScanner[]
 }
 
 model Organization {
@@ -167,6 +199,10 @@ model Event {
   functions   EventFunction[]
   ticketTypes TicketType[]
   links       EventLink[]
+
+  sales    Sale[]
+  tickets  Ticket[]
+  scanners EventScanner[]
 }
 
 // Enlaces relacionados con el evento, los artistas o la organización
@@ -223,6 +259,8 @@ model EventFunction {
   event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   ticketAssignments FunctionTicketType[]
+  sales             Sale[]
+  tickets           Ticket[]
 
   @@map("event_functions")
 }
@@ -246,6 +284,8 @@ model TicketType {
   event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   assignments FunctionTicketType[]
+  saleItems   SaleItem[]
+  tickets     Ticket[]
 
   @@map("ticket_types")
 }
@@ -293,4 +333,178 @@ model ConversationState {
   updatedAt     DateTime            @updatedAt
 
   @@map("conversation_states")
+}
+
+// Una venta. Nace en PENDING (reserva) y pasa a CONFIRMED cuando se
+// confirma el pago (hoy: manual por el organizador; mañana: webhook de
+// Mercado Pago) — ver SaleService.confirmSale(). El stock disponible se
+// calcula siempre en el momento (quantity del TicketType/override menos
+// tickets no cancelados de esa función), nunca se decrementa un contador:
+// eso es lo que deja la puerta abierta a reservas temporales a futuro sin
+// rediseñar este modelo (contar también PENDING no vencidas).
+model Sale {
+  id            String        @id @default(cuid())
+  status        SaleStatus    @default(PENDING)
+  paymentMethod PaymentMethod @default(MANUAL)
+
+  total Decimal @db.Decimal(10, 2)
+
+  buyerId String
+  buyer   User   @relation(fields: [buyerId], references: [id])
+
+  eventId    String
+  event      Event         @relation(fields: [eventId], references: [id])
+  functionId String
+  function   EventFunction @relation(fields: [functionId], references: [id])
+
+  items   SaleItem[]
+  tickets Ticket[]
+
+  // Quién y cuándo confirmó el pago. confirmedBy queda null cuando la
+  // confirmación viene de un webhook automático (Mercado Pago a futuro) en
+  // vez de un organizador.
+  confirmedAt DateTime?
+  confirmedBy String?
+  paymentRef  String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@map("sales")
+}
+
+// Detalle de qué tipos de entrada y cuántas unidades componen la venta.
+// unitPrice/subtotal quedan congelados al momento de la compra: no se
+// recalculan si el organizador cambia precios del evento después.
+model SaleItem {
+  id String @id @default(cuid())
+
+  saleId String
+  sale   Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  ticketTypeId String
+  ticketType   TicketType @relation(fields: [ticketTypeId], references: [id])
+
+  quantity  Int
+  unitPrice Decimal @db.Decimal(10, 2)
+  subtotal  Decimal @db.Decimal(10, 2)
+
+  @@map("sale_items")
+}
+
+// Un ticket = una entrada individual escaneable. Se generan recién al
+// confirmar la venta (Sale.status -> CONFIRMED), nunca antes.
+model Ticket {
+  id String @id @default(cuid())
+
+  // Correlativo interno (autoincrement de Postgres, atómico) usado para
+  // construir ticketNumber sin condiciones de carrera. No se expone.
+  sequence Int @unique @default(autoincrement())
+  // Identificador legible y único para soporte/búsqueda. Ej: PC-2026-000123.
+  ticketNumber String @unique
+
+  status TicketStatus @default(ACTIVE)
+
+  saleId String
+  sale   Sale   @relation(fields: [saleId], references: [id])
+
+  eventId    String
+  event      Event         @relation(fields: [eventId], references: [id])
+  functionId String
+  function   EventFunction @relation(fields: [functionId], references: [id])
+
+  ticketTypeId String
+  ticketType   TicketType @relation(fields: [ticketTypeId], references: [id])
+
+  // La compra pertenece al buyer; el derecho de uso pertenece al owner.
+  // Hoy son siempre el mismo usuario — separarlos deja preparado el sistema
+  // para regalar/transferir/revender entradas sin migrar.
+  buyerId String
+  buyer   User   @relation("TicketBuyer", fields: [buyerId], references: [id])
+  ownerId String
+  owner   User   @relation("TicketOwner", fields: [ownerId], references: [id])
+
+  qr      TicketQr?
+  checkIn CheckIn?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@map("tickets")
+}
+
+// El QR nunca guarda una imagen ni el token en texto plano: el secreto se
+// cifra (AES-256-GCM, clave en TICKET_QR_SECRET_KEY, fuera de la base) antes
+// de persistirse. Reversible solo con esa clave del servidor — un dump de la
+// base sola no alcanza para reconstruir el secreto — y permite que
+// GET /tickets/:id/qr devuelva siempre el mismo QR en visitas futuras (un
+// hash de una vía no lo hubiera permitido).
+model TicketQr {
+  id String @id @default(cuid())
+
+  ticketId String @unique
+  ticket   Ticket @relation(fields: [ticketId], references: [id])
+
+  secretEncrypted String
+  createdAt       DateTime  @default(now())
+  usedAt          DateTime?
+  rotatedAt       DateTime? // última regeneración del secret (previsto, no implementado aún)
+
+  @@map("ticket_qrs")
+}
+
+// El ingreso "oficial" (válido) de un ticket. Uno por ticket (@unique):
+// es lo que permite mostrar "hora del primer ingreso" ante un reintento
+// del mismo QR, sin tener que filtrar el log completo de intentos.
+model CheckIn {
+  id String @id @default(cuid())
+
+  ticketId String @unique
+  ticket   Ticket @relation(fields: [ticketId], references: [id])
+
+  scannedBy String
+  scannedAt DateTime @default(now())
+  gate      String? // "Puerta Norte", "VIP", "Ingreso A"... opcional por ahora
+
+  @@map("check_ins")
+}
+
+// Log de auditoría de TODOS los intentos de escaneo (válidos o no) —
+// distinto de CheckIn, que es solo el ingreso válido. Permite detectar
+// QRs reusados/compartidos y auditar quién escaneó qué y cuándo.
+model ScanAttempt {
+  id String @id @default(cuid())
+
+  ticketId  String?
+  eventId   String
+  result    ScanResult
+  scannedBy String
+  scannedAt DateTime   @default(now())
+
+  ip        String?
+  userAgent String?
+
+  @@map("scan_attempts")
+}
+
+// Qué usuarios (Role.SCANNER) están habilitados para escanear en qué
+// evento. Reemplaza el estado local/efímero que hoy tiene
+// OrganizerScanners.jsx en el frontend.
+model EventScanner {
+  id String @id @default(cuid())
+
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  @@unique([eventId, userId])
+  @@map("event_scanners")
 }
