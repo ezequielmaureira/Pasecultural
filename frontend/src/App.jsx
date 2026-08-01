@@ -21,8 +21,7 @@ import ScannerShell from "./pages/scanner/ScannerShell.jsx";
 import ScannerHome from "./pages/scanner/ScannerHome.jsx";
 import EventsList from "./pages/public/EventsList.jsx";
 import EventDetail from "./pages/public/EventDetail.jsx";
-import Checkout from "./pages/public/Checkout.jsx";
-import Payment from "./pages/public/Payment.jsx";
+import PurchaseWizard from "./pages/public/purchase/PurchaseWizard.jsx";
 import MyTickets from "./pages/public/MyTickets.jsx";
 import RecoverPurchase from "./pages/public/RecoverPurchase.jsx";
 import OrganizerDashboard from "./pages/organizer/OrganizerDashboard.jsx";
@@ -55,9 +54,8 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/eventos" element={<EventsList />} />
             <Route path="/evento/:slug" element={<EventDetail />} />
-            <Route path="/comprar" element={<Checkout />} />
-            <Route path="/pago" element={<Payment />} />
             <Route element={<RequireAuth />}>
+              <Route path="/comprar" element={<PurchaseWizard />} />
               <Route path="/mis-entradas" element={<MyTickets />} />
             </Route>
             <Route path="/recuperar-compra" element={<RecoverPurchase />} />

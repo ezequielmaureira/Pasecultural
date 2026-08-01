@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
+import StepIndicator from "../../components/ui/StepIndicator.jsx";
 import PublishOverlay from "../../components/ui/PublishOverlay.jsx";
 import { usePublishFlow } from "../../hooks/usePublishFlow.js";
 import { Field, inputClass, textareaClass } from "../../components/ui/FormField.jsx";
@@ -63,50 +64,6 @@ function createEmptyGeneralForm() {
   };
 }
 
-// `clickable` habilita saltar directo a cualquier sección tocando su círculo
-// (solo tiene sentido al reeditar un evento existente: en la creación desde
-// cero el orden de los pasos todavía importa para no pedir datos fuera de
-// contexto).
-function StepIndicator({ step, onStepClick, clickable }) {
-  return (
-    <div className="mb-8 flex items-center justify-center gap-2 overflow-x-auto pb-1">
-      {STEPS.map((s, index) => (
-        <div key={s.id} className="flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            disabled={!clickable}
-            onClick={() => onStepClick(s.id)}
-            className={`flex flex-col items-center gap-1.5 rounded-lg ${
-              clickable ? "cursor-pointer hover:opacity-80" : "cursor-default"
-            }`}
-          >
-            <div
-              className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold transition-colors duration-150 ${
-                s.id === step
-                  ? "bg-violet-600 text-white"
-                  : s.id < step
-                  ? "bg-violet-500/20 text-violet-300"
-                  : "bg-white/5 text-slate-500"
-              }`}
-            >
-              {s.id}
-            </div>
-            <span
-              className={`hidden text-[11px] sm:block ${
-                s.id === step ? "text-violet-300" : "text-slate-500"
-              }`}
-            >
-              {s.label}
-            </span>
-          </button>
-          {index < STEPS.length - 1 && (
-            <div className="h-px w-8 shrink-0 bg-white/10 sm:w-12" />
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 function ErrorText({ message }) {
   if (!message) return null;
@@ -773,7 +730,7 @@ export default function OrganizerEventWizard() {
         </Link>
       </div>
 
-      <StepIndicator step={step} onStepClick={setStep} clickable={isEditing} />
+      <StepIndicator steps={STEPS} step={step} onStepClick={setStep} clickable={isEditing} />
 
       <Card>
         {step === 1 && (

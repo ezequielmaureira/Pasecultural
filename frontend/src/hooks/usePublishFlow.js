@@ -55,12 +55,16 @@ export function usePublishFlow() {
 
   // action(): la operación real (uno o varios fetches encadenados).
   // checkOutcome(): cómo confirmar, después de un timeout, si terminó igual.
+  // unresolvedMessage(): opcional — el mensaje del error final si ni la
+  // operación ni la confirmación por timeout resolvieron nada. Por default
+  // el mensaje de "evento" (primer caso de uso del hook); otros llamadores
+  // (ej. compra de entradas) pasan el suyo sin tener que duplicar `run()`.
   //
   // Devuelve lo que resuelva `action()`. Si el timer propio gana la carrera
   // antes que `action()`, pasa a confirmar el resultado real: si lo
   // encuentra, resuelve igual (con `recovered: true`); si no, tira un error
   // `isTimeout` con el mensaje unificado para que el llamador lo muestre.
-  async function run(action, { checkOutcome }) {
+  async function run(action, { checkOutcome, unresolvedMessage = UNRESOLVED_MESSAGE }) {
     setPublishing(true);
     try {
       let timeoutId;
@@ -81,7 +85,7 @@ export function usePublishFlow() {
         const outcome = await confirmAfterTimeout(checkOutcome);
         if (outcome) return outcome;
 
-        const unresolvedError = new Error(UNRESOLVED_MESSAGE);
+        const unresolvedError = new Error(unresolvedMessage);
         unresolvedError.isTimeout = true;
         unresolvedError.unresolved = true;
         throw unresolvedError;

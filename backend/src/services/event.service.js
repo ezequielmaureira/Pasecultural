@@ -536,13 +536,33 @@ export const getPublicEventsService = async ({ category, search, sort, when, pri
     });
 };
 
+// Igual que EVENT_DETAIL_INCLUDE (organizador) pero acotado a lo que un
+// comprador anónimo puede ver: sólo funciones vigentes (SCHEDULED) y sólo
+// asignaciones habilitadas — nunca una entrada que ya no está a la venta.
+// Necesario para el Wizard de compra (elegir función + tipos de entrada);
+// antes este endpoint no traía nada de esto y el botón "Comprar entradas"
+// de EventDetail.jsx quedaba armado con datos inexistentes.
+const PUBLIC_EVENT_DETAIL_INCLUDE = {
+    organization: PUBLIC_ORGANIZATION_SELECT,
+    links: { orderBy: { order: "asc" } },
+    ticketTypes: { orderBy: { createdAt: "asc" } },
+    functions: {
+        where: { status: "SCHEDULED" },
+        orderBy: { date: "asc" },
+        include: {
+            ticketAssignments: {
+                where: { enabled: true },
+                include: { ticketType: true },
+                orderBy: { createdAt: "asc" },
+            },
+        },
+    },
+};
+
 export const getPublicEventBySlugService = async (slug) => {
     const event = await prisma.event.findUnique({
         where: { slug },
-        include: {
-            organization: PUBLIC_ORGANIZATION_SELECT,
-            links: { orderBy: { order: "asc" } },
-        },
+        include: PUBLIC_EVENT_DETAIL_INCLUDE,
     });
 
     if (!event || event.status !== "PUBLISHED" || event.visibility !== "PUBLIC") {
