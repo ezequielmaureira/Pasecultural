@@ -1,5 +1,8 @@
 import { getAuth } from "@clerk/express";
 import { AppError } from "../errors/AppError.js";
+import prisma from "../config/prisma.js";
+import { ErrorCodes } from "../errors/ErrorCodes.js";
+import { getUserByClerkId } from "../utils/getUserByClerkId.js";
 import {
     createSaleService,
     confirmSaleService,
@@ -58,6 +61,30 @@ export const listSalesBuyer = async (req, res, next) => {
         const { userId } = getAuth(req);
         const sales = await listSalesBuyerService(userId);
         res.status(200).json({ sales });
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
+
+export const confirmSaleByBuyer = async (req, res, next) => {
+    try {
+        const { userId } = getAuth(req);
+        const buyer = await getUserByClerkId(userId);
+        if (!buyer) throw new Error(ErrorCodes.USER_NOT_FOUND);
+
+        const sale = await prisma.sale.findUnique({
+            where: { id: req.params.id },
+            include: { event: { include: { organization: true } } },
+        });
+        if (!sale || sale.deletedAt) throw new Error(ErrorCodes.SALE_NOT_FOUND);
+        if (sale.buyerId !== buyer.id) throw new Error(ErrorCodes.SALE_NOT_FOUND);
+        if (sale.status !== "PENDING") throw new Error(ErrorCodes.SALE_NOT_PENDING);
+
+        const organizer = await prisma.user.findUnique({ where: { id: sale.event.organization.ownerId } });
+        if (!organizer || !organizer.clerkId) throw new Error(ErrorCodes.USER_NOT_FOUND);
+
+        const result = await confirmSaleService(organizer.clerkId, sale.id);
+        res.status(200).json(result);
     } catch (error) {
         next(AppError.from(error));
     }

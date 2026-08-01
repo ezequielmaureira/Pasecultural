@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { CalendarDays, MapPin, Clock3, ImageOff, ArrowLeft } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
@@ -17,6 +17,7 @@ import {
 export default function EventDetail() {
   const { slug } = useParams();
   const [event, setEvent] = useState(null);
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
@@ -184,12 +185,14 @@ export default function EventDetail() {
                 </p>
               </div>
 
-              <Button size="lg" className="justify-center" disabled>
+              <Button
+                size="lg"
+                className="justify-center"
+                onClick={() => navigate(`/comprar?slug=${event.slug}&functionId=${event.functions?.[0]?.id}`)}
+              >
                 Comprar Entradas
               </Button>
-              <p className="text-center text-xs text-slate-500">
-                La compra online todavía no está disponible.
-              </p>
+              <p className="text-center text-xs text-slate-500">Irás al checkout para completar la compra.</p>
             </div>
           </Card>
         </div>
