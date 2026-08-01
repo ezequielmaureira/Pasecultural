@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useAuth } from "@clerk/clerk-react";
 import { X, AlertTriangle, RefreshCw } from "lucide-react";
 import Spinner from "../../../components/ui/Spinner.jsx";
@@ -19,6 +19,7 @@ export default function ScanHistoryDrawer({ eventId, functionId, onClose }) {
     const [attempts, setAttempts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const closeButtonRef = useRef(null);
 
     async function load() {
         setLoading(true);
@@ -38,10 +39,25 @@ export default function ScanHistoryDrawer({ eventId, functionId, onClose }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // Cerrar con Escape y mover el foco al primer botón al abrir para
+    // accesibilidad.
+    useEffect(() => {
+        function handleKey(e) {
+            if (e.key === "Escape") onClose();
+        }
+        document.addEventListener("keydown", handleKey);
+        // Foco inicial
+        if (closeButtonRef.current) closeButtonRef.current.focus();
+        return () => document.removeEventListener("keydown", handleKey);
+    }, [onClose]);
+
     return (
-        <div className="absolute inset-0 z-30 flex flex-col justify-end bg-black/60" onClick={onClose}>
+        <div className="absolute inset-0 z-30 flex flex-col justify-end bg-black/60" onClick={onClose} aria-hidden>
             <div
                 onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Historial de escaneos"
                 className="flex max-h-[70vh] flex-col rounded-t-2xl border-t border-white/10 bg-[#0B1120]"
             >
                 <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
@@ -50,7 +66,8 @@ export default function ScanHistoryDrawer({ eventId, functionId, onClose }) {
                         type="button"
                         onClick={onClose}
                         aria-label="Cerrar historial"
-                        className="text-slate-400 transition-colors duration-150 hover:text-white"
+                        ref={closeButtonRef}
+                        className="text-slate-400 transition-colors duration-150 hover:text-white focus:outline-none focus:ring-2 focus:ring-emerald-400 rounded"
                     >
                         <X className="h-4 w-4" />
                     </button>

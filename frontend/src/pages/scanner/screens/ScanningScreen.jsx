@@ -45,13 +45,16 @@ export default function ScanningScreen({ event, fn, onExitScanning, onChangeFunc
     // se pudo haber desconectado mientras se mostraba el resultado) — por
     // eso está separado y maneja su propio error de cámara.
     const resumeScanning = useCallback(() => {
+        if (!isMountedRef.current) return;
         setResult(null);
         busyRef.current = false;
         qrScannerRef.current?.start().catch((err) => {
+            if (!isMountedRef.current) return;
             setCameraErrorType(classifyCameraError(err));
             setCameraStatus("error");
         });
     }, []);
+    const isMountedRef = useRef(true);
 
     const handleDecode = useCallback(
         async (scanResult) => {
@@ -74,8 +77,10 @@ export default function ScanningScreen({ event, fn, onExitScanning, onChangeFunc
 
                 playResultSound(response.status);
                 vibrateForResult(response.status);
-                if (response.stats) setStats(response.stats);
-                setResult({ status: response.status, data: response.data });
+                if (isMountedRef.current) {
+                    if (response.stats) setStats(response.stats);
+                    setResult({ status: response.status, data: response.data });
+                }
 
                 const duration = SCAN_RESULT_DURATION_MS[response.status] ?? SCAN_RESULT_DURATION_MS.NOT_FOUND;
                 resumeTimeoutRef.current = setTimeout(resumeScanning, duration);
@@ -85,13 +90,13 @@ export default function ScanningScreen({ event, fn, onExitScanning, onChangeFunc
                     return;
                 }
                 if (err.isTimeout || err.isNetworkError) {
-                    setResult({ status: "OFFLINE", data: null });
+                    if (isMountedRef.current) setResult({ status: "OFFLINE", data: null });
                     resumeTimeoutRef.current = setTimeout(resumeScanning, SCAN_RESULT_DURATION_MS.OFFLINE);
                     return;
                 }
                 // Error real inesperado: nunca se muestra técnico — se trata
                 // visualmente como NOT_FOUND y se sigue escaneando igual.
-                setResult({ status: "NOT_FOUND", data: null });
+                if (isMountedRef.current) setResult({ status: "NOT_FOUND", data: null });
                 resumeTimeoutRef.current = setTimeout(resumeScanning, SCAN_RESULT_DURATION_MS.NOT_FOUND);
             }
         },
@@ -121,8 +126,12 @@ export default function ScanningScreen({ event, fn, onExitScanning, onChangeFunc
             }
             await qrScannerRef.current.start();
             setCameraStatus("active");
+            // Evitar setState si el componente ya fue desmontado mientras
+            // resolvía la lista de cámaras.
             QrScanner.listCameras(true)
-                .then(setAvailableCameras)
+                .then((cameras) => {
+                    if (isMountedRef.current) setAvailableCameras(cameras);
+                })
                 .catch(() => {});
         } catch (err) {
             setCameraErrorType(classifyCameraError(err));
@@ -131,12 +140,24 @@ export default function ScanningScreen({ event, fn, onExitScanning, onChangeFunc
     }, [handleDecode]);
 
     useEffect(() => {
+        isMountedRef.current = true;
         startCamera();
         return () => {
+            isMountedRef.current = false;
             clearTimeout(resumeTimeoutRef.current);
             qrScannerRef.current?.stop();
             qrScannerRef.current?.destroy();
             qrScannerRef.current = null;
+            // Asegurarse de liberar cualquier MediaStream asociado al <video>
+            try {
+                const stream = videoRef.current?.srcObject;
+                if (stream && stream.getTracks) {
+                    stream.getTracks().forEach((t) => t.stop());
+                }
+                if (videoRef.current) videoRef.current.srcObject = null;
+            } catch {
+                // No romper si el browser ya liberó el stream.
+            }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
