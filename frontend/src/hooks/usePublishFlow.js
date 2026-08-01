@@ -42,7 +42,11 @@ export function usePublishFlow() {
         let outcome;
         try {
           outcome = await checkOutcome();
-        } catch {
+        } catch (error) {
+          console.error("usePublishFlow.confirmAfterTimeout checkOutcome error", error);
+          console.error(error.response);
+          console.error(error.data);
+          console.error(error.stack);
           continue; // problema de red puntual en el chequeo: reintenta en la próxima vuelta
         }
         if (outcome) return outcome;
@@ -80,6 +84,10 @@ export function usePublishFlow() {
         const result = await Promise.race([action(), timeout]);
         return result;
       } catch (err) {
+        console.error("usePublishFlow.run caught error", err);
+        console.error(err.response);
+        console.error(err.data);
+        console.error(err.stack);
         if (!err.isTimeout) throw err;
 
         const outcome = await confirmAfterTimeout(checkOutcome);

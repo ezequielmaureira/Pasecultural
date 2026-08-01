@@ -155,18 +155,31 @@ export default function PurchaseWizard() {
     setPurchaseError("");
     let createdSaleId = null;
 
-    const action = () =>
-      processPayment(
+    const action = () => {
+      console.log("PurchaseWizard.handleConfirmPurchase action starting", {
+        eventId: event.id,
+        functionId: selectedFunctionId,
+        items,
+        buyer,
+      });
+      return processPayment(
         { eventId: event.id, functionId: selectedFunctionId, items, buyer },
         { onSaleCreated: (id) => { createdSaleId = id; } }
       );
+    };
 
     const checkOutcome = () => checkPaymentOutcome({ saleId: createdSaleId });
 
     try {
+      console.log("PurchaseWizard.handleConfirmPurchase before publishFlow.run", { createdSaleId, items, buyer });
       await publishFlow.run(action, { checkOutcome, unresolvedMessage: UNRESOLVED_PURCHASE_MESSAGE });
+      console.log("PurchaseWizard.handleConfirmPurchase after publishFlow.run", { createdSaleId });
       setPhase("success");
     } catch (err) {
+      console.error("PurchaseWizard.handleConfirmPurchase caught error", err);
+      console.error(err.response);
+      console.error(err.data);
+      console.error(err.stack);
       setPurchaseError(err.message || "No pudimos procesar tu compra.");
       setPhase("purchase-error");
     }

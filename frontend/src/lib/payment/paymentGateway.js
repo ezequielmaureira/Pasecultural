@@ -13,16 +13,22 @@ import { createSale, confirmSaleByBuyer, getSaleStatus } from "../saleApi.js";
 // verificar exactamente ESA venta si `confirmSaleByBuyer` se cae por
 // timeout.
 export async function processPayment({ eventId, functionId, items, buyer }, { onSaleCreated } = {}) {
-    const sale = await createSale({
+    const requestBody = {
         eventId,
         functionId,
         items,
         firstName: buyer?.firstName,
         lastName: buyer?.lastName,
         email: buyer?.email,
-    });
+    };
+    console.log("paymentGateway.processPayment before createSale", requestBody);
+    const sale = await createSale(requestBody);
+    console.log("paymentGateway.processPayment after createSale", { sale });
     onSaleCreated?.(sale.id);
-    return confirmSaleByBuyer(sale.id);
+    console.log("paymentGateway.processPayment before confirmSaleByBuyer", { saleId: sale.id });
+    const result = await confirmSaleByBuyer(sale.id);
+    console.log("paymentGateway.processPayment after confirmSaleByBuyer", { saleId: sale.id, result });
+    return result;
 }
 
 // Confirma, después de un timeout, si la compra se completó igual del lado
