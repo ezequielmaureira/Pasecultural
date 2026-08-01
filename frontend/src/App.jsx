@@ -56,7 +56,9 @@ export default function App() {
             <Route path="/evento/:slug" element={<EventDetail />} />
             <Route path="/comprar" element={<Checkout />} />
             <Route path="/pago" element={<Payment />} />
-            <Route path="/mis-entradas" element={<MyTickets />} />
+            <Route element={<RequireAuth />}>
+              <Route path="/mis-entradas" element={<MyTickets />} />
+            </Route>
             <Route path="/recuperar-compra" element={<RecoverPurchase />} />
             <Route path="/para-organizadores" element={<OrganizersLanding />} />
             <Route path="/como-funciona" element={<HowItWorks />} />
