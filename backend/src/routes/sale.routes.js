@@ -6,23 +6,32 @@ import {
     cancelSale,
     listSalesOrganizer,
     listSalesBuyer,
+    getSaleStatus,
 } from "../controllers/sale.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { requireRole } from "../middlewares/requireRole.js";
 
 const router = Router();
 
-router.post("/", requireAuth, createSale);
+// Sin requireAuth a propósito: el comprador nunca necesita sesión de Clerk
+// para comprar (checkout invitado). El controller decide internamente si
+// hay una cuenta real logueada o si resuelve un comprador invitado por
+// email — ver sale.controller.js#createSale.
+router.post("/", createSale);
 router.get("/mine", requireAuth, listSalesBuyer);
 router.get("/", requireRole("ORGANIZER"), listSalesOrganizer);
 // Confirm por parte del organizador (desde UI organizador / webhook)
 router.post("/:id/confirm", requireRole("ORGANIZER"), confirmSale);
 
-// Confirmación automática disparada por el comprador tras pago simulado.
-// Requiere autenticación y sólo permite confirmar la venta si el caller
-// es el `buyer` de la venta. Internamente delega a `confirmSaleService`
-// para reusar la misma lógica transaccional y de generación de tickets.
-router.post("/:id/confirm-by-buyer", requireAuth, confirmSaleByBuyer);
+// Confirmación disparada por el propio flujo de compra (pago manual/
+// simulado hoy, webhook de Mercado Pago mañana) — sin sesión, autorizado
+// únicamente por conocer el saleId. Ver sale.controller.js#confirmSaleByBuyer.
+router.post("/:id/confirm-by-buyer", confirmSaleByBuyer);
+
+// Público, sin sesión: sólo status por id, para la recuperación por timeout
+// del Wizard invitado (no puede usar GET /sales/mine sin cuenta).
+router.get("/:id/status", getSaleStatus);
+
 router.post("/:id/cancel", requireAuth, cancelSale);
 
 export default router;

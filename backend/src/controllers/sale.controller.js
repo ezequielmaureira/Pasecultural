@@ -2,23 +2,30 @@ import { getAuth } from "@clerk/express";
 import { AppError } from "../errors/AppError.js";
 import prisma from "../config/prisma.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
-import { getUserByClerkId } from "../utils/getUserByClerkId.js";
 import {
     createSaleService,
+    createGuestSaleService,
     confirmSaleService,
     cancelSaleService,
     listSalesOrganizerService,
     listSalesBuyerService,
+    getSaleStatusService,
 } from "../services/sale.service.js";
 
 // Sólo validan req, llaman al service y devuelven la respuesta. Toda la
 // validación de negocio vive en sale.service.js — acá no hay ningún if de
 // reglas de dominio.
 
+// El comprador NUNCA necesita sesión de Clerk para comprar: si no hay
+// usuario autenticado, se toma req.body.buyer ({firstName,lastName,email})
+// y se resuelve como invitado. Si alguien SÍ está logueado (caso interno/
+// futuro), se sigue usando su cuenta real — mismo endpoint, dos caminos.
 export const createSale = async (req, res, next) => {
     try {
         const { userId } = getAuth(req);
-        const sale = await createSaleService(userId, req.body);
+        const sale = userId
+            ? await createSaleService(userId, req.body)
+            : await createGuestSaleService(req.body?.buyer, req.body);
         res.status(201).json({ sale });
     } catch (error) {
         next(AppError.from(error));
@@ -66,18 +73,19 @@ export const listSalesBuyer = async (req, res, next) => {
     }
 };
 
+// Confirmación disparada por el propio flujo de compra (pago manual/
+// simulado hoy, webhook de Mercado Pago mañana). Sin sesión de Clerk no hay
+// forma de verificar "sos vos el comprador" — la autorización acá es
+// conocer el saleId, que sólo el navegador que creó la venta recibió. Es
+// exactamente el mismo punto que el webhook de MP va a reemplazar el día de
+// mañana (ver processPayment() del frontend), no un atajo temporal.
 export const confirmSaleByBuyer = async (req, res, next) => {
     try {
-        const { userId } = getAuth(req);
-        const buyer = await getUserByClerkId(userId);
-        if (!buyer) throw new Error(ErrorCodes.USER_NOT_FOUND);
-
         const sale = await prisma.sale.findUnique({
             where: { id: req.params.id },
             include: { event: { include: { organization: true } } },
         });
         if (!sale || sale.deletedAt) throw new Error(ErrorCodes.SALE_NOT_FOUND);
-        if (sale.buyerId !== buyer.id) throw new Error(ErrorCodes.SALE_NOT_FOUND);
         if (sale.status !== "PENDING") throw new Error(ErrorCodes.SALE_NOT_PENDING);
 
         const organizer = await prisma.user.findUnique({ where: { id: sale.event.organization.ownerId } });
@@ -85,6 +93,18 @@ export const confirmSaleByBuyer = async (req, res, next) => {
 
         const result = await confirmSaleService(organizer.clerkId, sale.id);
         res.status(200).json(result);
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
+
+// Público, sin sesión: sólo el status de una venta puntual por id — nada de
+// datos del comprador. Es lo único que necesita la recuperación por timeout
+// del Wizard invitado (no puede usar GET /sales/mine sin sesión).
+export const getSaleStatus = async (req, res, next) => {
+    try {
+        const status = await getSaleStatusService(req.params.id);
+        res.status(200).json(status);
     } catch (error) {
         next(AppError.from(error));
     }

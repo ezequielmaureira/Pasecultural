@@ -40,6 +40,16 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Sale creation attempted with no items.",
         userMessage: "Tenés que elegir al menos una entrada.",
     },
+    GUEST_BUYER_INFO_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "Guest checkout attempted without firstName/lastName/email.",
+        userMessage: "Ingresá tu nombre, apellido y email para continuar.",
+    },
+    GUEST_BUYER_INVALID_EMAIL: {
+        httpStatus: 400,
+        logMessage: "Guest checkout attempted with an invalid email.",
+        userMessage: "El email ingresado no es válido.",
+    },
     INVALID_SALE_ITEM: {
         httpStatus: 400,
         logMessage: "Sale item has an invalid ticketTypeId or quantity.",

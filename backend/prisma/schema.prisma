@@ -98,7 +98,13 @@ enum ScanResult {
 
 model User {
   id            String         @id @default(cuid())
-  clerkId       String         @unique
+  // Nullable a propósito: un comprador invitado (checkout sin cuenta) crea
+  // una fila acá con clerkId null, sólo email/nombre. Postgres permite
+  // varios NULL en una columna @unique, así que conviven sin conflicto. Si
+  // esa persona más adelante crea una cuenta real con el mismo email,
+  // syncUserService "adopta" esta misma fila en vez de duplicarla — sus
+  // compras previas (Sale/Ticket.buyerId) quedan ligadas automáticamente.
+  clerkId       String?        @unique
   email         String         @unique
   firstName     String?
   lastName      String?

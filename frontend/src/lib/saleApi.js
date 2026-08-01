@@ -1,22 +1,27 @@
 import { apiFetch } from "./api.js";
 
-export async function createSale(token, { eventId, functionId, items }) {
+// Sin token: el comprador nunca necesita sesión de Clerk para comprar.
+// `buyer` es { firstName, lastName, email } — el backend lo resuelve como
+// invitado (o reutiliza la cuenta si ese email ya existe).
+export async function createSale({ eventId, functionId, items, buyer }) {
     const { sale } = await apiFetch("/api/sales", {
-        token,
         method: "POST",
-        body: JSON.stringify({ eventId, functionId, items }),
+        body: JSON.stringify({ eventId, functionId, items, buyer }),
     });
     return sale;
 }
 
-// Confirmación de pago disparada por el propio comprador — hoy es la única
-// vía (pago manual/simulado), mañana la reemplaza el webhook de Mercado
-// Pago sin que el Wizard tenga que saberlo (ver lib/payment/paymentGateway.js).
-export async function confirmSaleByBuyer(token, saleId) {
-    return apiFetch(`/api/sales/${saleId}/confirm-by-buyer`, { token, method: "POST" });
+// Confirmación de pago disparada por el propio flujo de compra — hoy es la
+// única vía (pago manual/simulado), mañana la reemplaza el webhook de
+// Mercado Pago sin que el Wizard tenga que saberlo (ver
+// lib/payment/paymentGateway.js). Tampoco necesita sesión: se autoriza por
+// conocer el saleId, que sólo este mismo navegador recibió al crearla.
+export async function confirmSaleByBuyer(saleId) {
+    return apiFetch(`/api/sales/${saleId}/confirm-by-buyer`, { method: "POST" });
 }
 
-export async function listMySales(token) {
-    const { sales } = await apiFetch("/api/sales/mine", { token });
-    return sales;
+// Público, sin sesión — sólo para la recuperación por timeout (ver
+// checkPaymentOutcome en paymentGateway.js).
+export async function getSaleStatus(saleId) {
+    return apiFetch(`/api/sales/${saleId}/status`);
 }

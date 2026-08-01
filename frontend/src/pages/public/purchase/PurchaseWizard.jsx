@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
-import { useAuth } from "@clerk/clerk-react";
 import { ArrowLeft } from "lucide-react";
 import Spinner from "../../../components/ui/Spinner.jsx";
 import StepIndicator from "../../../components/ui/StepIndicator.jsx";
@@ -11,18 +10,22 @@ import PurchaseOverlay from "./PurchaseOverlay.jsx";
 import SelectFunctionStep from "./steps/SelectFunctionStep.jsx";
 import SelectTicketsStep from "./steps/SelectTicketsStep.jsx";
 import SummaryStep from "./steps/SummaryStep.jsx";
+import BuyerInfoStep from "./steps/BuyerInfoStep.jsx";
 import SuccessStep from "./steps/SuccessStep.jsx";
 import ErrorStep from "./steps/ErrorStep.jsx";
 
 const UNRESOLVED_PURCHASE_MESSAGE =
-  "No pudimos confirmar si tu compra se completó. Revisá \"Mis entradas\" antes de volver a intentar para no comprar dos veces.";
+  "No pudimos confirmar si tu compra se completó. Revisá tu email antes de volver a intentar para no comprar dos veces.";
+
+const EMPTY_BUYER = { firstName: "", lastName: "", email: "" };
 
 function buildSteps(hasMultipleFunctions) {
   const steps = [];
   let id = 1;
   if (hasMultipleFunctions) steps.push({ id: id++, label: "Función" });
   steps.push({ id: id++, label: "Entradas" });
-  steps.push({ id, label: "Resumen" });
+  steps.push({ id: id++, label: "Resumen" });
+  steps.push({ id, label: "Comprador" });
   return steps;
 }
 
@@ -45,17 +48,17 @@ function ticketOptionsFor(selectedFunction) {
 export default function PurchaseWizard() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { getToken } = useAuth();
   const slug = searchParams.get("slug");
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [event, setEvent] = useState(null);
 
-  // "function" | "tickets" | "summary" | "success" | "purchase-error"
+  // "function" | "tickets" | "summary" | "buyer-info" | "success" | "purchase-error"
   const [phase, setPhase] = useState("tickets");
   const [selectedFunctionId, setSelectedFunctionId] = useState(null);
   const [quantities, setQuantities] = useState({});
+  const [buyer, setBuyer] = useState(EMPTY_BUYER);
   const [purchaseError, setPurchaseError] = useState("");
 
   const publishFlow = usePublishFlow();
@@ -138,29 +141,27 @@ export default function PurchaseWizard() {
       ? stepIdByLabel["Función"]
       : phase === "tickets"
       ? stepIdByLabel["Entradas"]
-      : stepIdByLabel["Resumen"];
+      : phase === "summary"
+      ? stepIdByLabel["Resumen"]
+      : stepIdByLabel["Comprador"];
 
   function handleQuantityChange(ticketTypeId, delta) {
     setQuantities((prev) => ({ ...prev, [ticketTypeId]: Math.max(0, (prev[ticketTypeId] ?? 0) + delta) }));
   }
 
+  // Nunca pasa por Clerk: ni token, ni getAuth, ni isSignedIn. La identidad
+  // del comprador es exactamente lo que completó en BuyerInfoStep.
   async function handleConfirmPurchase() {
     setPurchaseError("");
     let createdSaleId = null;
 
-    const action = async () => {
-      const token = await getToken();
-      return processPayment(
-        token,
-        { eventId: event.id, functionId: selectedFunctionId, items },
+    const action = () =>
+      processPayment(
+        { eventId: event.id, functionId: selectedFunctionId, items, buyer },
         { onSaleCreated: (id) => { createdSaleId = id; } }
       );
-    };
 
-    const checkOutcome = async () => {
-      const token = await getToken();
-      return checkPaymentOutcome(token, { eventId: event.id, functionId: selectedFunctionId, saleId: createdSaleId });
-    };
+    const checkOutcome = () => checkPaymentOutcome({ saleId: createdSaleId });
 
     try {
       await publishFlow.run(action, { checkOutcome, unresolvedMessage: UNRESOLVED_PURCHASE_MESSAGE });
@@ -213,6 +214,15 @@ export default function PurchaseWizard() {
           lineItems={lineItems}
           total={total}
           onBack={() => setPhase("tickets")}
+          onContinue={() => setPhase("buyer-info")}
+        />
+      )}
+
+      {phase === "buyer-info" && (
+        <BuyerInfoStep
+          buyer={buyer}
+          onChange={setBuyer}
+          onBack={() => setPhase("summary")}
           onConfirm={handleConfirmPurchase}
         />
       )}

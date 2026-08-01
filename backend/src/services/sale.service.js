@@ -3,6 +3,7 @@ import prisma from "../config/prisma.js";
 import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { getUserByClerkId } from "../utils/getUserByClerkId.js";
+import { isValidEmail } from "../utils/validateEmail.js";
 import { buildTicketNumber } from "../utils/ticketNumber.js";
 import { encryptSecret } from "../config/qrEncryption.js";
 import { effectiveCapacity } from "./functionCapacity.service.js";
@@ -43,15 +44,35 @@ function round2(value) {
     return Math.round(Number(value) * 100) / 100;
 }
 
-// Crea una reserva (Sale PENDING) con sus SaleItems. NO descuenta stock
+// El comprador NUNCA necesita autenticarse con Clerk para comprar — busca o
+// crea un User por email, con clerkId null ("invitado"). Postgres permite
+// múltiples NULL en una columna @unique, así que muchos invitados conviven
+// sin chocar entre sí. Si esta persona ya tenía cuenta real (clerkId no
+// nulo), se reutiliza esa cuenta tal cual — no se pisan sus datos.
+async function getOrCreateGuestBuyer({ firstName, lastName, email }) {
+    const normalizedEmail = email?.trim().toLowerCase();
+    if (!firstName?.trim() || !lastName?.trim() || !normalizedEmail) {
+        throw new AppError(ErrorCodes.GUEST_BUYER_INFO_REQUIRED);
+    }
+    if (!isValidEmail(normalizedEmail)) {
+        throw new AppError(ErrorCodes.GUEST_BUYER_INVALID_EMAIL);
+    }
+
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (existing) return existing;
+
+    return prisma.user.create({
+        data: { email: normalizedEmail, firstName: firstName.trim(), lastName: lastName.trim(), clerkId: null },
+    });
+}
+
+// Núcleo compartido de creación de venta, ya con el comprador resuelto (con
+// cuenta real o invitado — a esta altura da lo mismo). NO descuenta stock
 // todavía — el chequeo de disponibilidad acá es best-effort (evita que el
 // comprador arme una reserva imposible), pero el chequeo autoritativo y
 // definitivo ocurre recién en confirmSale(), bajo lock, que es el único
 // punto que realmente genera tickets.
-export const createSaleService = async (clerkId, input) => {
-    const buyer = await getUserByClerkId(clerkId);
-    if (!buyer) throw new AppError(ErrorCodes.USER_NOT_FOUND);
-
+async function createSaleForBuyer(buyer, input) {
     const event = await prisma.event.findUnique({ where: { id: input?.eventId } });
     if (!event) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
 
@@ -114,6 +135,22 @@ export const createSaleService = async (clerkId, input) => {
 
     logger.info("Sale created (PENDING)", { saleId: sale.id, eventId: event.id, buyerId: buyer.id });
     return sale;
+}
+
+// Camino autenticado (organizador/desarrollador operando en nombre de un
+// usuario con cuenta real) — se mantiene por si algo interno lo necesita
+// a futuro. El Wizard de compra público NUNCA pasa por acá.
+export const createSaleService = async (clerkId, input) => {
+    const buyer = await getUserByClerkId(clerkId);
+    if (!buyer) throw new AppError(ErrorCodes.USER_NOT_FOUND);
+    return createSaleForBuyer(buyer, input);
+};
+
+// Camino invitado — el único que usa el Wizard de compra público. `buyerInfo`
+// es { firstName, lastName, email }, nunca un token de Clerk.
+export const createGuestSaleService = async (buyerInfo, input) => {
+    const buyer = await getOrCreateGuestBuyer(buyerInfo ?? {});
+    return createSaleForBuyer(buyer, input);
 };
 
 // El corazón del flujo de pago manual (y, a futuro, del webhook de Mercado
@@ -329,4 +366,17 @@ export const listSalesBuyerService = async (clerkId) => {
         include: SALE_LIST_INCLUDE,
         orderBy: { createdAt: "desc" },
     });
+};
+
+// Único dato que necesita el Wizard de compra invitado para su recuperación
+// por timeout (usePublishFlow): saber si ESA venta puntual (identificada
+// por el id que el propio navegador recibió al crearla) ya quedó
+// confirmada. Sin sesión no hay forma de listar "mis ventas" — por eso este
+// endpoint es por id, no por comprador, y devuelve sólo el status: nunca
+// nombre, email, ni el detalle de la compra.
+export const getSaleStatusService = async (saleId) => {
+    const sale = await prisma.sale.findUnique({ where: { id: saleId }, select: { id: true, status: true, deletedAt: true } });
+    if (!sale || sale.deletedAt) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
+
+    return { id: sale.id, status: sale.status };
 };

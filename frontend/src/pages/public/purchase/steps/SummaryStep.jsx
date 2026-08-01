@@ -4,7 +4,7 @@ import Button from "../../../../components/ui/Button.jsx";
 import { currency } from "../../../organizer/eventWizard/model.js";
 import { formatEventDateTime, formatEventLocation } from "../../../../lib/eventFormat.js";
 
-export default function SummaryStep({ event, selectedFunction, lineItems, total, onBack, onConfirm }) {
+export default function SummaryStep({ event, selectedFunction, lineItems, total, onBack, onContinue }) {
   return (
     <Card>
       <div className="flex flex-col gap-1 pb-4 text-center">
@@ -45,17 +45,13 @@ export default function SummaryStep({ event, selectedFunction, lineItems, total,
         <span className="text-xl font-bold text-violet-400">{currency(total)}</span>
       </div>
 
-      <p className="mt-4 rounded-lg bg-white/5 px-3 py-2 text-xs text-slate-400">
-        Al continuar, se generará tu compra y vas a recibir tus entradas.
-      </p>
-
       <div className="mt-5 flex gap-3">
         <Button variant="secondary" onClick={onBack} className="flex-1 justify-center">
           <ChevronLeft className="h-4 w-4" />
           Volver
         </Button>
-        <Button onClick={onConfirm} className="flex-1 justify-center">
-          Pagar
+        <Button onClick={onContinue} className="flex-1 justify-center">
+          Continuar
         </Button>
       </div>
     </Card>

@@ -54,8 +54,9 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/eventos" element={<EventsList />} />
             <Route path="/evento/:slug" element={<EventDetail />} />
+            {/* Sin RequireAuth a propósito: comprar nunca exige cuenta. */}
+            <Route path="/comprar" element={<PurchaseWizard />} />
             <Route element={<RequireAuth />}>
-              <Route path="/comprar" element={<PurchaseWizard />} />
               <Route path="/mis-entradas" element={<MyTickets />} />
             </Route>
             <Route path="/recuperar-compra" element={<RecoverPurchase />} />

@@ -4,7 +4,12 @@
       "Bash(node -e ' *)",
       "Bash(node _smoke_test_purchase.mjs)",
       "Bash(rm -f _smoke_test_purchase.mjs)",
-      "Bash(node --check src/config/qrEncryption.js)"
+      "Bash(node --check src/config/qrEncryption.js)",
+      "Bash(node _smoke_test_guest.mjs)",
+      "Bash(rm -f _smoke_test_guest.mjs)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/api/health --max-time 2)",
+      "Bash(pkill -f \"node src/server.js\")",
+      "Bash(taskkill //F //PID 21780)"
     ]
   }
 }

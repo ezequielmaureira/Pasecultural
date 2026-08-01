@@ -1,3 +1,5 @@
+import { isValidEmail } from "./validateEmail.js";
+
 const ORGANIZATION_TYPES = new Set([
     "TEATRO",
     "PRODUCTORA",
@@ -8,8 +10,6 @@ const ORGANIZATION_TYPES = new Set([
     "INDEPENDIENTE",
     "OTRO",
 ]);
-
-const EMAIL_REGEX = /^\S+@\S+\.\S+$/;
 
 export function validateOrganizationInput({
     name,
@@ -33,7 +33,7 @@ export function validateOrganizationInput({
         errors.push("El tipo de organización es obligatorio");
     }
 
-    if (!email || !EMAIL_REGEX.test(email)) {
+    if (!isValidEmail(email)) {
         errors.push("El email es obligatorio y debe ser válido");
     }
 
