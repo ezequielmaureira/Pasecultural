@@ -3,7 +3,8 @@
     "allow": [
       "Bash(node -e ' *)",
       "Bash(node _smoke_test_purchase.mjs)",
-      "Bash(rm -f _smoke_test_purchase.mjs)"
+      "Bash(rm -f _smoke_test_purchase.mjs)",
+      "Bash(node --check src/config/qrEncryption.js)"
     ]
   }
 }
