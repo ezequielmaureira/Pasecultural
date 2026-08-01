@@ -2,6 +2,7 @@ import { getAuth } from "@clerk/express";
 import { AppError } from "../errors/AppError.js";
 import prisma from "../config/prisma.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
+import { logger } from "../logging/logger.js";
 import {
     createGuestSaleService,
     confirmSaleService,
@@ -23,12 +24,14 @@ import {
 export const createSale = async (req, res, next) => {
     try {
         const { firstName, lastName, email, ...saleData } = req.body;
+        logger.info("createSale controller entered", { firstName, lastName, email, saleData });
 
         const sale = await createGuestSaleService(
             { firstName, lastName, email },
             saleData
         );
 
+        logger.info("createSale controller completed", { saleId: sale.id, eventId: sale.eventId, functionId: sale.functionId });
         res.status(201).json({ sale });
     } catch (error) {
         next(AppError.from(error));
@@ -84,6 +87,7 @@ export const listSalesBuyer = async (req, res, next) => {
 // mañana (ver processPayment() del frontend), no un atajo temporal.
 export const confirmSaleByBuyer = async (req, res, next) => {
     try {
+        logger.info("confirmSaleByBuyer controller entered", { saleId: req.params.id });
         const sale = await prisma.sale.findUnique({
             where: { id: req.params.id },
             include: { event: { include: { organization: true } } },
@@ -95,6 +99,7 @@ export const confirmSaleByBuyer = async (req, res, next) => {
         if (!organizer || !organizer.clerkId) throw new Error(ErrorCodes.USER_NOT_FOUND);
 
         const result = await confirmSaleService(organizer.clerkId, sale.id);
+        logger.info("confirmSaleByBuyer controller completed", { saleId: sale.id, organizerId: organizer.id, organizerClerkId: organizer.clerkId });
         res.status(200).json(result);
     } catch (error) {
         next(AppError.from(error));

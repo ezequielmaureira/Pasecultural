@@ -137,6 +137,11 @@ async function createSaleForBuyer(buyer, input) {
     return sale;
 }
 
+const finalizeConfirmSale = (saleId, organizerUserId) => {
+    logger.info("confirmSaleService completed", { saleId, organizerUserId });
+    return { saleId, status: "CONFIRMED" };
+};
+
 // Camino autenticado (organizador/desarrollador operando en nombre de un
 // usuario con cuenta real) — se mantiene por si algo interno lo necesita
 // a futuro. El Wizard de compra público NUNCA pasa por acá.
@@ -149,8 +154,11 @@ export const createSaleService = async (clerkId, input) => {
 // Camino invitado — el único que usa el Wizard de compra público. `buyerInfo`
 // es { firstName, lastName, email }, nunca un token de Clerk.
 export const createGuestSaleService = async (buyerInfo, input) => {
+    logger.info("createGuestSaleService entered", { buyerInfo, input });
     const buyer = await getOrCreateGuestBuyer(buyerInfo ?? {});
-    return createSaleForBuyer(buyer, input);
+    const sale = await createSaleForBuyer(buyer, input);
+    logger.info("createGuestSaleService completed", { saleId: sale.id, buyerId: buyer.id, organizationId: sale.organizationId, eventId: sale.eventId });
+    return sale;
 };
 
 // El corazón del flujo de pago manual (y, a futuro, del webhook de Mercado
@@ -158,8 +166,12 @@ export const createGuestSaleService = async (buyerInfo, input) => {
 // transacción: si cualquier paso falla, rollback completo, cero estados
 // intermedios.
 export const confirmSaleService = async (clerkId, saleId) => {
+    logger.info("confirmSaleService entered", { clerkId, saleId });
     const organizerUser = await getUserByClerkId(clerkId);
-    if (!organizerUser) throw new AppError(ErrorCodes.USER_NOT_FOUND);
+    if (!organizerUser) {
+        logger.info("confirmSaleService failed: organizer user not found", { clerkId });
+        throw new AppError(ErrorCodes.USER_NOT_FOUND);
+    }
 
     const sale = await prisma.sale.findUnique({
         where: { id: saleId },
@@ -170,11 +182,19 @@ export const confirmSaleService = async (clerkId, saleId) => {
     });
     if (!sale || sale.deletedAt) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
     if (sale.event.organization.ownerId !== organizerUser.id) {
+        logger.info("confirmSaleService failed: organizer does not own event organization", {
+            saleId,
+            organizerUserId: organizerUser.id,
+            organizationOwnerId: sale.event.organization.ownerId,
+        });
         // No se distingue de "no existe": no hace falta confirmarle a un
         // organizador ajeno que esa venta sí existe en otra organización.
         throw new AppError(ErrorCodes.SALE_NOT_FOUND);
     }
-    if (sale.status !== "PENDING") throw new AppError(ErrorCodes.SALE_NOT_PENDING);
+    if (sale.status !== "PENDING") {
+        logger.info("confirmSaleService failed: sale not pending", { saleId, status: sale.status });
+        throw new AppError(ErrorCodes.SALE_NOT_PENDING);
+    }
 
     const result = await prisma.$transaction(async (tx) => {
         // 1) Advisory lock por cada (ticketType, function) involucrado: serializa
