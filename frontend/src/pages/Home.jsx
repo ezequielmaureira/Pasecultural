@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { ChevronRight, ShieldCheck, Ticket, UserCheck, Headset } from "lucide-react";
+import { ChevronRight, ShieldCheck, Ticket, UserCheck, Headset, Search } from "lucide-react";
 import HeroCarousel from "../components/marketplace/HeroCarousel.jsx";
 import CategoryFilterBar from "../components/marketplace/CategoryFilterBar.jsx";
 import EventsCarousel from "../components/marketplace/EventsCarousel.jsx";
+import Button from "../components/ui/Button.jsx";
 import { apiFetch } from "../lib/api.js";
 import { TRUST_FEATURES } from "../data/publicMockData.js";
 
@@ -98,6 +99,32 @@ function TrustBar() {
   );
 }
 
+// Acceso visible a "Recuperar mis entradas" desde el Home — sin esto, la
+// única forma de llegar era escribiendo la URL a mano o volviendo a la
+// pantalla de éxito de una compra anterior. Sección propia y chica, no
+// compite en peso visual con las carousels de eventos (primer objetivo del
+// Home sigue siendo explorar/comprar).
+function RecoverPurchaseSection() {
+  return (
+    <section className={`${SECTION} ${SECTION_SPACING}`}>
+      <div className="flex flex-col items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/5 p-6 text-center sm:flex-row sm:text-left">
+        <div>
+          <p className="text-sm font-semibold text-white">¿Ya compraste una entrada?</p>
+          <p className="text-xs text-slate-400">
+            Si perdiste el email, podés recuperar tus entradas con tu email y tu DNI.
+          </p>
+        </div>
+        <Link to="/recuperar-compra" className="shrink-0">
+          <Button variant="secondary" className="gap-1.5">
+            <Search className="h-4 w-4" />
+            Recuperar mis entradas
+          </Button>
+        </Link>
+      </div>
+    </section>
+  );
+}
+
 export default function Home() {
   const navigate = useNavigate();
   const [events, setEvents] = useState([]);
@@ -168,6 +195,7 @@ export default function Home() {
       )}
 
       <TrustBar />
+      <RecoverPurchaseSection />
     </div>
   );
 }
