@@ -85,6 +85,11 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Concurrent confirmSale() call lost the race: sale was no longer PENDING.",
         userMessage: "Esta venta ya fue confirmada.",
     },
+    SALE_NOT_CONFIRMED: {
+        httpStatus: 409,
+        logMessage: "Cannot (re)send the confirmation email for a sale that is not CONFIRMED.",
+        userMessage: "Esta venta todavía no está confirmada.",
+    },
     TICKET_NOT_FOUND: {
         httpStatus: 404,
         logMessage: "Ticket not found.",

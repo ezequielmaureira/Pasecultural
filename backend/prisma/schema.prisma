@@ -81,6 +81,20 @@ enum PaymentMethod {
   MERCADO_PAGO
 }
 
+// Estado del envío del email de confirmación (Resend) — independiente del
+// estado de la venta en sí. SENDING es un "lock" transitorio: lo toma la
+// operación atómica que reclama el intento (ver claimSaleConfirmationEmail
+// en sendSaleConfirmationEmail.service.js) para que dos llamadas
+// concurrentes a confirmSaleService/reintento nunca manden el mismo correo
+// dos veces. Si queda SENDING por una caída del proceso a mitad de camino,
+// se considera "stale" pasados unos minutos y vuelve a ser reclamable.
+enum EmailDeliveryStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+}
+
 enum TicketStatus {
   ACTIVE
   USED
@@ -383,6 +397,22 @@ model Sale {
   confirmedAt DateTime?
   confirmedBy String?
   paymentRef  String?
+
+  // Email de confirmación con los tickets (Resend) — nunca se manda dentro
+  // de la transacción que confirma la venta (ver confirmSaleService), y
+  // nunca más de una vez por venta aunque confirmSaleService se llame varias
+  // veces (reintentos del frontend, polling, StrictMode, retries de red).
+  // confirmationEmailAttempts/LastAttemptAt sirven para el reclamo atómico
+  // (PENDING/FAILED -> SENDING) y para recuperar un SENDING que quedó
+  // colgado por una caída del proceso. confirmationEmailLastError guarda
+  // sólo un motivo sanitizado (nunca el error crudo de Resend, nunca datos
+  // sensibles) — ver sendSaleConfirmationEmail.service.js.
+  confirmationEmailStatus        EmailDeliveryStatus @default(PENDING)
+  confirmationEmailSentAt        DateTime?
+  confirmationEmailLastAttemptAt DateTime?
+  confirmationEmailProviderId    String?
+  confirmationEmailAttempts      Int                 @default(0)
+  confirmationEmailLastError     String?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt

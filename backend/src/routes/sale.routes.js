@@ -7,6 +7,7 @@ import {
     listSalesOrganizer,
     listSalesBuyer,
     getSaleStatus,
+    resendSaleConfirmationEmail,
 } from "../controllers/sale.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { requireRole } from "../middlewares/requireRole.js";
@@ -35,5 +36,12 @@ router.post("/:token/confirm-by-buyer", confirmSaleByBuyer);
 router.get("/:token/status", getSaleStatus);
 
 router.post("/:id/cancel", requireAuth, cancelSale);
+
+// Reintento administrativo del email de confirmación. requireRole acá es
+// sólo el filtro grueso (excluye CUSTOMER/SCANNER de entrada); la
+// verificación fina de "es DEVELOPER, o es el ORGANIZER dueño de ESTE
+// evento puntual" vive en resendSaleConfirmationEmailService — mismo
+// patrón que ya usa confirmSaleService con la organización.
+router.post("/:id/resend-confirmation-email", requireRole("DEVELOPER", "ORGANIZER"), resendSaleConfirmationEmail);
 
 export default router;

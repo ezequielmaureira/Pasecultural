@@ -11,6 +11,7 @@ import {
     listSalesBuyerService,
     getSaleStatusService,
 } from "../services/sale.service.js";
+import { resendSaleConfirmationEmailService } from "../services/email/sendSaleConfirmationEmail.service.js";
 
 // Sólo validan req, llaman al service y devuelven la respuesta. Toda la
 // validación de negocio vive en sale.service.js — acá no hay ningún if de
@@ -96,7 +97,13 @@ export const confirmSaleByBuyer = async (req, res, next) => {
             include: { event: { include: { organization: true } } },
         });
         if (!sale || sale.deletedAt) throw new Error(ErrorCodes.SALE_NOT_FOUND);
-        if (sale.status !== "PENDING") throw new Error(ErrorCodes.SALE_NOT_PENDING);
+        // CONFIRMED no se bloquea acá: confirmSaleService ya es idempotente
+        // para ese caso (reintentos del frontend, timeout, polling, doble
+        // solicitud) y devuelve el mismo resultado de éxito sin volver a
+        // generar tickets. Sólo CANCELLED/EXPIRED siguen sin poder pasar.
+        if (sale.status !== "PENDING" && sale.status !== "CONFIRMED") {
+            throw new Error(ErrorCodes.SALE_NOT_PENDING);
+        }
 
         const organizer = await prisma.user.findUnique({ where: { id: sale.event.organization.ownerId } });
         if (!organizer || !organizer.clerkId) throw new Error(ErrorCodes.USER_NOT_FOUND);
@@ -117,6 +124,21 @@ export const getSaleStatus = async (req, res, next) => {
     try {
         const status = await getSaleStatusService(req.params.token);
         res.status(200).json(status);
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
+
+// Reintento administrativo del email de confirmación — DEVELOPER, o el
+// ORGANIZER dueño del evento de esa venta (verificado dentro del service).
+// Nunca acepta un email del body: siempre manda al buyerEmail ya guardado
+// en la venta. No es un endpoint público ni de uso masivo — sólo por id
+// interno, autenticado.
+export const resendSaleConfirmationEmail = async (req, res, next) => {
+    try {
+        const { userId } = getAuth(req);
+        const result = await resendSaleConfirmationEmailService(userId, req.params.id);
+        res.status(200).json(result);
     } catch (error) {
         next(AppError.from(error));
     }

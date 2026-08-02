@@ -8,6 +8,7 @@ import { buildTicketNumber } from "../utils/ticketNumber.js";
 import { encryptSecret, decryptSecret } from "../config/qrEncryption.js";
 import { effectiveCapacity } from "./functionCapacity.service.js";
 import { logger } from "../logging/logger.js";
+import { sendSaleConfirmationEmail } from "./email/sendSaleConfirmationEmail.service.js";
 
 const ACTIVE_TICKET_STATUSES = ["ACTIVE", "USED"];
 
@@ -166,6 +167,45 @@ export const createGuestSaleService = async (buyerInfo, input) => {
     return sale;
 };
 
+// Reconstruye la respuesta pública de una venta ya CONFIRMED (sale +
+// tickets enriquecidos) desde cero, a partir de lo que ya persiste en la
+// base — no de lo que se acaba de generar en memoria. Se usa tanto justo
+// después de confirmar como cuando confirmSaleService encuentra una venta
+// que YA estaba CONFIRMED (llamada repetida — ver más abajo): en ambos
+// casos el resultado tiene que ser exactamente el mismo, así que es la
+// misma función la que lo arma. El secret de cada QR se reconstruye al
+// vuelo con decryptSecret (igual que getSaleStatusService) — nunca hay un
+// qrToken guardado en texto plano del que depender.
+async function buildConfirmedSaleResult(saleId) {
+    const confirmedSale = await prisma.sale.findUnique({ where: { id: saleId }, include: SALE_LIST_INCLUDE });
+    const tickets = await prisma.ticket.findMany({
+        where: { saleId, deletedAt: null },
+        select: {
+            id: true,
+            ticketNumber: true,
+            status: true,
+            ticketTypeId: true,
+            ticketType: { select: { name: true } },
+            qr: { select: { secretEncrypted: true } },
+        },
+        orderBy: { sequence: "asc" },
+    });
+
+    const enrichedTickets = tickets.map((ticket) => ({
+        id: ticket.id,
+        ticketNumber: ticket.ticketNumber,
+        status: ticket.status,
+        ticketTypeId: ticket.ticketTypeId,
+        ticketTypeName: ticket.ticketType?.name ?? "",
+        eventTitle: confirmedSale.event.title,
+        functionDate: confirmedSale.function.date,
+        venue: confirmedSale.function.venue,
+        qrToken: `${ticket.id}.${decryptSecret(ticket.qr.secretEncrypted)}`,
+    }));
+
+    return { sale: confirmedSale, tickets: enrichedTickets };
+}
+
 // El corazón del flujo de pago manual (y, a futuro, del webhook de Mercado
 // Pago — ver nota de compatibilidad en confirmedBy). Todo en UNA
 // transacción: si cualquier paso falla, rollback completo, cero estados
@@ -195,6 +235,20 @@ export const confirmSaleService = async (clerkId, saleId) => {
         // No se distingue de "no existe": no hace falta confirmarle a un
         // organizador ajeno que esa venta sí existe en otra organización.
         throw new AppError(ErrorCodes.SALE_NOT_FOUND);
+    }
+
+    // Idempotente para el caso de llamada repetida sobre una venta que YA
+    // quedó CONFIRMED (reintentos del frontend, timeouts, polling, doble
+    // solicitud, StrictMode, retries de red — ver
+    // sendSaleConfirmationEmail.service.js): no se vuelve a crear ningún
+    // ticket, sólo se reconstruye y devuelve el mismo resultado de éxito de
+    // siempre. CANCELLED/EXPIRED siguen sin poder "confirmarse" — para esos
+    // sigue tirando error más abajo, sin tocar ese comportamiento.
+    if (sale.status === "CONFIRMED") {
+        logger.info("confirmSaleService: sale already CONFIRMED, replaying result", { saleId });
+        const replayed = await buildConfirmedSaleResult(sale.id);
+        const emailOutcome = await sendSaleConfirmationEmail(sale.id);
+        return { ...replayed, emailDeliveryStatus: emailOutcome.status ?? "PENDING" };
     }
     if (sale.status !== "PENDING") {
         logger.info("confirmSaleService failed: sale not pending", { saleId, status: sale.status });
@@ -319,25 +373,22 @@ export const confirmSaleService = async (clerkId, saleId) => {
         ticketCount: result.tickets.length,
     });
 
-    const confirmedSale = await prisma.sale.findUnique({ where: { id: sale.id }, include: SALE_LIST_INCLUDE });
+    // Se reconstruye con la misma función que usa el camino "ya estaba
+    // CONFIRMED" en vez de armar la respuesta a mano acá con lo que
+    // devolvió la transacción — así los dos caminos siempre devuelven
+    // exactamente la misma forma, sin dos versiones de esta lógica para
+    // mantener sincronizadas.
+    const confirmedResult = await buildConfirmedSaleResult(sale.id);
 
-    // El comprador invitado nunca vuelve a consultar la API después de esto
-    // (no tiene sesión con la que hacerlo) — por eso la respuesta de esta
-    // misma operación tiene que traer todo lo que la pantalla de éxito
-    // necesita mostrar por ticket (evento, función, tipo de entrada), no
-    // sólo los IDs.
-    const ticketTypeNameById = new Map(
-        confirmedSale.items.map((item) => [item.ticketTypeId, item.ticketType.name])
-    );
-    const enrichedTickets = result.tickets.map((ticket) => ({
-        ...ticket,
-        ticketTypeName: ticketTypeNameById.get(ticket.ticketTypeId) ?? "",
-        eventTitle: confirmedSale.event.title,
-        functionDate: confirmedSale.function.date,
-        venue: confirmedSale.function.venue,
-    }));
+    // Nunca dentro de la transacción de arriba (ya cerrada): Resend es una
+    // llamada de red a un servicio externo, no puede formar parte de un
+    // rollback de Postgres. Si el email falla, sendSaleConfirmationEmail lo
+    // deja registrado como FAILED y devuelve sin lanzar — la compra ya
+    // confirmada nunca se revierte ni se le muestra como fallida al
+    // comprador por esto.
+    const emailOutcome = await sendSaleConfirmationEmail(sale.id);
 
-    return { sale: confirmedSale, tickets: enrichedTickets };
+    return { ...confirmedResult, emailDeliveryStatus: emailOutcome.status ?? "PENDING" };
 };
 
 // Solo se puede cancelar una venta PENDING — nunca una ya confirmada (eso
