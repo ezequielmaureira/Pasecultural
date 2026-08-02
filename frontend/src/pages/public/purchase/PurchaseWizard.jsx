@@ -257,7 +257,7 @@ export default function PurchaseWizard() {
 
   if (saleRecoveryState === "check-error" || saleRecoveryState === "poll-timeout") {
     return (
-      <div className="mx-auto max-w-md px-4 py-16">
+      <div className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
         <ErrorStep
           message={
             saleRecoveryState === "poll-timeout"
@@ -274,7 +274,7 @@ export default function PurchaseWizard() {
 
   if (saleRecoveryState === "sale-failed") {
     return (
-      <div className="mx-auto max-w-md px-4 py-16">
+      <div className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
         <ErrorStep
           message={saleRecoveryMessage}
           retryLabel="Reiniciar compra"
@@ -291,8 +291,8 @@ export default function PurchaseWizard() {
   // no depende de ninguno de los dos, todo lo que necesita ya vino en `tickets`.
   if (phase === "success") {
     return (
-      <div className="mx-auto max-w-lg px-4 py-10">
-        <SuccessStep tickets={purchasedTickets} buyerEmail={buyer.email} onKeepExploring={() => navigate("/eventos")} />
+      <div className="mx-auto max-w-lg px-3 py-6 sm:px-4 sm:py-10">
+        <SuccessStep tickets={purchasedTickets} onKeepExploring={() => navigate("/eventos")} />
       </div>
     );
   }
@@ -308,7 +308,7 @@ export default function PurchaseWizard() {
 
   if (loadError) {
     return (
-      <div className="mx-auto max-w-md px-4 py-16">
+      <div className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
         <ErrorStep message={loadError} onBackToEvent={() => navigate("/eventos")} />
       </div>
     );
@@ -407,7 +407,7 @@ export default function PurchaseWizard() {
   }
 
   return (
-    <div className="mx-auto max-w-lg px-4 py-10">
+    <div className="mx-auto max-w-lg px-3 py-6 sm:px-4 sm:py-10">
       {phase !== "success" && phase !== "purchase-error" && (
         <Link
           to={`/evento/${event.slug}`}

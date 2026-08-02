@@ -6,6 +6,16 @@
   color-scheme: dark;
 }
 
+/* Salvavidas contra desbordamiento horizontal accidental en pantallas
+   chicas — no afecta a los carruseles/listas que hacen su propio scroll
+   horizontal contenido (ver .no-scrollbar más abajo), sólo evita que la
+   PÁGINA completa scrollee de lado. */
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   @apply text-gray-100 antialiased;
   background-color: #05070b;

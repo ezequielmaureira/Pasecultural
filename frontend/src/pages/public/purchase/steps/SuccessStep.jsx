@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { CheckCircle2, Download } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { jsPDF } from "jspdf";
@@ -22,43 +22,62 @@ function formatFunctionDate(isoDate) {
 // comprador invitado no tiene sesión con la que hacerlo).
 function TicketCard({ ticket }) {
   const qrRef = useRef(null);
+  // "idle" | "generating" | "error" — por ticket, no global: descargar el
+  // PDF de una entrada no debe bloquear el botón de las demás.
+  const [downloadState, setDownloadState] = useState("idle");
 
   function handleDownloadPdf() {
-    const canvas = qrRef.current?.querySelector("canvas");
-    const doc = new jsPDF({ unit: "mm", format: "a6" });
+    if (downloadState === "generating") return; // evita disparos dobles antes del re-render
+    setDownloadState("generating");
+    try {
+      const canvas = qrRef.current?.querySelector("canvas");
+      const doc = new jsPDF({ unit: "mm", format: "a6" });
 
-    doc.setFontSize(14);
-    doc.text(ticket.eventTitle || "Entrada", 10, 15, { maxWidth: 85 });
-    doc.setFontSize(10);
-    doc.text(formatFunctionDate(ticket.functionDate), 10, 24, { maxWidth: 85 });
-    doc.text(ticket.venue || "", 10, 30, { maxWidth: 85 });
-    doc.text(`Tipo: ${ticket.ticketTypeName || ""}`, 10, 38);
-    doc.text(`Entrada N°: ${ticket.ticketNumber}`, 10, 44);
+      doc.setFontSize(14);
+      doc.text(ticket.eventTitle || "Entrada", 10, 15, { maxWidth: 85 });
+      doc.setFontSize(10);
+      doc.text(formatFunctionDate(ticket.functionDate), 10, 24, { maxWidth: 85 });
+      doc.text(ticket.venue || "", 10, 30, { maxWidth: 85 });
+      doc.text(`Tipo: ${ticket.ticketTypeName || ""}`, 10, 38);
+      doc.text(`Entrada N°: ${ticket.ticketNumber}`, 10, 44);
 
-    if (canvas) {
-      const qrDataUrl = canvas.toDataURL("image/png");
-      doc.addImage(qrDataUrl, "PNG", 10, 50, 40, 40);
+      if (canvas) {
+        const qrDataUrl = canvas.toDataURL("image/png");
+        doc.addImage(qrDataUrl, "PNG", 10, 50, 40, 40);
+      }
+
+      doc.save(`entrada-${ticket.ticketNumber}.pdf`);
+      setDownloadState("idle");
+    } catch {
+      setDownloadState("error");
     }
-
-    doc.save(`entrada-${ticket.ticketNumber}.pdf`);
   }
 
   return (
-    <div className="flex flex-col items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-4 text-center">
+    <div className="flex w-full min-w-0 max-w-[280px] flex-col items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-4 text-center">
       <div ref={qrRef} className="rounded-lg bg-white p-2">
         <QRCodeCanvas value={ticket.qrToken} size={140} />
       </div>
-      <div className="space-y-0.5">
+      <div className="w-full min-w-0 space-y-0.5 break-words">
         <p className="text-sm font-semibold text-white">{ticket.eventTitle}</p>
         <p className="text-xs text-slate-400">{formatFunctionDate(ticket.functionDate)}</p>
         <p className="text-xs text-slate-400">{ticket.venue}</p>
         <p className="text-xs text-slate-400">{ticket.ticketTypeName}</p>
         <p className="text-xs text-slate-500">Entrada N° {ticket.ticketNumber}</p>
       </div>
-      <Button variant="secondary" onClick={handleDownloadPdf} className="w-full justify-center gap-1.5">
+      <Button
+        variant="secondary"
+        onClick={handleDownloadPdf}
+        loading={downloadState === "generating"}
+        loadingText="Generando PDF..."
+        className="w-full justify-center gap-1.5"
+      >
         <Download className="h-4 w-4" />
         Descargar PDF
       </Button>
+      {downloadState === "error" && (
+        <p className="text-xs text-rose-400">No pudimos generar el PDF. Probá de nuevo.</p>
+      )}
     </div>
   );
 }
@@ -67,7 +86,12 @@ function TicketCard({ ticket }) {
 // confirm-by-buyer (ver PurchaseWizard). Nunca navega a "Mis entradas" ni a
 // nada protegido por Clerk — el comprador invitado no tiene, ni va a tener,
 // sesión.
-export default function SuccessStep({ tickets, buyerEmail, onKeepExploring }) {
+//
+// No muestra el email del comprador ni lo remite a su casilla: el envío de
+// entradas por correo todavía no existe. El dato sigue viajando y
+// guardándose igual (ver BuyerInfoStep / createSale) — acá sólo se dejó de
+// mostrar en pantalla para no prometer algo que hoy no pasa.
+export default function SuccessStep({ tickets, onKeepExploring }) {
   const hasTickets = Array.isArray(tickets) && tickets.length > 0;
 
   return (
@@ -78,30 +102,27 @@ export default function SuccessStep({ tickets, buyerEmail, onKeepExploring }) {
         </div>
         <h2 className="text-lg font-bold text-white">¡Compra realizada con éxito!</h2>
 
-        {hasTickets ? (
-          <p className="text-sm text-slate-400">Estas son tus entradas.</p>
-        ) : (
-          <p className="text-sm text-slate-400">
-            Tu compra se confirmó. Revisá tu email para ver tus entradas.
-          </p>
-        )}
+        <p className="text-sm text-slate-400">
+          {hasTickets
+            ? "Tu compra fue confirmada. Podés ver y descargar tus entradas a continuación."
+            : "Tu compra fue confirmada."}
+        </p>
 
         {hasTickets && (
-          <div className="mt-2 grid w-full gap-3 sm:grid-cols-2">
+          // auto-fit + minmax: 1 sola entrada queda centrada (una única
+          // columna, sin estirarse); con 2+ arma tantas columnas de hasta
+          // 280px como entren, y las centra como grupo si sobra espacio.
+          // `justify-center` es lo que hace que no quede pegado a la
+          // izquierda cuando hay una sola tarjeta.
+          <div className="mt-2 grid w-full grid-cols-[repeat(auto-fit,minmax(220px,280px))] justify-center gap-3">
             {tickets.map((ticket) => (
               <TicketCard key={ticket.id} ticket={ticket} />
             ))}
           </div>
         )}
 
-        {buyerEmail && (
-          <p className="mt-2 text-xs text-slate-500">
-            También enviamos estas entradas al correo <span className="text-slate-300">{buyerEmail}</span>.
-          </p>
-        )}
-
         <div className="mt-4 flex w-full flex-col gap-2">
-          <Button variant="secondary" onClick={onKeepExploring} className="w-full justify-center">
+          <Button onClick={onKeepExploring} className="w-full justify-center">
             Seguir explorando eventos
           </Button>
         </div>
