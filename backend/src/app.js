@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { clerkMiddleware } from "@clerk/express";
+import prisma from "./config/prisma.js";
 
 import userRoutes from "./routes/user.routes.js";
 import authRoutes from "./routes/auth.routes.js";
@@ -37,6 +38,33 @@ app.use("/api/conversations", conversationRoutes);
 app.use("/api/sales", saleRoutes);
 app.use("/api/tickets", ticketRoutes);
 app.use("/api/scanner", scannerRoutes);
+
+app.get("/debug/prisma-user", async (req, res) => {
+    try {
+        const user = await prisma.user.create({
+            data: {
+                email: "debug@test.com",
+                firstName: "Debug",
+                lastName: "Debug",
+                clerkId: null,
+            },
+        });
+        res.json({ success: true, user, renderGitCommit: process.env.RENDER_GIT_COMMIT ?? null, prismaClientVersion: prisma._clientVersion ?? null });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: {
+                message: error.message,
+                stack: error.stack,
+                name: error.name,
+                code: error.code,
+                clientVersion: prisma._clientVersion ?? null,
+                renderGitCommit: process.env.RENDER_GIT_COMMIT ?? null,
+                raw: JSON.parse(JSON.stringify(error, Object.getOwnPropertyNames(error))),
+            },
+        });
+    }
+});
 
 // Único middleware de manejo de errores de toda la app: se registra al
 // final para que Express lo use como fallback de cualquier error que
