@@ -60,6 +60,7 @@ export default function PurchaseWizard() {
   const [quantities, setQuantities] = useState({});
   const [buyer, setBuyer] = useState(EMPTY_BUYER);
   const [purchaseError, setPurchaseError] = useState("");
+  const [purchasedTickets, setPurchasedTickets] = useState([]);
 
   const publishFlow = usePublishFlow();
 
@@ -172,8 +173,13 @@ export default function PurchaseWizard() {
 
     try {
       console.log("PurchaseWizard.handleConfirmPurchase before publishFlow.run", { createdSaleId, items, buyer });
-      await publishFlow.run(action, { checkOutcome, unresolvedMessage: UNRESOLVED_PURCHASE_MESSAGE });
-      console.log("PurchaseWizard.handleConfirmPurchase after publishFlow.run", { createdSaleId });
+      const result = await publishFlow.run(action, { checkOutcome, unresolvedMessage: UNRESOLVED_PURCHASE_MESSAGE });
+      console.log("PurchaseWizard.handleConfirmPurchase after publishFlow.run", { createdSaleId, result });
+      // result.tickets sólo viene si processPayment() resolvió directo (con
+      // confirm-by-buyer); si se recuperó por timeout (checkPaymentOutcome),
+      // no hay datos de entradas para mostrar acá sin volver a consultar la
+      // API, así que la pantalla de éxito cae a su mensaje de "revisá tu email".
+      setPurchasedTickets(result?.tickets ?? []);
       setPhase("success");
     } catch (err) {
       console.error("PurchaseWizard.handleConfirmPurchase caught error", err);
@@ -242,7 +248,8 @@ export default function PurchaseWizard() {
 
       {phase === "success" && (
         <SuccessStep
-          onViewTickets={() => navigate("/mis-entradas")}
+          tickets={purchasedTickets}
+          buyerEmail={buyer.email}
           onKeepExploring={() => navigate("/eventos")}
         />
       )}

@@ -315,7 +315,24 @@ export const confirmSaleService = async (clerkId, saleId) => {
     });
 
     const confirmedSale = await prisma.sale.findUnique({ where: { id: sale.id }, include: SALE_LIST_INCLUDE });
-    return { sale: confirmedSale, tickets: result.tickets };
+
+    // El comprador invitado nunca vuelve a consultar la API después de esto
+    // (no tiene sesión con la que hacerlo) — por eso la respuesta de esta
+    // misma operación tiene que traer todo lo que la pantalla de éxito
+    // necesita mostrar por ticket (evento, función, tipo de entrada), no
+    // sólo los IDs.
+    const ticketTypeNameById = new Map(
+        confirmedSale.items.map((item) => [item.ticketTypeId, item.ticketType.name])
+    );
+    const enrichedTickets = result.tickets.map((ticket) => ({
+        ...ticket,
+        ticketTypeName: ticketTypeNameById.get(ticket.ticketTypeId) ?? "",
+        eventTitle: confirmedSale.event.title,
+        functionDate: confirmedSale.function.date,
+        venue: confirmedSale.function.venue,
+    }));
+
+    return { sale: confirmedSale, tickets: enrichedTickets };
 };
 
 // Solo se puede cancelar una venta PENDING — nunca una ya confirmada (eso
