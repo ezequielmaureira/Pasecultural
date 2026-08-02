@@ -36,8 +36,12 @@ export async function processPayment({ eventId, functionId, items, buyer }, { on
 // depende siempre de `saleId` (conocido porque este mismo navegador la
 // creó); si por lo que sea ni eso se llegó a conocer (createSale() nunca
 // respondió), no hay nada que verificar todavía.
+//
+// Cuando ya está CONFIRMED, /status trae también los tickets completos (ver
+// getSaleStatusService) — así la pantalla de éxito se ve igual sin importar
+// si el dato llegó directo de confirm-by-buyer o de esta recuperación.
 export async function checkPaymentOutcome({ saleId }) {
     if (!saleId) return null;
-    const { status } = await getSaleStatus(saleId);
-    return status === "CONFIRMED" ? { id: saleId, status } : null;
+    const { status, tickets } = await getSaleStatus(saleId);
+    return status === "CONFIRMED" ? { id: saleId, status, tickets: tickets ?? [] } : null;
 }

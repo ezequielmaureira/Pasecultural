@@ -5,7 +5,7 @@ import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { getUserByClerkId } from "../utils/getUserByClerkId.js";
 import { isValidEmail } from "../utils/validateEmail.js";
 import { buildTicketNumber } from "../utils/ticketNumber.js";
-import { encryptSecret } from "../config/qrEncryption.js";
+import { encryptSecret, decryptSecret } from "../config/qrEncryption.js";
 import { effectiveCapacity } from "./functionCapacity.service.js";
 import { logger } from "../logging/logger.js";
 
@@ -405,15 +405,57 @@ export const listSalesBuyerService = async (clerkId) => {
     });
 };
 
-// Único dato que necesita el Wizard de compra invitado para su recuperación
-// por timeout (usePublishFlow): saber si ESA venta puntual (identificada
-// por el id que el propio navegador recibió al crearla) ya quedó
-// confirmada. Sin sesión no hay forma de listar "mis ventas" — por eso este
-// endpoint es por id, no por comprador, y devuelve sólo el status: nunca
-// nombre, email, ni el detalle de la compra.
+// Recuperación por timeout del Wizard invitado (usePublishFlow) Y también
+// consulta usada para reconstruir la pantalla de éxito cuando el estado de
+// React no sobrevivió (recarga de página, o el día de mañana un redirect
+// real de Mercado Pago). Sin sesión no hay forma de listar "mis ventas" —
+// por eso este endpoint es por id, no por comprador. Mientras la venta no
+// esté CONFIRMED no devuelve nada del detalle de la compra (nunca nombre,
+// email, ni tickets); recién confirmada trae exactamente lo mismo que ya
+// devuelve confirmSaleService en su respuesta original, para que la
+// pantalla de éxito pueda renderizarse igual sin importar por qué camino
+// llegó el dato. El secret de cada QR se reconstruye acá al vuelo
+// (decryptSecret) — nunca se persiste en texto plano, así que no hay nada
+// "cacheado" que filtrar.
 export const getSaleStatusService = async (saleId) => {
-    const sale = await prisma.sale.findUnique({ where: { id: saleId }, select: { id: true, status: true, deletedAt: true } });
+    const sale = await prisma.sale.findUnique({
+        where: { id: saleId },
+        select: {
+            id: true,
+            status: true,
+            deletedAt: true,
+            event: { select: { title: true } },
+            function: { select: { date: true, venue: true } },
+            tickets: {
+                where: { deletedAt: null },
+                select: {
+                    id: true,
+                    ticketNumber: true,
+                    status: true,
+                    ticketTypeId: true,
+                    ticketType: { select: { name: true } },
+                    qr: { select: { secretEncrypted: true } },
+                },
+            },
+        },
+    });
     if (!sale || sale.deletedAt) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
 
-    return { id: sale.id, status: sale.status };
+    if (sale.status !== "CONFIRMED") {
+        return { id: sale.id, status: sale.status };
+    }
+
+    const tickets = sale.tickets.map((ticket) => ({
+        id: ticket.id,
+        ticketNumber: ticket.ticketNumber,
+        status: ticket.status,
+        ticketTypeId: ticket.ticketTypeId,
+        ticketTypeName: ticket.ticketType?.name ?? "",
+        eventTitle: sale.event.title,
+        functionDate: sale.function.date,
+        venue: sale.function.venue,
+        qrToken: `${ticket.id}.${decryptSecret(ticket.qr.secretEncrypted)}`,
+    }));
+
+    return { id: sale.id, status: sale.status, tickets };
 };

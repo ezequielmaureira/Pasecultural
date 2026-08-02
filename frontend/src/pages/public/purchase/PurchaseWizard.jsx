@@ -5,6 +5,7 @@ import Spinner from "../../../components/ui/Spinner.jsx";
 import StepIndicator from "../../../components/ui/StepIndicator.jsx";
 import { usePublishFlow } from "../../../hooks/usePublishFlow.js";
 import { apiFetch } from "../../../lib/api.js";
+import { getSaleStatus } from "../../../lib/saleApi.js";
 import { processPayment, checkPaymentOutcome } from "../../../lib/payment/paymentGateway.js";
 import PurchaseOverlay from "./PurchaseOverlay.jsx";
 import SelectFunctionStep from "./steps/SelectFunctionStep.jsx";
@@ -46,9 +47,13 @@ function ticketOptionsFor(selectedFunction) {
 // lib/payment/paymentGateway.js). El día que se integre Mercado Pago,
 // cambia esa función; este Wizard no se toca.
 export default function PurchaseWizard() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const slug = searchParams.get("slug");
+  // Id persistente de la venta en curso, viajando en la URL (no sólo en
+  // estado de React) — sobrevive a una recarga de página o, el día de
+  // mañana, a un redirect real de vuelta desde Mercado Pago.
+  const resumeSaleId = searchParams.get("saleId");
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -62,7 +67,42 @@ export default function PurchaseWizard() {
   const [purchaseError, setPurchaseError] = useState("");
   const [purchasedTickets, setPurchasedTickets] = useState([]);
 
+  // Mientras haya un saleId en la URL sin resolver todavía, ninguna otra
+  // pantalla se muestra: primero se confirma contra el backend si esa venta
+  // ya está pagada antes de dejar arrancar (o reiniciar) el Wizard.
+  const [resolvingSale, setResolvingSale] = useState(Boolean(resumeSaleId));
+  const [resolveError, setResolveError] = useState("");
+
   const publishFlow = usePublishFlow();
+
+  const resolveExistingSale = useCallback(async () => {
+    if (!resumeSaleId) return;
+    setResolvingSale(true);
+    setResolveError("");
+    try {
+      const result = await getSaleStatus(resumeSaleId);
+      if (result?.status === "CONFIRMED" && Array.isArray(result.tickets) && result.tickets.length > 0) {
+        setPurchasedTickets(result.tickets);
+        setPhase("success");
+      } else {
+        // No hay nada que retomar (venta ajena, vencida, o todavía
+        // PENDING): se limpia el saleId de la URL y el Wizard arranca de
+        // cero en vez de quedar bloqueado esperando algo que no va a llegar.
+        const next = new URLSearchParams(searchParams);
+        next.delete("saleId");
+        setSearchParams(next, { replace: true });
+      }
+    } catch (err) {
+      setResolveError(err.message || "No pudimos recuperar tu compra.");
+    } finally {
+      setResolvingSale(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeSaleId]);
+
+  useEffect(() => {
+    resolveExistingSale();
+  }, [resolveExistingSale]);
 
   const load = useCallback(async () => {
     if (!slug) {
@@ -100,6 +140,43 @@ export default function PurchaseWizard() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Se resuelve antes que cualquier otra cosa: no tiene sentido arrancar (o
+  // reiniciar) el Wizard mientras todavía no se sabe si la URL trae una
+  // compra ya confirmada por recuperar. No depende de `event` — los tickets
+  // que trae /status ya vienen con todo lo que necesita SuccessStep.
+  if (resolvingSale) {
+    return (
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-slate-400">
+        <Spinner size="lg" />
+        <p className="text-sm">Recuperando tu compra...</p>
+      </div>
+    );
+  }
+
+  if (resolveError) {
+    return (
+      <div className="mx-auto max-w-md px-4 py-16">
+        <ErrorStep
+          message={resolveError}
+          onRetry={resolveExistingSale}
+          onBackToEvent={() => navigate(slug ? `/evento/${slug}` : "/eventos")}
+        />
+      </div>
+    );
+  }
+
+  // También antes que la carga del evento: una compra ya resuelta (por
+  // resolveExistingSale, o por handleConfirmPurchase más abajo) se muestra
+  // igual aunque `event`/`slug` no estén disponibles — SuccessStep no
+  // depende de ninguno de los dos, todo lo que necesita ya vino en `tickets`.
+  if (phase === "success") {
+    return (
+      <div className="mx-auto max-w-lg px-4 py-10">
+        <SuccessStep tickets={purchasedTickets} buyerEmail={buyer.email} onKeepExploring={() => navigate("/eventos")} />
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -165,7 +242,18 @@ export default function PurchaseWizard() {
       });
       return processPayment(
         { eventId: event.id, functionId: selectedFunctionId, items, buyer },
-        { onSaleCreated: (id) => { createdSaleId = id; } }
+        {
+          onSaleCreated: (id) => {
+            createdSaleId = id;
+            // El saleId se refleja en la URL apenas se conoce — no sólo en
+            // esta variable local — para que una recarga de página (o el
+            // día de mañana, el redirect real de vuelta desde Mercado Pago)
+            // pueda retomar esta misma compra en vez de perderla.
+            const next = new URLSearchParams(searchParams);
+            next.set("saleId", id);
+            setSearchParams(next, { replace: true });
+          },
+        }
       );
     };
 
@@ -175,10 +263,10 @@ export default function PurchaseWizard() {
       console.log("PurchaseWizard.handleConfirmPurchase before publishFlow.run", { createdSaleId, items, buyer });
       const result = await publishFlow.run(action, { checkOutcome, unresolvedMessage: UNRESOLVED_PURCHASE_MESSAGE });
       console.log("PurchaseWizard.handleConfirmPurchase after publishFlow.run", { createdSaleId, result });
-      // result.tickets sólo viene si processPayment() resolvió directo (con
-      // confirm-by-buyer); si se recuperó por timeout (checkPaymentOutcome),
-      // no hay datos de entradas para mostrar acá sin volver a consultar la
-      // API, así que la pantalla de éxito cae a su mensaje de "revisá tu email".
+      // result.tickets viene siempre que la venta terminó CONFIRMED, sea que
+      // processPayment() haya resuelto directo (confirm-by-buyer) o que se
+      // haya recuperado por timeout (checkPaymentOutcome -> GET /status,
+      // que ahora también devuelve los tickets una vez confirmada).
       setPurchasedTickets(result?.tickets ?? []);
       setPhase("success");
     } catch (err) {
@@ -243,14 +331,6 @@ export default function PurchaseWizard() {
           onChange={setBuyer}
           onBack={() => setPhase("summary")}
           onConfirm={handleConfirmPurchase}
-        />
-      )}
-
-      {phase === "success" && (
-        <SuccessStep
-          tickets={purchasedTickets}
-          buyerEmail={buyer.email}
-          onKeepExploring={() => navigate("/eventos")}
         />
       )}
 
