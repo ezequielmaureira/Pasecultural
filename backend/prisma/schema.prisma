@@ -353,6 +353,17 @@ model Sale {
   status        SaleStatus    @default(PENDING)
   paymentMethod PaymentMethod @default(MANUAL)
 
+  // Credencial pública para que el comprador invitado (sin sesión) recupere
+  // esta venta puntual desde el navegador — confirm-by-buyer y status se
+  // resuelven por ESTE campo, nunca por `id`. Separado a propósito: `id` es
+  // la clave primaria interna (aparece en URLs de organizador, logs,
+  // relaciones); este token es aleatorio de alta entropía (32 bytes,
+  // crypto.randomBytes en sale.service.js) y no tiene ninguna otra función
+  // más que autorizar esta recuperación puntual. Nullable porque las ventas
+  // creadas antes de este campo no tienen valor — no hace falta backfill,
+  // esas ventas viejas ya entregaron sus tickets en su momento.
+  publicRecoveryToken String? @unique
+
   total Decimal @db.Decimal(10, 2)
 
   buyerId String

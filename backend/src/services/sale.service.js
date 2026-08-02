@@ -128,6 +128,11 @@ async function createSaleForBuyer(buyer, input) {
             eventId: event.id,
             functionId: eventFunction.id,
             total,
+            // Mismo generador que TicketQr.secretEncrypted usa para el secret
+            // del QR (crypto.randomBytes, no Math.random ni un cuid): esto va
+            // a viajar en la URL del comprador y funciona como bearer token
+            // para confirm-by-buyer/status, tiene que ser impredecible.
+            publicRecoveryToken: crypto.randomBytes(32).toString("base64url"),
             items: { create: saleItemsData },
         },
         include: SALE_LIST_INCLUDE,
@@ -409,17 +414,21 @@ export const listSalesBuyerService = async (clerkId) => {
 // consulta usada para reconstruir la pantalla de éxito cuando el estado de
 // React no sobrevivió (recarga de página, o el día de mañana un redirect
 // real de Mercado Pago). Sin sesión no hay forma de listar "mis ventas" —
-// por eso este endpoint es por id, no por comprador. Mientras la venta no
-// esté CONFIRMED no devuelve nada del detalle de la compra (nunca nombre,
-// email, ni tickets); recién confirmada trae exactamente lo mismo que ya
-// devuelve confirmSaleService en su respuesta original, para que la
-// pantalla de éxito pueda renderizarse igual sin importar por qué camino
-// llegó el dato. El secret de cada QR se reconstruye acá al vuelo
-// (decryptSecret) — nunca se persiste en texto plano, así que no hay nada
-// "cacheado" que filtrar.
-export const getSaleStatusService = async (saleId) => {
+// por eso este endpoint se resuelve por publicRecoveryToken (nunca por el
+// `id` interno: ese es la clave primaria, no un secreto — aparece en URLs
+// de organizador, en logs, en relaciones; el token es aleatorio y no sirve
+// para nada más que esto). Mientras la venta no esté CONFIRMED no devuelve
+// nada del detalle de la compra (nunca nombre, email, ni tickets); recién
+// confirmada trae exactamente lo mismo que ya devuelve confirmSaleService
+// en su respuesta original, para que la pantalla de éxito pueda
+// renderizarse igual sin importar por qué camino llegó el dato. El secret
+// de cada QR se reconstruye acá al vuelo (decryptSecret) — nunca se
+// persiste en texto plano, así que no hay nada "cacheado" que filtrar.
+export const getSaleStatusService = async (recoveryToken) => {
+    if (!recoveryToken) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
+
     const sale = await prisma.sale.findUnique({
-        where: { id: saleId },
+        where: { publicRecoveryToken: recoveryToken },
         select: {
             id: true,
             status: true,

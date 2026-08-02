@@ -82,14 +82,17 @@ export const listSalesBuyer = async (req, res, next) => {
 // Confirmación disparada por el propio flujo de compra (pago manual/
 // simulado hoy, webhook de Mercado Pago mañana). Sin sesión de Clerk no hay
 // forma de verificar "sos vos el comprador" — la autorización acá es
-// conocer el saleId, que sólo el navegador que creó la venta recibió. Es
-// exactamente el mismo punto que el webhook de MP va a reemplazar el día de
-// mañana (ver processPayment() del frontend), no un atajo temporal.
+// conocer el publicRecoveryToken, que sólo el navegador que creó la venta
+// recibió (nunca el `id` interno: ese es la clave primaria, no un secreto).
+// Es exactamente el mismo punto que el webhook de MP va a reemplazar el día
+// de mañana (ver processPayment() del frontend), no un atajo temporal.
 export const confirmSaleByBuyer = async (req, res, next) => {
     try {
-        logger.info("confirmSaleByBuyer controller entered", { saleId: req.params.id });
+        logger.info("confirmSaleByBuyer controller entered", { recoveryToken: req.params.token });
+        if (!req.params.token) throw new Error(ErrorCodes.SALE_NOT_FOUND);
+
         const sale = await prisma.sale.findUnique({
-            where: { id: req.params.id },
+            where: { publicRecoveryToken: req.params.token },
             include: { event: { include: { organization: true } } },
         });
         if (!sale || sale.deletedAt) throw new Error(ErrorCodes.SALE_NOT_FOUND);
@@ -106,12 +109,13 @@ export const confirmSaleByBuyer = async (req, res, next) => {
     }
 };
 
-// Público, sin sesión: sólo el status de una venta puntual por id — nada de
-// datos del comprador. Es lo único que necesita la recuperación por timeout
-// del Wizard invitado (no puede usar GET /sales/mine sin sesión).
+// Público, sin sesión: sólo el status de una venta puntual por
+// publicRecoveryToken — nada de datos del comprador. Es lo único que
+// necesita la recuperación por timeout del Wizard invitado (no puede usar
+// GET /sales/mine sin sesión).
 export const getSaleStatus = async (req, res, next) => {
     try {
-        const status = await getSaleStatusService(req.params.id);
+        const status = await getSaleStatusService(req.params.token);
         res.status(200).json(status);
     } catch (error) {
         next(AppError.from(error));

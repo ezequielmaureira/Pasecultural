@@ -6,7 +6,7 @@ import Button from "../../../../components/ui/Button.jsx";
 // fallido) — nunca un alert(), nunca texto técnico crudo: `message` ya
 // viene traducido por AppError del lado del backend, o por los mensajes
 // propios de usePublishFlow (timeout/no confirmado).
-export default function ErrorStep({ message, onRetry, onBackToEvent }) {
+export default function ErrorStep({ message, onRetry, retryLabel = "Intentar nuevamente", onBackToEvent }) {
   return (
     <Card>
       <div className="flex flex-col items-center gap-3 py-4 text-center">
@@ -20,7 +20,7 @@ export default function ErrorStep({ message, onRetry, onBackToEvent }) {
           {onRetry && (
             <Button onClick={onRetry} className="w-full justify-center">
               <RefreshCw className="h-4 w-4" />
-              Intentar nuevamente
+              {retryLabel}
             </Button>
           )}
           <Button variant="secondary" onClick={onBackToEvent} className="w-full justify-center">

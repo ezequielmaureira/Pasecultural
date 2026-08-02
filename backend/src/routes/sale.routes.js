@@ -25,12 +25,14 @@ router.post("/:id/confirm", requireRole("ORGANIZER"), confirmSale);
 
 // Confirmación disparada por el propio flujo de compra (pago manual/
 // simulado hoy, webhook de Mercado Pago mañana) — sin sesión, autorizado
-// únicamente por conocer el saleId. Ver sale.controller.js#confirmSaleByBuyer.
-router.post("/:id/confirm-by-buyer", confirmSaleByBuyer);
+// únicamente por conocer publicRecoveryToken (nunca el id interno). Ver
+// sale.controller.js#confirmSaleByBuyer.
+router.post("/:token/confirm-by-buyer", confirmSaleByBuyer);
 
-// Público, sin sesión: sólo status por id, para la recuperación por timeout
-// del Wizard invitado (no puede usar GET /sales/mine sin cuenta).
-router.get("/:id/status", getSaleStatus);
+// Público, sin sesión: sólo status por publicRecoveryToken, para la
+// recuperación por timeout del Wizard invitado (no puede usar GET
+// /sales/mine sin cuenta).
+router.get("/:token/status", getSaleStatus);
 
 router.post("/:id/cancel", requireAuth, cancelSale);
 
