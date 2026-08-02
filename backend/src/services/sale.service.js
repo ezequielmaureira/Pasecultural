@@ -4,6 +4,7 @@ import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { getUserByClerkId } from "../utils/getUserByClerkId.js";
 import { isValidEmail } from "../utils/validateEmail.js";
+import { normalizeBuyerDocument, isValidBuyerDocument } from "../utils/validateBuyerDocument.js";
 import { buildTicketNumber } from "../utils/ticketNumber.js";
 import { encryptSecret, decryptSecret } from "../config/qrEncryption.js";
 import { effectiveCapacity } from "./functionCapacity.service.js";
@@ -92,6 +93,19 @@ async function createSaleForBuyer(buyer, input) {
         }
     }
 
+    // Preparación para la futura recuperación segura de entradas (ver
+    // Sale.buyerDocument en schema.prisma) — obligatorio para toda venta
+    // NUEVA de acá en adelante; las ventas viejas simplemente no lo tienen
+    // y siguen funcionando igual (QR, PDF, recuperación por
+    // publicRecoveryToken no dependen de este campo para nada).
+    if (!input?.buyerDocument) {
+        throw new AppError(ErrorCodes.GUEST_BUYER_DOCUMENT_REQUIRED);
+    }
+    const buyerDocument = normalizeBuyerDocument(input.buyerDocument);
+    if (!isValidBuyerDocument(buyerDocument)) {
+        throw new AppError(ErrorCodes.GUEST_BUYER_INVALID_DOCUMENT);
+    }
+
     const ticketTypeIds = [...new Set(itemsInput.map((item) => item.ticketTypeId))];
     const assignments = await prisma.functionTicketType.findMany({
         where: { functionId: eventFunction.id, ticketTypeId: { in: ticketTypeIds } },
@@ -134,6 +148,9 @@ async function createSaleForBuyer(buyer, input) {
             // a viajar en la URL del comprador y funciona como bearer token
             // para confirm-by-buyer/status, tiene que ser impredecible.
             publicRecoveryToken: crypto.randomBytes(32).toString("base64url"),
+            // Ya normalizado (sin puntos/espacios/guiones) — nunca se guarda
+            // el valor crudo que escribió el comprador.
+            buyerDocument,
             items: { create: saleItemsData },
         },
         include: SALE_LIST_INCLUDE,
@@ -160,7 +177,11 @@ export const createSaleService = async (clerkId, input) => {
 // Camino invitado — el único que usa el Wizard de compra público. `buyerInfo`
 // es { firstName, lastName, email }, nunca un token de Clerk.
 export const createGuestSaleService = async (buyerInfo, input) => {
-    logger.info("createGuestSaleService entered", { buyerInfo, input });
+    // input.buyerDocument nunca se loguea crudo — sólo si vino presente.
+    logger.info("createGuestSaleService entered", {
+        buyerInfo,
+        input: { ...input, buyerDocument: input?.buyerDocument ? "[present]" : undefined },
+    });
     const buyer = await getOrCreateGuestBuyer(buyerInfo ?? {});
     const sale = await createSaleForBuyer(buyer, input);
     logger.info("createGuestSaleService completed", { saleId: sale.id, buyerId: buyer.id, organizationId: sale.organizationId, eventId: sale.eventId });

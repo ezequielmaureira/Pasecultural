@@ -18,7 +18,7 @@ import ErrorStep from "./steps/ErrorStep.jsx";
 const UNRESOLVED_PURCHASE_MESSAGE =
   "No pudimos confirmar si tu compra se completó. Revisá tu email antes de volver a intentar para no comprar dos veces.";
 
-const EMPTY_BUYER = { firstName: "", lastName: "", email: "" };
+const EMPTY_BUYER = { firstName: "", lastName: "", email: "", document: "" };
 
 // Recuperación de una venta ya creada (por saleToken en la URL): cada cuánto
 // se vuelve a preguntar /status mientras sigue PENDING, y cuánto tiempo

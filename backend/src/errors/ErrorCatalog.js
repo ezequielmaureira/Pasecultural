@@ -50,6 +50,16 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Guest checkout attempted with an invalid email.",
         userMessage: "El email ingresado no es válido.",
     },
+    GUEST_BUYER_DOCUMENT_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "Guest checkout attempted without buyerDocument.",
+        userMessage: "Ingresá tu DNI para continuar.",
+    },
+    GUEST_BUYER_INVALID_DOCUMENT: {
+        httpStatus: 400,
+        logMessage: "Guest checkout attempted with an invalid buyerDocument (must be 7-10 digits).",
+        userMessage: "El DNI ingresado no es válido. Tiene que tener entre 7 y 10 números.",
+    },
     INVALID_SALE_ITEM: {
         httpStatus: 400,
         logMessage: "Sale item has an invalid ticketTypeId or quantity.",

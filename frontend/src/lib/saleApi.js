@@ -18,16 +18,19 @@ export function redactSaleForLog(sale) {
 }
 
 // Sin token: el comprador nunca necesita sesión de Clerk para comprar.
-// firstName/lastName/email viajan sueltos en el body (no anidados bajo
-// "buyer") — así es exactamente como los separa sale.controller.js del
-// resto de los datos de la venta. El backend resuelve al comprador como
-// invitado (o reutiliza la cuenta si ese email ya existe). La respuesta
-// trae `sale.publicRecoveryToken`: es lo único que el resto del Wizard usa
-// para confirmar/consultar esta venta después — nunca `sale.id` (clave
-// primaria interna, no pensada como secreto).
-export async function createSale({ eventId, functionId, items, firstName, lastName, email }) {
-    const requestBody = { eventId, functionId, items, firstName, lastName, email };
-    console.log("saleApi.createSale request body", requestBody);
+// firstName/lastName/email/buyerDocument viajan sueltos en el body (no
+// anidados bajo "buyer") — así es exactamente como los separa
+// sale.controller.js del resto de los datos de la venta. El backend
+// resuelve al comprador como invitado (o reutiliza la cuenta si ese email
+// ya existe). buyerDocument es obligatorio (preparación para la futura
+// recuperación segura de entradas — todavía no hay pantalla para eso, sólo
+// se guarda). La respuesta trae `sale.publicRecoveryToken`: es lo único que
+// el resto del Wizard usa para confirmar/consultar esta venta después —
+// nunca `sale.id` (clave primaria interna, no pensada como secreto).
+export async function createSale({ eventId, functionId, items, firstName, lastName, email, buyerDocument }) {
+    const requestBody = { eventId, functionId, items, firstName, lastName, email, buyerDocument };
+    // El DNI nunca se loguea completo, ni acá ni en el backend — sólo si vino.
+    console.log("saleApi.createSale request body", { ...requestBody, buyerDocument: buyerDocument ? "[present]" : undefined });
     const { sale } = await apiFetch("/api/sales", {
         method: "POST",
         body: JSON.stringify(requestBody),

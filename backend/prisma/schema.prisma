@@ -383,6 +383,17 @@ model Sale {
   buyerId String
   buyer   User   @relation(fields: [buyerId], references: [id])
 
+  // DNI del comprador de ESTA venta puntual — preparación para la futura
+  // recuperación segura de entradas (todavía no implementada). Va en Sale,
+  // no en User, a propósito: un mismo comprador invitado puede terminar con
+  // más de un User (uno por cada email distinto que haya usado al comprar,
+  // ver getOrCreateGuestBuyer), pero su DNI es el mismo siempre — guardarlo
+  // por venta es lo que va a permitir encontrar TODAS sus compras por DNI
+  // sin depender de qué email usó en cada una. Nullable: las ventas
+  // anteriores a este campo no lo tienen y tienen que seguir funcionando
+  // igual (QR, PDF, recuperación por publicRecoveryToken) sin él.
+  buyerDocument String?
+
   eventId    String
   event      Event         @relation(fields: [eventId], references: [id])
   functionId String

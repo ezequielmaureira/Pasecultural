@@ -20,8 +20,12 @@ export async function processPayment({ eventId, functionId, items, buyer }, { on
         firstName: buyer?.firstName,
         lastName: buyer?.lastName,
         email: buyer?.email,
+        buyerDocument: buyer?.document,
     };
-    console.log("paymentGateway.processPayment before createSale", requestBody);
+    console.log("paymentGateway.processPayment before createSale", {
+        ...requestBody,
+        buyerDocument: requestBody.buyerDocument ? "[present]" : undefined,
+    });
     const sale = await createSale(requestBody);
     console.log("paymentGateway.processPayment after createSale", { sale: redactSaleForLog(sale) });
     onSaleCreated?.(sale.publicRecoveryToken);

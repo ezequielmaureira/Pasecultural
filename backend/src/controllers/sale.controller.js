@@ -25,7 +25,16 @@ import { resendSaleConfirmationEmailService } from "../services/email/sendSaleCo
 export const createSale = async (req, res, next) => {
     try {
         const { firstName, lastName, email, ...saleData } = req.body;
-        logger.info("createSale controller entered", { firstName, lastName, email, saleData });
+        // saleData (eventId/functionId/items) no tiene nada sensible y se
+        // loguea entero; buyerDocument SÍ viaja ahí adentro (ver
+        // createSaleForBuyer en sale.service.js) y nunca se loguea crudo —
+        // sólo si vino presente, nunca el valor.
+        logger.info("createSale controller entered", {
+            firstName,
+            lastName,
+            email,
+            saleData: { ...saleData, buyerDocument: saleData.buyerDocument ? "[present]" : undefined },
+        });
 
         const sale = await createGuestSaleService(
             { firstName, lastName, email },
