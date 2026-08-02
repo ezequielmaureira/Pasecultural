@@ -303,7 +303,7 @@ export default function PurchaseWizard() {
         <SuccessStep
           tickets={purchasedTickets}
           buyerEmail={purchaseBuyerEmail}
-          emailSent={purchaseEmailDeliveryStatus === "SENT"}
+          emailDeliveryStatus={purchaseEmailDeliveryStatus}
           onKeepExploring={() => navigate("/eventos")}
         />
       </div>

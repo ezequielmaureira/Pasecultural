@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Download } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { jsPDF } from "jspdf";
@@ -87,13 +87,25 @@ function TicketCard({ ticket }) {
 // nada protegido por Clerk — el comprador invitado no tiene, ni va a tener,
 // sesión.
 //
-// `emailSent` es explícito (no se infiere de `buyerEmail` estar presente):
-// sólo es true cuando el backend confirma emailDeliveryStatus === "SENT"
-// (ver sendSaleConfirmationEmail.service.js). Si Resend falló, no se le
-// promete al comprador que el correo salió — las entradas siguen
-// mostrándose y descargándose igual, sólo no aparece ese aviso.
-export default function SuccessStep({ tickets, buyerEmail, emailSent, onKeepExploring }) {
+// El aviso de "también te lo mandamos por correo" se muestra con sólo que
+// `buyerEmail` exista — YA NO depende de `emailDeliveryStatus === "SENT"`.
+// Motivo: el envío real (Resend) puede seguir en curso (SENDING) en el
+// instante exacto en que se arma esta pantalla — sobre todo en producción,
+// donde la latencia hace más probable que la respuesta llegue antes de que
+// el email termine de mandarse — y esta pantalla nunca vuelve a consultar
+// después para enterarse de que pasó a SENT. Depender de ese estado exacto
+// era la causa de que el aviso apareciera en localhost y no en Vercel,
+// aunque el correo se mandara bien en los dos casos. `emailDeliveryStatus`
+// se sigue recibiendo igual — sólo que ahora es información interna (log),
+// no una condición visual.
+export default function SuccessStep({ tickets, buyerEmail, emailDeliveryStatus, onKeepExploring }) {
   const hasTickets = Array.isArray(tickets) && tickets.length > 0;
+
+  useEffect(() => {
+    if (emailDeliveryStatus && emailDeliveryStatus !== "SENT") {
+      console.info("SuccessStep: emailDeliveryStatus todavía no es SENT en el momento del render", emailDeliveryStatus);
+    }
+  }, [emailDeliveryStatus]);
 
   return (
     <Card>
@@ -122,9 +134,11 @@ export default function SuccessStep({ tickets, buyerEmail, emailSent, onKeepExpl
           </div>
         )}
 
-        {emailSent && buyerEmail && (
+        {buyerEmail && (
           <p className="mt-2 text-xs text-slate-500">
-            También mandamos tus entradas al correo <span className="text-slate-300">{buyerEmail}</span>.
+            También te vamos a mandar tus entradas al correo{" "}
+            <span className="text-slate-300">{buyerEmail}</span>. Si no las recibís en unos minutos, más
+            adelante vas a poder recuperarlas desde la opción "Recuperar mis entradas".
           </p>
         )}
 
