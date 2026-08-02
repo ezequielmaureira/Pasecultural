@@ -10,6 +10,8 @@ import {
     listSalesOrganizerService,
     listSalesBuyerService,
     getSaleStatusService,
+    recoverSalesService,
+    resendConfirmationEmailByTokenService,
 } from "../services/sale.service.js";
 import { resendSaleConfirmationEmailService } from "../services/email/sendSaleConfirmationEmail.service.js";
 
@@ -147,6 +149,33 @@ export const resendSaleConfirmationEmail = async (req, res, next) => {
     try {
         const { userId } = getAuth(req);
         const result = await resendSaleConfirmationEmailService(userId, req.params.id);
+        res.status(200).json(result);
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
+
+// Pantalla pública "Recuperar mis entradas" — sin sesión, autorizado por
+// conocer email + DNI exactos de una compra propia. Nunca devuelve tickets
+// ni QR acá: sólo lo necesario para la lista (evento/fecha/lugar/token); el
+// detalle completo se pide después por publicRecoveryToken, reusando
+// GET /sales/:token/status.
+export const recoverSales = async (req, res, next) => {
+    try {
+        const { email, buyerDocument } = req.body;
+        const sales = await recoverSalesService({ email, buyerDocument });
+        res.status(200).json({ sales });
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
+
+// Botón "Reenviar correo" en la pantalla de recuperación — sin sesión,
+// autorizado por publicRecoveryToken (mismo modelo que confirm-by-buyer y
+// status). Nunca acepta un email del body.
+export const resendSaleEmailByToken = async (req, res, next) => {
+    try {
+        const result = await resendConfirmationEmailByTokenService(req.params.token);
         res.status(200).json(result);
     } catch (error) {
         next(AppError.from(error));

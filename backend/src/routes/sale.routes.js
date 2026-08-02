@@ -8,11 +8,20 @@ import {
     listSalesBuyer,
     getSaleStatus,
     resendSaleConfirmationEmail,
+    recoverSales,
+    resendSaleEmailByToken,
 } from "../controllers/sale.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { requireRole } from "../middlewares/requireRole.js";
+import { rateLimit } from "../middlewares/rateLimit.js";
 
 const router = Router();
+
+// Endpoints públicos "de adivinanza" (prueban conocer datos, no una sesión)
+// — un límite básico por IP para que no sean un espacio infinito de
+// intentos. Ver middlewares/rateLimit.js.
+const recoverSearchRateLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 8 });
+const resendEmailRateLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 5 });
 
 // Sin requireAuth a propósito: el comprador nunca necesita sesión de Clerk
 // para comprar (checkout invitado). El controller decide internamente si
@@ -43,5 +52,16 @@ router.post("/:id/cancel", requireAuth, cancelSale);
 // evento puntual" vive en resendSaleConfirmationEmailService — mismo
 // patrón que ya usa confirmSaleService con la organización.
 router.post("/:id/resend-confirmation-email", requireRole("DEVELOPER", "ORGANIZER"), resendSaleConfirmationEmail);
+
+// Pantalla pública "Recuperar mis entradas" — sin sesión, autorizado por
+// conocer email + DNI exactos de una compra propia (nunca uno solo, ver
+// recoverSalesService). Ver sale.controller.js#recoverSales.
+router.post("/recover", recoverSearchRateLimit, recoverSales);
+
+// Reenviar el correo desde la pantalla de recuperación — sin sesión,
+// autorizado por publicRecoveryToken (mismo modelo que confirm-by-buyer y
+// status). Ruta distinta de /:id/resend-confirmation-email (esa es la
+// administrativa, autenticada, por id interno).
+router.post("/:token/resend-email", resendEmailRateLimit, resendSaleEmailByToken);
 
 export default router;

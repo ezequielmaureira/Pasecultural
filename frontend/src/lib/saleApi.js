@@ -59,3 +59,25 @@ export async function confirmSaleByBuyer(recoveryToken) {
 export async function getSaleStatus(recoveryToken) {
     return apiFetch(`/api/sales/${recoveryToken}/status`);
 }
+
+// Pantalla pública "Recuperar mis entradas" — sin sesión, autorizado por
+// conocer email + DNI exactos de una compra propia (nunca uno solo). Nunca
+// trae tickets ni QR: sólo lo necesario para la lista de resultados (ver
+// RecoverPurchase.jsx). El DNI no se loguea completo, igual que en
+// createSale.
+export async function recoverSales({ email, buyerDocument }) {
+    console.log("saleApi.recoverSales request", { email, buyerDocument: buyerDocument ? "[present]" : undefined });
+    const { sales } = await apiFetch("/api/sales/recover", {
+        method: "POST",
+        body: JSON.stringify({ email, buyerDocument }),
+    });
+    return sales;
+}
+
+// Botón "Reenviar correo" de la pantalla de recuperación — mismo modelo de
+// autorización que confirmSaleByBuyer/getSaleStatus (conocer el
+// recoveryToken alcanza). Nunca crea tickets ni una venta nueva, sólo
+// reintenta el envío existente.
+export async function resendSaleEmail(recoveryToken) {
+    return apiFetch(`/api/sales/${recoveryToken}/resend-email`, { method: "POST" });
+}

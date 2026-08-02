@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Download } from "lucide-react";
+import { Link } from "react-router-dom";
+import { CheckCircle2, Download, Mail } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { jsPDF } from "jspdf";
 import Card from "../../../../components/ui/Card.jsx";
 import Button from "../../../../components/ui/Button.jsx";
+import { resendSaleEmail } from "../../../../lib/saleApi.js";
 
 function formatFunctionDate(isoDate) {
   if (!isoDate) return "";
@@ -98,14 +100,33 @@ function TicketCard({ ticket }) {
 // aunque el correo se mandara bien en los dos casos. `emailDeliveryStatus`
 // se sigue recibiendo igual — sólo que ahora es información interna (log),
 // no una condición visual.
-export default function SuccessStep({ tickets, buyerEmail, emailDeliveryStatus, onKeepExploring }) {
+//
+// `recoveryToken` habilita el botón "Reenviar correo" — mismo publicRecoveryToken
+// que ya viaja en la URL (?saleToken=...), tanto recién comprado como
+// llegando desde "Recuperar mis entradas". Reutiliza la infraestructura de
+// Resend ya existente (POST /sales/:token/resend-email -> sendSaleConfirmationEmail):
+// nunca genera tickets nuevos ni duplica la compra, sólo reintenta el envío.
+export default function SuccessStep({ tickets, buyerEmail, emailDeliveryStatus, recoveryToken, onKeepExploring }) {
   const hasTickets = Array.isArray(tickets) && tickets.length > 0;
+  // "idle" | "sending" | "sent" | "error"
+  const [resendState, setResendState] = useState("idle");
 
   useEffect(() => {
     if (emailDeliveryStatus && emailDeliveryStatus !== "SENT") {
       console.info("SuccessStep: emailDeliveryStatus todavía no es SENT en el momento del render", emailDeliveryStatus);
     }
   }, [emailDeliveryStatus]);
+
+  async function handleResendEmail() {
+    if (!recoveryToken || resendState === "sending") return;
+    setResendState("sending");
+    try {
+      await resendSaleEmail(recoveryToken);
+      setResendState("sent");
+    } catch {
+      setResendState("error");
+    }
+  }
 
   return (
     <Card>
@@ -137,9 +158,35 @@ export default function SuccessStep({ tickets, buyerEmail, emailDeliveryStatus, 
         {buyerEmail && (
           <p className="mt-2 text-xs text-slate-500">
             También te vamos a mandar tus entradas al correo{" "}
-            <span className="text-slate-300">{buyerEmail}</span>. Si no las recibís en unos minutos, más
-            adelante vas a poder recuperarlas desde la opción "Recuperar mis entradas".
+            <span className="text-slate-300">{buyerEmail}</span>. Si no las recibís en unos minutos, podés
+            recuperarlas más tarde desde{" "}
+            <Link to="/recuperar-compra" className="text-violet-400 hover:text-violet-300">
+              "Recuperar mis entradas"
+            </Link>
+            .
           </p>
+        )}
+
+        {recoveryToken && (
+          <div className="flex flex-col items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleResendEmail}
+              loading={resendState === "sending"}
+              loadingText="Reenviando..."
+              disabled={resendState === "sending"}
+            >
+              <Mail className="h-3.5 w-3.5" />
+              Reenviar correo
+            </Button>
+            {resendState === "sent" && (
+              <p className="text-xs text-emerald-400">Listo, te volvimos a mandar el correo.</p>
+            )}
+            {resendState === "error" && (
+              <p className="text-xs text-rose-400">No pudimos reenviarlo. Probá de nuevo en unos minutos.</p>
+            )}
+          </div>
         )}
 
         <div className="mt-4 flex w-full flex-col gap-2">

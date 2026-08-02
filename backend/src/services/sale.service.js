@@ -552,3 +552,85 @@ export const getSaleStatusService = async (recoveryToken) => {
         emailDeliveryStatus: sale.confirmationEmailStatus,
     };
 };
+
+// Recuperación pública de "Recuperar mis entradas": el comprador prueba ser
+// quien dice ser conociendo AMBOS datos exactos de una compra propia (email
+// + DNI), no uno solo — ver validación abajo. A diferencia de
+// publicRecoveryToken (un secreto de alta entropía que sólo conoce quien
+// compró), acá la prueba es "conocer dos datos personales exactos a la
+// vez", así que el resultado nunca distingue si falló el email, el DNI, o
+// ambos: siempre la misma lista (vacía o no), nunca un error que revele
+// cuál de los dos estuvo mal. Devuelve sólo lo necesario para la lista de
+// resultados (evento/fecha/lugar/token) — el detalle completo con QR se
+// pide después, por publicRecoveryToken, reutilizando GET /sales/:token/status
+// (la misma ruta que ya usa la pantalla de éxito), nunca duplicado acá.
+export const recoverSalesService = async ({ email, buyerDocument }) => {
+    const normalizedEmail = email?.trim().toLowerCase();
+    if (!normalizedEmail || !buyerDocument?.trim()) {
+        throw new AppError(ErrorCodes.RECOVER_INFO_REQUIRED);
+    }
+    if (!isValidEmail(normalizedEmail)) {
+        throw new AppError(ErrorCodes.GUEST_BUYER_INVALID_EMAIL);
+    }
+    const normalizedDocument = normalizeBuyerDocument(buyerDocument);
+    if (!isValidBuyerDocument(normalizedDocument)) {
+        throw new AppError(ErrorCodes.GUEST_BUYER_INVALID_DOCUMENT);
+    }
+
+    const sales = await prisma.sale.findMany({
+        where: {
+            status: "CONFIRMED",
+            deletedAt: null,
+            buyerDocument: normalizedDocument,
+            buyer: { email: normalizedEmail },
+            // Ventas de antes de que existiera publicRecoveryToken no se
+            // pueden "abrir" después (no hay token al que mandarlas) — se
+            // excluyen acá en vez de devolver un resultado roto. No es una
+            // regresión: esas ventas ya entregaron sus entradas en su
+            // momento, y esta pantalla es una funcionalidad nueva.
+            publicRecoveryToken: { not: null },
+        },
+        select: {
+            publicRecoveryToken: true,
+            createdAt: true,
+            event: { select: { title: true } },
+            function: { select: { date: true, venue: true } },
+            tickets: { where: { deletedAt: null }, select: { id: true } },
+        },
+        orderBy: { createdAt: "desc" },
+    });
+
+    // Nunca se loguea email/DNI (son justo el dato sensible de esta
+    // búsqueda) — sólo cuántos resultados dio.
+    logger.info("recoverSalesService completed", { matchCount: sales.length });
+
+    return sales
+        .filter((sale) => sale.tickets.length > 0)
+        .map((sale) => ({
+            recoveryToken: sale.publicRecoveryToken,
+            eventTitle: sale.event.title,
+            functionDate: sale.function.date,
+            venue: sale.function.venue,
+            ticketCount: sale.tickets.length,
+        }));
+};
+
+// Botón "Reenviar correo" de la pantalla de recuperación — mismo modelo de
+// autorización que confirm-by-buyer/status (conocer el publicRecoveryToken
+// alcanza, sin sesión). Reutiliza sendSaleConfirmationEmail tal cual: hereda
+// gratis el reclamo atómico (nunca dos envíos en paralelo, nunca reenvía si
+// ya está SENT) y nunca genera tickets nuevos ni toca la venta — sólo
+// intenta el envío.
+export const resendConfirmationEmailByTokenService = async (recoveryToken) => {
+    if (!recoveryToken) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
+
+    const sale = await prisma.sale.findUnique({
+        where: { publicRecoveryToken: recoveryToken },
+        select: { id: true, status: true, deletedAt: true },
+    });
+    if (!sale || sale.deletedAt) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
+    if (sale.status !== "CONFIRMED") throw new AppError(ErrorCodes.SALE_NOT_CONFIRMED);
+
+    const result = await sendSaleConfirmationEmail(sale.id);
+    return { emailDeliveryStatus: result.status ?? "PENDING" };
+};

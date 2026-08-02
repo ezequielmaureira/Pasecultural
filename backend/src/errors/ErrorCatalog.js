@@ -55,6 +55,11 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Guest checkout attempted without buyerDocument.",
         userMessage: "Ingresá tu DNI para continuar.",
     },
+    RECOVER_INFO_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "Purchase recovery attempted without both email and buyerDocument.",
+        userMessage: "Ingresá tu email y tu DNI para buscar tu compra.",
+    },
     GUEST_BUYER_INVALID_DOCUMENT: {
         httpStatus: 400,
         logMessage: "Guest checkout attempted with an invalid buyerDocument (must be 7-10 digits).",

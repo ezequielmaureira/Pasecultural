@@ -304,6 +304,7 @@ export default function PurchaseWizard() {
           tickets={purchasedTickets}
           buyerEmail={purchaseBuyerEmail}
           emailDeliveryStatus={purchaseEmailDeliveryStatus}
+          recoveryToken={resumeToken}
           onKeepExploring={() => navigate("/eventos")}
         />
       </div>
