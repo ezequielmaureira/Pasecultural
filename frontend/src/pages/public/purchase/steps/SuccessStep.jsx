@@ -87,11 +87,12 @@ function TicketCard({ ticket }) {
 // nada protegido por Clerk — el comprador invitado no tiene, ni va a tener,
 // sesión.
 //
-// No muestra el email del comprador ni lo remite a su casilla: el envío de
-// entradas por correo todavía no existe. El dato sigue viajando y
-// guardándose igual (ver BuyerInfoStep / createSale) — acá sólo se dejó de
-// mostrar en pantalla para no prometer algo que hoy no pasa.
-export default function SuccessStep({ tickets, onKeepExploring }) {
+// `emailSent` es explícito (no se infiere de `buyerEmail` estar presente):
+// sólo es true cuando el backend confirma emailDeliveryStatus === "SENT"
+// (ver sendSaleConfirmationEmail.service.js). Si Resend falló, no se le
+// promete al comprador que el correo salió — las entradas siguen
+// mostrándose y descargándose igual, sólo no aparece ese aviso.
+export default function SuccessStep({ tickets, buyerEmail, emailSent, onKeepExploring }) {
   const hasTickets = Array.isArray(tickets) && tickets.length > 0;
 
   return (
@@ -119,6 +120,12 @@ export default function SuccessStep({ tickets, onKeepExploring }) {
               <TicketCard key={ticket.id} ticket={ticket} />
             ))}
           </div>
+        )}
+
+        {emailSent && buyerEmail && (
+          <p className="mt-2 text-xs text-slate-500">
+            También mandamos tus entradas al correo <span className="text-slate-300">{buyerEmail}</span>.
+          </p>
         )}
 
         <div className="mt-4 flex w-full flex-col gap-2">

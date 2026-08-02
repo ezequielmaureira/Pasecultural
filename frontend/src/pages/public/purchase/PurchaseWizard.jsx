@@ -79,6 +79,12 @@ export default function PurchaseWizard() {
   const [buyer, setBuyer] = useState(EMPTY_BUYER);
   const [purchaseError, setPurchaseError] = useState("");
   const [purchasedTickets, setPurchasedTickets] = useState([]);
+  // Para el aviso "también te lo mandamos a tu correo" en SuccessStep — sólo
+  // se muestra si emailDeliveryStatus es realmente "SENT" (ver
+  // sendSaleConfirmationEmail.service.js en el backend). Nunca se asume: si
+  // Resend falló, no hay que prometerle al comprador algo que no pasó.
+  const [purchaseBuyerEmail, setPurchaseBuyerEmail] = useState("");
+  const [purchaseEmailDeliveryStatus, setPurchaseEmailDeliveryStatus] = useState(null);
 
   // Ciclo de vida de recuperar una venta ya creada por su saleToken (URL):
   // "idle" (nada que recuperar) | "checking" (primera consulta en curso) |
@@ -147,6 +153,8 @@ export default function PurchaseWizard() {
         if (result?.status === "CONFIRMED" && Array.isArray(result.tickets) && result.tickets.length > 0) {
           stopPolling();
           setPurchasedTickets(result.tickets);
+          setPurchaseBuyerEmail(result.buyerEmail ?? "");
+          setPurchaseEmailDeliveryStatus(result.emailDeliveryStatus ?? null);
           setSaleRecoveryState("idle");
           setPhase("success");
           return;
@@ -292,7 +300,12 @@ export default function PurchaseWizard() {
   if (phase === "success") {
     return (
       <div className="mx-auto max-w-lg px-3 py-6 sm:px-4 sm:py-10">
-        <SuccessStep tickets={purchasedTickets} onKeepExploring={() => navigate("/eventos")} />
+        <SuccessStep
+          tickets={purchasedTickets}
+          buyerEmail={purchaseBuyerEmail}
+          emailSent={purchaseEmailDeliveryStatus === "SENT"}
+          onKeepExploring={() => navigate("/eventos")}
+        />
       </div>
     );
   }
@@ -395,6 +408,8 @@ export default function PurchaseWizard() {
       // haya recuperado por timeout (checkPaymentOutcome -> GET /status,
       // que ahora también devuelve los tickets una vez confirmada).
       setPurchasedTickets(result?.tickets ?? []);
+      setPurchaseBuyerEmail(result?.buyerEmail ?? buyer.email ?? "");
+      setPurchaseEmailDeliveryStatus(result?.emailDeliveryStatus ?? null);
       setPhase("success");
     } catch (err) {
       console.error("PurchaseWizard.handleConfirmPurchase caught error", err);

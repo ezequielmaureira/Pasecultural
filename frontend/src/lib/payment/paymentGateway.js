@@ -44,6 +44,6 @@ export async function processPayment({ eventId, functionId, items, buyer }, { on
 // si el dato llegó directo de confirm-by-buyer o de esta recuperación.
 export async function checkPaymentOutcome({ recoveryToken }) {
     if (!recoveryToken) return null;
-    const { status, tickets } = await getSaleStatus(recoveryToken);
-    return status === "CONFIRMED" ? { status, tickets: tickets ?? [] } : null;
+    const { status, tickets, buyerEmail, emailDeliveryStatus } = await getSaleStatus(recoveryToken);
+    return status === "CONFIRMED" ? { status, tickets: tickets ?? [], buyerEmail, emailDeliveryStatus } : null;
 }

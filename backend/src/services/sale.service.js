@@ -203,7 +203,11 @@ async function buildConfirmedSaleResult(saleId) {
         qrToken: `${ticket.id}.${decryptSecret(ticket.qr.secretEncrypted)}`,
     }));
 
-    return { sale: confirmedSale, tickets: enrichedTickets };
+    // buyerEmail viaja aparte (no sólo dentro de `sale.buyer`): así el
+    // frontend puede mostrar "te lo mandamos a este correo" sin tener que
+    // saber de la forma completa de `sale` — y sin depender del estado
+    // local de BuyerInfoStep, que no sobrevive a una recarga de página.
+    return { sale: confirmedSale, tickets: enrichedTickets, buyerEmail: confirmedSale.buyer?.email ?? null };
 }
 
 // El corazón del flujo de pago manual (y, a futuro, del webhook de Mercado
@@ -484,6 +488,8 @@ export const getSaleStatusService = async (recoveryToken) => {
             id: true,
             status: true,
             deletedAt: true,
+            confirmationEmailStatus: true,
+            buyer: { select: { email: true } },
             event: { select: { title: true } },
             function: { select: { date: true, venue: true } },
             tickets: {
@@ -517,5 +523,11 @@ export const getSaleStatusService = async (recoveryToken) => {
         qrToken: `${ticket.id}.${decryptSecret(ticket.qr.secretEncrypted)}`,
     }));
 
-    return { id: sale.id, status: sale.status, tickets };
+    return {
+        id: sale.id,
+        status: sale.status,
+        tickets,
+        buyerEmail: sale.buyer?.email ?? null,
+        emailDeliveryStatus: sale.confirmationEmailStatus,
+    };
 };
