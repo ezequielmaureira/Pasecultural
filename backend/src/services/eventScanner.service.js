@@ -1,13 +1,24 @@
+import crypto from "node:crypto";
 import prisma from "../config/prisma.js";
 import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { getUserByClerkId } from "../utils/getUserByClerkId.js";
+import { logger } from "../logging/logger.js";
 
-// Quién puede escanear un evento no depende de un rol especial de cuenta
-// (Role.SCANNER quedó en el enum de Prisma por compatibilidad, pero ya no
-// se usa como gate de autorización — ver scanner.service.js) sino
-// exclusivamente de tener una fila activa en EventScanner. Este service es
-// el lado del organizador: quién puede agregar/quitar esas filas.
+// Cuánto dura una invitación sin reclamar antes de considerarse vencida —
+// "vencimiento configurable" del requerimiento: el campo lo soporta
+// (invitationExpiresAt), este es sólo el default con el que arranca cada
+// invitación nueva. Generar una invitación nueva reinicia el plazo.
+const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 días
+const MAX_QUANTITY = 20;
+
+function generateInvitationToken() {
+    // Mismo generador que Sale.publicRecoveryToken (crypto.randomBytes, no
+    // Math.random ni un cuid): esto viaja en una URL pública, tiene que ser
+    // impredecible.
+    return crypto.randomBytes(32).toString("base64url");
+}
+
 async function getMyOrganization(clerkId) {
     const user = await getUserByClerkId(clerkId);
     if (!user) return null;
@@ -25,19 +36,53 @@ async function getOwnedEvent(clerkId, eventId) {
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event || event.organizationId !== context.organization.id) return null;
 
-    return event;
+    return { ...context, event };
 }
 
 const SCANNER_SELECT = {
     id: true,
-    active: true,
+    name: true,
+    gate: true,
+    status: true,
+    invitationToken: true,
+    invitationExpiresAt: true,
     createdAt: true,
+    updatedAt: true,
+    claimedAt: true,
+    approvedAt: true,
+    lastAccessAt: true,
+    lastDevice: true,
+    lastScanAt: true,
     user: { select: { id: true, firstName: true, lastName: true, email: true } },
 };
 
+async function findOwnedScanner(eventId, scannerId) {
+    const scanner = await prisma.eventScanner.findFirst({
+        where: { id: scannerId, eventId, deletedAt: null },
+        select: SCANNER_SELECT,
+    });
+    if (!scanner) throw new AppError(ErrorCodes.EVENT_SCANNER_NOT_FOUND);
+    return scanner;
+}
+
+// Eventos que el asistente conversacional ofrece en el Paso 1 — "activos"
+// significa que todavía tiene sentido asignarles un scanner (no
+// cancelado, no ya terminado). DRAFT/SCHEDULED/PUBLISHED cuentan: un
+// organizador puede querer dejar scanners listos antes de publicar.
+export const listActiveEventsForScannerService = async (clerkId) => {
+    const context = await getMyOrganization(clerkId);
+    if (!context) return [];
+
+    return prisma.event.findMany({
+        where: { organizationId: context.organization.id, status: { notIn: ["CANCELLED", "FINISHED"] } },
+        select: { id: true, title: true },
+        orderBy: { createdAt: "desc" },
+    });
+};
+
 export const listEventScannersService = async (clerkId, eventId) => {
-    const event = await getOwnedEvent(clerkId, eventId);
-    if (!event) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
+    const owned = await getOwnedEvent(clerkId, eventId);
+    if (!owned) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
 
     return prisma.eventScanner.findMany({
         where: { eventId, deletedAt: null },
@@ -46,38 +91,160 @@ export const listEventScannersService = async (clerkId, eventId) => {
     });
 };
 
-// No existe un sistema de invitación por email (no se implementan emails en
-// esta fase): el organizador sólo puede habilitar a alguien que ya tiene
-// una cuenta en PaseCultural (comprador, organizador de otro evento, etc.)
-// — exactamente lo que permite "un mismo usuario, varios roles a la vez".
-// Si el email no tiene cuenta todavía, se le pide que se registre primero.
-export const addEventScannerService = async (clerkId, eventId, email) => {
-    const event = await getOwnedEvent(clerkId, eventId);
-    if (!event) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
+// Paso 4 del asistente: crea `quantity` invitaciones iguales para la misma
+// puerta, cada una con su propio token único — nunca un token compartido
+// entre varias (cada scanner físico/persona necesita poder revocarse
+// individualmente sin tumbar a los demás de la misma puerta).
+export const createScannerInvitationsService = async (clerkId, eventId, { gate, quantity }) => {
+    const owned = await getOwnedEvent(clerkId, eventId);
+    if (!owned) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
 
-    const normalizedEmail = email?.trim().toLowerCase();
-    if (!normalizedEmail) throw new AppError(ErrorCodes.EVENT_SCANNER_EMAIL_REQUIRED);
+    const trimmedGate = gate?.trim();
+    if (!trimmedGate) throw new AppError(ErrorCodes.SCANNER_GATE_REQUIRED);
 
-    const targetUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-    if (!targetUser) throw new AppError(ErrorCodes.EVENT_SCANNER_USER_NOT_FOUND);
+    const parsedQuantity = Number(quantity);
+    if (!Number.isInteger(parsedQuantity) || parsedQuantity < 1 || parsedQuantity > MAX_QUANTITY) {
+        throw new AppError(ErrorCodes.SCANNER_QUANTITY_INVALID);
+    }
 
-    // upsert: si ya existía (activo o soft-deleted) lo reactiva en vez de
-    // violar el @@unique([eventId, userId]) con un create() directo.
-    return prisma.eventScanner.upsert({
-        where: { eventId_userId: { eventId, userId: targetUser.id } },
-        update: { active: true, deletedAt: null },
-        create: { eventId, userId: targetUser.id, active: true },
+    // Cuántos scanners ya existen (no eliminados) para esta puerta, para
+    // seguir la numeración en vez de reiniciar en #1 cada vez que se genera
+    // otro lote para la misma puerta.
+    const existingForGate = await prisma.eventScanner.count({
+        where: { eventId, gate: trimmedGate, deletedAt: null },
+    });
+
+    const expiresAt = new Date(Date.now() + INVITATION_TTL_MS);
+    const rows = Array.from({ length: parsedQuantity }, (_, i) => ({
+        eventId,
+        gate: trimmedGate,
+        name: `${trimmedGate} #${existingForGate + i + 1}`,
+        status: "INVITED",
+        invitationToken: generateInvitationToken(),
+        invitationExpiresAt: expiresAt,
+        createdBy: owned.user.id,
+    }));
+
+    await prisma.eventScanner.createMany({ data: rows });
+
+    logger.info("createScannerInvitationsService completed", {
+        eventId,
+        gate: trimmedGate,
+        quantity: parsedQuantity,
+        createdBy: owned.user.id,
+    });
+
+    // Se devuelven completas (incluye invitationToken): es la única vez que
+    // el organizador puede copiarlas recién creadas desde la pantalla de
+    // "compartir" del asistente.
+    return prisma.eventScanner.findMany({
+        where: { invitationToken: { in: rows.map((r) => r.invitationToken) } },
+        select: SCANNER_SELECT,
+        orderBy: { createdAt: "asc" },
+    });
+};
+
+export const updateScannerService = async (clerkId, eventId, scannerId, { name, gate }) => {
+    const owned = await getOwnedEvent(clerkId, eventId);
+    if (!owned) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
+    await findOwnedScanner(eventId, scannerId);
+
+    const data = {};
+    if (typeof name === "string" && name.trim()) data.name = name.trim();
+    if (typeof gate === "string" && gate.trim()) data.gate = gate.trim();
+
+    return prisma.eventScanner.update({ where: { id: scannerId }, data, select: SCANNER_SELECT });
+};
+
+export const disableScannerService = async (clerkId, eventId, scannerId) => {
+    const owned = await getOwnedEvent(clerkId, eventId);
+    if (!owned) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
+    const scanner = await findOwnedScanner(eventId, scannerId);
+    if (scanner.status !== "ACTIVE") throw new AppError(ErrorCodes.SCANNER_NOT_PENDING);
+
+    return prisma.eventScanner.update({ where: { id: scannerId }, data: { status: "DISABLED" }, select: SCANNER_SELECT });
+};
+
+export const reactivateScannerService = async (clerkId, eventId, scannerId) => {
+    const owned = await getOwnedEvent(clerkId, eventId);
+    if (!owned) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
+    const scanner = await findOwnedScanner(eventId, scannerId);
+    if (scanner.status !== "DISABLED") throw new AppError(ErrorCodes.SCANNER_NOT_PENDING);
+
+    return prisma.eventScanner.update({ where: { id: scannerId }, data: { status: "ACTIVE" }, select: SCANNER_SELECT });
+};
+
+// "Eliminar": soft delete (mismo criterio que el resto de la app) — saca la
+// fila de todas las listas/autorización, pero conserva la auditoría en la
+// base en vez de borrarla de verdad.
+export const deleteScannerService = async (clerkId, eventId, scannerId) => {
+    const owned = await getOwnedEvent(clerkId, eventId);
+    if (!owned) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
+    await findOwnedScanner(eventId, scannerId);
+
+    await prisma.eventScanner.update({ where: { id: scannerId }, data: { deletedAt: new Date() } });
+};
+
+// "Revocar invitación": termina la fila sin borrarla — a diferencia de
+// Eliminar, queda visible en la lista como REVOKED (auditoría de que
+// existió y se canceló). Se puede revocar desde cualquier estado no
+// terminal; es intencionalmente más fuerte que Desactivar (que sólo se
+// puede deshacer con Reactivar).
+export const revokeScannerInvitationService = async (clerkId, eventId, scannerId) => {
+    const owned = await getOwnedEvent(clerkId, eventId);
+    if (!owned) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
+    const scanner = await findOwnedScanner(eventId, scannerId);
+    if (scanner.status === "REVOKED") throw new AppError(ErrorCodes.SCANNER_NOT_PENDING);
+
+    return prisma.eventScanner.update({ where: { id: scannerId }, data: { status: "REVOKED" }, select: SCANNER_SELECT });
+};
+
+// "Generar nueva invitación": sólo tiene sentido si todavía nadie la
+// reclamó (INVITED) o si se había revocado/vencido — nunca sobre una que ya
+// tiene una persona real asignada (PENDING/ACTIVE/DISABLED usan Editar/
+// Desactivar/Revocar, no esto). Token nuevo, vencimiento reiniciado, vuelve
+// a INVITED.
+export const regenerateScannerInvitationService = async (clerkId, eventId, scannerId) => {
+    const owned = await getOwnedEvent(clerkId, eventId);
+    if (!owned) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
+    const scanner = await findOwnedScanner(eventId, scannerId);
+    if (scanner.status !== "INVITED" && scanner.status !== "REVOKED") {
+        throw new AppError(ErrorCodes.SCANNER_INVITATION_NOT_ELIGIBLE);
+    }
+
+    return prisma.eventScanner.update({
+        where: { id: scannerId },
+        data: {
+            status: "INVITED",
+            invitationToken: generateInvitationToken(),
+            invitationExpiresAt: new Date(Date.now() + INVITATION_TTL_MS),
+        },
         select: SCANNER_SELECT,
     });
 };
 
-export const removeEventScannerService = async (clerkId, eventId, targetUserId) => {
-    const event = await getOwnedEvent(clerkId, eventId);
-    if (!event) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
+// El botón "Aceptar" de la solicitud pendiente — recién acá pasa a poder
+// escanear de verdad (ver assertScannerAuthorized, que exige status ACTIVE).
+export const approveScannerService = async (clerkId, eventId, scannerId) => {
+    const owned = await getOwnedEvent(clerkId, eventId);
+    if (!owned) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
+    const scanner = await findOwnedScanner(eventId, scannerId);
+    if (scanner.status !== "PENDING") throw new AppError(ErrorCodes.SCANNER_NOT_PENDING);
 
-    const updated = await prisma.eventScanner.updateMany({
-        where: { eventId, userId: targetUserId, deletedAt: null },
-        data: { active: false, deletedAt: new Date() },
+    const updated = await prisma.eventScanner.update({
+        where: { id: scannerId },
+        data: { status: "ACTIVE", approvedBy: owned.user.id, approvedAt: new Date() },
+        select: SCANNER_SELECT,
     });
-    if (updated.count === 0) throw new AppError(ErrorCodes.EVENT_SCANNER_NOT_FOUND);
+    logger.info("approveScannerService completed", { eventId, scannerId, approvedBy: owned.user.id });
+    return updated;
+};
+
+export const rejectScannerService = async (clerkId, eventId, scannerId) => {
+    const owned = await getOwnedEvent(clerkId, eventId);
+    if (!owned) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
+    const scanner = await findOwnedScanner(eventId, scannerId);
+    if (scanner.status !== "PENDING") throw new AppError(ErrorCodes.SCANNER_NOT_PENDING);
+
+    return prisma.eventScanner.update({ where: { id: scannerId }, data: { status: "REVOKED" }, select: SCANNER_SELECT });
 };

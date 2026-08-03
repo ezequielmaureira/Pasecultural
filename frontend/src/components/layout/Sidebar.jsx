@@ -53,7 +53,16 @@ const NAV_BY_ROLE = {
     },
     { label: "Entradas", icon: Ticket, path: "/organizador/entradas", end: true },
     { label: "Ventas", icon: LineChart, path: "/organizador/ventas", end: true },
-    { label: "Scanners", icon: ScanLine, path: "/organizador/scanners", end: true },
+    {
+      label: "Scanners",
+      icon: ScanLine,
+      path: "/organizador/scanners",
+      end: false,
+      children: [
+        { label: "Lista", path: "/organizador/scanners", end: true },
+        { label: "Agregar scanner", path: "/organizador/scanners/nuevo", end: true },
+      ],
+    },
     {
       label: "Configuración",
       icon: Settings,

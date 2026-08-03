@@ -555,20 +555,71 @@ model ScanAttempt {
   @@map("scan_attempts")
 }
 
-// Qué usuarios (Role.SCANNER) están habilitados para escanear en qué
-// evento. Reemplaza el estado local/efímero que hoy tiene
-// OrganizerScanners.jsx en el frontend.
+// Ciclo de vida completo de una invitación de scanner — no sólo "activo o
+// no" (eso era `active: Boolean`, ya no alcanza):
+//   INVITED  -> el organizador la creó, todavía nadie la reclamó.
+//   PENDING  -> alguien inició sesión con Clerk y reclamó el link, pero el
+//               organizador todavía no la aprobó — NO puede escanear.
+//   ACTIVE   -> aprobada, puede escanear.
+//   DISABLED -> fue ACTIVE, el organizador la desactivó temporalmente
+//               (reversible con "Reactivar", vuelve a ACTIVE).
+//   REVOKED  -> cancelada/rechazada — terminal, no se reactiva; si hace
+//               falta, el organizador genera una invitación nueva.
+enum EventScannerStatus {
+  INVITED
+  PENDING
+  ACTIVE
+  DISABLED
+  REVOKED
+}
+
+// Una fila = un scanner (persona real u "slot" todavía sin reclamar) para
+// UN evento puntual — nunca escanea otro evento (ver assertScannerAuthorized).
+// Reemplaza el modelo simple "email de alguien que ya tiene cuenta" por el
+// flujo completo de invitación: se crea sin userId (todavía no se sabe
+// quién la va a reclamar), el link lleva sólo `invitationToken` (nunca el
+// `id` interno), y recién al aceptar sesión con Clerk se completa `userId`.
 model EventScanner {
   id String @id @default(cuid())
 
   eventId String
   event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
+  // Null hasta que alguien reclama la invitación (claim) — a partir de ahí
+  // identifica a la persona real. Puede haber muchas filas del mismo evento
+  // con userId null a la vez (varios slots sin reclamar todavía): Postgres
+  // no las considera "iguales" para el @@unique de abajo, NULL nunca es
+  // igual a otro NULL.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
 
-  active    Boolean   @default(true)
+  // "Puerta Principal #1" — lo arma el motor a partir de gate+índice al
+  // crear el lote, después editable por el organizador sin tocar `gate`.
+  name String
+  // "Puerta Principal" tal cual lo eligió/escribió el organizador en el
+  // paso 2 del asistente — se conserva aparte de `name` para poder generar
+  // más scanners de la misma puerta más adelante sin tener que parsearlo.
+  gate String
+
+  status EventScannerStatus @default(INVITED)
+
+  // Credencial pública del link de invitación — nunca el `id` interno,
+  // mismo criterio que publicRecoveryToken en Sale.
+  invitationToken     String    @unique
+  invitationExpiresAt DateTime?
+
+  // Auditoría (quién hizo qué y cuándo) — ver requerimiento explícito del
+  // módulo de gestión de scanners.
+  createdBy    String // User.id del organizador que generó la invitación
+  claimedAt    DateTime?
+  approvedBy   String? // User.id del organizador que aprobó
+  approvedAt   DateTime?
+  lastAccessAt DateTime? // última vez que este scanner abrió la app (ver listScannerEventsService)
+  lastDevice   String? // user-agent capturado en el claim/último acceso — sólo informativo
+  lastScanAt   DateTime? // preparado para cuando el lector QR esté activo; no se usa todavía
+
   createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
   @@unique([eventId, userId])

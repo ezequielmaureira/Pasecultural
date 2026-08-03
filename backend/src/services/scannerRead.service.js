@@ -21,11 +21,21 @@ export const listScannerEventsService = async (clerkId) => {
     if (!user) return [];
 
     const assignments = await prisma.eventScanner.findMany({
-        where: { userId: user.id, active: true, deletedAt: null },
+        where: { userId: user.id, status: "ACTIVE", deletedAt: null },
         select: { eventId: true },
     });
     const eventIds = assignments.map((a) => a.eventId);
     if (eventIds.length === 0) return [];
+
+    // "Último acceso" (columna que pide la pantalla de gestión de
+    // scanners): se actualiza acá, no en validateScanService — este
+    // endpoint ya se llama cada vez que el scanner abre la app (antes de
+    // escanear nada), así que es el punto justo para auditoría sin tocar
+    // la lógica del lector QR en sí. No se espera el resultado (no debe
+    // demorar la respuesta al scanner por esto).
+    prisma.eventScanner
+        .updateMany({ where: { userId: user.id, status: "ACTIVE", deletedAt: null }, data: { lastAccessAt: new Date() } })
+        .catch(() => {});
 
     const events = await prisma.event.findMany({
         where: { id: { in: eventIds } },

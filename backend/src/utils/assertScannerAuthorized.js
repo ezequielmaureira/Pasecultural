@@ -9,7 +9,7 @@ export async function assertScannerAuthorized(client, eventId, userId) {
     const eventScanner = await client.eventScanner.findUnique({
         where: { eventId_userId: { eventId, userId } },
     });
-    if (!eventScanner || !eventScanner.active || eventScanner.deletedAt) {
+    if (!eventScanner || eventScanner.status !== "ACTIVE" || eventScanner.deletedAt) {
         throw new AppError(ErrorCodes.SCANNER_NOT_AUTHORIZED);
     }
 }

@@ -1,23 +1,203 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "@clerk/clerk-react";
-import { Plus, Trash2, ScanLine, AlertTriangle, RefreshCw } from "lucide-react";
+import {
+  Plus,
+  ScanLine,
+  AlertTriangle,
+  RefreshCw,
+  Check,
+  X as XIcon,
+  Pencil,
+  Ban,
+  Power,
+  RotateCcw,
+  Trash2,
+  RefreshCcw as RegenerateIcon,
+  Share2,
+} from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
+import Modal from "../../components/ui/Modal.jsx";
 import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
 import { Field, inputClass } from "../../components/ui/FormField.jsx";
 import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
 import { useToast } from "../../context/ToastContext.jsx";
-import { listEventScanners, addEventScanner, removeEventScanner } from "../../lib/eventScannerApi.js";
+import {
+  listEventScanners,
+  approveScanner,
+  rejectScanner,
+  disableScanner,
+  reactivateScanner,
+  revokeScannerInvitation,
+  regenerateScannerInvitation,
+  deleteScanner,
+  updateScanner,
+} from "../../lib/eventScannerApi.js";
+import ShareInvitationCard from "./scannerChat/ShareInvitationCard.jsx";
 
-function scannerName(scanner) {
+const STATUS_CONFIG = {
+  INVITED: { label: "Invitado", tone: "bg-sky-500/10 text-sky-400" },
+  PENDING: { label: "Pendiente de aprobación", tone: "bg-amber-500/10 text-amber-400" },
+  ACTIVE: { label: "Activo", tone: "bg-emerald-500/10 text-emerald-400" },
+  DISABLED: { label: "Desactivado", tone: "bg-slate-500/10 text-slate-400" },
+  REVOKED: { label: "Revocado", tone: "bg-rose-500/10 text-rose-400" },
+};
+
+function StatusBadge({ status }) {
+  const config = STATUS_CONFIG[status] ?? STATUS_CONFIG.INVITED;
+  return (
+    <span className={`inline-flex w-fit items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${config.tone}`}>
+      {config.label}
+    </span>
+  );
+}
+
+function formatDateTime(value) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" });
+}
+
+function scannerPersonLabel(scanner) {
+  if (!scanner.user) return "Sin reclamar todavía";
   return [scanner.user.firstName, scanner.user.lastName].filter(Boolean).join(" ") || scanner.user.email;
 }
 
-// El acceso a escanear no es una lista global de "scanners" del organizador
-// — es por evento (EventScanner). No hace falta elegir un rol especial de
-// cuenta para la persona: cualquier usuario que ya tenga cuenta en
-// PaseCultural (comprador, organizador de otro evento, etc.) puede ser
-// habilitado acá con sólo su email.
+// Formulario de "Editar nombre/puerta" — un solo Modal para ambos campos a
+// la vez en vez de dos acciones separadas, son parte del mismo registro.
+function EditScannerModal({ scanner, onClose, onSaved }) {
+  const { getToken } = useAuth();
+  const toast = useToast();
+  const [name, setName] = useState(scanner.name);
+  const [gate, setGate] = useState(scanner.gate);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const token = await getToken();
+      const updated = await updateScanner(token, scanner.eventId, scanner.id, { name, gate });
+      toast.success("Scanner actualizado.");
+      onSaved(updated);
+    } catch (err) {
+      toast.error(err.message || "No pudimos guardar los cambios.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal title="Editar scanner" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <Field label="Nombre">
+          <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <Field label="Puerta / acceso">
+          <input className={inputClass} value={gate} onChange={(e) => setGate(e.target.value)} />
+        </Field>
+        <div className="mt-2 flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button onClick={handleSave} loading={saving} loadingText="Guardando...">
+            Guardar
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ScannerActionButton({ icon: Icon, label, onClick, danger, loading }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={loading}
+      className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${
+        danger ? "text-rose-400 hover:bg-rose-500/10" : "text-slate-300 hover:bg-white/5 hover:text-white"
+      }`}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {label}
+    </button>
+  );
+}
+
+// Una tarjeta por scanner — con las columnas que pide la gestión (nombre,
+// puerta, estado, fecha, último acceso, dispositivo) y sólo las acciones
+// válidas para SU estado actual (nunca "Aprobar" en algo que no está
+// PENDING, por ejemplo — el backend también lo valida, esto es sólo para
+// no mostrar botones que van a fallar).
+function ScannerCard({ scanner, onAction, actingId, onEdit, onShare }) {
+  const isActing = actingId === scanner.id;
+  return (
+    <Card>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold text-white">{scanner.name}</p>
+            <p className="text-xs text-slate-500">{scanner.gate}</p>
+          </div>
+          <StatusBadge status={scanner.status} />
+        </div>
+
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-400 sm:grid-cols-3">
+          <p>
+            <span className="text-slate-500">Persona: </span>
+            {scannerPersonLabel(scanner)}
+          </p>
+          <p>
+            <span className="text-slate-500">Creado: </span>
+            {formatDateTime(scanner.createdAt)}
+          </p>
+          <p>
+            <span className="text-slate-500">Último acceso: </span>
+            {formatDateTime(scanner.lastAccessAt)}
+          </p>
+          {scanner.lastDevice && (
+            <p className="truncate sm:col-span-3">
+              <span className="text-slate-500">Dispositivo: </span>
+              {scanner.lastDevice}
+            </p>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-1 border-t border-white/5 pt-3">
+          {scanner.status === "PENDING" && (
+            <>
+              <ScannerActionButton icon={Check} label="Aceptar" onClick={() => onAction(scanner, "approve")} loading={isActing} />
+              <ScannerActionButton icon={XIcon} label="Rechazar" danger onClick={() => onAction(scanner, "reject")} loading={isActing} />
+            </>
+          )}
+          {scanner.status === "INVITED" && (
+            <ScannerActionButton icon={Share2} label="Compartir" onClick={() => onShare(scanner)} loading={isActing} />
+          )}
+          {scanner.status === "ACTIVE" && (
+            <ScannerActionButton icon={Power} label="Desactivar" onClick={() => onAction(scanner, "disable")} loading={isActing} />
+          )}
+          {scanner.status === "DISABLED" && (
+            <ScannerActionButton icon={RotateCcw} label="Reactivar" onClick={() => onAction(scanner, "reactivate")} loading={isActing} />
+          )}
+          {(scanner.status === "INVITED" || scanner.status === "REVOKED") && (
+            <ScannerActionButton icon={RegenerateIcon} label="Nueva invitación" onClick={() => onAction(scanner, "regenerate")} loading={isActing} />
+          )}
+          {scanner.status !== "REVOKED" && (
+            <ScannerActionButton icon={Ban} label="Revocar" danger onClick={() => onAction(scanner, "revoke")} loading={isActing} />
+          )}
+          <ScannerActionButton icon={Pencil} label="Editar" onClick={() => onEdit(scanner)} loading={isActing} />
+          <ScannerActionButton icon={Trash2} label="Eliminar" danger onClick={() => onAction(scanner, "delete")} loading={isActing} />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// Reemplaza por completo el formulario "email de alguien que ya tiene
+// cuenta" (addEventScanner) por la gestión del ciclo de vida completo de
+// invitaciones — crear se hace en el asistente conversacional
+// (ScannerInviteChat, ver /organizador/scanners/nuevo), acá sólo se
+// administra lo ya creado.
 export default function OrganizerScanners() {
   const { getToken } = useAuth();
   const { events, loadingEvents } = useOrganizerData();
@@ -27,10 +207,10 @@ export default function OrganizerScanners() {
   const [scanners, setScanners] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [email, setEmail] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [scannerToRemove, setScannerToRemove] = useState(null);
-  const [removing, setRemoving] = useState(false);
+  const [actingId, setActingId] = useState(null);
+  const [confirmAction, setConfirmAction] = useState(null); // { scanner, action }
+  const [editingScanner, setEditingScanner] = useState(null);
+  const [sharingScanner, setSharingScanner] = useState(null);
 
   useEffect(() => {
     if (!loadingEvents && events.length > 0 && !eventId) {
@@ -43,7 +223,8 @@ export default function OrganizerScanners() {
     setError("");
     try {
       const token = await getToken();
-      setScanners(await listEventScanners(token, id));
+      const list = await listEventScanners(token, id);
+      setScanners(list.map((s) => ({ ...s, eventId: id })));
     } catch (err) {
       setError(err.message || "No pudimos cargar los scanners de este evento.");
     } finally {
@@ -55,56 +236,69 @@ export default function OrganizerScanners() {
     if (eventId) loadScanners(eventId);
   }, [eventId]);
 
-  async function handleAdd(formEvent) {
-    formEvent.preventDefault();
-    if (!email.trim()) return;
+  const ACTION_HANDLERS = {
+    approve: (token, scanner) => approveScanner(token, scanner.eventId, scanner.id),
+    disable: (token, scanner) => disableScanner(token, scanner.eventId, scanner.id),
+    reactivate: (token, scanner) => reactivateScanner(token, scanner.eventId, scanner.id),
+    regenerate: (token, scanner) => regenerateScannerInvitation(token, scanner.eventId, scanner.id),
+  };
+  const CONFIRM_ACTIONS = new Set(["reject", "revoke", "delete"]);
+  const ACTION_MESSAGES = {
+    reject: { title: "Rechazar solicitud", description: "La persona no va a poder escanear este evento." },
+    revoke: { title: "Revocar", description: "Se cancela la invitación o el acceso de este scanner de inmediato." },
+    delete: { title: "Eliminar scanner", description: "Se saca de la lista. Esta acción no se puede deshacer desde acá." },
+  };
 
-    setAdding(true);
+  async function runAction(scanner, action) {
+    setActingId(scanner.id);
     try {
       const token = await getToken();
-      await addEventScanner(token, eventId, email.trim());
-      setEmail("");
-      toast.success("Scanner habilitado para este evento.");
+      if (action === "reject") await rejectScanner(token, scanner.eventId, scanner.id);
+      else if (action === "revoke") await revokeScannerInvitation(token, scanner.eventId, scanner.id);
+      else if (action === "delete") await deleteScanner(token, scanner.eventId, scanner.id);
+      else await ACTION_HANDLERS[action](token, scanner);
+      toast.success("Listo.");
       loadScanners(eventId);
     } catch (err) {
-      toast.error(err.message || "No pudimos habilitar ese email como scanner.");
+      toast.error(err.message || "No pudimos completar la acción.");
     } finally {
-      setAdding(false);
+      setActingId(null);
+      setConfirmAction(null);
     }
   }
 
-  async function confirmRemove() {
-    if (!scannerToRemove) return;
-    setRemoving(true);
-    try {
-      const token = await getToken();
-      await removeEventScanner(token, eventId, scannerToRemove.user.id);
-      toast.success("Scanner revocado.");
-      setScannerToRemove(null);
-      loadScanners(eventId);
-    } catch (err) {
-      toast.error(err.message || "No pudimos revocar ese scanner.");
-    } finally {
-      setRemoving(false);
+  function handleAction(scanner, action) {
+    if (CONFIRM_ACTIONS.has(action)) {
+      setConfirmAction({ scanner, action });
+      return;
     }
+    runAction(scanner, action);
   }
+
+  const pending = scanners.filter((s) => s.status === "PENDING");
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-bold text-white">Scanners</h1>
-        <p className="text-sm text-slate-400">
-          Habilitá quién puede validar entradas de cada uno de tus eventos
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-white">Scanners</h1>
+          <p className="text-sm text-slate-400">Invitá, aprobá y administrá quién puede validar entradas.</p>
+        </div>
+        {events.length > 0 && (
+          <Link to="/organizador/scanners/nuevo">
+            <Button className="gap-1.5">
+              <Plus className="h-4 w-4" />
+              Agregar scanner
+            </Button>
+          </Link>
+        )}
       </div>
 
       {!loadingEvents && events.length === 0 && (
         <Card>
           <div className="flex flex-col items-center gap-2 py-8 text-center">
             <ScanLine className="h-6 w-6 text-slate-600" />
-            <p className="text-sm text-slate-400">
-              Creá un evento primero para poder habilitar scanners.
-            </p>
+            <p className="text-sm text-slate-400">Creá un evento primero para poder invitar scanners.</p>
           </div>
         </Card>
       )}
@@ -121,111 +315,109 @@ export default function OrganizerScanners() {
             </select>
           </Field>
 
-          <Card>
-            <form onSubmit={handleAdd} className="flex flex-col gap-4 sm:flex-row sm:items-end">
-              <Field label="Email de la persona a habilitar" className="flex-1">
-                <input
-                  type="email"
-                  className={inputClass}
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="scanner@example.com"
-                  required
-                />
-              </Field>
-              <Button type="submit" loading={adding} loadingText="Habilitando...">
-                <Plus className="h-4 w-4" />
-                Habilitar
-              </Button>
-            </form>
-            <p className="mt-3 text-xs text-slate-500">
-              Tiene que ser el email de alguien que ya tenga cuenta en PaseCultural — no envía invitación por
-              correo, sólo habilita esa cuenta para escanear este evento.
-            </p>
-          </Card>
-
-          <div className="rounded-xl border border-white/10 bg-[#0B1120]">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b border-white/10 text-xs uppercase tracking-wide text-slate-500">
-                    <th className="px-6 py-3 font-medium">Nombre</th>
-                    <th className="px-6 py-3 font-medium">Email</th>
-                    <th className="px-6 py-3 font-medium text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {loading &&
-                    Array.from({ length: 2 }).map((_, i) => (
-                      <tr key={i}>
-                        <td className="px-6 py-4" colSpan={3}>
-                          <div className="h-5 w-full max-w-sm animate-pulse rounded bg-white/5" />
-                        </td>
-                      </tr>
-                    ))}
-
-                  {!loading && error && (
-                    <tr>
-                      <td className="px-6 py-12" colSpan={3}>
-                        <div className="flex flex-col items-center gap-3 text-center">
-                          <AlertTriangle className="h-6 w-6 text-rose-400" />
-                          <p className="text-sm text-slate-400">{error}</p>
-                          <Button size="sm" variant="secondary" onClick={() => loadScanners(eventId)}>
-                            <RefreshCw className="h-3.5 w-3.5" />
-                            Reintentar
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-
-                  {!loading &&
-                    !error &&
-                    scanners.map((scanner) => (
-                      <tr key={scanner.id}>
-                        <td className="px-6 py-4 font-medium text-white">{scannerName(scanner)}</td>
-                        <td className="px-6 py-4 text-slate-400">{scanner.user.email}</td>
-                        <td className="px-6 py-4 text-right">
-                          <button
-                            type="button"
-                            title="Revocar acceso"
-                            onClick={() => setScannerToRemove(scanner)}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors duration-150 hover:bg-white/5 hover:text-rose-400"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-
-                  {!loading && !error && scanners.length === 0 && (
-                    <tr>
-                      <td className="px-6 py-12" colSpan={3}>
-                        <div className="flex flex-col items-center gap-3 text-center">
-                          <ScanLine className="h-8 w-8 text-slate-600" />
-                          <p className="text-sm text-slate-400">
-                            Todavía no habilitaste a nadie para escanear este evento.
-                          </p>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+          {loading && (
+            <div className="flex flex-col gap-3">
+              {Array.from({ length: 2 }).map((_, i) => (
+                <div key={i} className="h-24 w-full animate-pulse rounded-xl bg-white/5" />
+              ))}
             </div>
-          </div>
+          )}
+
+          {!loading && error && (
+            <Card>
+              <div className="flex flex-col items-center gap-3 py-8 text-center">
+                <AlertTriangle className="h-6 w-6 text-rose-400" />
+                <p className="text-sm text-slate-400">{error}</p>
+                <Button size="sm" variant="secondary" onClick={() => loadScanners(eventId)}>
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Reintentar
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {!loading && !error && pending.length > 0 && (
+            <div className="flex flex-col gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+              <p className="text-sm font-semibold text-amber-300">
+                {pending.length === 1
+                  ? "1 persona quiere operar como scanner de este evento"
+                  : `${pending.length} personas quieren operar como scanner de este evento`}
+              </p>
+              <div className="flex flex-col gap-3">
+                {pending.map((scanner) => (
+                  <ScannerCard
+                    key={scanner.id}
+                    scanner={scanner}
+                    actingId={actingId}
+                    onAction={handleAction}
+                    onEdit={setEditingScanner}
+                    onShare={setSharingScanner}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!loading && !error && scanners.length === 0 && (
+            <Card>
+              <div className="flex flex-col items-center gap-3 py-12 text-center">
+                <ScanLine className="h-8 w-8 text-slate-600" />
+                <p className="text-sm text-slate-400">Todavía no invitaste a nadie para escanear este evento.</p>
+                <Link to="/organizador/scanners/nuevo">
+                  <Button size="sm">
+                    <Plus className="h-3.5 w-3.5" />
+                    Agregar scanner
+                  </Button>
+                </Link>
+              </div>
+            </Card>
+          )}
+
+          {!loading && !error && scanners.length > 0 && (
+            <div className="flex flex-col gap-3">
+              {scanners
+                .filter((s) => s.status !== "PENDING")
+                .map((scanner) => (
+                  <ScannerCard
+                    key={scanner.id}
+                    scanner={scanner}
+                    actingId={actingId}
+                    onAction={handleAction}
+                    onEdit={setEditingScanner}
+                    onShare={setSharingScanner}
+                  />
+                ))}
+            </div>
+          )}
         </>
       )}
 
-      {scannerToRemove && (
+      {editingScanner && (
+        <EditScannerModal
+          scanner={editingScanner}
+          onClose={() => setEditingScanner(null)}
+          onSaved={() => {
+            setEditingScanner(null);
+            loadScanners(eventId);
+          }}
+        />
+      )}
+
+      {sharingScanner && (
+        <Modal title="Compartir invitación" onClose={() => setSharingScanner(null)}>
+          <ShareInvitationCard scanner={sharingScanner} />
+        </Modal>
+      )}
+
+      {confirmAction && (
         <ConfirmDialog
-          title="Revocar scanner"
-          description={`¿Seguro que querés revocarle el acceso a "${scannerName(scannerToRemove)}"? Va a dejar de poder escanear este evento de inmediato.`}
-          confirmLabel="Revocar"
+          title={ACTION_MESSAGES[confirmAction.action].title}
+          description={ACTION_MESSAGES[confirmAction.action].description}
+          confirmLabel={ACTION_MESSAGES[confirmAction.action].title}
           danger
-          loading={removing}
-          onConfirm={confirmRemove}
-          onClose={() => setScannerToRemove(null)}
+          loading={actingId === confirmAction.scanner.id}
+          onConfirm={() => runAction(confirmAction.scanner, confirmAction.action)}
+          onClose={() => setConfirmAction(null)}
         />
       )}
     </div>

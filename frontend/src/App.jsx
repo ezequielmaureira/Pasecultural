@@ -19,6 +19,7 @@ import DeveloperOrganizations from "./pages/developer/DeveloperOrganizations.jsx
 import DeveloperUsers from "./pages/developer/DeveloperUsers.jsx";
 import ScannerShell from "./pages/scanner/ScannerShell.jsx";
 import ScannerHome from "./pages/scanner/ScannerHome.jsx";
+import ScannerInvitationClaim from "./pages/scanner/ScannerInvitationClaim.jsx";
 import EventsList from "./pages/public/EventsList.jsx";
 import EventDetail from "./pages/public/EventDetail.jsx";
 import PurchaseWizard from "./pages/public/purchase/PurchaseWizard.jsx";
@@ -31,6 +32,7 @@ import OrganizerEventChat from "./pages/organizer/OrganizerEventChat.jsx";
 import OrganizerTickets from "./pages/organizer/OrganizerTickets.jsx";
 import OrganizerSales from "./pages/organizer/OrganizerSales.jsx";
 import OrganizerScanners from "./pages/organizer/OrganizerScanners.jsx";
+import OrganizerScannerInvite from "./pages/organizer/OrganizerScannerInvite.jsx";
 import OrganizerSettings from "./pages/organizer/OrganizerSettings.jsx";
 
 function NotFound() {
@@ -60,6 +62,11 @@ export default function App() {
               <Route path="/mis-entradas" element={<MyTickets />} />
             </Route>
             <Route path="/recuperar-compra" element={<RecoverPurchase />} />
+            {/* Público a propósito: tiene que mostrar "vas a operar como
+                scanner de X" antes del login — RequireAuth la mandaría
+                directo a /iniciar-sesion sin ese contexto. La propia
+                pantalla pide sesión sólo para el botón "Aceptar". */}
+            <Route path="/scanner/invitacion/:token" element={<ScannerInvitationClaim />} />
             <Route path="/para-organizadores" element={<OrganizersLanding />} />
             <Route path="/como-funciona" element={<HowItWorks />} />
             <Route path="/perfil" element={<Profile />} />
@@ -108,6 +115,7 @@ export default function App() {
                   <Route path="entradas" element={<OrganizerTickets />} />
                   <Route path="ventas" element={<OrganizerSales />} />
                   <Route path="scanners" element={<OrganizerScanners />} />
+                  <Route path="scanners/nuevo" element={<OrganizerScannerInvite />} />
                   <Route path="configuracion" element={<OrganizerSettings />} />
                 </Route>
               </Route>

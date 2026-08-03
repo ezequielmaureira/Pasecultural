@@ -125,19 +125,54 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "eventId query param is required to list scan attempts.",
         userMessage: "Falta indicar el evento para ver el historial.",
     },
-    EVENT_SCANNER_EMAIL_REQUIRED: {
-        httpStatus: 400,
-        logMessage: "Email is required to add an event scanner.",
-        userMessage: "Ingresá el email de la persona que querés habilitar.",
-    },
-    EVENT_SCANNER_USER_NOT_FOUND: {
-        httpStatus: 404,
-        logMessage: "No User exists with the given email — can't be added as an event scanner.",
-        userMessage: "Ese email todavía no tiene una cuenta en PaseCultural. Pedile que se registre primero.",
-    },
     EVENT_SCANNER_NOT_FOUND: {
         httpStatus: 404,
-        logMessage: "EventScanner assignment not found (or already inactive) for this event/user pair.",
-        userMessage: "Esa persona no está habilitada como scanner de este evento.",
+        logMessage: "EventScanner row not found (or deleted) for this event.",
+        userMessage: "Ese scanner no existe en este evento.",
+    },
+    SCANNER_GATE_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "Gate/door name is required to create scanner invitations.",
+        userMessage: "Indicá qué puerta o acceso va a cubrir.",
+    },
+    SCANNER_QUANTITY_INVALID: {
+        httpStatus: 400,
+        logMessage: "Scanner invitation quantity must be an integer between 1 and 20.",
+        userMessage: "La cantidad tiene que ser un número entre 1 y 20.",
+    },
+    SCANNER_NOT_PENDING: {
+        httpStatus: 409,
+        logMessage: "Scanner approval/rejection attempted on a row that is not PENDING.",
+        userMessage: "Esa solicitud ya fue resuelta.",
+    },
+    SCANNER_INVITATION_NOT_ELIGIBLE: {
+        httpStatus: 409,
+        logMessage: "Invitation regeneration attempted on a scanner row not in INVITED/REVOKED status.",
+        userMessage: "No se puede generar una nueva invitación para este scanner en su estado actual.",
+    },
+    SCANNER_INVITATION_NOT_FOUND: {
+        httpStatus: 404,
+        logMessage: "Scanner invitation token not found or deleted.",
+        userMessage: "Esta invitación no existe o ya no es válida.",
+    },
+    SCANNER_INVITATION_EXPIRED: {
+        httpStatus: 410,
+        logMessage: "Scanner invitation token has expired.",
+        userMessage: "Esta invitación venció. Pedile al organizador que te mande una nueva.",
+    },
+    SCANNER_INVITATION_REVOKED: {
+        httpStatus: 410,
+        logMessage: "Scanner invitation was revoked before being claimed.",
+        userMessage: "Esta invitación fue cancelada por el organizador.",
+    },
+    SCANNER_INVITATION_ALREADY_CLAIMED: {
+        httpStatus: 409,
+        logMessage: "Scanner invitation already claimed by a different user.",
+        userMessage: "Esta invitación ya fue aceptada por otra persona.",
+    },
+    SCANNER_INVITATION_ALREADY_ASSIGNED: {
+        httpStatus: 409,
+        logMessage: "User already has a non-revoked EventScanner row for this event.",
+        userMessage: "Ya estás asignado como scanner en este evento.",
     },
 });

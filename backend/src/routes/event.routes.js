@@ -12,9 +12,17 @@ import {
     getEventCategories,
 } from "../controllers/event.controller.js";
 import {
+    listActiveEventsForScanner,
     listEventScanners,
-    addEventScanner,
-    removeEventScanner,
+    createScannerInvitations,
+    updateScanner,
+    disableScanner,
+    reactivateScanner,
+    deleteScanner,
+    revokeScannerInvitation,
+    regenerateScannerInvitation,
+    approveScanner,
+    rejectScanner,
 } from "../controllers/eventScanner.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 
@@ -24,6 +32,10 @@ const router = Router();
 router.get("/public", getPublicEvents);
 router.get("/public/:slug", getPublicEventBySlug);
 router.get("/categories", getEventCategories);
+// Paso 1 del asistente de scanners ("¿para qué evento?") — sin eventId
+// propio, así que también tiene que ir antes de "/:id" para no confundirse
+// con un id de evento literal.
+router.get("/scanner-events", requireAuth, listActiveEventsForScanner);
 
 router.post("/", requireAuth, createEvent);
 router.get("/mine", requireAuth, getMyEvents);
@@ -31,9 +43,19 @@ router.get("/:id", requireAuth, getMyEventById);
 router.patch("/:id", requireAuth, updateMyEvent);
 router.put("/:id/schedule", requireAuth, saveEventSchedule);
 router.put("/:id/links", requireAuth, saveEventLinks);
+
 router.get("/:id/scanners", requireAuth, listEventScanners);
-router.post("/:id/scanners", requireAuth, addEventScanner);
-router.delete("/:id/scanners/:userId", requireAuth, removeEventScanner);
+// Paso 4 del asistente: crea `quantity` invitaciones para una puerta.
+router.post("/:id/scanners", requireAuth, createScannerInvitations);
+router.patch("/:id/scanners/:scannerId", requireAuth, updateScanner);
+router.post("/:id/scanners/:scannerId/approve", requireAuth, approveScanner);
+router.post("/:id/scanners/:scannerId/reject", requireAuth, rejectScanner);
+router.post("/:id/scanners/:scannerId/disable", requireAuth, disableScanner);
+router.post("/:id/scanners/:scannerId/reactivate", requireAuth, reactivateScanner);
+router.post("/:id/scanners/:scannerId/revoke", requireAuth, revokeScannerInvitation);
+router.post("/:id/scanners/:scannerId/regenerate", requireAuth, regenerateScannerInvitation);
+router.delete("/:id/scanners/:scannerId", requireAuth, deleteScanner);
+
 router.delete("/:id", requireAuth, deleteMyEvent);
 
 export default router;
