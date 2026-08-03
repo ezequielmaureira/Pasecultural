@@ -6,8 +6,6 @@ import {
   ScanLine,
   AlertTriangle,
   RefreshCw,
-  Check,
-  X as XIcon,
   Pencil,
   Ban,
   Power,
@@ -25,8 +23,6 @@ import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
 import { useToast } from "../../context/ToastContext.jsx";
 import {
   listEventScanners,
-  approveScanner,
-  rejectScanner,
   disableScanner,
   reactivateScanner,
   revokeScannerInvitation,
@@ -38,7 +34,6 @@ import ShareInvitationCard from "./scannerChat/ShareInvitationCard.jsx";
 
 const STATUS_CONFIG = {
   INVITED: { label: "Invitado", tone: "bg-sky-500/10 text-sky-400" },
-  PENDING: { label: "Pendiente de aprobación", tone: "bg-amber-500/10 text-amber-400" },
   ACTIVE: { label: "Activo", tone: "bg-emerald-500/10 text-emerald-400" },
   DISABLED: { label: "Desactivado", tone: "bg-slate-500/10 text-slate-400" },
   REVOKED: { label: "Revocado", tone: "bg-rose-500/10 text-rose-400" },
@@ -58,9 +53,12 @@ function formatDateTime(value) {
   return new Date(value).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" });
 }
 
+// Se muestra lo que la persona completó en el registro (firstName/lastName
+// de EventScanner), no lo que eventualmente diga `user` — `user` puede ser
+// una cuenta ya existente adoptada por email con otro nombre guardado.
 function scannerPersonLabel(scanner) {
-  if (!scanner.user) return "Sin reclamar todavía";
-  return [scanner.user.firstName, scanner.user.lastName].filter(Boolean).join(" ") || scanner.user.email;
+  if (!scanner.firstName) return "Sin registrar todavía";
+  return [scanner.firstName, scanner.lastName].filter(Boolean).join(" ") || scanner.email;
 }
 
 // Formulario de "Editar nombre/puerta" — un solo Modal para ambos campos a
@@ -126,9 +124,8 @@ function ScannerActionButton({ icon: Icon, label, onClick, danger, loading }) {
 
 // Una tarjeta por scanner — con las columnas que pide la gestión (nombre,
 // puerta, estado, fecha, último acceso, dispositivo) y sólo las acciones
-// válidas para SU estado actual (nunca "Aprobar" en algo que no está
-// PENDING, por ejemplo — el backend también lo valida, esto es sólo para
-// no mostrar botones que van a fallar).
+// válidas para SU estado actual — el backend también lo valida, esto es
+// sólo para no mostrar botones que van a fallar.
 function ScannerCard({ scanner, onAction, actingId, onEdit, onShare }) {
   const isActing = actingId === scanner.id;
   return (
@@ -147,6 +144,18 @@ function ScannerCard({ scanner, onAction, actingId, onEdit, onShare }) {
             <span className="text-slate-500">Persona: </span>
             {scannerPersonLabel(scanner)}
           </p>
+          {scanner.document && (
+            <p>
+              <span className="text-slate-500">DNI: </span>
+              {scanner.document}
+            </p>
+          )}
+          {scanner.phone && (
+            <p>
+              <span className="text-slate-500">Teléfono: </span>
+              {scanner.phone}
+            </p>
+          )}
           <p>
             <span className="text-slate-500">Creado: </span>
             {formatDateTime(scanner.createdAt)}
@@ -164,12 +173,6 @@ function ScannerCard({ scanner, onAction, actingId, onEdit, onShare }) {
         </div>
 
         <div className="flex flex-wrap gap-1 border-t border-white/5 pt-3">
-          {scanner.status === "PENDING" && (
-            <>
-              <ScannerActionButton icon={Check} label="Aceptar" onClick={() => onAction(scanner, "approve")} loading={isActing} />
-              <ScannerActionButton icon={XIcon} label="Rechazar" danger onClick={() => onAction(scanner, "reject")} loading={isActing} />
-            </>
-          )}
           {scanner.status === "INVITED" && (
             <ScannerActionButton icon={Share2} label="Compartir" onClick={() => onShare(scanner)} loading={isActing} />
           )}
@@ -237,14 +240,12 @@ export default function OrganizerScanners() {
   }, [eventId]);
 
   const ACTION_HANDLERS = {
-    approve: (token, scanner) => approveScanner(token, scanner.eventId, scanner.id),
     disable: (token, scanner) => disableScanner(token, scanner.eventId, scanner.id),
     reactivate: (token, scanner) => reactivateScanner(token, scanner.eventId, scanner.id),
     regenerate: (token, scanner) => regenerateScannerInvitation(token, scanner.eventId, scanner.id),
   };
-  const CONFIRM_ACTIONS = new Set(["reject", "revoke", "delete"]);
+  const CONFIRM_ACTIONS = new Set(["revoke", "delete"]);
   const ACTION_MESSAGES = {
-    reject: { title: "Rechazar solicitud", description: "La persona no va a poder escanear este evento." },
     revoke: { title: "Revocar", description: "Se cancela la invitación o el acceso de este scanner de inmediato." },
     delete: { title: "Eliminar scanner", description: "Se saca de la lista. Esta acción no se puede deshacer desde acá." },
   };
@@ -253,8 +254,7 @@ export default function OrganizerScanners() {
     setActingId(scanner.id);
     try {
       const token = await getToken();
-      if (action === "reject") await rejectScanner(token, scanner.eventId, scanner.id);
-      else if (action === "revoke") await revokeScannerInvitation(token, scanner.eventId, scanner.id);
+      if (action === "revoke") await revokeScannerInvitation(token, scanner.eventId, scanner.id);
       else if (action === "delete") await deleteScanner(token, scanner.eventId, scanner.id);
       else await ACTION_HANDLERS[action](token, scanner);
       toast.success("Listo.");
@@ -275,14 +275,12 @@ export default function OrganizerScanners() {
     runAction(scanner, action);
   }
 
-  const pending = scanners.filter((s) => s.status === "PENDING");
-
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-white">Scanners</h1>
-          <p className="text-sm text-slate-400">Invitá, aprobá y administrá quién puede validar entradas.</p>
+          <p className="text-sm text-slate-400">Invitá y administrá quién puede validar entradas.</p>
         </div>
         {events.length > 0 && (
           <Link to="/organizador/scanners/nuevo">
@@ -336,28 +334,6 @@ export default function OrganizerScanners() {
             </Card>
           )}
 
-          {!loading && !error && pending.length > 0 && (
-            <div className="flex flex-col gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
-              <p className="text-sm font-semibold text-amber-300">
-                {pending.length === 1
-                  ? "1 persona quiere operar como scanner de este evento"
-                  : `${pending.length} personas quieren operar como scanner de este evento`}
-              </p>
-              <div className="flex flex-col gap-3">
-                {pending.map((scanner) => (
-                  <ScannerCard
-                    key={scanner.id}
-                    scanner={scanner}
-                    actingId={actingId}
-                    onAction={handleAction}
-                    onEdit={setEditingScanner}
-                    onShare={setSharingScanner}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
           {!loading && !error && scanners.length === 0 && (
             <Card>
               <div className="flex flex-col items-center gap-3 py-12 text-center">
@@ -375,18 +351,16 @@ export default function OrganizerScanners() {
 
           {!loading && !error && scanners.length > 0 && (
             <div className="flex flex-col gap-3">
-              {scanners
-                .filter((s) => s.status !== "PENDING")
-                .map((scanner) => (
-                  <ScannerCard
-                    key={scanner.id}
-                    scanner={scanner}
-                    actingId={actingId}
-                    onAction={handleAction}
-                    onEdit={setEditingScanner}
-                    onShare={setSharingScanner}
-                  />
-                ))}
+              {scanners.map((scanner) => (
+                <ScannerCard
+                  key={scanner.id}
+                  scanner={scanner}
+                  actingId={actingId}
+                  onAction={handleAction}
+                  onEdit={setEditingScanner}
+                  onShare={setSharingScanner}
+                />
+              ))}
             </div>
           )}
         </>

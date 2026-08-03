@@ -140,10 +140,10 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Scanner invitation quantity must be an integer between 1 and 20.",
         userMessage: "La cantidad tiene que ser un número entre 1 y 20.",
     },
-    SCANNER_NOT_PENDING: {
+    SCANNER_INVALID_TRANSITION: {
         httpStatus: 409,
-        logMessage: "Scanner approval/rejection attempted on a row that is not PENDING.",
-        userMessage: "Esa solicitud ya fue resuelta.",
+        logMessage: "Scanner status change attempted from a status that does not allow it.",
+        userMessage: "No se puede completar esa acción en el estado actual del scanner.",
     },
     SCANNER_INVITATION_NOT_ELIGIBLE: {
         httpStatus: 409,
@@ -174,5 +174,55 @@ export const ErrorCatalog = Object.freeze({
         httpStatus: 409,
         logMessage: "User already has a non-revoked EventScanner row for this event.",
         userMessage: "Ya estás asignado como scanner en este evento.",
+    },
+    SCANNER_REGISTRATION_INFO_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "Scanner registration attempted without firstName/lastName/document/email.",
+        userMessage: "Completá nombre, apellido, DNI y correo para continuar.",
+    },
+    SCANNER_REGISTRATION_INVALID_EMAIL: {
+        httpStatus: 400,
+        logMessage: "Scanner registration attempted with an invalid email.",
+        userMessage: "El email ingresado no es válido.",
+    },
+    SCANNER_REGISTRATION_INVALID_DOCUMENT: {
+        httpStatus: 400,
+        logMessage: "Scanner registration attempted with an invalid document (must be 7-10 digits).",
+        userMessage: "El DNI ingresado no es válido. Tiene que tener entre 7 y 10 números.",
+    },
+    SCANNER_VERIFICATION_NOT_REQUESTED: {
+        httpStatus: 409,
+        logMessage: "Code verification attempted before registering (no verification code was ever sent).",
+        userMessage: "Todavía no pediste un código. Completá el registro primero.",
+    },
+    SCANNER_VERIFICATION_CODE_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "Code verification attempted without a code.",
+        userMessage: "Ingresá el código que te mandamos por correo.",
+    },
+    SCANNER_VERIFICATION_CODE_INVALID: {
+        httpStatus: 400,
+        logMessage: "Code verification attempted with a code that does not match the stored hash.",
+        userMessage: "El código ingresado es incorrecto.",
+    },
+    SCANNER_VERIFICATION_CODE_EXPIRED: {
+        httpStatus: 410,
+        logMessage: "Code verification attempted after the code's expiration.",
+        userMessage: "Ese código venció. Pedí uno nuevo.",
+    },
+    SCANNER_VERIFICATION_TOO_MANY_ATTEMPTS: {
+        httpStatus: 429,
+        logMessage: "Code verification attempted after exceeding the max allowed attempts for the current code.",
+        userMessage: "Superaste el máximo de intentos. Pedí un código nuevo.",
+    },
+    SCANNER_VERIFICATION_RESEND_TOO_SOON: {
+        httpStatus: 429,
+        logMessage: "Verification code (re)send attempted before the resend cooldown elapsed.",
+        userMessage: "Esperá unos segundos antes de pedir otro código.",
+    },
+    SCANNER_VERIFICATION_EMAIL_FAILED: {
+        httpStatus: 502,
+        logMessage: "Failed to send the scanner verification code email via Resend.",
+        userMessage: "No pudimos enviar el código. Probá de nuevo en unos segundos.",
     },
 });

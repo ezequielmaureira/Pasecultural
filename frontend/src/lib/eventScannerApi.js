@@ -32,16 +32,6 @@ export async function updateScanner(token, eventId, scannerId, { name, gate }) {
     return scanner;
 }
 
-export async function approveScanner(token, eventId, scannerId) {
-    const { scanner } = await apiFetch(`/api/events/${eventId}/scanners/${scannerId}/approve`, { token, method: "POST" });
-    return scanner;
-}
-
-export async function rejectScanner(token, eventId, scannerId) {
-    const { scanner } = await apiFetch(`/api/events/${eventId}/scanners/${scannerId}/reject`, { token, method: "POST" });
-    return scanner;
-}
-
 export async function disableScanner(token, eventId, scannerId) {
     const { scanner } = await apiFetch(`/api/events/${eventId}/scanners/${scannerId}/disable`, { token, method: "POST" });
     return scanner;

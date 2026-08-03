@@ -10,8 +10,6 @@ import {
     deleteScannerService,
     revokeScannerInvitationService,
     regenerateScannerInvitationService,
-    approveScannerService,
-    rejectScannerService,
 } from "../services/eventScanner.service.js";
 
 // Sólo validan req, llaman al service y devuelven la respuesta. Toda la
@@ -107,22 +105,3 @@ export const regenerateScannerInvitation = async (req, res, next) => {
     }
 };
 
-export const approveScanner = async (req, res, next) => {
-    try {
-        const { userId } = getAuth(req);
-        const scanner = await approveScannerService(userId, req.params.id, req.params.scannerId);
-        res.status(200).json({ scanner });
-    } catch (error) {
-        next(AppError.from(error));
-    }
-};
-
-export const rejectScanner = async (req, res, next) => {
-    try {
-        const { userId } = getAuth(req);
-        const scanner = await rejectScannerService(userId, req.params.id, req.params.scannerId);
-        res.status(200).json({ scanner });
-    } catch (error) {
-        next(AppError.from(error));
-    }
-};

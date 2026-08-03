@@ -555,41 +555,48 @@ model ScanAttempt {
   @@map("scan_attempts")
 }
 
-// Ciclo de vida completo de una invitación de scanner — no sólo "activo o
-// no" (eso era `active: Boolean`, ya no alcanza):
-//   INVITED  -> el organizador la creó, todavía nadie la reclamó.
-//   PENDING  -> alguien inició sesión con Clerk y reclamó el link, pero el
-//               organizador todavía no la aprobó — NO puede escanear.
-//   ACTIVE   -> aprobada, puede escanear.
+// Ciclo de vida de una invitación de scanner — SIN aprobación manual:
+//   INVITED  -> el organizador la creó. Puede seguir así indefinidamente
+//               (nadie completó el registro todavía) o tener un código de
+//               verificación pendiente (ver verificationCodeHash) mientras
+//               alguien está a mitad del registro — sigue siendo INVITED,
+//               no hay un estado intermedio propio para eso.
+//   ACTIVE   -> el código de 6 dígitos fue verificado correctamente. Pasa
+//               DIRECTO de INVITED a ACTIVE: el organizador ya autorizó
+//               implícitamente al generar la invitación, no hay una
+//               segunda aprobación.
 //   DISABLED -> fue ACTIVE, el organizador la desactivó temporalmente
 //               (reversible con "Reactivar", vuelve a ACTIVE).
-//   REVOKED  -> cancelada/rechazada — terminal, no se reactiva; si hace
-//               falta, el organizador genera una invitación nueva.
+//   REVOKED  -> cancelada — terminal, no se reactiva; si hace falta, el
+//               organizador genera una invitación nueva.
 enum EventScannerStatus {
   INVITED
-  PENDING
   ACTIVE
   DISABLED
   REVOKED
 }
 
-// Una fila = un scanner (persona real u "slot" todavía sin reclamar) para
+// Una fila = un scanner (persona real u "slot" todavía sin registrar) para
 // UN evento puntual — nunca escanea otro evento (ver assertScannerAuthorized).
-// Reemplaza el modelo simple "email de alguien que ya tiene cuenta" por el
-// flujo completo de invitación: se crea sin userId (todavía no se sabe
-// quién la va a reclamar), el link lleva sólo `invitationToken` (nunca el
-// `id` interno), y recién al aceptar sesión con Clerk se completa `userId`.
+// El link lleva sólo `invitationToken` (nunca el `id` interno). Se activa
+// registrándose (nombre/apellido/DNI/email/teléfono) y verificando un código
+// de 6 dígitos mandado por email — sin pasar por Clerk en este paso; recién
+// cuando la persona ya activa quiere escanear de verdad, inicia sesión con
+// Clerk (mismo email) y `userId` se resuelve/adopta ahí (ver
+// scannerInvitation.service.js — mismo criterio que getOrCreateGuestBuyer/
+// syncUserService "adoptando" un User invitado por email).
 model EventScanner {
   id String @id @default(cuid())
 
   eventId String
   event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
-  // Null hasta que alguien reclama la invitación (claim) — a partir de ahí
-  // identifica a la persona real. Puede haber muchas filas del mismo evento
-  // con userId null a la vez (varios slots sin reclamar todavía): Postgres
-  // no las considera "iguales" para el @@unique de abajo, NULL nunca es
-  // igual a otro NULL.
+  // Null hasta que el código se verifica con éxito — a partir de ahí
+  // identifica a la persona real (encontrada o creada por email, ver
+  // verifyScannerInvitationCodeService). Puede haber muchas filas del mismo
+  // evento con userId null a la vez (varios slots sin registrar todavía):
+  // Postgres no las considera "iguales" para el @@unique de abajo, NULL
+  // nunca es igual a otro NULL.
   userId String?
   user   User?   @relation(fields: [userId], references: [id])
 
@@ -608,14 +615,40 @@ model EventScanner {
   invitationToken     String    @unique
   invitationExpiresAt DateTime?
 
+  // Datos que la persona completa en el paso 3 del registro público —
+  // viven acá (no sólo en User) porque identifican a QUIEN se registró para
+  // ESTE scanner puntual, independientemente de qué User termine
+  // resolviendo `userId` (podría adoptar una cuenta ya existente con otro
+  // nombre guardado). Nullable: siguen sin valor mientras el estado es
+  // INVITED y todavía nadie completó el formulario.
+  firstName String?
+  lastName  String?
+  document  String? // DNI — mismo formato/validación que Sale.buyerDocument
+  email     String?
+  phone     String?
+
+  // Verificación por código de 6 dígitos (reemplaza la aprobación manual).
+  // Nunca se guarda el código en texto plano: sólo su hash (SHA-256). Un
+  // código nuevo pisa al anterior (no hay múltiples códigos vivos a la vez
+  // por fila). verificationAttempts cuenta intentos fallidos consecutivos
+  // contra ESTE código — llegar al máximo obliga a pedir uno nuevo
+  // (resend), que resetea el contador. verificationLastSentAt sirve para el
+  // cooldown de reenvío (compare-and-swap, ver registerScannerInvitationService/
+  // resendScannerVerificationCodeService) y se limpia a null si el envío
+  // por Resend falla, para no dejar a alguien bloqueado por un código que
+  // nunca llegó.
+  verificationCodeHash      String?
+  verificationCodeExpiresAt DateTime?
+  verificationAttempts      Int       @default(0)
+  verificationLastSentAt    DateTime?
+
   // Auditoría (quién hizo qué y cuándo) — ver requerimiento explícito del
   // módulo de gestión de scanners.
   createdBy    String // User.id del organizador que generó la invitación
-  claimedAt    DateTime?
-  approvedBy   String? // User.id del organizador que aprobó
-  approvedAt   DateTime?
+  claimedAt    DateTime? // cuándo se completó el formulario de registro (paso 3)
+  activatedAt  DateTime? // cuándo se verificó el código y pasó a ACTIVE
   lastAccessAt DateTime? // última vez que este scanner abrió la app (ver listScannerEventsService)
-  lastDevice   String? // user-agent capturado en el claim/último acceso — sólo informativo
+  lastDevice   String? // user-agent capturado en la verificación/último acceso — sólo informativo
   lastScanAt   DateTime? // preparado para cuando el lector QR esté activo; no se usa todavía
 
   createdAt DateTime  @default(now())

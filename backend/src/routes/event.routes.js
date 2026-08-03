@@ -21,8 +21,6 @@ import {
     deleteScanner,
     revokeScannerInvitation,
     regenerateScannerInvitation,
-    approveScanner,
-    rejectScanner,
 } from "../controllers/eventScanner.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 
@@ -48,8 +46,6 @@ router.get("/:id/scanners", requireAuth, listEventScanners);
 // Paso 4 del asistente: crea `quantity` invitaciones para una puerta.
 router.post("/:id/scanners", requireAuth, createScannerInvitations);
 router.patch("/:id/scanners/:scannerId", requireAuth, updateScanner);
-router.post("/:id/scanners/:scannerId/approve", requireAuth, approveScanner);
-router.post("/:id/scanners/:scannerId/reject", requireAuth, rejectScanner);
 router.post("/:id/scanners/:scannerId/disable", requireAuth, disableScanner);
 router.post("/:id/scanners/:scannerId/reactivate", requireAuth, reactivateScanner);
 router.post("/:id/scanners/:scannerId/revoke", requireAuth, revokeScannerInvitation);
