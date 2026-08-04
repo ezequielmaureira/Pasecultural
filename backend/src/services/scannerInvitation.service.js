@@ -1,9 +1,13 @@
-import crypto from "node:crypto";
 import prisma from "../config/prisma.js";
 import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { isValidEmail } from "../utils/validateEmail.js";
 import { normalizeBuyerDocument, isValidBuyerDocument } from "../utils/validateBuyerDocument.js";
+import {
+    generateVerificationCode,
+    hashVerificationCode as hashCode,
+    verificationCodeMatchesHash as codeMatchesHash,
+} from "../utils/verificationCode.js";
 import { sendScannerVerificationCodeEmail } from "./email/sendScannerVerificationCode.service.js";
 import { signScannerSessionToken } from "../config/scannerSession.js";
 import { logger } from "../logging/logger.js";
@@ -11,24 +15,6 @@ import { logger } from "../logging/logger.js";
 const CODE_EXPIRY_MS = 10 * 60 * 1000; // 10 minutos
 const MAX_VERIFICATION_ATTEMPTS = 5;
 const RESEND_COOLDOWN_MS = 60 * 1000; // 1 minuto entre envíos de código
-
-function generateVerificationCode() {
-    // crypto.randomInt (CSPRNG), no Math.random — mismo criterio de
-    // aleatoriedad segura que el resto de los tokens públicos de la app.
-    return crypto.randomInt(0, 1_000_000).toString().padStart(6, "0");
-}
-
-function hashCode(code) {
-    return crypto.createHash("sha256").update(code).digest("hex");
-}
-
-// Comparación en tiempo constante — nunca un === directo sobre hashes.
-function codeMatchesHash(code, storedHash) {
-    const submitted = Buffer.from(hashCode(code), "hex");
-    const stored = Buffer.from(storedHash, "hex");
-    if (submitted.length !== stored.length) return false;
-    return crypto.timingSafeEqual(submitted, stored);
-}
 
 // Sólo lo necesario para que la pantalla pública de invitación se arme —
 // nunca id interno, nunca datos de otros scanners de la misma puerta, y

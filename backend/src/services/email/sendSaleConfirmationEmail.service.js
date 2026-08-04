@@ -8,6 +8,7 @@ import { getUserByClerkId } from "../../utils/getUserByClerkId.js";
 import { buildTicketQrImages } from "./ticketQrImages.js";
 import { buildTicketsPdfBuffer } from "./ticketsPdf.js";
 import { buildSaleConfirmationEmail } from "./saleConfirmationTemplate.js";
+import { withTimeout } from "../../utils/withTimeout.js";
 
 const SENDING_STALE_MS = 5 * 60 * 1000; // 5 minutos
 const RESEND_CALL_TIMEOUT_MS = 10000; // nunca bloquear la respuesta HTTP indefinidamente por Resend
@@ -124,14 +125,6 @@ async function getSaleEmailData(saleId) {
         functionDate,
         tickets,
     };
-}
-
-function withTimeout(promise, ms, timeoutReason) {
-    let timeoutId;
-    const timeout = new Promise((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error(timeoutReason)), ms);
-    });
-    return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
 }
 
 // Punto único de envío del email de confirmación. Seguro de llamar varias

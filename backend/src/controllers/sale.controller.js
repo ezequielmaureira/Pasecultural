@@ -10,10 +10,14 @@ import {
     listSalesOrganizerService,
     listSalesBuyerService,
     getSaleStatusService,
-    recoverSalesService,
     resendConfirmationEmailByTokenService,
 } from "../services/sale.service.js";
 import { resendSaleConfirmationEmailService } from "../services/email/sendSaleConfirmationEmail.service.js";
+import {
+    requestSaleRecoveryCodeService,
+    resendSaleRecoveryCodeService,
+    verifySaleRecoveryCodeService,
+} from "../services/saleRecoveryVerification.service.js";
 
 // Sólo validan req, llaman al service y devuelven la respuesta. Toda la
 // validación de negocio vive en sale.service.js — acá no hay ningún if de
@@ -155,16 +159,44 @@ export const resendSaleConfirmationEmail = async (req, res, next) => {
     }
 };
 
-// Pantalla pública "Recuperar mis entradas" — sin sesión, autorizado por
-// conocer email + DNI exactos de una compra propia. Nunca devuelve tickets
-// ni QR acá: sólo lo necesario para la lista (evento/fecha/lugar/token); el
-// detalle completo se pide después por publicRecoveryToken, reusando
-// GET /sales/:token/status.
-export const recoverSales = async (req, res, next) => {
+// Pantalla pública "Recuperar mis entradas", paso 1 — sin sesión. Email+DNI
+// sólo LOCALIZAN una compra, nunca la revelan: la respuesta es siempre
+// genérica (el email que la propia persona tipeó, enmascarado), exista o no
+// una compra real detrás — ver saleRecoveryVerification.service.js. Si hay
+// match, dispara el código de 6 dígitos por email; nunca devuelve tickets,
+// QR ni ningún otro dato de la compra.
+export const requestSaleRecoveryCode = async (req, res, next) => {
     try {
         const { email, buyerDocument } = req.body;
-        const sales = await recoverSalesService({ email, buyerDocument });
-        res.status(200).json({ sales });
+        const result = await requestSaleRecoveryCodeService({ email, buyerDocument });
+        res.status(200).json(result);
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
+
+// Botón "Reenviar código" de la pantalla de verificación — mismo contrato
+// genérico que el paso 1.
+export const resendSaleRecoveryCode = async (req, res, next) => {
+    try {
+        const { email, buyerDocument } = req.body;
+        const result = await resendSaleRecoveryCodeService({ email, buyerDocument });
+        res.status(200).json(result);
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
+
+// Paso 2 — único punto de todo el flujo que devuelve datos de una compra
+// (evento/fecha/lugar/token), y sólo después de un código de 6 dígitos
+// correcto. El detalle completo con QR se sigue pidiendo después por
+// publicRecoveryToken, reusando GET /sales/:token/status — nunca duplicado
+// acá.
+export const verifySaleRecoveryCode = async (req, res, next) => {
+    try {
+        const { email, buyerDocument, code } = req.body;
+        const result = await verifySaleRecoveryCodeService({ email, buyerDocument, code });
+        res.status(200).json(result);
     } catch (error) {
         next(AppError.from(error));
     }

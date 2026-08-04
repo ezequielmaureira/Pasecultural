@@ -1,14 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, CalendarDays, MapPin } from "lucide-react";
+import { Search, CalendarDays, MapPin, RefreshCw } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
 import Spinner from "../../components/ui/Spinner.jsx";
 import { Field, inputClass } from "../../components/ui/FormField.jsx";
-import { recoverSales } from "../../lib/saleApi.js";
+import { requestSaleRecoveryCode, resendSaleRecoveryCode, verifySaleRecoveryCode } from "../../lib/saleApi.js";
 
 const EMAIL_REGEX = /^\S+@\S+\.\S+$/;
 const DOCUMENT_REGEX = /^\d{7,10}$/;
+const RESEND_COOLDOWN_MS = 60 * 1000;
 
 // Mismo criterio que BuyerInfoStep.jsx: el DNI se puede escribir con
 // puntos/espacios/guiones, se limpia antes de validar y de mandar al
@@ -26,9 +27,12 @@ function formatFunctionDate(isoDate) {
   }
 }
 
-// Pantalla pública "Recuperar mis entradas": busca por email + DNI exactos
-// (nunca uno solo — ver recoverSalesService en el backend) y, apenas hay
-// una compra encontrada, redirige a /comprar?saleToken=... — el MISMO
+// Pantalla pública "Recuperar mis entradas": email+DNI sólo LOCALIZAN una
+// compra propia, nunca la autorizan a verse — nunca se muestra evento,
+// fecha, cantidad de entradas, QR ni PDF antes de verificar un código de 6
+// dígitos mandado al correo registrado (ver saleRecoveryVerification.service.js
+// en el backend). Recién con el código correcto se revela el resultado y,
+// si hay una única compra, se redirige a /comprar?saleToken=... — el MISMO
 // camino de recuperación que ya usa PurchaseWizard después de una compra o
 // recarga de página. No arma ninguna pantalla de tickets/QR/PDF propia:
 // PurchaseWizard + SuccessStep ya hacen exactamente eso, reutilizados tal
@@ -42,35 +46,85 @@ export default function RecoverPurchase() {
   const [emailTouched, setEmailTouched] = useState(false);
   const [documentTouched, setDocumentTouched] = useState(false);
 
-  // "form" | "loading" | "no-matches" | "multiple" | "error"
+  // "form" | "requesting" | "code" | "no-matches" | "multiple" | "error"
   const [status, setStatus] = useState("form");
   const [errorMessage, setErrorMessage] = useState("");
   const [matches, setMatches] = useState([]);
+
+  // Paso 2: verificación del código de 6 dígitos — mismo patrón de estado
+  // que ScannerInvitationClaim.jsx (instancia propia, no compartida).
+  const [maskedEmail, setMaskedEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState("");
+  const [resending, setResending] = useState(false);
+  const [resendError, setResendError] = useState("");
+  const [resendCooldownUntil, setResendCooldownUntil] = useState(0);
+  const [now, setNow] = useState(Date.now());
+
+  // Sólo tickea mientras hay un cooldown activo — evita un setInterval
+  // corriendo todo el tiempo que la pantalla esté abierta sin necesidad.
+  useEffect(() => {
+    if (resendCooldownUntil <= Date.now()) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [resendCooldownUntil]);
 
   const normalizedDocument = normalizeDocument(buyerDocument);
   const isEmailValid = EMAIL_REGEX.test(email.trim());
   const isDocumentValid = DOCUMENT_REGEX.test(normalizedDocument);
   const isValid = isEmailValid && isDocumentValid;
+  const cooldownRemaining = Math.max(0, Math.ceil((resendCooldownUntil - now) / 1000));
 
   async function handleSearch() {
     if (!isValid) return;
-    setStatus("loading");
+    setStatus("requesting");
     setErrorMessage("");
     try {
-      const results = await recoverSales({ email: email.trim(), buyerDocument: normalizedDocument });
-      if (!results || results.length === 0) {
-        setStatus("no-matches");
-        return;
-      }
-      if (results.length === 1) {
-        navigate(`/comprar?saleToken=${encodeURIComponent(results[0].recoveryToken)}`);
-        return;
-      }
-      setMatches(results);
-      setStatus("multiple");
+      const result = await requestSaleRecoveryCode({ email: email.trim(), buyerDocument: normalizedDocument });
+      setMaskedEmail(result);
+      setResendCooldownUntil(Date.now() + RESEND_COOLDOWN_MS);
+      setCode("");
+      setVerifyError("");
+      setStatus("code");
     } catch (err) {
       setErrorMessage(err.message || "No pudimos buscar tu compra. Probá de nuevo en unos minutos.");
       setStatus("error");
+    }
+  }
+
+  async function handleVerify() {
+    if (code.trim().length !== 6) return;
+    setVerifying(true);
+    setVerifyError("");
+    try {
+      const sales = await verifySaleRecoveryCode({ email: email.trim(), buyerDocument: normalizedDocument, code: code.trim() });
+      if (sales.length === 0) {
+        setStatus("no-matches");
+      } else if (sales.length === 1) {
+        navigate(`/comprar?saleToken=${encodeURIComponent(sales[0].recoveryToken)}`);
+      } else {
+        setMatches(sales);
+        setStatus("multiple");
+      }
+    } catch (err) {
+      setVerifyError(err.message || "No pudimos verificar el código.");
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  async function handleResend() {
+    setResending(true);
+    setResendError("");
+    try {
+      const result = await resendSaleRecoveryCode({ email: email.trim(), buyerDocument: normalizedDocument });
+      setMaskedEmail(result);
+      setResendCooldownUntil(Date.now() + RESEND_COOLDOWN_MS);
+    } catch (err) {
+      setResendError(err.message || "No pudimos reenviar el código.");
+    } finally {
+      setResending(false);
     }
   }
 
@@ -78,13 +132,81 @@ export default function RecoverPurchase() {
     setStatus("form");
     setErrorMessage("");
     setMatches([]);
+    setCode("");
+    setVerifyError("");
+    setResendError("");
+    setResendCooldownUntil(0);
   }
 
-  if (status === "loading") {
+  if (status === "requesting") {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-slate-400">
         <Spinner size="lg" />
         <p className="text-sm">Buscando tu compra...</p>
+      </div>
+    );
+  }
+
+  if (status === "code") {
+    return (
+      <div className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
+        <Card>
+          <div className="flex flex-col items-center gap-3 py-2 text-center">
+            <Search className="h-9 w-9 text-violet-400" />
+            <h1 className="text-lg font-bold text-white">Encontramos una compra asociada a esos datos.</h1>
+            <p className="text-sm text-slate-400">
+              Te enviamos un código de verificación al correo registrado:{" "}
+              <span className="font-medium text-slate-200">{maskedEmail}</span>.
+            </p>
+
+            <div className="mt-2 w-full">
+              <Field label="Código de 6 dígitos">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  autoComplete="one-time-code"
+                  className={`${inputClass} text-center text-lg tracking-[0.5em]`}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                  placeholder="000000"
+                />
+              </Field>
+            </div>
+
+            {verifyError && <p className="text-sm text-rose-400">{verifyError}</p>}
+
+            <Button
+              onClick={handleVerify}
+              loading={verifying}
+              loadingText="Verificando..."
+              disabled={code.trim().length !== 6}
+              className="mt-1 w-full justify-center"
+            >
+              Verificar
+            </Button>
+
+            {resendError && <p className="text-xs text-rose-400">{resendError}</p>}
+            <button
+              type="button"
+              onClick={handleResend}
+              disabled={resending || cooldownRemaining > 0}
+              className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-violet-400 transition-colors duration-150 hover:text-violet-300 disabled:cursor-not-allowed disabled:text-slate-600"
+            >
+              <RefreshCw className={`h-3 w-3 ${resending ? "animate-spin" : ""}`} />
+              {cooldownRemaining > 0 ? `Reenviar código (${cooldownRemaining}s)` : "Reenviar código"}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleTryAgain}
+              className="mt-1 text-xs text-slate-500 transition-colors duration-150 hover:text-slate-300"
+            >
+              Usar otro correo o DNI
+            </button>
+          </div>
+        </Card>
       </div>
     );
   }

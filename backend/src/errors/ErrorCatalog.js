@@ -230,4 +230,30 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Failed to send the scanner verification code email via Resend.",
         userMessage: "No pudimos enviar el código. Probá de nuevo en unos segundos.",
     },
+
+    // --- Recuperación de compra (segundo factor por código) -------------
+    // No hay un código "no pediste un código todavía" ni "reenvío
+    // demasiado pronto" ni "falló el envío": esos casos se absorben en una
+    // respuesta 200 genérica (ver saleRecoveryVerification.service.js) para
+    // no crear un canal lateral que revele si un email/DNI existen.
+    RECOVER_VERIFICATION_CODE_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "Sale recovery code verification attempted without a code.",
+        userMessage: "Ingresá el código que te mandamos por correo.",
+    },
+    RECOVER_VERIFICATION_CODE_INVALID: {
+        httpStatus: 400,
+        logMessage: "Sale recovery code verification attempted with a code that does not match the stored hash, or no verification session exists for this email+document pair (deliberately indistinguishable from a wrong code).",
+        userMessage: "El código ingresado es incorrecto.",
+    },
+    RECOVER_VERIFICATION_CODE_EXPIRED: {
+        httpStatus: 410,
+        logMessage: "Sale recovery code verification attempted after the code's expiration.",
+        userMessage: "Ese código venció. Pedí uno nuevo.",
+    },
+    RECOVER_VERIFICATION_TOO_MANY_ATTEMPTS: {
+        httpStatus: 429,
+        logMessage: "Sale recovery code verification attempted after exceeding the max allowed attempts for the current code.",
+        userMessage: "Superaste el máximo de intentos. Pedí un código nuevo.",
+    },
 });

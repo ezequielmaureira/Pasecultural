@@ -553,30 +553,11 @@ export const getSaleStatusService = async (recoveryToken) => {
     };
 };
 
-// Recuperación pública de "Recuperar mis entradas": el comprador prueba ser
-// quien dice ser conociendo AMBOS datos exactos de una compra propia (email
-// + DNI), no uno solo — ver validación abajo. A diferencia de
-// publicRecoveryToken (un secreto de alta entropía que sólo conoce quien
-// compró), acá la prueba es "conocer dos datos personales exactos a la
-// vez", así que el resultado nunca distingue si falló el email, el DNI, o
-// ambos: siempre la misma lista (vacía o no), nunca un error que revele
-// cuál de los dos estuvo mal. Devuelve sólo lo necesario para la lista de
-// resultados (evento/fecha/lugar/token) — el detalle completo con QR se
-// pide después, por publicRecoveryToken, reutilizando GET /sales/:token/status
-// (la misma ruta que ya usa la pantalla de éxito), nunca duplicado acá.
-export const recoverSalesService = async ({ email, buyerDocument }) => {
-    const normalizedEmail = email?.trim().toLowerCase();
-    if (!normalizedEmail || !buyerDocument?.trim()) {
-        throw new AppError(ErrorCodes.RECOVER_INFO_REQUIRED);
-    }
-    if (!isValidEmail(normalizedEmail)) {
-        throw new AppError(ErrorCodes.GUEST_BUYER_INVALID_EMAIL);
-    }
-    const normalizedDocument = normalizeBuyerDocument(buyerDocument);
-    if (!isValidBuyerDocument(normalizedDocument)) {
-        throw new AppError(ErrorCodes.GUEST_BUYER_INVALID_DOCUMENT);
-    }
-
+// Query real de "Recuperar mis entradas", separada de recoverSalesService
+// para que saleRecoveryVerification.service.js pueda reusarla con valores ya
+// normalizados (antes de mandar el código, y de nuevo recién después de
+// verificarlo) sin duplicar el where/select ni revalidar formato dos veces.
+async function findConfirmedRecoverableSales(normalizedEmail, normalizedDocument) {
     const sales = await prisma.sale.findMany({
         where: {
             status: "CONFIRMED",
@@ -600,10 +581,6 @@ export const recoverSalesService = async ({ email, buyerDocument }) => {
         orderBy: { createdAt: "desc" },
     });
 
-    // Nunca se loguea email/DNI (son justo el dato sensible de esta
-    // búsqueda) — sólo cuántos resultados dio.
-    logger.info("recoverSalesService completed", { matchCount: sales.length });
-
     return sales
         .filter((sale) => sale.tickets.length > 0)
         .map((sale) => ({
@@ -613,6 +590,42 @@ export const recoverSalesService = async ({ email, buyerDocument }) => {
             venue: sale.function.venue,
             ticketCount: sale.tickets.length,
         }));
+}
+
+export { findConfirmedRecoverableSales };
+
+// Búsqueda interna de "Recuperar mis entradas" — email + DNI sólo
+// LOCALIZAN una compra propia, nunca autorizan verla: nunca se llama desde
+// un controller directamente. saleRecoveryVerification.service.js es el
+// único punto que decide qué hacer con este resultado (mandar un código de
+// 6 dígitos si hay match, y recién devolver estos datos al comprador después
+// de que ese código se verifique) — ver requestSaleRecoveryCodeService /
+// verifySaleRecoveryCodeService. A diferencia de publicRecoveryToken (un
+// secreto de alta entropía que sólo conoce quien compró), acá la prueba de
+// posesión es "conocer dos datos personales exactos a la vez", así que el
+// resultado nunca distingue si falló el email, el DNI, o ambos: siempre la
+// misma lista (vacía o no), nunca un error que revele cuál de los dos
+// estuvo mal.
+export const recoverSalesService = async ({ email, buyerDocument }) => {
+    const normalizedEmail = email?.trim().toLowerCase();
+    if (!normalizedEmail || !buyerDocument?.trim()) {
+        throw new AppError(ErrorCodes.RECOVER_INFO_REQUIRED);
+    }
+    if (!isValidEmail(normalizedEmail)) {
+        throw new AppError(ErrorCodes.GUEST_BUYER_INVALID_EMAIL);
+    }
+    const normalizedDocument = normalizeBuyerDocument(buyerDocument);
+    if (!isValidBuyerDocument(normalizedDocument)) {
+        throw new AppError(ErrorCodes.GUEST_BUYER_INVALID_DOCUMENT);
+    }
+
+    const sales = await findConfirmedRecoverableSales(normalizedEmail, normalizedDocument);
+
+    // Nunca se loguea email/DNI (son justo el dato sensible de esta
+    // búsqueda) — sólo cuántos resultados dio.
+    logger.info("recoverSalesService completed", { matchCount: sales.length });
+
+    return sales;
 };
 
 // Botón "Reenviar correo" de la pantalla de recuperación — mismo modelo de

@@ -1,16 +1,9 @@
 import { getResendClient, getEmailConfig } from "../../config/resend.js";
 import { logger } from "../../logging/logger.js";
 import { buildScannerVerificationEmail } from "./scannerVerificationTemplate.js";
+import { withTimeout } from "../../utils/withTimeout.js";
 
 const RESEND_CALL_TIMEOUT_MS = 10000; // mismo criterio que sendSaleConfirmationEmail: nunca bloquear la respuesta HTTP indefinidamente por Resend
-
-function withTimeout(promise, ms, timeoutReason) {
-    let timeoutId;
-    const timeout = new Promise((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error(timeoutReason)), ms);
-    });
-    return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
-}
 
 // Envío puro: no toca la base (el compare-and-swap de verificationLastSentAt
 // que lo protege contra duplicados/spam vive en scannerInvitation.service.js,

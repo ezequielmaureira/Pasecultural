@@ -8,7 +8,9 @@ import {
     listSalesBuyer,
     getSaleStatus,
     resendSaleConfirmationEmail,
-    recoverSales,
+    requestSaleRecoveryCode,
+    resendSaleRecoveryCode,
+    verifySaleRecoveryCode,
     resendSaleEmailByToken,
 } from "../controllers/sale.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
@@ -21,6 +23,8 @@ const router = Router();
 // — un límite básico por IP para que no sean un espacio infinito de
 // intentos. Ver middlewares/rateLimit.js.
 const recoverSearchRateLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 8 });
+const recoverResendCodeRateLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 5 });
+const recoverVerifyRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
 const resendEmailRateLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 5 });
 
 // Sin requireAuth a propósito: el comprador nunca necesita sesión de Clerk
@@ -53,10 +57,13 @@ router.post("/:id/cancel", requireAuth, cancelSale);
 // patrón que ya usa confirmSaleService con la organización.
 router.post("/:id/resend-confirmation-email", requireRole("DEVELOPER", "ORGANIZER"), resendSaleConfirmationEmail);
 
-// Pantalla pública "Recuperar mis entradas" — sin sesión, autorizado por
-// conocer email + DNI exactos de una compra propia (nunca uno solo, ver
-// recoverSalesService). Ver sale.controller.js#recoverSales.
-router.post("/recover", recoverSearchRateLimit, recoverSales);
+// Pantalla pública "Recuperar mis entradas" — sin sesión. Email+DNI sólo
+// localizan una compra propia (nunca uno solo, ver recoverSalesService); la
+// autorización real es el código de 6 dígitos de /recover/verify. Ver
+// sale.controller.js#requestSaleRecoveryCode / saleRecoveryVerification.service.js.
+router.post("/recover", recoverSearchRateLimit, requestSaleRecoveryCode);
+router.post("/recover/resend", recoverResendCodeRateLimit, resendSaleRecoveryCode);
+router.post("/recover/verify", recoverVerifyRateLimit, verifySaleRecoveryCode);
 
 // Reenviar el correo desde la pantalla de recuperación — sin sesión,
 // autorizado por publicRecoveryToken (mismo modelo que confirm-by-buyer y

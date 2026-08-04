@@ -60,16 +60,37 @@ export async function getSaleStatus(recoveryToken) {
     return apiFetch(`/api/sales/${recoveryToken}/status`);
 }
 
-// Pantalla pública "Recuperar mis entradas" — sin sesión, autorizado por
-// conocer email + DNI exactos de una compra propia (nunca uno solo). Nunca
-// trae tickets ni QR: sólo lo necesario para la lista de resultados (ver
-// RecoverPurchase.jsx). El DNI no se loguea completo, igual que en
-// createSale.
-export async function recoverSales({ email, buyerDocument }) {
-    console.log("saleApi.recoverSales request", { email, buyerDocument: buyerDocument ? "[present]" : undefined });
-    const { sales } = await apiFetch("/api/sales/recover", {
+// Pantalla pública "Recuperar mis entradas", paso 1 — sin sesión. Email+DNI
+// sólo LOCALIZAN una compra, nunca la revelan: la respuesta es siempre
+// genérica (el email tipeado, enmascarado), exista o no una compra real
+// detrás — nunca trae eventTitle/recoveryToken/tickets/QR acá. El DNI no se
+// loguea completo, igual que en createSale.
+export async function requestSaleRecoveryCode({ email, buyerDocument }) {
+    console.log("saleApi.requestSaleRecoveryCode request", { email, buyerDocument: buyerDocument ? "[present]" : undefined });
+    const { maskedEmail } = await apiFetch("/api/sales/recover", {
         method: "POST",
         body: JSON.stringify({ email, buyerDocument }),
+    });
+    return maskedEmail;
+}
+
+// Botón "Reenviar código" de la pantalla de verificación — mismo contrato
+// genérico que requestSaleRecoveryCode.
+export async function resendSaleRecoveryCode({ email, buyerDocument }) {
+    const { maskedEmail } = await apiFetch("/api/sales/recover/resend", {
+        method: "POST",
+        body: JSON.stringify({ email, buyerDocument }),
+    });
+    return maskedEmail;
+}
+
+// Paso 2: código de 6 dígitos. Único punto de todo el flujo de recuperación
+// que trae datos reales de compra (recoveryToken incluido) — recién
+// después de un código correcto.
+export async function verifySaleRecoveryCode({ email, buyerDocument, code }) {
+    const { sales } = await apiFetch("/api/sales/recover/verify", {
+        method: "POST",
+        body: JSON.stringify({ email, buyerDocument, code }),
     });
     return sales;
 }

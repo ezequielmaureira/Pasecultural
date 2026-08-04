@@ -431,6 +431,39 @@ model Sale {
   @@map("sales")
 }
 
+// Sesión de verificación por código de 6 dígitos para "Recuperar mis
+// entradas" (RecoverPurchase.jsx). Deliberadamente NO vive en Sale ni en
+// User: un mismo par email+DNI puede coincidir con 0, 1 o varias Sale (o
+// ninguna — ver saleRecoveryVerification.service.js, que nunca revela cuál
+// de esos casos ocurrió), así que la sesión es del PAR normalizado, no de
+// una venta puntual. Mismos campos y mismo criterio que
+// EventScanner.verificationCode* (código en hash, nunca texto plano;
+// vencimiento; intentos fallidos; cooldown de reenvío) — misma
+// infraestructura de código de Scanner, reutilizada vía
+// utils/verificationCode.js y utils/withTimeout.js en vez de reescrita acá.
+model SaleRecoveryVerification {
+  id String @id @default(cuid())
+
+  // Mismo formato normalizado que Sale.buyerDocument / recoverSalesService
+  // (email en minúsculas recortado, DNI sin puntos/espacios/guiones). Este
+  // par no es el secreto de la pantalla — el código de 6 dígitos sí lo es;
+  // el par sólo identifica una sesión, igual que `invitationToken` identifica
+  // una fila de EventScanner.
+  normalizedEmail    String
+  normalizedDocument String
+
+  codeHash      String?
+  codeExpiresAt DateTime?
+  attempts      Int       @default(0)
+  lastSentAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([normalizedEmail, normalizedDocument])
+  @@map("sale_recovery_verifications")
+}
+
 // Detalle de qué tipos de entrada y cuántas unidades componen la venta.
 // unitPrice/subtotal quedan congelados al momento de la compra: no se
 // recalculan si el organizador cambia precios del evento después.
