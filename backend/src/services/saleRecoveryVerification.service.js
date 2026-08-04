@@ -175,5 +175,8 @@ export const verifySaleRecoveryCodeService = async ({ email, buyerDocument, code
 
     const sales = await findConfirmedRecoverableSales(normalizedEmail, normalizedDocument);
     logger.info("verifySaleRecoveryCodeService completed", { matchCount: sales.length });
-    return { sales };
+    // maskedEmail viaja de nuevo acá (no sólo en el paso 1) para que la
+    // pantalla "Compra encontrada" pueda mostrarlo sin tener que recordar el
+    // valor del paso anterior por su cuenta.
+    return { sales, maskedEmail: maskEmail(normalizedEmail) };
 };

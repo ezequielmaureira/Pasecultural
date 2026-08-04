@@ -69,6 +69,36 @@ export async function apiFetch(path, { token, timeoutMs = DEFAULT_TIMEOUT_MS, ..
   return res.json();
 }
 
+// Para respuestas binarias (ej. descarga de PDF) — apiFetch asume JSON
+// siempre, así que esta variante hermana lee el cuerpo como Blob en vez de
+// hacer res.json(). El manejo de timeout/error de red y de errores HTTP con
+// body JSON (el backend sigue devolviendo JSON en los errores) es el mismo
+// que apiFetch, para no duplicar esa lógica.
+export async function apiFetchBlob(path, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+  const res = await fetchWithTimeout(`${API_URL}${path}`, {}, timeoutMs);
+
+  if (!res.ok) {
+    let message = `Error ${res.status} al llamar ${path}`;
+    let code;
+    try {
+      const body = await res.json();
+      if (body?.message) message = body.message;
+      code = body?.error?.code;
+    } catch {
+      // respuesta sin body JSON, se mantiene el mensaje genérico
+    }
+    const error = new Error(message);
+    error.status = res.status;
+    error.code = code;
+    throw error;
+  }
+
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  return { blob, filename: match ? match[1] : "descarga.pdf" };
+}
+
 export async function apiUpload(path, { token, file, method = "POST", timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   const formData = new FormData();
   formData.append("file", file);

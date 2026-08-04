@@ -11,6 +11,7 @@ import {
     listSalesBuyerService,
     getSaleStatusService,
     resendConfirmationEmailByTokenService,
+    getSalePdfByTokenService,
 } from "../services/sale.service.js";
 import { resendSaleConfirmationEmailService } from "../services/email/sendSaleConfirmationEmail.service.js";
 import {
@@ -209,6 +210,23 @@ export const resendSaleEmailByToken = async (req, res, next) => {
     try {
         const result = await resendConfirmationEmailByTokenService(req.params.token);
         res.status(200).json(result);
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
+
+// Botón "Descargar PDF" de la pantalla "Compra encontrada" — sin sesión,
+// autorizado por publicRecoveryToken (mismo modelo que confirm-by-buyer,
+// status y resend-email). A diferencia del resto de los endpoints de este
+// archivo, la respuesta no es JSON: es el PDF binario tal cual, con
+// Content-Disposition para que el navegador lo descargue directo.
+export const getSalePdfByToken = async (req, res, next) => {
+    try {
+        const { pdfBuffer, fileName } = await getSalePdfByTokenService(req.params.token);
+        res.status(200);
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+        res.send(pdfBuffer);
     } catch (error) {
         next(AppError.from(error));
     }

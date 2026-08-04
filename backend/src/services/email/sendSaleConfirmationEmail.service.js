@@ -73,8 +73,11 @@ async function markEmailFailed(saleId, reason) {
 // independiente (auto-trigger post-confirmación o reintento administrativo)
 // sin depender de que el caller ya tenga la venta cargada. El secret de
 // cada QR se reconstruye acá al vuelo (decryptSecret), igual que en
-// getSaleStatusService — nunca se persiste en texto plano.
-async function getSaleEmailData(saleId) {
+// getSaleStatusService — nunca se persiste en texto plano. Exportada
+// también para getSalePdfByTokenService (sale.service.js): arma el mismo
+// PDF completo que ya se adjunta al email, sin duplicar la query de
+// tickets/QR.
+export async function getSaleEmailData(saleId) {
     const sale = await prisma.sale.findUnique({
         where: { id: saleId },
         select: {

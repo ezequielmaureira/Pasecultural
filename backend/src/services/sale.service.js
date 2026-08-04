@@ -9,7 +9,9 @@ import { buildTicketNumber } from "../utils/ticketNumber.js";
 import { encryptSecret, decryptSecret } from "../config/qrEncryption.js";
 import { effectiveCapacity } from "./functionCapacity.service.js";
 import { logger } from "../logging/logger.js";
-import { sendSaleConfirmationEmail } from "./email/sendSaleConfirmationEmail.service.js";
+import { sendSaleConfirmationEmail, getSaleEmailData } from "./email/sendSaleConfirmationEmail.service.js";
+import { buildTicketQrImages } from "./email/ticketQrImages.js";
+import { buildTicketsPdfBuffer } from "./email/ticketsPdf.js";
 
 const ACTIVE_TICKET_STATUSES = ["ACTIVE", "USED"];
 
@@ -574,6 +576,7 @@ async function findConfirmedRecoverableSales(normalizedEmail, normalizedDocument
         select: {
             publicRecoveryToken: true,
             createdAt: true,
+            buyer: { select: { firstName: true } },
             event: { select: { title: true } },
             function: { select: { date: true, venue: true } },
             tickets: { where: { deletedAt: null }, select: { id: true } },
@@ -589,6 +592,7 @@ async function findConfirmedRecoverableSales(normalizedEmail, normalizedDocument
             functionDate: sale.function.date,
             venue: sale.function.venue,
             ticketCount: sale.tickets.length,
+            buyerFirstName: sale.buyer?.firstName ?? "",
         }));
 }
 
@@ -646,4 +650,36 @@ export const resendConfirmationEmailByTokenService = async (recoveryToken) => {
 
     const result = await sendSaleConfirmationEmail(sale.id);
     return { emailDeliveryStatus: result.status ?? "PENDING" };
+};
+
+// Botón "Descargar PDF" de la pantalla "Compra encontrada" — mismo modelo
+// de autorización que resendConfirmationEmailByTokenService (conocer el
+// publicRecoveryToken alcanza, sin sesión). Arma EXACTAMENTE el mismo PDF
+// que ya se adjunta al email de confirmación: reusa getSaleEmailData (junta
+// tickets + desencripta los secrets de QR), buildTicketQrImages y
+// buildTicketsPdfBuffer tal cual — nunca genera tickets ni QR nuevos, sólo
+// vuelve a renderizar el mismo PDF a partir de los datos ya existentes.
+export const getSalePdfByTokenService = async (recoveryToken) => {
+    if (!recoveryToken) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
+
+    const sale = await prisma.sale.findUnique({
+        where: { publicRecoveryToken: recoveryToken },
+        select: { id: true, status: true, deletedAt: true },
+    });
+    if (!sale || sale.deletedAt) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
+    if (sale.status !== "CONFIRMED") throw new AppError(ErrorCodes.SALE_NOT_CONFIRMED);
+
+    const data = await getSaleEmailData(sale.id);
+    if (!data || data.tickets.length === 0) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
+
+    const qrImages = await buildTicketQrImages(data.tickets);
+    const pdfBuffer = await buildTicketsPdfBuffer({
+        eventTitle: data.eventTitle,
+        venue: data.venue,
+        functionDate: data.functionDate,
+        tickets: data.tickets,
+        qrImages,
+    });
+
+    return { pdfBuffer, fileName: `entradas-pasecultural-${data.saleId}.pdf` };
 };

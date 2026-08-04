@@ -1,11 +1,17 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, CalendarDays, MapPin, RefreshCw } from "lucide-react";
+import { Search, CalendarDays, MapPin, RefreshCw, CheckCircle2, Ticket, Mail, Download } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
 import Spinner from "../../components/ui/Spinner.jsx";
 import { Field, inputClass } from "../../components/ui/FormField.jsx";
-import { requestSaleRecoveryCode, resendSaleRecoveryCode, verifySaleRecoveryCode } from "../../lib/saleApi.js";
+import {
+  requestSaleRecoveryCode,
+  resendSaleRecoveryCode,
+  verifySaleRecoveryCode,
+  resendSaleEmail,
+  downloadSalePdf,
+} from "../../lib/saleApi.js";
 
 const EMAIL_REGEX = /^\S+@\S+\.\S+$/;
 const DOCUMENT_REGEX = /^\d{7,10}$/;
@@ -46,7 +52,7 @@ export default function RecoverPurchase() {
   const [emailTouched, setEmailTouched] = useState(false);
   const [documentTouched, setDocumentTouched] = useState(false);
 
-  // "form" | "requesting" | "code" | "no-matches" | "multiple" | "error"
+  // "form" | "requesting" | "code" | "found" | "no-matches" | "multiple" | "error"
   const [status, setStatus] = useState("form");
   const [errorMessage, setErrorMessage] = useState("");
   const [matches, setMatches] = useState([]);
@@ -61,6 +67,16 @@ export default function RecoverPurchase() {
   const [resendError, setResendError] = useState("");
   const [resendCooldownUntil, setResendCooldownUntil] = useState(0);
   const [now, setNow] = useState(Date.now());
+
+  // Paso 3: pantalla intermedia "Compra encontrada" — código correcto y una
+  // única compra. Sus tres acciones (ver/reenviar/descargar) reutilizan
+  // infraestructura ya existente, cada una con su propio estado de carga.
+  const [foundSale, setFoundSale] = useState(null);
+  const [resendingConfirmation, setResendingConfirmation] = useState(false);
+  const [resendConfirmationMessage, setResendConfirmationMessage] = useState("");
+  const [resendConfirmationError, setResendConfirmationError] = useState("");
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
 
   // Sólo tickea mientras hay un cooldown activo — evita un setInterval
   // corriendo todo el tiempo que la pantalla esté abierta sin necesidad.
@@ -98,11 +114,17 @@ export default function RecoverPurchase() {
     setVerifying(true);
     setVerifyError("");
     try {
-      const sales = await verifySaleRecoveryCode({ email: email.trim(), buyerDocument: normalizedDocument, code: code.trim() });
+      const { sales, maskedEmail: verifiedMaskedEmail } = await verifySaleRecoveryCode({
+        email: email.trim(),
+        buyerDocument: normalizedDocument,
+        code: code.trim(),
+      });
+      setMaskedEmail(verifiedMaskedEmail);
       if (sales.length === 0) {
         setStatus("no-matches");
       } else if (sales.length === 1) {
-        navigate(`/comprar?saleToken=${encodeURIComponent(sales[0].recoveryToken)}`);
+        setFoundSale(sales[0]);
+        setStatus("found");
       } else {
         setMatches(sales);
         setStatus("multiple");
@@ -111,6 +133,49 @@ export default function RecoverPurchase() {
       setVerifyError(err.message || "No pudimos verificar el código.");
     } finally {
       setVerifying(false);
+    }
+  }
+
+  // Acción "Reenviar al correo" de "Compra encontrada" — reutiliza
+  // resendSaleEmail tal cual (mismo endpoint que ya usa SuccessStep.jsx):
+  // nunca genera tickets ni QR nuevos, sólo reintenta el envío del email de
+  // confirmación ya existente.
+  async function handleResendConfirmation() {
+    if (!foundSale) return;
+    setResendingConfirmation(true);
+    setResendConfirmationError("");
+    setResendConfirmationMessage("");
+    try {
+      await resendSaleEmail(foundSale.recoveryToken);
+      setResendConfirmationMessage("Las entradas fueron enviadas nuevamente.");
+    } catch (err) {
+      setResendConfirmationError(err.message || "No pudimos reenviar el correo.");
+    } finally {
+      setResendingConfirmation(false);
+    }
+  }
+
+  // Acción "Descargar PDF" — trae el mismo PDF completo que ya se adjunta
+  // al email de confirmación (ver getSalePdfByTokenService) como Blob y
+  // dispara la descarga en el navegador, sin mostrar los QR en pantalla.
+  async function handleDownloadPdf() {
+    if (!foundSale) return;
+    setDownloadingPdf(true);
+    setDownloadError("");
+    try {
+      const { blob, filename } = await downloadSalePdf(foundSale.recoveryToken);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setDownloadError(err.message || "No pudimos descargar el PDF.");
+    } finally {
+      setDownloadingPdf(false);
     }
   }
 
@@ -136,6 +201,19 @@ export default function RecoverPurchase() {
     setVerifyError("");
     setResendError("");
     setResendCooldownUntil(0);
+    setFoundSale(null);
+    setResendConfirmationMessage("");
+    setResendConfirmationError("");
+    setDownloadError("");
+  }
+
+  // Desde el picker de "Encontramos N compras": elegir una fila también
+  // pasa por "Compra encontrada" (mismo criterio que el caso de una sola
+  // coincidencia) en vez de navegar directo — una sola pantalla intermedia,
+  // sin un segundo camino paralelo hacia PurchaseWizard.
+  function handleSelectMatch(sale) {
+    setFoundSale(sale);
+    setStatus("found");
   }
 
   if (status === "requesting") {
@@ -143,6 +221,79 @@ export default function RecoverPurchase() {
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-slate-400">
         <Spinner size="lg" />
         <p className="text-sm">Buscando tu compra...</p>
+      </div>
+    );
+  }
+
+  if (status === "found" && foundSale) {
+    return (
+      <div className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
+        <Card>
+          <div className="flex flex-col items-center gap-3 py-2 text-center">
+            <CheckCircle2 className="h-9 w-9 text-emerald-400" />
+            <h1 className="text-lg font-bold text-white">Compra encontrada</h1>
+
+            <div className="w-full rounded-xl border border-white/10 bg-white/5 p-3 text-left">
+              <p className="text-sm font-semibold text-white">{foundSale.eventTitle}</p>
+              <p className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-400">
+                <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                {formatFunctionDate(foundSale.functionDate)}
+              </p>
+              <p className="flex items-center gap-1.5 text-xs text-slate-400">
+                <MapPin className="h-3.5 w-3.5 shrink-0" />
+                {foundSale.venue}
+              </p>
+              <p className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-400">
+                <Ticket className="h-3.5 w-3.5 shrink-0" />
+                {foundSale.ticketCount} {foundSale.ticketCount === 1 ? "entrada" : "entradas"}
+              </p>
+              {foundSale.buyerFirstName && <p className="mt-1.5 text-xs text-slate-400">Comprador: {foundSale.buyerFirstName}</p>}
+              <p className="text-xs text-slate-400">Correo: {maskedEmail}</p>
+            </div>
+
+            <div className="mt-1 flex w-full flex-col gap-2">
+              <Button
+                onClick={() => navigate(`/comprar?saleToken=${encodeURIComponent(foundSale.recoveryToken)}`)}
+                className="w-full justify-center"
+              >
+                Ver mis entradas
+              </Button>
+
+              <Button
+                variant="secondary"
+                onClick={handleResendConfirmation}
+                loading={resendingConfirmation}
+                loadingText="Enviando..."
+                className="w-full justify-center gap-1.5"
+              >
+                <Mail className="h-4 w-4" />
+                Reenviar al correo
+              </Button>
+              {resendConfirmationMessage && <p className="text-xs text-emerald-400">{resendConfirmationMessage}</p>}
+              {resendConfirmationError && <p className="text-xs text-rose-400">{resendConfirmationError}</p>}
+
+              <Button
+                variant="secondary"
+                onClick={handleDownloadPdf}
+                loading={downloadingPdf}
+                loadingText="Descargando..."
+                className="w-full justify-center gap-1.5"
+              >
+                <Download className="h-4 w-4" />
+                Descargar PDF
+              </Button>
+              {downloadError && <p className="text-xs text-rose-400">{downloadError}</p>}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleTryAgain}
+              className="mt-1 text-xs text-slate-500 transition-colors duration-150 hover:text-slate-300"
+            >
+              Buscar otra compra
+            </button>
+          </div>
+        </Card>
       </div>
     );
   }
@@ -236,11 +387,7 @@ export default function RecoverPurchase() {
                     {sale.venue}
                   </p>
                 </div>
-                <Button
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => navigate(`/comprar?saleToken=${encodeURIComponent(sale.recoveryToken)}`)}
-                >
+                <Button size="sm" className="shrink-0" onClick={() => handleSelectMatch(sale)}>
                   Ver entradas
                 </Button>
               </div>

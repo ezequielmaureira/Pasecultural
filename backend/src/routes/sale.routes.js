@@ -12,6 +12,7 @@ import {
     resendSaleRecoveryCode,
     verifySaleRecoveryCode,
     resendSaleEmailByToken,
+    getSalePdfByToken,
 } from "../controllers/sale.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { requireRole } from "../middlewares/requireRole.js";
@@ -47,6 +48,11 @@ router.post("/:token/confirm-by-buyer", confirmSaleByBuyer);
 // recuperación por timeout del Wizard invitado (no puede usar GET
 // /sales/mine sin cuenta).
 router.get("/:token/status", getSaleStatus);
+
+// Botón "Descargar PDF" de la pantalla "Compra encontrada" — mismo modelo
+// de autorización que /:token/status (publicRecoveryToken en la URL, sin
+// sesión). Ver sale.controller.js#getSalePdfByToken.
+router.get("/:token/pdf", getSalePdfByToken);
 
 router.post("/:id/cancel", requireAuth, cancelSale);
 

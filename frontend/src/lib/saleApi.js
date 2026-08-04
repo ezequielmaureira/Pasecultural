@@ -1,4 +1,4 @@
-import { apiFetch } from "./api.js";
+import { apiFetch, apiFetchBlob } from "./api.js";
 
 // `qrToken` (el secreto de cada entrada) y `publicRecoveryToken` (el bearer
 // token de la venta) nunca deben volcarse tal cual a la consola del
@@ -86,13 +86,15 @@ export async function resendSaleRecoveryCode({ email, buyerDocument }) {
 
 // Paso 2: código de 6 dígitos. Único punto de todo el flujo de recuperación
 // que trae datos reales de compra (recoveryToken incluido) — recién
-// después de un código correcto.
+// después de un código correcto. maskedEmail viaja de nuevo acá para que la
+// pantalla "Compra encontrada" lo muestre sin depender del estado del paso
+// anterior.
 export async function verifySaleRecoveryCode({ email, buyerDocument, code }) {
-    const { sales } = await apiFetch("/api/sales/recover/verify", {
+    const { sales, maskedEmail } = await apiFetch("/api/sales/recover/verify", {
         method: "POST",
         body: JSON.stringify({ email, buyerDocument, code }),
     });
-    return sales;
+    return { sales, maskedEmail };
 }
 
 // Botón "Reenviar correo" de la pantalla de recuperación — mismo modelo de
@@ -101,4 +103,12 @@ export async function verifySaleRecoveryCode({ email, buyerDocument, code }) {
 // reintenta el envío existente.
 export async function resendSaleEmail(recoveryToken) {
     return apiFetch(`/api/sales/${recoveryToken}/resend-email`, { method: "POST" });
+}
+
+// Botón "Descargar PDF" de la pantalla "Compra encontrada" — mismo modelo
+// de autorización que resendSaleEmail/getSaleStatus. Devuelve el mismo PDF
+// completo que ya se adjunta al email de confirmación (ver
+// getSalePdfByTokenService en el backend), como Blob listo para descargar.
+export async function downloadSalePdf(recoveryToken) {
+    return apiFetchBlob(`/api/sales/${recoveryToken}/pdf`);
 }
