@@ -21,6 +21,27 @@ function normalizeDocument(rawValue) {
   return rawValue.replace(/[\s.-]/g, "");
 }
 
+// Mismo criterio de layout que SignIn.jsx/SignUp.jsx: vive dentro de
+// PublicShell (navbar/footer normales), no un fondo propio de pantalla
+// completa.
+//
+// Definido fuera de ScannerInvitationClaim a propósito: si viviera dentro,
+// cada render del componente padre (por ejemplo al tipear en un input)
+// crearía una función Shell nueva, y React trataría eso como un tipo de
+// componente distinto — desmontando y remontando todo el subárbol (inputs
+// incluidos) en cada tecla. Eso es lo que le cerraba el teclado en Android.
+function Shell({ children, wide = false }) {
+  return (
+    <div className="flex min-h-[70vh] items-center justify-center px-6 py-16">
+      <div className={`w-full ${wide ? "max-w-sm" : "max-w-sm"}`}>
+        <Card>
+          <div className="flex flex-col items-center gap-3 py-2 text-center">{children}</div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 // Pantalla pública que abre quien recibe un link de invitación
 // (https://.../scanner/invitacion/:token). Todo pasa acá SIN Clerk, SIN
 // cuentas, SIN login: registro + código de 6 dígitos. Si el código es
@@ -129,21 +150,6 @@ export default function ScannerInvitationClaim() {
     } finally {
       setVerifying(false);
     }
-  }
-
-  // Mismo criterio de layout que SignIn.jsx/SignUp.jsx: vive dentro de
-  // PublicShell (navbar/footer normales), no un fondo propio de pantalla
-  // completa.
-  function Shell({ children, wide = false }) {
-    return (
-      <div className="flex min-h-[70vh] items-center justify-center px-6 py-16">
-        <div className={`w-full ${wide ? "max-w-sm" : "max-w-sm"}`}>
-          <Card>
-            <div className="flex flex-col items-center gap-3 py-2 text-center">{children}</div>
-          </Card>
-        </div>
-      </div>
-    );
   }
 
   if (loadError) {
