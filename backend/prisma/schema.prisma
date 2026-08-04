@@ -132,7 +132,6 @@ model User {
   salesAsBuyer    Sale[]
   ticketsAsBuyer  Ticket[]       @relation("TicketBuyer")
   ticketsAsOwner  Ticket[]       @relation("TicketOwner")
-  eventScanners   EventScanner[]
 }
 
 model Organization {
@@ -577,28 +576,19 @@ enum EventScannerStatus {
 }
 
 // Una fila = un scanner (persona real u "slot" todavía sin registrar) para
-// UN evento puntual — nunca escanea otro evento (ver assertScannerAuthorized).
+// UN evento puntual — nunca escanea otro evento (ver requireScannerSession).
 // El link lleva sólo `invitationToken` (nunca el `id` interno). Se activa
 // registrándose (nombre/apellido/DNI/email/teléfono) y verificando un código
-// de 6 dígitos mandado por email — sin pasar por Clerk en este paso; recién
-// cuando la persona ya activa quiere escanear de verdad, inicia sesión con
-// Clerk (mismo email) y `userId` se resuelve/adopta ahí (ver
-// scannerInvitation.service.js — mismo criterio que getOrCreateGuestBuyer/
-// syncUserService "adoptando" un User invitado por email).
+// de 6 dígitos mandado por email — SIN Clerk, SIN cuentas, en ningún paso:
+// ni para registrarse ni para escanear después. La sesión completa (alta y
+// uso del lector QR) se resuelve con un scannerSessionToken propio (JWT
+// firmado con SCANNER_SESSION_SECRET, ver config/scannerSession.js) que
+// identifica directamente esta fila por `id` — nunca un User.
 model EventScanner {
   id String @id @default(cuid())
 
   eventId String
   event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
-
-  // Null hasta que el código se verifica con éxito — a partir de ahí
-  // identifica a la persona real (encontrada o creada por email, ver
-  // verifyScannerInvitationCodeService). Puede haber muchas filas del mismo
-  // evento con userId null a la vez (varios slots sin registrar todavía):
-  // Postgres no las considera "iguales" para el @@unique de abajo, NULL
-  // nunca es igual a otro NULL.
-  userId String?
-  user   User?   @relation(fields: [userId], references: [id])
 
   // "Puerta Principal #1" — lo arma el motor a partir de gate+índice al
   // crear el lote, después editable por el organizador sin tocar `gate`.
@@ -615,12 +605,16 @@ model EventScanner {
   invitationToken     String    @unique
   invitationExpiresAt DateTime?
 
-  // Datos que la persona completa en el paso 3 del registro público —
-  // viven acá (no sólo en User) porque identifican a QUIEN se registró para
-  // ESTE scanner puntual, independientemente de qué User termine
-  // resolviendo `userId` (podría adoptar una cuenta ya existente con otro
-  // nombre guardado). Nullable: siguen sin valor mientras el estado es
-  // INVITED y todavía nadie completó el formulario.
+  // Datos que la persona completa en el paso 3 del registro público — única
+  // identidad que se guarda de esta persona, no hay User/cuenta detrás.
+  // Nullable: siguen sin valor mientras el estado es INVITED y todavía
+  // nadie completó el formulario. `email` además es la clave que evita que
+  // la misma persona quede activa dos veces para el mismo evento — a
+  // propósito NO es un @@unique de base: una fila REVOKED conserva su
+  // email para el historial/auditoría, y no debe bloquear que se
+  // registre un reemplazo con ese mismo email más adelante. El candado
+  // real es a nivel de aplicación (ver verifyScannerInvitationCodeService,
+  // que excluye status REVOKED de la comprobación).
   firstName String?
   lastName  String?
   document  String? // DNI — mismo formato/validación que Sale.buyerDocument
@@ -655,6 +649,5 @@ model EventScanner {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  @@unique([eventId, userId])
   @@map("event_scanners")
 }

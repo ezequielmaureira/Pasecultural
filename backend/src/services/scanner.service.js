@@ -1,9 +1,5 @@
 import crypto from "node:crypto";
 import prisma from "../config/prisma.js";
-import { AppError } from "../errors/AppError.js";
-import { ErrorCodes } from "../errors/ErrorCodes.js";
-import { getUserByClerkId } from "../utils/getUserByClerkId.js";
-import { assertScannerAuthorized } from "../utils/assertScannerAuthorized.js";
 import { decryptSecret } from "../config/qrEncryption.js";
 import { getFunctionCounters } from "./functionCapacity.service.js";
 import { logger } from "../logging/logger.js";
@@ -62,22 +58,19 @@ function buildResult(result, { ticket, checkIn, scannerName, gate } = {}) {
 // ingreso. Todo dentro de UNA transacción. SIEMPRE registra un ScanAttempt,
 // sin importar el resultado (incluso NOT_FOUND/WRONG_EVENT/CANCELLED).
 // Nunca lanza un error HTTP por un resultado de negocio — eso es lo que
-// devuelve `status`. Los `throw AppError(...)` de acá son únicamente fallas
-// reales del sistema (usuario no sincronizado, scanner no autorizado para
-// este evento).
-export const validateScanService = async (clerkId, input) => {
-    const scannerUser = await getUserByClerkId(clerkId);
-    if (!scannerUser) throw new AppError(ErrorCodes.USER_NOT_FOUND);
-
-    const eventId = input?.eventId;
+// devuelve `status`. `scannerContext` es req.scanner (ya autenticado y
+// verificado ACTIVE por requireScannerSession) — el eventId SIEMPRE sale de
+// ahí, nunca de lo que mande el cliente en el body: un scannerSessionToken
+// está ligado a un único evento, así que no hace falta (ni conviene)
+// confiar en un eventId que venga del request.
+export const validateScanService = async (scannerContext, input) => {
+    const eventId = scannerContext.eventId;
     const functionId = input?.functionId || null;
-    const gate = input?.gate || null;
+    const gate = input?.gate || scannerContext.gate || null;
     const ip = input?.ip || null;
     const userAgent = input?.userAgent || null;
 
-    await assertScannerAuthorized(prisma, eventId, scannerUser.id);
-
-    const scannerName = buyerName({ buyer: scannerUser }) ?? scannerUser.email;
+    const scannerName = [scannerContext.firstName, scannerContext.lastName].filter(Boolean).join(" ").trim() || scannerContext.name;
 
     // Token: "<ticketId>.<secret>" (base64url, sin puntos, por eso alcanza
     // con partir en el primer punto).
@@ -89,7 +82,7 @@ export const validateScanService = async (clerkId, input) => {
     const result = await prisma.$transaction(async (tx) => {
         async function recordAttempt(scanResult, resolvedTicketId) {
             await tx.scanAttempt.create({
-                data: { ticketId: resolvedTicketId ?? null, eventId, result: scanResult, scannedBy: scannerUser.id, ip, userAgent },
+                data: { ticketId: resolvedTicketId ?? null, eventId, result: scanResult, scannedBy: scannerContext.id, ip, userAgent },
             });
         }
 
@@ -169,7 +162,7 @@ export const validateScanService = async (clerkId, input) => {
         // el updateMany de arriba ya actúa de guard), la segunda create()
         // falla por constraint de la base en vez de duplicar el check-in.
         const checkIn = await tx.checkIn.create({
-            data: { ticketId: ticket.id, scannedBy: scannerUser.id, gate },
+            data: { ticketId: ticket.id, scannedBy: scannerContext.id, gate },
         });
         await tx.ticketQr.update({ where: { ticketId: ticket.id }, data: { usedAt: new Date() } });
         await recordAttempt("VALID", ticket.id);
@@ -177,6 +170,6 @@ export const validateScanService = async (clerkId, input) => {
         return withStats(buildResult("VALID", { ticket, checkIn, scannerName, gate }));
     });
 
-    logger.info("Scan validated", { eventId, functionId, scannerId: scannerUser.id, result: result.status });
+    logger.info("Scan validated", { eventId, functionId, scannerId: scannerContext.id, result: result.status });
     return result;
 };

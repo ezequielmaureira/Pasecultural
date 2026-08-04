@@ -120,6 +120,11 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Scanner user is not assigned (or not active) for this event.",
         userMessage: "No estás habilitado como scanner para este evento.",
     },
+    SCANNER_SESSION_INVALID: {
+        httpStatus: 401,
+        logMessage: "Scanner session token missing, malformed, expired, or no longer ACTIVE.",
+        userMessage: "Tu sesión de scanner venció o ya no es válida. Pedile al organizador un enlace de invitación nuevo.",
+    },
     SCAN_ATTEMPTS_EVENT_REQUIRED: {
         httpStatus: 400,
         logMessage: "eventId query param is required to list scan attempts.",

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useAuth } from "@clerk/clerk-react";
 import { ScanLine, CheckCircle2, Clock, Ban, AlertTriangle, RefreshCw } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
@@ -12,6 +11,7 @@ import {
   resendScannerVerificationCode,
   verifyScannerInvitationCode,
 } from "../../lib/scannerInvitationApi.js";
+import { writeScannerSessionToken } from "../../lib/scannerSessionStorage.js";
 
 const EMAIL_REGEX = /^\S+@\S+\.\S+$/;
 const DOCUMENT_REGEX = /^\d{7,10}$/;
@@ -22,14 +22,13 @@ function normalizeDocument(rawValue) {
 }
 
 // Pantalla pública que abre quien recibe un link de invitación
-// (https://.../scanner/invitacion/:token). Todo el registro y la
-// verificación por código de 6 dígitos pasan acá SIN Clerk — recién cuando
-// la persona ya quedó activa y quiere entrar a escanear de verdad, inicia
-// sesión con Clerk (mismo email) en otra pantalla, ver el bloque ACTIVE
-// más abajo.
+// (https://.../scanner/invitacion/:token). Todo pasa acá SIN Clerk, SIN
+// cuentas, SIN login: registro + código de 6 dígitos. Si el código es
+// correcto, el backend devuelve un scannerSessionToken propio — se guarda
+// en el navegador y se redirige directo al módulo Scanner, sin pantallas
+// intermedias.
 export default function ScannerInvitationClaim() {
   const { token } = useParams();
-  const { isLoaded, isSignedIn } = useAuth();
   const navigate = useNavigate();
 
   const [invitation, setInvitation] = useState(null);
@@ -121,7 +120,10 @@ export default function ScannerInvitationClaim() {
     setVerifyError("");
     try {
       const result = await verifyScannerInvitationCode(token, code.trim());
-      setInvitation((prev) => ({ ...prev, status: result.status }));
+      // Guardar y redirigir de una — nunca una pantalla intermedia de
+      // "iniciar sesión": el scannerSessionToken YA es el acceso completo.
+      writeScannerSessionToken(result.scannerSessionToken);
+      navigate("/scanner", { replace: true });
     } catch (err) {
       setVerifyError(err.message || "No pudimos verificar el código.");
     } finally {
@@ -193,35 +195,18 @@ export default function ScannerInvitationClaim() {
   }
 
   if (invitation.status === "ACTIVE") {
-    const redirect = encodeURIComponent("/scanner");
+    // Este link ya se usó en otra sesión/dispositivo — no hay forma de
+    // recuperar un scannerSessionToken sólo con GET (no hay login de
+    // respaldo, a propósito). Si perdió el acceso, la única salida es que
+    // el organizador le genere una invitación nueva.
     return (
       <Shell>
         <CheckCircle2 className="h-9 w-9 text-emerald-400" />
-        <h1 className="text-lg font-bold text-white">Ya sos scanner activo</h1>
+        <h1 className="text-lg font-bold text-white">Esta invitación ya fue usada</h1>
         <p className="text-sm text-slate-400">
-          Tu acceso a "{invitation.eventTitle}" está activo — {invitation.gate}.
+          El acceso a "{invitation.eventTitle}" — {invitation.gate} — ya está activo en otro dispositivo.
         </p>
-        {!isLoaded ? (
-          <Spinner size="md" />
-        ) : isSignedIn ? (
-          <Button onClick={() => navigate("/scanner")} className="mt-2 w-full justify-center">
-            Ir al scanner
-          </Button>
-        ) : (
-          <>
-            <p className="text-xs text-slate-500">
-              Iniciá sesión con {registeredEmail || "el mismo email con el que te registraste"} para empezar a escanear.
-            </p>
-            <div className="mt-1 flex w-full flex-col gap-2">
-              <Button onClick={() => navigate(`/iniciar-sesion?redirect=${redirect}`)} className="w-full justify-center">
-                Iniciar sesión
-              </Button>
-              <Button variant="secondary" onClick={() => navigate(`/registro?redirect=${redirect}`)} className="w-full justify-center">
-                Crear cuenta
-              </Button>
-            </div>
-          </>
-        )}
+        <p className="text-xs text-slate-500">Si perdiste el acceso, pedile al organizador que te genere una invitación nueva.</p>
       </Shell>
     );
   }

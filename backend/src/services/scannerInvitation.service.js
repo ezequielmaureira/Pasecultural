@@ -5,6 +5,7 @@ import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { isValidEmail } from "../utils/validateEmail.js";
 import { normalizeBuyerDocument, isValidBuyerDocument } from "../utils/validateBuyerDocument.js";
 import { sendScannerVerificationCodeEmail } from "./email/sendScannerVerificationCode.service.js";
+import { signScannerSessionToken } from "../config/scannerSession.js";
 import { logger } from "../logging/logger.js";
 
 const CODE_EXPIRY_MS = 10 * 60 * 1000; // 10 minutos
@@ -187,20 +188,26 @@ export const resendScannerVerificationCodeService = async (token) => {
 };
 
 // Paso 7+8: valida el código de 6 dígitos. Si es correcto, pasa DIRECTO a
-// ACTIVE (sin aprobación manual) y resuelve `userId` adoptando un User
-// existente por email o creando uno nuevo — mismo criterio que
-// getOrCreateGuestBuyer/syncUserService: recién cuando esa persona inicie
-// sesión de verdad con Clerk (mismo email) para ir a /scanner, esa cuenta
-// se "adopta" (se le asigna el clerkId) en vez de duplicarse.
+// ACTIVE (sin aprobación manual, sin Clerk, sin User) y devuelve un
+// scannerSessionToken propio — esa es la ÚNICA credencial que va a existir
+// de acá en más para esta persona; no queda ligada a ninguna cuenta.
 export const verifyScannerInvitationCodeService = async (token, code, { userAgent } = {}) => {
     const scanner = await loadLiveInvitation(token);
 
     if (scanner.status === "ACTIVE") {
         // Reabrir la misma pantalla después de haber verificado ya (doble
-        // pestaña, refresh) no es un error — se responde con el estado
-        // actual, idéntico a como getScannerInvitationService ya lo hace.
+        // pestaña, refresh, doble click) no es un error — se responde con
+        // el estado actual Y un token nuevo (varios tokens válidos para el
+        // mismo EventScanner pueden convivir sin problema: son stateless,
+        // lo único que importa es que la fila siga ACTIVE en cada request).
         const event = await prisma.event.findUnique({ where: { id: scanner.eventId }, select: { title: true } });
-        return { status: "ACTIVE", eventTitle: event?.title ?? "", gate: scanner.gate, name: scanner.name };
+        return {
+            status: "ACTIVE",
+            eventTitle: event?.title ?? "",
+            gate: scanner.gate,
+            name: scanner.name,
+            scannerSessionToken: signScannerSessionToken(scanner.id),
+        };
     }
     if (scanner.status !== "INVITED") throw new AppError(ErrorCodes.SCANNER_INVITATION_ALREADY_CLAIMED);
 
@@ -224,44 +231,37 @@ export const verifyScannerInvitationCodeService = async (token, code, { userAgen
     }
 
     const now = new Date();
-    const activated = await prisma.$transaction(async (tx) => {
-        let user = await tx.user.findUnique({ where: { email: scanner.email } });
-        if (!user) {
-            user = await tx.user.create({
-                data: { email: scanner.email, firstName: scanner.firstName, lastName: scanner.lastName, clerkId: null },
-            });
-        }
 
-        // Respeta @@unique([eventId, userId]): si esta persona ya tiene otra
-        // fila no revocada para el MISMO evento (otra puerta, por ejemplo),
-        // no puede activar una segunda.
-        const existingForEvent = await tx.eventScanner.findFirst({
-            where: { eventId: scanner.eventId, userId: user.id, deletedAt: null, status: { not: "REVOKED" }, id: { not: scanner.id } },
-        });
-        if (existingForEvent) throw new AppError(ErrorCodes.SCANNER_INVITATION_ALREADY_ASSIGNED);
-
-        const claimed = await tx.eventScanner.updateMany({
-            where: { id: scanner.id, status: "INVITED" },
-            data: {
-                status: "ACTIVE",
-                userId: user.id,
-                activatedAt: now,
-                lastAccessAt: now,
-                lastDevice: userAgent ?? null,
-                verificationCodeHash: null,
-                verificationCodeExpiresAt: null,
-                verificationAttempts: 0,
-                verificationLastSentAt: null,
-            },
-        });
-        if (claimed.count !== 1) throw new AppError(ErrorCodes.SCANNER_INVITATION_ALREADY_CLAIMED);
-
-        return true;
+    // Respeta @@unique([eventId, email]): si este email ya tiene otra fila
+    // no revocada para el MISMO evento (otra puerta, por ejemplo), no puede
+    // activar una segunda.
+    const existingForEvent = await prisma.eventScanner.findFirst({
+        where: { eventId: scanner.eventId, email: scanner.email, deletedAt: null, status: { not: "REVOKED" }, id: { not: scanner.id } },
     });
+    if (existingForEvent) throw new AppError(ErrorCodes.SCANNER_INVITATION_ALREADY_ASSIGNED);
 
-    if (!activated) throw new AppError(ErrorCodes.SCANNER_INVITATION_ALREADY_CLAIMED);
+    const claimed = await prisma.eventScanner.updateMany({
+        where: { id: scanner.id, status: "INVITED" },
+        data: {
+            status: "ACTIVE",
+            activatedAt: now,
+            lastAccessAt: now,
+            lastDevice: userAgent ?? null,
+            verificationCodeHash: null,
+            verificationCodeExpiresAt: null,
+            verificationAttempts: 0,
+            verificationLastSentAt: null,
+        },
+    });
+    if (claimed.count !== 1) throw new AppError(ErrorCodes.SCANNER_INVITATION_ALREADY_CLAIMED);
 
     const event = await prisma.event.findUnique({ where: { id: scanner.eventId }, select: { title: true } });
     logger.info("verifyScannerInvitationCodeService completed", { eventScannerId: scanner.id, eventId: scanner.eventId });
-    return { status: "ACTIVE", eventTitle: event?.title ?? "", gate: scanner.gate, name: scanner.name };
+    return {
+        status: "ACTIVE",
+        eventTitle: event?.title ?? "",
+        gate: scanner.gate,
+        name: scanner.name,
+        scannerSessionToken: signScannerSessionToken(scanner.id),
+    };
 };

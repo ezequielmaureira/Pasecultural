@@ -53,15 +53,13 @@ const SCANNER_SELECT = {
     lastAccessAt: true,
     lastDevice: true,
     lastScanAt: true,
-    // Datos del registro (paso 3 del formulario público) — se muestran tal
-    // cual se completaron, no lo que eventualmente diga `user` (que puede
-    // ser una cuenta preexistente adoptada por email con otro nombre).
+    // Datos del registro (paso 3 del formulario público) — única identidad
+    // que existe de esta persona, no hay cuenta/User detrás.
     firstName: true,
     lastName: true,
     document: true,
     email: true,
     phone: true,
-    user: { select: { id: true, firstName: true, lastName: true, email: true } },
 };
 
 async function findOwnedScanner(eventId, scannerId) {

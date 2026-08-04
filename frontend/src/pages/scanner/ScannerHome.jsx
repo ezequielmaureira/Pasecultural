@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { useAuth } from "@clerk/clerk-react";
+import { useNavigate } from "react-router-dom";
 import { useToast } from "../../context/ToastContext.jsx";
 import { listScannerEvents } from "../../lib/scannerApi.js";
 import { readActiveScannerSelection, writeActiveScannerSelection, clearActiveScannerSelection } from "../../lib/scannerStorage.js";
+import { readScannerSessionToken, clearScannerSessionToken } from "../../lib/scannerSessionStorage.js";
 import { functionLabel } from "./scannerFormat.js";
 import LoadingScreen from "./screens/LoadingScreen.jsx";
 import ReconnectingScreen from "./screens/ReconnectingScreen.jsx";
 import EmptyScreen from "./screens/EmptyScreen.jsx";
+import NoSessionScreen from "./screens/NoSessionScreen.jsx";
 import ErrorScreen from "./screens/ErrorScreen.jsx";
 import EventSelectScreen from "./screens/EventSelectScreen.jsx";
 import FunctionSelectScreen from "./screens/FunctionSelectScreen.jsx";
@@ -23,7 +25,7 @@ import ScanningScreen from "./screens/ScanningScreen.jsx";
 //   empty         -> sin ninguna asignación activa
 //   error/offline -> falló la carga
 export default function ScannerHome() {
-    const { getToken } = useAuth();
+    const navigate = useNavigate();
     const toast = useToast();
 
     const [phase, setPhase] = useState("loading");
@@ -33,17 +35,38 @@ export default function ScannerHome() {
     const [selectedFunction, setSelectedFunction] = useState(null);
     const [errorMessage, setErrorMessage] = useState("");
 
+    // Sin Clerk: la única credencial es el scannerSessionToken guardado al
+    // verificar el código (ver ScannerInvitationClaim.jsx). Si el
+    // organizador desactivó/revocó/eliminó este scanner mientras tanto, el
+    // backend lo rechaza igual con SCANNER_SESSION_INVALID en cada request
+    // — acá se limpia el token y se saca a la persona del módulo.
+    function exitWithoutSession(message) {
+        clearScannerSessionToken();
+        clearActiveScannerSelection();
+        if (message) toast.info(message);
+        navigate("/", { replace: true });
+    }
+
     const load = useCallback(async () => {
+        const sessionToken = readScannerSessionToken();
+        if (!sessionToken) {
+            setPhase("no-session");
+            return;
+        }
+
         const stored = readActiveScannerSelection();
         setCachedSelection(stored);
         setPhase(stored ? "reconnecting" : "loading");
 
         try {
-            const token = await getToken();
-            const fetchedEvents = await listScannerEvents(token);
+            const fetchedEvents = await listScannerEvents(sessionToken);
             setEvents(fetchedEvents);
             resolveSelection(fetchedEvents, stored);
         } catch (err) {
+            if (err.code === "SCANNER_SESSION_INVALID") {
+                exitWithoutSession("Tu sesión de scanner venció o ya no es válida.");
+                return;
+            }
             if (err.isTimeout || err.isNetworkError) {
                 setPhase("offline");
             } else {
@@ -52,7 +75,7 @@ export default function ScannerHome() {
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [getToken]);
+    }, []);
 
     useEffect(() => {
         load();
@@ -151,6 +174,7 @@ export default function ScannerHome() {
         );
     }
     if (phase === "error") return <ErrorScreen message={errorMessage} onRetry={load} />;
+    if (phase === "no-session") return <NoSessionScreen />;
     if (phase === "empty") return <EmptyScreen />;
     if (phase === "select-event") return <EventSelectScreen events={events} onSelect={handleSelectEvent} />;
     if (phase === "select-function") {
@@ -182,11 +206,7 @@ export default function ScannerHome() {
                 fn={selectedFunction}
                 onExitScanning={() => setPhase("ready")}
                 onChangeFunction={() => setPhase("select-function")}
-                onRevoked={() => {
-                    clearActiveScannerSelection();
-                    toast.info("Ya no tenés acceso a este evento.");
-                    load();
-                }}
+                onRevoked={() => exitWithoutSession("Ya no tenés acceso como scanner de este evento.")}
             />
         );
     }

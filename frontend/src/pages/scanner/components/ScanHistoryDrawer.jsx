@@ -1,9 +1,9 @@
 import { useEffect, useState, useRef } from "react";
-import { useAuth } from "@clerk/clerk-react";
 import { X, AlertTriangle, RefreshCw } from "lucide-react";
 import Spinner from "../../../components/ui/Spinner.jsx";
 import Button from "../../../components/ui/Button.jsx";
 import { listScanAttempts } from "../../../lib/scannerApi.js";
+import { readScannerSessionToken } from "../../../lib/scannerSessionStorage.js";
 import { SCAN_RESULT_LABEL, SCAN_RESULT_BADGE_TONE } from "../scanResultConfig.js";
 
 function formatTime(value) {
@@ -15,7 +15,6 @@ function formatTime(value) {
 // (no se cachea entre aperturas): es justo la pantalla que alguien abre
 // para chequear "qué pasó recién", tiene que reflejar el estado real.
 export default function ScanHistoryDrawer({ eventId, functionId, onClose }) {
-    const { getToken } = useAuth();
     const [attempts, setAttempts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -25,7 +24,7 @@ export default function ScanHistoryDrawer({ eventId, functionId, onClose }) {
         setLoading(true);
         setError("");
         try {
-            const token = await getToken();
+            const token = readScannerSessionToken();
             setAttempts(await listScanAttempts(token, { eventId, functionId }));
         } catch (err) {
             setError(err.message || "No pudimos cargar el historial.");

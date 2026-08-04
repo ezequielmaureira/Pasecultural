@@ -74,20 +74,23 @@ export default function App() {
             <Route path="/registro" element={<SignUpPage />} />
           </Route>
 
+          {/* Fuera de RequireAuth a propósito: el módulo Scanner no usa
+              Clerk en absoluto — la única credencial es el
+              scannerSessionToken que se guarda en el navegador al verificar
+              el código de la invitación (ver ScannerInvitationClaim.jsx).
+              ScannerHome maneja "sin sesión" del lado del cliente y cada
+              endpoint la vuelve a validar del lado del servidor
+              (requireScannerSession). */}
+          <Route path="/scanner" element={<ScannerShell />}>
+            <Route index element={<ScannerHome />} />
+          </Route>
+
           <Route element={<RequireAuth />}>
             <Route path="/bienvenida" element={<PostAuth />} />
             <Route
               path="/organizador/nueva-organizacion"
               element={<OrganizerOnboarding />}
             />
-
-            {/* Shell propio, sin AppShell/sidebar — el acceso no depende de
-                un rol de cuenta: lo resuelve EventScanner del lado del
-                backend, la propia pantalla maneja el estado "sin eventos
-                asignados" en vez de un guard por rol. */}
-            <Route path="/scanner" element={<ScannerShell />}>
-              <Route index element={<ScannerHome />} />
-            </Route>
 
             <Route element={<AppShell />}>
               <Route element={<RoleGuard allowedRoles={["developer"]} />}>

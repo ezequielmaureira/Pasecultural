@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAuth } from "@clerk/clerk-react";
 import QrScanner from "qr-scanner";
 import { History } from "lucide-react";
 import Spinner from "../../../components/ui/Spinner.jsx";
 import { validateScan } from "../../../lib/scannerApi.js";
+import { readScannerSessionToken } from "../../../lib/scannerSessionStorage.js";
 import { primeAudio, playResultSound } from "../scannerSound.js";
 import { vibrateForResult } from "../scannerVibration.js";
 import { SCAN_RESULT_DURATION_MS } from "../scanResultConfig.js";
@@ -26,7 +26,6 @@ function classifyCameraError(err) {
 // el hilo principal). Ver justificación de la librería en el mensaje de
 // aprobación de esta fase.
 export default function ScanningScreen({ event, fn, onExitScanning, onChangeFunction, onRevoked }) {
-    const { getToken } = useAuth();
     const videoRef = useRef(null);
     const qrScannerRef = useRef(null);
     const resumeTimeoutRef = useRef(null);
@@ -72,7 +71,7 @@ export default function ScanningScreen({ event, fn, onExitScanning, onChangeFunc
             const qrToken = typeof scanResult === "string" ? scanResult : scanResult.data;
 
             try {
-                const token = await getToken();
+                const token = readScannerSessionToken();
                 const response = await validateScan(token, { qrToken, eventId: event.id, functionId: fn.id });
 
                 playResultSound(response.status);
@@ -85,7 +84,7 @@ export default function ScanningScreen({ event, fn, onExitScanning, onChangeFunc
                 const duration = SCAN_RESULT_DURATION_MS[response.status] ?? SCAN_RESULT_DURATION_MS.NOT_FOUND;
                 resumeTimeoutRef.current = setTimeout(resumeScanning, duration);
             } catch (err) {
-                if (err.code === "SCANNER_NOT_AUTHORIZED") {
+                if (err.code === "SCANNER_NOT_AUTHORIZED" || err.code === "SCANNER_SESSION_INVALID") {
                     onRevoked();
                     return;
                 }
@@ -100,7 +99,7 @@ export default function ScanningScreen({ event, fn, onExitScanning, onChangeFunc
                 resumeTimeoutRef.current = setTimeout(resumeScanning, SCAN_RESULT_DURATION_MS.NOT_FOUND);
             }
         },
-        [event.id, fn.id, getToken, onRevoked, resumeScanning]
+        [event.id, fn.id, onRevoked, resumeScanning]
     );
 
     const startCamera = useCallback(async () => {

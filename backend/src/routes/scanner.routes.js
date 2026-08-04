@@ -5,18 +5,18 @@ import {
     getFunctionStats,
     listScanAttempts,
 } from "../controllers/scannerRead.controller.js";
-import { requireAuth } from "../middlewares/requireAuth.js";
+import { requireScannerSession } from "../middlewares/requireScannerSession.js";
 
 const router = Router();
 
-// El acceso a "escanear" no depende de un rol de cuenta especial: cualquier
-// usuario autenticado puede llamar a estas rutas — la autorización real
-// (¿está habilitado para ESTE evento?) la resuelve EventScanner dentro de
-// cada service (assertScannerAuthorized). Role.SCANNER queda en el enum de
-// Prisma por compatibilidad, pero ya no gatea nada acá.
-router.get("/events", requireAuth, listScannerEvents);
-router.get("/events/:eventId/functions/:functionId/stats", requireAuth, getFunctionStats);
-router.get("/scan-attempts", requireAuth, listScanAttempts);
-router.post("/validate", requireAuth, validateScan);
+// Sin Clerk en ninguna ruta de acá: la única prueba de identidad es el
+// scannerSessionToken (ver requireScannerSession.js), que además vuelve a
+// chequear en la base que el EventScanner siga ACTIVE en cada request —
+// desactivar/revocar/eliminar desde el panel del organizador invalida el
+// acceso de inmediato, sin depender de que el token venza solo.
+router.get("/events", requireScannerSession, listScannerEvents);
+router.get("/events/:eventId/functions/:functionId/stats", requireScannerSession, getFunctionStats);
+router.get("/scan-attempts", requireScannerSession, listScanAttempts);
+router.post("/validate", requireScannerSession, validateScan);
 
 export default router;

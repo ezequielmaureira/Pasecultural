@@ -1,15 +1,14 @@
-import { getAuth } from "@clerk/express";
 import { AppError } from "../errors/AppError.js";
 import { validateScanService } from "../services/scanner.service.js";
 
 // Los resultados de negocio (VALIDO/YA_USADO/CANCELADO/etc.) siempre
 // responden 200 — el `status` del body es lo que distingue el resultado.
 // Sólo un error real del sistema (AppError) usa un status HTTP distinto,
-// vía next(error).
+// vía next(error). req.scanner ya viene resuelto y verificado ACTIVE por
+// requireScannerSession — no hay Clerk en este flujo.
 export const validateScan = async (req, res, next) => {
     try {
-        const { userId } = getAuth(req);
-        const result = await validateScanService(userId, {
+        const result = await validateScanService(req.scanner, {
             ...req.body,
             ip: req.ip,
             userAgent: req.get("user-agent") || null,
