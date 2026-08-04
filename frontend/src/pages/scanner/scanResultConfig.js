@@ -1,17 +1,18 @@
 // Única fuente de verdad de cómo se ve/cuánto dura cada resultado de
-// escaneo — los números vienen de la Fase 0 aprobada, salvo VALID que esta
-// fase pidió explícitamente acortar a 700ms–1s (queda en 850ms, el punto
-// medio del rango pedido).
+// escaneo. VALID/ALREADY_USED en ~2s (pedido explícito: "mantener el
+// resultado aproximadamente 2 segundos" para ambos). NOT_FOUND se mantiene
+// corto a propósito: en la práctica es el resultado más frecuente de un mal
+// encuadre o un QR de otra app — alargarlo entrena al operador a esperar en
+// el caso que menos información nueva aporta.
 export const SCAN_RESULT_DURATION_MS = {
-    VALID: 850,
-    ALREADY_USED: 3500,
-    CANCELLED: 3500,
-    WRONG_EVENT: 3000,
+    VALID: 2000,
+    ALREADY_USED: 2000,
+    CANCELLED: 2000,
+    WRONG_EVENT: 2500,
     NOT_FOUND: 1200,
     // Pseudo-estado, nunca lo devuelve el backend: se sintetiza en el
-    // cliente cuando validate() falla por red/timeout durante el escaneo
-    // (ver ScanningScreen). Corto, como NOT_FOUND — no hay nada más que
-    // leer, sólo hay que volver a intentar con el siguiente QR.
+    // cliente cuando no hay conexión o validate() falla por red/timeout
+    // durante el escaneo (ver ScanningScreen).
     OFFLINE: 1500,
 };
 
@@ -20,16 +21,16 @@ export const SCAN_RESULT_TONE = {
     ALREADY_USED: "bg-rose-600 text-white",
     CANCELLED: "bg-rose-600 text-white",
     WRONG_EVENT: "bg-orange-500 text-white",
-    NOT_FOUND: "bg-slate-600 text-white",
+    NOT_FOUND: "bg-rose-600 text-white",
     OFFLINE: "bg-slate-700 text-white",
 };
 
 export const SCAN_RESULT_LABEL = {
-    VALID: "Entrada válida",
-    ALREADY_USED: "Ya fue utilizada",
-    WRONG_EVENT: "No es de esta función",
+    VALID: "Acceso permitido",
+    ALREADY_USED: "Entrada ya utilizada",
+    WRONG_EVENT: "Esta entrada pertenece a otro evento",
     CANCELLED: "Entrada cancelada",
-    NOT_FOUND: "QR no reconocido",
+    NOT_FOUND: "QR inválido",
     OFFLINE: "Sin conexión",
 };
 

@@ -17,7 +17,9 @@ function formatTime(value) {
 
 // Pantalla completa, color sólido — nunca un modal ni una tarjeta chica
 // (tiene que leerse de reojo). Un solo componente para los 5 estados del
-// backend + el pseudo-estado OFFLINE sintetizado en el cliente.
+// backend + el pseudo-estado OFFLINE sintetizado en el cliente. Todos los
+// datos vienen tal cual del backend (buildResult en scanner.service.js) —
+// nada se recalcula ni se inventa acá.
 export default function ScanResultOverlay({ status, data }) {
     const Icon = ICON_BY_STATUS[status] ?? HelpCircle;
 
@@ -34,11 +36,20 @@ export default function ScanResultOverlay({ status, data }) {
                         {data?.ticketType && data?.ticketNumber ? " · " : ""}
                         {data?.ticketNumber}
                     </p>
+                    {data?.eventName && <p className="text-sm opacity-90">{data.eventName}</p>}
+                    <p className="text-xs opacity-75">
+                        {formatTime(data?.scannedAt)}
+                        {data?.scannerName ? ` · ${data.scannerName}` : ""}
+                        {data?.gate ? ` · ${data.gate}` : ""}
+                    </p>
                 </div>
             )}
 
-            {status === "ALREADY_USED" && data?.firstScannedAt && (
-                <p className="text-sm font-medium opacity-90">Ingresó a las {formatTime(data.firstScannedAt)}</p>
+            {status === "ALREADY_USED" && (
+                <div className="mt-1 flex flex-col gap-0.5">
+                    {data?.firstScannedAt && <p className="text-sm font-medium opacity-90">Ingresó a las {formatTime(data.firstScannedAt)}</p>}
+                    {data?.firstScannedGate && <p className="text-xs opacity-75">{data.firstScannedGate}</p>}
+                </div>
             )}
 
             {status === "CANCELLED" && data?.ticketNumber && (

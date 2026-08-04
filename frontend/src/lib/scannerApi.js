@@ -1,8 +1,11 @@
 import { apiFetch } from "./api.js";
 
+// Devuelve también `scanner` (name/gate) — el "puesto del scanner" que
+// muestra la pantalla de escaneo, resuelto por el backend a partir del
+// scannerSessionToken (nunca elegido/editable del lado del cliente).
 export async function listScannerEvents(token) {
-    const { events } = await apiFetch("/api/scanner/events", { token });
-    return events;
+    const { events, scanner } = await apiFetch("/api/scanner/events", { token });
+    return { events, scanner };
 }
 
 // `qrToken` es el texto crudo decodificado del QR (formato "<ticketId>.<secret>",

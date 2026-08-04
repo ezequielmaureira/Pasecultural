@@ -10,7 +10,10 @@ import {
 export const listScannerEvents = async (req, res, next) => {
     try {
         const events = await listScannerEventsService(req.scanner);
-        res.status(200).json({ events });
+        // name/gate salen directo de req.scanner (ya resuelto por
+        // requireScannerSession, sin query extra) — es lo que la pantalla de
+        // escaneo necesita mostrar como "puesto del scanner".
+        res.status(200).json({ events, scanner: { name: req.scanner.name, gate: req.scanner.gate } });
     } catch (error) {
         next(AppError.from(error));
     }

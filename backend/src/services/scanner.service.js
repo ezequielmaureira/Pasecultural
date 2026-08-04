@@ -46,6 +46,7 @@ function buildResult(result, { ticket, checkIn, scannerName, gate } = {}) {
         data = {
             ticketNumber: ticket.ticketNumber,
             firstScannedAt: checkIn?.scannedAt ?? null,
+            firstScannedGate: checkIn?.gate ?? null,
         };
     } else if (result === "CANCELLED") {
         data = { ticketNumber: ticket.ticketNumber };

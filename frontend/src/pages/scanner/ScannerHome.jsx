@@ -31,6 +31,7 @@ export default function ScannerHome() {
     const [phase, setPhase] = useState("loading");
     const [cachedSelection, setCachedSelection] = useState(null);
     const [events, setEvents] = useState([]);
+    const [scannerInfo, setScannerInfo] = useState(null); // { name, gate } — "puesto del scanner", nunca editable
     const [selectedEvent, setSelectedEvent] = useState(null);
     const [selectedFunction, setSelectedFunction] = useState(null);
     const [errorMessage, setErrorMessage] = useState("");
@@ -59,8 +60,9 @@ export default function ScannerHome() {
         setPhase(stored ? "reconnecting" : "loading");
 
         try {
-            const fetchedEvents = await listScannerEvents(sessionToken);
+            const { events: fetchedEvents, scanner } = await listScannerEvents(sessionToken);
             setEvents(fetchedEvents);
+            setScannerInfo(scanner);
             resolveSelection(fetchedEvents, stored);
         } catch (err) {
             if (err.code === "SCANNER_SESSION_INVALID") {
@@ -204,9 +206,11 @@ export default function ScannerHome() {
             <ScanningScreen
                 event={selectedEvent}
                 fn={selectedFunction}
+                scannerGate={scannerInfo?.gate ?? scannerInfo?.name ?? ""}
                 onExitScanning={() => setPhase("ready")}
                 onChangeFunction={() => setPhase("select-function")}
                 onRevoked={() => exitWithoutSession("Ya no tenés acceso como scanner de este evento.")}
+                onLogout={() => exitWithoutSession()}
             />
         );
     }
