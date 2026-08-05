@@ -120,6 +120,56 @@ export const softDeleteTicketService = async (clerkId, eventId, ticketId, { reas
     });
 };
 
+export function buildBulkTicketActionPlan({ action, tickets, actorId, reason }) {
+    const auditRows = [];
+    const updateIds = [];
+
+    for (const ticket of tickets) {
+        if (action === "cancel" && ticket.status === "ACTIVE") {
+            updateIds.push(ticket.id);
+            auditRows.push({
+                ticketId: ticket.id,
+                action: "CANCEL",
+                fromStatus: ticket.status,
+                toStatus: "CANCELLED",
+                actorType: "ORGANIZER",
+                actorId,
+                reason: reason || null,
+            });
+            continue;
+        }
+
+        if (action === "rehabilitate" && (ticket.status === "CANCELLED" || ticket.status === "USED")) {
+            updateIds.push(ticket.id);
+            auditRows.push({
+                ticketId: ticket.id,
+                action: ticket.status === "USED" ? "REACTIVATE" : "REHABILITATE",
+                fromStatus: ticket.status,
+                toStatus: "ACTIVE",
+                actorType: "ORGANIZER",
+                actorId,
+                reason: reason || null,
+            });
+            continue;
+        }
+
+        if (action === "delete") {
+            updateIds.push(ticket.id);
+            auditRows.push({
+                ticketId: ticket.id,
+                action: "SOFT_DELETE",
+                fromStatus: ticket.status,
+                toStatus: null,
+                actorType: "ORGANIZER",
+                actorId,
+                reason: reason || null,
+            });
+        }
+    }
+
+    return { updateIds, auditRows };
+}
+
 export const bulkApplyTicketActionService = async (clerkId, eventId, { ticketIds, action, reason } = {}) => {
     const owned = await getOwnedEvent(clerkId, eventId);
     if (!owned) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
@@ -132,60 +182,26 @@ export const bulkApplyTicketActionService = async (clerkId, eventId, { ticketIds
         select: { id: true, status: true },
     });
 
-    const ticketMap = new Map(tickets.map((ticket) => [ticket.id, ticket]));
-    const updatedTicketIds = [];
+    const plan = buildBulkTicketActionPlan({ action, tickets, actorId: owned.user.id, reason });
+    if (plan.updateIds.length === 0) return [];
+
+    let updateData;
+    if (action === "cancel") {
+        updateData = { status: "CANCELLED" };
+    } else if (action === "rehabilitate") {
+        updateData = { status: "ACTIVE" };
+    } else if (action === "delete") {
+        updateData = { deletedAt: new Date() };
+    } else {
+        return [];
+    }
 
     await prisma.$transaction(async (tx) => {
-        for (const ticketId of ids) {
-            const ticket = ticketMap.get(ticketId);
-            if (!ticket) continue;
-
-            if (action === "cancel" && ticket.status === "ACTIVE") {
-                const updated = await tx.ticket.update({ where: { id: ticketId }, data: { status: "CANCELLED" } });
-                await tx.ticketAuditLog.create({
-                    data: {
-                        ticketId: updated.id,
-                        action: "CANCEL",
-                        fromStatus: ticket.status,
-                        toStatus: "CANCELLED",
-                        actorType: "ORGANIZER",
-                        actorId: owned.user.id,
-                        reason: reason || null,
-                    },
-                });
-                updatedTicketIds.push(updated.id);
-            } else if (action === "rehabilitate" && (ticket.status === "CANCELLED" || ticket.status === "USED")) {
-                const nextStatus = ticket.status === "USED" ? "ACTIVE" : "ACTIVE";
-                const updated = await tx.ticket.update({ where: { id: ticketId }, data: { status: nextStatus } });
-                await tx.ticketAuditLog.create({
-                    data: {
-                        ticketId: updated.id,
-                        action: ticket.status === "USED" ? "REACTIVATE" : "REHABILITATE",
-                        fromStatus: ticket.status,
-                        toStatus: nextStatus,
-                        actorType: "ORGANIZER",
-                        actorId: owned.user.id,
-                        reason: reason || null,
-                    },
-                });
-                updatedTicketIds.push(updated.id);
-            } else if (action === "delete") {
-                const updated = await tx.ticket.update({ where: { id: ticketId }, data: { deletedAt: new Date() } });
-                await tx.ticketAuditLog.create({
-                    data: {
-                        ticketId: updated.id,
-                        action: "SOFT_DELETE",
-                        fromStatus: ticket.status,
-                        toStatus: null,
-                        actorType: "ORGANIZER",
-                        actorId: owned.user.id,
-                        reason: reason || null,
-                    },
-                });
-                updatedTicketIds.push(updated.id);
-            }
+        await tx.ticket.updateMany({ where: { id: { in: plan.updateIds } }, data: updateData });
+        if (plan.auditRows.length > 0) {
+            await tx.ticketAuditLog.createMany({ data: plan.auditRows });
         }
     });
 
-    return updatedTicketIds;
+    return plan.updateIds;
 };
