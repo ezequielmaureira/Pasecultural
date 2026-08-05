@@ -6,6 +6,7 @@ import {
     reactivateUsedTicketService,
     markTicketUsedManuallyService,
     softDeleteTicketService,
+    bulkApplyTicketActionService,
 } from "../services/ticketAdmin.service.js";
 
 // Sólo validan req, llaman al service y devuelven la respuesta. Toda la
@@ -57,6 +58,16 @@ export const softDeleteTicket = async (req, res, next) => {
         const { userId } = getAuth(req);
         await softDeleteTicketService(userId, req.params.id, req.params.ticketId, req.body ?? {});
         res.status(204).send();
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
+
+export const bulkActionTickets = async (req, res, next) => {
+    try {
+        const { userId } = getAuth(req);
+        const updatedTicketIds = await bulkApplyTicketActionService(userId, req.params.id, req.body ?? {});
+        res.status(200).json({ updatedTicketIds });
     } catch (error) {
         next(AppError.from(error));
     }

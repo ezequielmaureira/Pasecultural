@@ -8,13 +8,24 @@ import { apiFetch } from "./api.js";
 
 // GET /api/tickets/organizer — todos los tickets vendidos de todos los
 // eventos del organizador, con búsqueda y filtro de estado server-side.
-export async function listOrganizerTickets(token, { search, status } = {}) {
+export async function listOrganizerTickets(token, { search, status, eventId, functionId } = {}) {
     const params = new URLSearchParams();
     if (search?.trim()) params.set("search", search.trim());
     if (status) params.set("status", status);
+    if (eventId) params.set("eventId", eventId);
+    if (functionId) params.set("functionId", functionId);
     const query = params.toString() ? `?${params.toString()}` : "";
     const { tickets } = await apiFetch(`/api/tickets/organizer${query}`, { token });
     return tickets;
+}
+
+export async function bulkActionTickets(token, eventId, { ticketIds, action, reason } = {}) {
+    const { updatedTicketIds } = await apiFetch(`/api/events/${eventId}/tickets/bulk-action`, {
+        token,
+        method: "POST",
+        body: JSON.stringify({ ticketIds, action, reason }),
+    });
+    return updatedTicketIds;
 }
 
 export async function cancelTicket(token, eventId, ticketId, { reason } = {}) {

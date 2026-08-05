@@ -28,6 +28,7 @@ import {
     reactivateUsedTicket,
     markTicketUsedManually,
     softDeleteTicket,
+    bulkActionTickets,
 } from "../controllers/ticketAdmin.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 
@@ -62,6 +63,7 @@ router.delete("/:id/scanners/:scannerId", requireAuth, deleteScanner);
 // Administración de entradas del organizador — ver ticketAdmin.service.js.
 // Sin UI todavía (a propósito, ver auditoría del modelo de datos): quedan
 // disponibles para cuando se construya el panel de administración.
+router.post("/:id/tickets/bulk-action", requireAuth, bulkActionTickets);
 router.post("/:id/tickets/:ticketId/cancel", requireAuth, cancelTicket);
 router.post("/:id/tickets/:ticketId/rehabilitate", requireAuth, rehabilitateTicket);
 router.post("/:id/tickets/:ticketId/reactivate", requireAuth, reactivateUsedTicket);

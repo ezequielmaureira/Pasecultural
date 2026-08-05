@@ -53,8 +53,8 @@ export const getTicketByNumber = async (req, res, next) => {
 export const listTicketsOrganizer = async (req, res, next) => {
     try {
         const { userId } = getAuth(req);
-        const { search, status } = req.query;
-        const tickets = await listTicketsOrganizerService(userId, { search, status });
+        const { search, status, eventId, functionId } = req.query;
+        const tickets = await listTicketsOrganizerService(userId, { search, status, eventId, functionId });
         res.status(200).json({ tickets });
     } catch (error) {
         next(AppError.from(error));

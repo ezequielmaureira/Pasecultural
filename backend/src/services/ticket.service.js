@@ -89,7 +89,7 @@ export const getTicketByNumberService = async (clerkId, ticketNumber) => {
 // que venga del cliente.
 const TICKET_STATUS_VALUES = ["ACTIVE", "USED", "CANCELLED", "REFUNDED"];
 
-export const listTicketsOrganizerService = async (clerkId, { search, status } = {}) => {
+export const listTicketsOrganizerService = async (clerkId, { search, status, eventId, functionId } = {}) => {
     const user = await getUserByClerkId(clerkId);
     if (!user) return [];
 
@@ -97,6 +97,9 @@ export const listTicketsOrganizerService = async (clerkId, { search, status } = 
     if (!organization) return [];
 
     const where = { event: { organizationId: organization.id } };
+
+    if (eventId) where.eventId = eventId;
+    if (functionId) where.functionId = functionId;
 
     // "DELETED" es el único filtro que efectivamente busca tickets con
     // deletedAt seteado — todos los demás (incluido "ALL"/sin filtro)
@@ -205,5 +208,6 @@ export const listTicketsOrganizerService = async (clerkId, { search, status } = 
             reason: log.reason,
             createdAt: log.createdAt,
         })),
+        functionId: ticket.function.id,
     }));
 };
