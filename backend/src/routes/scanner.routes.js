@@ -4,6 +4,7 @@ import {
     listScannerEvents,
     getFunctionStats,
     listScanAttempts,
+    getScannerDashboard,
 } from "../controllers/scannerRead.controller.js";
 import { requireScannerSession } from "../middlewares/requireScannerSession.js";
 
@@ -14,6 +15,7 @@ const router = Router();
 // chequear en la base que el EventScanner siga ACTIVE en cada request —
 // desactivar/revocar/eliminar desde el panel del organizador invalida el
 // acceso de inmediato, sin depender de que el token venza solo.
+router.get("/dashboard", requireScannerSession, getScannerDashboard);
 router.get("/events", requireScannerSession, listScannerEvents);
 router.get("/events/:eventId/functions/:functionId/stats", requireScannerSession, getFunctionStats);
 router.get("/scan-attempts", requireScannerSession, listScanAttempts);

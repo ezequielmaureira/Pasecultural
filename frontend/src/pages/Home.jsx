@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { ChevronRight, ShieldCheck, Ticket, UserCheck, Headset, Search } from "lucide-react";
+import { ChevronRight, ShieldCheck, Ticket, UserCheck, Headset, Search, ScanLine } from "lucide-react";
 import HeroCarousel from "../components/marketplace/HeroCarousel.jsx";
 import CategoryFilterBar from "../components/marketplace/CategoryFilterBar.jsx";
 import EventsCarousel from "../components/marketplace/EventsCarousel.jsx";
@@ -125,6 +125,29 @@ function RecoverPurchaseSection() {
   );
 }
 
+// Acceso visible a "Soy Scanner" desde el Home — mismo criterio que
+// RecoverPurchaseSection: sin esto, la única forma de llegar al Portal
+// Scanner (ScannerPortal.jsx, login recurrente por email + código) era
+// escribiendo la URL a mano.
+function ScannerPortalSection() {
+  return (
+    <section className={`${SECTION} ${SECTION_SPACING}`}>
+      <div className="flex flex-col items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/5 p-6 text-center sm:flex-row sm:text-left">
+        <div>
+          <p className="text-sm font-semibold text-white">¿Ya te registraste como scanner?</p>
+          <p className="text-xs text-slate-400">Entrá con tu correo y un código de verificación, sin contraseña.</p>
+        </div>
+        <Link to="/scanner/portal" className="shrink-0">
+          <Button variant="secondary" className="gap-1.5">
+            <ScanLine className="h-4 w-4" />
+            Soy Scanner
+          </Button>
+        </Link>
+      </div>
+    </section>
+  );
+}
+
 export default function Home() {
   const navigate = useNavigate();
   const [events, setEvents] = useState([]);
@@ -196,6 +219,7 @@ export default function Home() {
 
       <TrustBar />
       <RecoverPurchaseSection />
+      <ScannerPortalSection />
     </div>
   );
 }

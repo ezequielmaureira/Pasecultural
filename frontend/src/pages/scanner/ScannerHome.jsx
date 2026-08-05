@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "../../context/ToastContext.jsx";
-import { listScannerEvents } from "../../lib/scannerApi.js";
+import { listScannerEvents, getScannerDashboard } from "../../lib/scannerApi.js";
 import { readActiveScannerSelection, writeActiveScannerSelection, clearActiveScannerSelection } from "../../lib/scannerStorage.js";
 import { readScannerSessionToken, clearScannerSessionToken } from "../../lib/scannerSessionStorage.js";
 import { functionLabel } from "./scannerFormat.js";
@@ -14,14 +14,23 @@ import EventSelectScreen from "./screens/EventSelectScreen.jsx";
 import FunctionSelectScreen from "./screens/FunctionSelectScreen.jsx";
 import ReadyScreen from "./screens/ReadyScreen.jsx";
 import ScanningScreen from "./screens/ScanningScreen.jsx";
+import DashboardScreen from "./screens/DashboardScreen.jsx";
+import ScannerStatsScreen from "./screens/ScannerStatsScreen.jsx";
+import ScanHistoryDrawer from "./components/ScanHistoryDrawer.jsx";
 
 // Máquina de estados de la selección del Scanner. Fases posibles:
 //   loading       -> primera carga, sin nada guardado todavía para mostrar
 //   reconnecting  -> hay evento/función guardados: se muestran de inmediato
 //                    mientras se confirma en segundo plano que sigan válidos
+//   dashboard     -> pantalla previa (identidad/estado/validadas hoy) — a
+//                    dónde aterriza SIEMPRE una sesión válida, antes de
+//                    elegir escanear/historial/estadísticas
 //   select-event  -> más de un evento asignado
 //   select-function -> evento elegido (o el único que tiene), más de 1 función
-//   ready         -> evento+función resueltos, listo para (la próxima fase) escanear
+//   ready         -> evento+función resueltos, listo para escanear
+//   scanning      -> lector QR (sin cambios de lógica en este cambio)
+//   history       -> últimos escaneos de la función (ScanHistoryDrawer, reusado)
+//   stats         -> estadísticas de la función (sólo lectura)
 //   empty         -> sin ninguna asignación activa
 //   error/offline -> falló la carga
 export default function ScannerHome() {
@@ -32,20 +41,29 @@ export default function ScannerHome() {
     const [cachedSelection, setCachedSelection] = useState(null);
     const [events, setEvents] = useState([]);
     const [scannerInfo, setScannerInfo] = useState(null); // { name, gate } — "puesto del scanner", nunca editable
+    const [dashboard, setDashboard] = useState(null);
     const [selectedEvent, setSelectedEvent] = useState(null);
     const [selectedFunction, setSelectedFunction] = useState(null);
     const [errorMessage, setErrorMessage] = useState("");
 
+    // A qué fase ir una vez que select-event/select-function resuelven un
+    // evento+función: "scan" (default, va a "ready") | "history" | "stats".
+    // No cambia en nada la lógica de resolveSelection/autoSelectOrPrompt/
+    // applySelection en sí — sólo el destino final de applySelection.
+    const [selectionIntent, setSelectionIntent] = useState("scan");
+
     // Sin Clerk: la única credencial es el scannerSessionToken guardado al
-    // verificar el código (ver ScannerInvitationClaim.jsx). Si el
-    // organizador desactivó/revocó/eliminó este scanner mientras tanto, el
-    // backend lo rechaza igual con SCANNER_SESSION_INVALID en cada request
-    // — acá se limpia el token y se saca a la persona del módulo.
+    // verificar el código — antes sólo por invitación, ahora también por el
+    // Portal Scanner (ScannerPortal.jsx). Si el organizador desactivó/
+    // revocó/eliminó este scanner mientras tanto, el backend lo rechaza
+    // igual con SCANNER_SESSION_INVALID en cada request — acá se limpia el
+    // token y se manda a la persona al Portal (no a Home): es el único
+    // camino de acceso recurrente de acá en más.
     function exitWithoutSession(message) {
         clearScannerSessionToken();
         clearActiveScannerSelection();
         if (message) toast.info(message);
-        navigate("/", { replace: true });
+        navigate("/scanner/portal", { replace: true });
     }
 
     const load = useCallback(async () => {
@@ -60,10 +78,17 @@ export default function ScannerHome() {
         setPhase(stored ? "reconnecting" : "loading");
 
         try {
-            const { events: fetchedEvents, scanner } = await listScannerEvents(sessionToken);
+            const [{ events: fetchedEvents, scanner }, dashboardInfo] = await Promise.all([
+                listScannerEvents(sessionToken),
+                getScannerDashboard(sessionToken),
+            ]);
             setEvents(fetchedEvents);
             setScannerInfo(scanner);
-            resolveSelection(fetchedEvents, stored);
+            setDashboard(dashboardInfo);
+            // Toda sesión válida aterriza en el Dashboard primero — la
+            // resolución de evento/función (resolveSelection) ya no corre
+            // sola al cargar, sólo cuando la persona elige una acción.
+            setPhase("dashboard");
         } catch (err) {
             if (err.code === "SCANNER_SESSION_INVALID") {
                 exitWithoutSession("Tu sesión de scanner venció o ya no es válida.");
@@ -148,7 +173,7 @@ export default function ScannerHome() {
                 functionName: functionLabel(fn),
             });
         }
-        setPhase("ready");
+        setPhase(selectionIntent === "scan" ? "ready" : selectionIntent);
     }
 
     function handleSelectEvent(event) {
@@ -164,6 +189,33 @@ export default function ScannerHome() {
         applySelection(selectedEvent, fn, { persist: true });
     }
 
+    // Botón principal del Dashboard — reutiliza tal cual la cadena ya
+    // existente (resolveSelection -> autoSelectOrPrompt/select-event/
+    // select-function -> ready -> scanning), conservando la última función
+    // elegida igual que antes.
+    function handleStartScanning() {
+        setSelectionIntent("scan");
+        resolveSelection(events, readActiveScannerSelection());
+    }
+
+    // "Historial"/"Estadísticas": van directo a la función si sólo hay una
+    // (1 evento + 1 función, caso típico), si no piden elegir primero —
+    // mismas pantallas de selección ya existentes, nunca se auto-recuerda
+    // una elección anterior para esto (siempre autoSelectOrPrompt "fresco").
+    function handleOpenHistory() {
+        setSelectionIntent("history");
+        resolveSelection(events, null);
+    }
+
+    function handleOpenStats() {
+        setSelectionIntent("stats");
+        resolveSelection(events, null);
+    }
+
+    function handleLogout() {
+        exitWithoutSession();
+    }
+
     if (phase === "loading") return <LoadingScreen />;
     if (phase === "reconnecting") {
         return <ReconnectingScreen eventName={cachedSelection?.eventName} functionName={cachedSelection?.functionName} />;
@@ -177,6 +229,17 @@ export default function ScannerHome() {
     }
     if (phase === "error") return <ErrorScreen message={errorMessage} onRetry={load} />;
     if (phase === "no-session") return <NoSessionScreen />;
+    if (phase === "dashboard" && dashboard) {
+        return (
+            <DashboardScreen
+                dashboard={dashboard}
+                onStartScanning={handleStartScanning}
+                onOpenHistory={handleOpenHistory}
+                onOpenStats={handleOpenStats}
+                onLogout={handleLogout}
+            />
+        );
+    }
     if (phase === "empty") return <EmptyScreen />;
     if (phase === "select-event") return <EventSelectScreen events={events} onSelect={handleSelectEvent} />;
     if (phase === "select-function") {
@@ -210,9 +273,15 @@ export default function ScannerHome() {
                 onExitScanning={() => setPhase("ready")}
                 onChangeFunction={() => setPhase("select-function")}
                 onRevoked={() => exitWithoutSession("Ya no tenés acceso como scanner de este evento.")}
-                onLogout={() => exitWithoutSession()}
+                onLogout={handleLogout}
             />
         );
+    }
+    if (phase === "history") {
+        return <ScanHistoryDrawer eventId={selectedEvent.id} functionId={selectedFunction.id} onClose={() => setPhase("dashboard")} />;
+    }
+    if (phase === "stats") {
+        return <ScannerStatsScreen event={selectedEvent} fn={selectedFunction} onBack={() => setPhase("dashboard")} />;
     }
     return null;
 }

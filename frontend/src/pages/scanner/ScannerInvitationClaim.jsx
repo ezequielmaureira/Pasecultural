@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { ScanLine, CheckCircle2, Clock, Ban, AlertTriangle, RefreshCw } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
@@ -201,18 +201,21 @@ export default function ScannerInvitationClaim() {
   }
 
   if (invitation.status === "ACTIVE") {
-    // Este link ya se usó en otra sesión/dispositivo — no hay forma de
-    // recuperar un scannerSessionToken sólo con GET (no hay login de
-    // respaldo, a propósito). Si perdió el acceso, la única salida es que
-    // el organizador le genere una invitación nueva.
+    // La invitación cumplió su único propósito (registrar una vez) — ya no
+    // sirve para volver a entrar (ver la ventana de gracia en
+    // verifyScannerInvitationCodeService). El camino correcto para volver a
+    // entrar de acá en más es el Portal Scanner, con el mismo email.
     return (
       <Shell>
         <CheckCircle2 className="h-9 w-9 text-emerald-400" />
         <h1 className="text-lg font-bold text-white">Esta invitación ya fue usada</h1>
         <p className="text-sm text-slate-400">
-          El acceso a "{invitation.eventTitle}" — {invitation.gate} — ya está activo en otro dispositivo.
+          Tu acceso a "{invitation.eventTitle}" — {invitation.gate} — ya está activo.
         </p>
-        <p className="text-xs text-slate-500">Si perdiste el acceso, pedile al organizador que te genere una invitación nueva.</p>
+        <Link to="/scanner/portal" className="w-full">
+          <Button className="mt-1 w-full justify-center">Ir al Portal Scanner</Button>
+        </Link>
+        <p className="text-xs text-slate-500">Entrá con el mismo correo con el que te registraste.</p>
       </Shell>
     );
   }

@@ -16,6 +16,14 @@ const CODE_EXPIRY_MS = 10 * 60 * 1000; // 10 minutos
 const MAX_VERIFICATION_ATTEMPTS = 5;
 const RESEND_COOLDOWN_MS = 60 * 1000; // 1 minuto entre envíos de código
 
+// Ventana MUY corta después de activar: sólo cubre un doble-submit real
+// (doble click, reintento de red) del mismo browser que acaba de activar —
+// nunca pensada como una forma de volver a entrar más adelante. Pasada esa
+// ventana, la invitación ya no sirve para nada más que registrar UNA vez;
+// todo acceso posterior es por el Portal Scanner (email + código,
+// scannerLogin.service.js), no por este token.
+const REACTIVATION_GRACE_MS = 2 * 60 * 1000;
+
 // Sólo lo necesario para que la pantalla pública de invitación se arme —
 // nunca id interno, nunca datos de otros scanners de la misma puerta, y
 // nunca ningún dato del código de verificación.
@@ -181,11 +189,17 @@ export const verifyScannerInvitationCodeService = async (token, code, { userAgen
     const scanner = await loadLiveInvitation(token);
 
     if (scanner.status === "ACTIVE") {
-        // Reabrir la misma pantalla después de haber verificado ya (doble
-        // pestaña, refresh, doble click) no es un error — se responde con
-        // el estado actual Y un token nuevo (varios tokens válidos para el
-        // mismo EventScanner pueden convivir sin problema: son stateless,
-        // lo único que importa es que la fila siga ACTIVE en cada request).
+        // Reabrir la misma pantalla justo después de haber verificado (doble
+        // pestaña, refresh, doble click) no es un error — se responde con el
+        // estado actual Y un token nuevo, SIN pedir el código de nuevo. Pero
+        // sólo dentro de una ventana muy corta desde la activación: pasado
+        // ese margen, este token de invitación ya cumplió su único propósito
+        // (registrar una vez) y no puede volver a usarse como si fuera una
+        // contraseña permanente — el acceso recurrente es por el Portal
+        // Scanner (scannerLogin.service.js).
+        const withinGrace = scanner.activatedAt && Date.now() - scanner.activatedAt.getTime() < REACTIVATION_GRACE_MS;
+        if (!withinGrace) throw new AppError(ErrorCodes.SCANNER_INVITATION_ALREADY_CLAIMED);
+
         const event = await prisma.event.findUnique({ where: { id: scanner.eventId }, select: { title: true } });
         return {
             status: "ACTIVE",

@@ -20,6 +20,7 @@ import DeveloperUsers from "./pages/developer/DeveloperUsers.jsx";
 import ScannerShell from "./pages/scanner/ScannerShell.jsx";
 import ScannerHome from "./pages/scanner/ScannerHome.jsx";
 import ScannerInvitationClaim from "./pages/scanner/ScannerInvitationClaim.jsx";
+import ScannerPortal from "./pages/scanner/ScannerPortal.jsx";
 import EventsList from "./pages/public/EventsList.jsx";
 import EventDetail from "./pages/public/EventDetail.jsx";
 import PurchaseWizard from "./pages/public/purchase/PurchaseWizard.jsx";
@@ -67,6 +68,11 @@ export default function App() {
                 directo a /iniciar-sesion sin ese contexto. La propia
                 pantalla pide sesión sólo para el botón "Aceptar". */}
             <Route path="/scanner/invitacion/:token" element={<ScannerInvitationClaim />} />
+            {/* Acceso RECURRENTE de un scanner ya registrado — "Soy Scanner"
+                desde el Home. Email + código de 6 dígitos, misma
+                credencial (scannerSessionToken) que ya emite el registro
+                por invitación. También pública, mismo criterio. */}
+            <Route path="/scanner/portal" element={<ScannerPortal />} />
             <Route path="/para-organizadores" element={<OrganizersLanding />} />
             <Route path="/como-funciona" element={<HowItWorks />} />
             <Route path="/perfil" element={<Profile />} />

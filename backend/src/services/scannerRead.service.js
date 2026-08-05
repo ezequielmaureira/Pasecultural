@@ -6,6 +6,16 @@ import { effectiveCapacity, getFunctionStats } from "./functionCapacity.service.
 const MAX_SCAN_ATTEMPTS_LIMIT = 50;
 const DEFAULT_SCAN_ATTEMPTS_LIMIT = 20;
 
+// "Hoy" en huso horario de Argentina (UTC-3 fijo, sin horario de verano) —
+// calculado así a propósito: en producción el server corre en UTC, y tomar
+// medianoche local del servidor correría el corte de "hoy" varias horas.
+function startOfTodayInBuenosAires() {
+    const BUENOS_AIRES_OFFSET_MS = 3 * 60 * 60 * 1000;
+    const shifted = new Date(Date.now() - BUENOS_AIRES_OFFSET_MS);
+    shifted.setUTCHours(0, 0, 0, 0);
+    return new Date(shifted.getTime() + BUENOS_AIRES_OFFSET_MS);
+}
+
 // `scannerContext` es req.scanner, ya resuelto y verificado ACTIVE por
 // requireScannerSession — nunca se vuelve a resolver identidad acá. Un
 // scannerSessionToken está ligado a UN solo EventScanner = UN solo evento
@@ -75,6 +85,44 @@ export const listScannerEventsService = async (scannerContext) => {
             }),
         },
     ];
+};
+
+// Pantalla previa "Dashboard Scanner" (antes de abrir el lector QR):
+// identidad + estado + actividad de hoy. Nunca datos de otros scanners ni
+// de la Sale — sólo lo que ya vive en la fila del propio EventScanner más
+// un conteo de ScanAttempt, sin tocar validateScanService.
+export const getScannerDashboardService = async (scannerContext) => {
+    const fresh = await prisma.eventScanner.findUnique({
+        where: { id: scannerContext.id },
+        select: {
+            name: true,
+            gate: true,
+            firstName: true,
+            lastName: true,
+            status: true,
+            lastAccessAt: true,
+            event: { select: { title: true } },
+        },
+    });
+
+    const validatedToday = await prisma.scanAttempt.count({
+        where: {
+            scannedBy: scannerContext.id,
+            result: "VALID",
+            scannedAt: { gte: startOfTodayInBuenosAires() },
+        },
+    });
+
+    return {
+        name: fresh.name,
+        gate: fresh.gate,
+        firstName: fresh.firstName,
+        lastName: fresh.lastName,
+        status: fresh.status,
+        lastAccessAt: fresh.lastAccessAt,
+        eventTitle: fresh.event.title,
+        validatedToday,
+    };
 };
 
 export const getFunctionStatsService = async (scannerContext, eventId, functionId) => {

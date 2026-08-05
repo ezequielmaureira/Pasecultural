@@ -256,4 +256,19 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Sale recovery code verification attempted after exceeding the max allowed attempts for the current code.",
         userMessage: "Superaste el máximo de intentos. Pedí un código nuevo.",
     },
+
+    // --- Portal Scanner (login recurrente por email + código) -----------
+    // El resto de los códigos de este flujo reusa la familia
+    // SCANNER_VERIFICATION_* de arriba (mismo texto sirve para registro y
+    // para login) — sólo estos dos son nuevos y propios del login.
+    SCANNER_LOGIN_NOT_FOUND: {
+        httpStatus: 404,
+        logMessage: "Scanner portal login attempted for an email with no ACTIVE EventScanner row.",
+        userMessage: "No encontramos un acceso habilitado.",
+    },
+    SCANNER_LOGIN_INVALID_EMAIL: {
+        httpStatus: 400,
+        logMessage: "Scanner portal login attempted with an invalid email.",
+        userMessage: "Ingresá un email válido.",
+    },
 });

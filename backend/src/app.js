@@ -13,6 +13,7 @@ import saleRoutes from "./routes/sale.routes.js";
 import ticketRoutes from "./routes/ticket.routes.js";
 import scannerRoutes from "./routes/scanner.routes.js";
 import scannerInvitationRoutes from "./routes/scannerInvitation.routes.js";
+import scannerAuthRoutes from "./routes/scannerAuth.routes.js";
 import { errorHandler } from "./errors/index.js";
 
 const app = express();
@@ -46,6 +47,7 @@ app.use("/api/sales", saleRoutes);
 app.use("/api/tickets", ticketRoutes);
 app.use("/api/scanner", scannerRoutes);
 app.use("/api/scanner-invitations", scannerInvitationRoutes);
+app.use("/api/scanner-auth", scannerAuthRoutes);
 
 app.get("/debug/prisma-user", async (req, res) => {
     try {

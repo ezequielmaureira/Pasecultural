@@ -3,9 +3,19 @@ import {
     listScannerEventsService,
     getFunctionStatsService,
     listScanAttemptsService,
+    getScannerDashboardService,
 } from "../services/scannerRead.service.js";
 
 // req.scanner ya viene resuelto y verificado ACTIVE por requireScannerSession.
+
+export const getScannerDashboard = async (req, res, next) => {
+    try {
+        const dashboard = await getScannerDashboardService(req.scanner);
+        res.status(200).json({ dashboard });
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
 
 export const listScannerEvents = async (req, res, next) => {
     try {
