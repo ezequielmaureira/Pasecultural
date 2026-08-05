@@ -52,6 +52,7 @@ const NAV_BY_ROLE = {
       ],
     },
     { label: "Entradas", icon: Ticket, path: "/organizador/entradas", end: true },
+    { label: "Tipos de entrada", icon: Ticket, path: "/organizador/tipos-de-entrada", end: true },
     { label: "Ventas", icon: LineChart, path: "/organizador/ventas", end: true },
     {
       label: "Scanners",

@@ -31,6 +31,7 @@ import OrganizerEvents from "./pages/organizer/OrganizerEvents.jsx";
 import OrganizerEventWizard from "./pages/organizer/OrganizerEventWizard.jsx";
 import OrganizerEventChat from "./pages/organizer/OrganizerEventChat.jsx";
 import OrganizerTickets from "./pages/organizer/OrganizerTickets.jsx";
+import OrganizerTicketTypes from "./pages/organizer/OrganizerTicketTypes.jsx";
 import OrganizerSales from "./pages/organizer/OrganizerSales.jsx";
 import OrganizerScanners from "./pages/organizer/OrganizerScanners.jsx";
 import OrganizerScannerInvite from "./pages/organizer/OrganizerScannerInvite.jsx";
@@ -122,6 +123,7 @@ export default function App() {
                   <Route path="eventos/nuevo" element={<OrganizerEventChat />} />
                   <Route path="eventos/:id/editar" element={<OrganizerEventWizard />} />
                   <Route path="entradas" element={<OrganizerTickets />} />
+                  <Route path="tipos-de-entrada" element={<OrganizerTicketTypes />} />
                   <Route path="ventas" element={<OrganizerSales />} />
                   <Route path="scanners" element={<OrganizerScanners />} />
                   <Route path="scanners/nuevo" element={<OrganizerScannerInvite />} />
