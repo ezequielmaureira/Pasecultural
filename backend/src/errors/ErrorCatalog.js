@@ -115,6 +115,11 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Requesting user is not the owner of this ticket.",
         userMessage: "No tenés permiso para acceder a esta entrada.",
     },
+    TICKET_INVALID_TRANSITION: {
+        httpStatus: 409,
+        logMessage: "Ticket status change attempted from a status that does not allow it.",
+        userMessage: "No se puede completar esa acción en el estado actual de la entrada.",
+    },
     SCANNER_NOT_AUTHORIZED: {
         httpStatus: 403,
         logMessage: "Scanner user is not assigned (or not active) for this event.",

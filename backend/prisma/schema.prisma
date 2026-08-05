@@ -516,8 +516,12 @@ model Ticket {
   owner   User   @relation("TicketOwner", fields: [ownerId], references: [id])
 
   qr           TicketQr?
-  checkIn      CheckIn?
+  // Historial de ingresos — ya NO es 1:1 (ver CheckIn más abajo): un ticket
+  // reactivado después de USED puede volver a escanearse y sumar un nuevo
+  // CheckIn sin perder los anteriores.
+  checkIns     CheckIn[]
   scanAttempts ScanAttempt[]
+  auditLogs    TicketAuditLog[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -546,18 +550,29 @@ model TicketQr {
   @@map("ticket_qrs")
 }
 
-// El ingreso "oficial" (válido) de un ticket. Uno por ticket (@unique):
-// es lo que permite mostrar "hora del primer ingreso" ante un reintento
-// del mismo QR, sin tener que filtrar el log completo de intentos.
+// Historial de ingresos de un ticket — a propósito NO es 1:1 (sin @unique
+// en ticketId): un ticket puede reactivarse después de USED (ver
+// TicketAuditLog) y volver a escanearse, y cada ingreso real queda como una
+// fila propia, nunca se pisa ni se borra la anterior. Para "¿cuándo entró
+// por última vez?" se consulta con findFirst + orderBy(scannedAt desc), no
+// findUnique — ver validateScanService.
 model CheckIn {
   id String @id @default(cuid())
 
-  ticketId String @unique
+  ticketId String
   ticket   Ticket @relation(fields: [ticketId], references: [id])
 
-  scannedBy String
-  scannedAt DateTime @default(now())
+  // SCAN = lo creó un escaneo real de QR (validateScanService). MANUAL = lo
+  // cargó un organizador a mano (markTicketUsedManuallyService), sin QR de
+  // por medio — por eso scannerId es nullable acá pero no en un SCAN real.
+  source    CheckInSource @default(SCAN)
+  // Antes "scannedBy": id de EventScanner. Renombrado porque un check-in
+  // MANUAL no tiene un scanner real detrás — null en ese caso.
+  scannerId String?
   gate      String? // "Puerta Norte", "VIP", "Ingreso A"... opcional por ahora
+  device    String? // user-agent del dispositivo que escaneó, mismo dato que ya guarda ScanAttempt.userAgent
+
+  scannedAt DateTime @default(now())
 
   @@map("check_ins")
 }
@@ -581,10 +596,67 @@ model ScanAttempt {
   scannedBy String
   scannedAt DateTime   @default(now())
 
+  // A diferencia de CheckIn.gate (que sólo existe para el ingreso válido),
+  // acá faltaba: un intento ALREADY_USED/WRONG_EVENT/etc. no dejaba
+  // registrado en qué puerta ocurrió. Nullable, mismo criterio que gate en
+  // CheckIn.
+  gate String?
+
   ip        String?
   userAgent String?
 
   @@map("scan_attempts")
+}
+
+enum CheckInSource {
+  SCAN
+  MANUAL
+}
+
+enum TicketAuditAction {
+  CANCEL
+  REHABILITATE
+  REACTIVATE
+  MARK_USED_MANUAL
+  SOFT_DELETE
+}
+
+enum TicketAuditActorType {
+  SCANNER
+  ORGANIZER
+  SYSTEM
+}
+
+// Bitácora append-only de TODA acción administrativa sobre un ticket
+// (nunca de un escaneo normal — eso ya lo cubren CheckIn/ScanAttempt). Por
+// convención de código nunca se actualiza ni se borra una fila de acá
+// (mismo criterio no forzado por la base que ya tiene ScanAttempt) — sólo
+// se crean filas nuevas. fromStatus/toStatus quedan null cuando la acción
+// no cambia Ticket.status (ej. SOFT_DELETE, que sólo toca deletedAt).
+model TicketAuditLog {
+  id String @id @default(cuid())
+
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id])
+
+  action     TicketAuditAction
+  fromStatus TicketStatus?
+  toStatus   TicketStatus?
+
+  // actorId guarda User.id cuando actorType es ORGANIZER, o EventScanner.id
+  // cuando es SCANNER — null cuando es SYSTEM (proceso automático, todavía
+  // sin ningún caller hoy). Mismo criterio de String suelto (sin relación
+  // formal) que ya usan CheckIn.scannerId/ScanAttempt.scannedBy.
+  actorType TicketAuditActorType
+  actorId   String?
+  reason    String?
+  // Reservado para detalle estructurado futuro — ningún caller lo llena
+  // todavía.
+  metadata  Json?
+
+  createdAt DateTime @default(now())
+
+  @@map("ticket_audit_logs")
 }
 
 // Ciclo de vida de una invitación de scanner — SIN aprobación manual:

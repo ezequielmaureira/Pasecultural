@@ -12,6 +12,21 @@ const RESULT_MESSAGES = {
     WRONG_EVENT: "Esta entrada no corresponde a este evento o función.",
 };
 
+// maxWait/timeout explícitos (default de Prisma: 2000ms/5000ms). Auditoría
+// de concurrencia (ver TicketAuditLog/CheckIn) comprobó que el updateMany
+// condicional de más abajo YA garantiza que sólo un escaneo gane la carrera
+// —nunca se detectó un doble VALID, con hasta 20 escaneos simultáneos sobre
+// el mismo ticket—, pero bajo ESE caso patológico (20 escaneos exactos al
+// mismo ticket a la vez; en un evento real cada scanner escanea un ticket
+// distinto, sin esta contención) varias transacciones no llegaban a
+// arrancar a tiempo con el default de Prisma: "Unable to start a
+// transaction in the given time" — se agotaba la espera por una conexión
+// del pool mientras las anteriores tenían el lock de fila, no una
+// inconsistencia de datos. Subir estos límites no relaja ninguna garantía,
+// sólo le da más margen a una transacción para conseguir turno antes de
+// rendirse.
+const TRANSACTION_OPTIONS = { maxWait: 10000, timeout: 15000 };
+
 function buildTicketInclude() {
     return {
         qr: true,
@@ -83,7 +98,7 @@ export const validateScanService = async (scannerContext, input) => {
     const result = await prisma.$transaction(async (tx) => {
         async function recordAttempt(scanResult, resolvedTicketId) {
             await tx.scanAttempt.create({
-                data: { ticketId: resolvedTicketId ?? null, eventId, result: scanResult, scannedBy: scannerContext.id, ip, userAgent },
+                data: { ticketId: resolvedTicketId ?? null, eventId, result: scanResult, scannedBy: scannerContext.id, gate, ip, userAgent },
             });
         }
 
@@ -143,7 +158,11 @@ export const validateScanService = async (scannerContext, input) => {
         }
 
         if (ticket.status === "USED") {
-            const checkIn = await tx.checkIn.findUnique({ where: { ticketId: ticket.id } });
+            // CheckIn ya no es 1:1 con Ticket (puede reactivarse y volver a
+            // escanearse, ver ticketAdmin.service.js) — findFirst + orderBy
+            // trae el ingreso más reciente, que es lo que corresponde
+            // mostrar como "cuándo entró" mientras siga USED.
+            const checkIn = await tx.checkIn.findFirst({ where: { ticketId: ticket.id }, orderBy: { scannedAt: "desc" } });
             await recordAttempt("ALREADY_USED", ticket.id);
             return withStats(buildResult("ALREADY_USED", { ticket, checkIn }));
         }
@@ -153,23 +172,23 @@ export const validateScanService = async (scannerContext, input) => {
         const updated = await tx.ticket.updateMany({ where: { id: ticket.id, status: "ACTIVE" }, data: { status: "USED" } });
         if (updated.count === 0) {
             // Perdió la carrera contra otro scan simultáneo.
-            const checkIn = await tx.checkIn.findUnique({ where: { ticketId: ticket.id } });
+            const checkIn = await tx.checkIn.findFirst({ where: { ticketId: ticket.id }, orderBy: { scannedAt: "desc" } });
             await recordAttempt("ALREADY_USED", ticket.id);
             return withStats(buildResult("ALREADY_USED", { ticket, checkIn }));
         }
 
-        // El @unique de CheckIn.ticketId es el último respaldo: si por lo que
-        // sea llegaran acá dos escrituras para el mismo ticket (no debería,
-        // el updateMany de arriba ya actúa de guard), la segunda create()
-        // falla por constraint de la base en vez de duplicar el check-in.
+        // Ya no hay un @unique de CheckIn.ticketId de respaldo (a propósito:
+        // el historial de ingresos se conserva completo) — el guard real
+        // contra doble-registro sigue siendo el updateMany atómico de
+        // arriba, que ya garantiza que sólo un escaneo gana la carrera.
         const checkIn = await tx.checkIn.create({
-            data: { ticketId: ticket.id, scannedBy: scannerContext.id, gate },
+            data: { ticketId: ticket.id, source: "SCAN", scannerId: scannerContext.id, gate, device: userAgent },
         });
         await tx.ticketQr.update({ where: { ticketId: ticket.id }, data: { usedAt: new Date() } });
         await recordAttempt("VALID", ticket.id);
 
         return withStats(buildResult("VALID", { ticket, checkIn, scannerName, gate }));
-    });
+    }, TRANSACTION_OPTIONS);
 
     logger.info("Scan validated", { eventId, functionId, scannerId: scannerContext.id, result: result.status });
     return result;

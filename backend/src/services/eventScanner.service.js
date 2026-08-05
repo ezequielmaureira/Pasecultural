@@ -29,7 +29,10 @@ async function getMyOrganization(clerkId) {
     return { user, organization };
 }
 
-async function getOwnedEvent(clerkId, eventId) {
+// Exportada para ticketAdmin.service.js — mismo criterio de "el
+// organizador dueño de este evento" que ya usan todas las acciones de
+// scanner de acá abajo, reusado tal cual para las acciones de ticket.
+export async function getOwnedEvent(clerkId, eventId) {
     const context = await getMyOrganization(clerkId);
     if (!context) return null;
 

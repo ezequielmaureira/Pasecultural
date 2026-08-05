@@ -22,6 +22,13 @@ import {
     revokeScannerInvitation,
     regenerateScannerInvitation,
 } from "../controllers/eventScanner.controller.js";
+import {
+    cancelTicket,
+    rehabilitateTicket,
+    reactivateUsedTicket,
+    markTicketUsedManually,
+    softDeleteTicket,
+} from "../controllers/ticketAdmin.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 
 const router = Router();
@@ -51,6 +58,15 @@ router.post("/:id/scanners/:scannerId/reactivate", requireAuth, reactivateScanne
 router.post("/:id/scanners/:scannerId/revoke", requireAuth, revokeScannerInvitation);
 router.post("/:id/scanners/:scannerId/regenerate", requireAuth, regenerateScannerInvitation);
 router.delete("/:id/scanners/:scannerId", requireAuth, deleteScanner);
+
+// Administración de entradas del organizador — ver ticketAdmin.service.js.
+// Sin UI todavía (a propósito, ver auditoría del modelo de datos): quedan
+// disponibles para cuando se construya el panel de administración.
+router.post("/:id/tickets/:ticketId/cancel", requireAuth, cancelTicket);
+router.post("/:id/tickets/:ticketId/rehabilitate", requireAuth, rehabilitateTicket);
+router.post("/:id/tickets/:ticketId/reactivate", requireAuth, reactivateUsedTicket);
+router.post("/:id/tickets/:ticketId/mark-used", requireAuth, markTicketUsedManually);
+router.delete("/:id/tickets/:ticketId", requireAuth, softDeleteTicket);
 
 router.delete("/:id", requireAuth, deleteMyEvent);
 
