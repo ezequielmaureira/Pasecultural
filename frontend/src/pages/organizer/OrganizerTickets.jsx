@@ -1,11 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
-import { Eye, Search, Ticket } from "lucide-react";
+import {
+  Eye,
+  Search,
+  Ticket,
+  DollarSign,
+  ScanLine,
+  Gauge,
+  CheckCircle2,
+  XCircle,
+  RotateCcw,
+} from "lucide-react";
 import Spinner from "../../components/ui/Spinner.jsx";
 import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
+import InlineErrorNotice from "../../components/ui/InlineErrorNotice.jsx";
+import KpiRow from "../../components/organizer/KpiRow.jsx";
+import KpiCard from "../../components/organizer/KpiCard.jsx";
+import SectionHeader from "../../components/organizer/SectionHeader.jsx";
+import { buildEventStatsKpis } from "../../components/organizer/functionStatsSelectors.js";
 import { useToast } from "../../context/ToastContext.jsx";
 import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
+import { useEventStats } from "../../hooks/useEventStats.js";
 import { bulkActionTickets, listOrganizerTickets } from "../../lib/ticketAdminApi.js";
+import { formatCurrencyARS } from "../../lib/format.js";
 import TicketDetailDrawer from "./components/TicketDetailDrawer.jsx";
 import { formatDateTime, ticketStatusBadgeTone, ticketStatusLabel } from "./ticketAdminDisplay.js";
 
@@ -55,6 +72,22 @@ export default function OrganizerTickets() {
   const selectedEvent = useMemo(
     () => events.find((event) => event.id === selectedEventId) ?? null,
     [events, selectedEventId]
+  );
+
+  // Estadísticas reales del evento/función elegidos — carga aparte de la
+  // tabla, nunca depende de `search`/`statusFilter`/paginación (ver
+  // hooks/useEventStats.js). `selectedFunctionId` no dispara un fetch
+  // nuevo: functionStatsSelectors ya trae todas las funciones del evento en
+  // una sola llamada y sólo elige/suma en el cliente.
+  const eventStats = useEventStats(selectedEventId);
+  const eventKpis = useMemo(
+    () =>
+      buildEventStatsKpis({
+        functionStats: eventStats.functionStats,
+        sales: eventStats.sales,
+        functionId: selectedFunctionId,
+      }),
+    [eventStats.functionStats, eventStats.sales, selectedFunctionId]
   );
 
   const functionOptions = useMemo(() => {
@@ -258,20 +291,49 @@ export default function OrganizerTickets() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-5">
-        {[
-          { label: "Total", value: summary.total },
-          { label: "Disponibles", value: summary.disponibles },
-          { label: "Usadas", value: summary.usadas },
-          { label: "Canceladas", value: summary.canceladas },
-          { label: "Reintegradas", value: summary.reintegradas },
-        ].map((item) => (
-          <div key={item.label} className="rounded-xl border border-white/10 bg-[#0B1120] p-4">
-            <p className="text-xs uppercase tracking-wide text-slate-500">{item.label}</p>
-            <p className="mt-2 text-2xl font-semibold text-white">{item.value}</p>
-          </div>
-        ))}
-      </div>
+      {selectedEventId && (
+        <div>
+          <SectionHeader title="Estadísticas del evento" />
+          {eventStats.error && (
+            <InlineErrorNotice
+              message="No pudimos cargar las estadísticas del evento."
+              onRetry={eventStats.refetch}
+            />
+          )}
+          <KpiRow>
+            <KpiCard
+              label="Recaudación"
+              value={formatCurrencyARS(eventKpis.revenue)}
+              icon={DollarSign}
+              loading={eventStats.loading}
+            />
+            <KpiCard label="Vendidas" value={eventKpis.sold} icon={Ticket} loading={eventStats.loading} />
+            <KpiCard label="Ingresadas" value={eventKpis.checkedIn} icon={ScanLine} loading={eventStats.loading} />
+            <KpiCard
+              label="Ocupación"
+              value={eventKpis.occupancyPct !== null ? `${eventKpis.occupancyPct}%` : "—"}
+              icon={Gauge}
+              loading={eventStats.loading}
+            />
+          </KpiRow>
+        </div>
+      )}
+
+      {selectedEventId && (
+        <div>
+          <SectionHeader
+            title="Resultados visibles"
+            subtitle="Depende de los filtros y la búsqueda aplicados arriba."
+          />
+          <KpiRow columns={5}>
+            <KpiCard label="Resultados" value={summary.total} icon={Ticket} />
+            <KpiCard label="Disponibles" value={summary.disponibles} icon={CheckCircle2} />
+            <KpiCard label="Usadas" value={summary.usadas} icon={ScanLine} />
+            <KpiCard label="Canceladas" value={summary.canceladas} icon={XCircle} />
+            <KpiCard label="Reintegradas" value={summary.reintegradas} icon={RotateCcw} />
+          </KpiRow>
+        </div>
+      )}
 
       {selectedIds.length > 0 && (
         <div className="flex flex-col gap-3 rounded-xl border border-violet-500/20 bg-violet-500/10 p-4 sm:flex-row sm:items-center sm:justify-between">

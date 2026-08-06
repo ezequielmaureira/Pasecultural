@@ -1,8 +1,15 @@
-// Layout del "Resumen general": 2 columnas en mobile, 4 desde tablet (`md`,
-// 768px) — 4 tarjetas compactas entran cómodas a ese ancho, no hace falta
-// esperar a `lg` como antes (eso dejaba tablets en un 2x2 con espacio de
-// sobra). Envuelto en su propio componente para que agregar/quitar KPIs en
-// próximas iteraciones no requiera repetir la grilla responsive.
-export default function KpiRow({ children }) {
-  return <div className="grid grid-cols-2 gap-4 md:grid-cols-4">{children}</div>;
+// Layout del "Resumen general": 2 columnas en mobile, N desde tablet (`md`,
+// 768px). Envuelto en su propio componente para que agregar/quitar KPIs no
+// requiera repetir la grilla responsive en cada pantalla.
+//
+// `columns` es opcional (default 4, igual que siempre — el Dashboard no
+// cambia). Mapa fijo en vez de interpolar la clase: Tailwind necesita ver
+// el nombre completo de la clase en el código para generarla.
+const COLUMN_CLASSES = {
+  4: "md:grid-cols-4",
+  5: "md:grid-cols-5",
+};
+
+export default function KpiRow({ children, columns = 4 }) {
+  return <div className={`grid grid-cols-2 gap-4 ${COLUMN_CLASSES[columns] ?? COLUMN_CLASSES[4]}`}>{children}</div>;
 }
