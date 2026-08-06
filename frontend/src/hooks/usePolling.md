@@ -38,7 +38,7 @@ Pasos para migrar cuando llegue el momento:
 
 1. **Crear un hook motor nuevo**, por ejemplo `useLiveChannel(topic, options)`, que en vez de `setInterval` abra una conexión WS/SSE y escuche mensajes de ese `topic`. Debe devolver la **misma forma**: `{ data, loading, error, refetch }` (acá `refetch` pasa a significar "forzar una resincronización manual", no "volver a pedir por HTTP").
 2. **Cambiar únicamente el hook de dominio** para que llame a `useLiveChannel` en vez de a `usePolling` — una línea de import y una llamada distinta, nada más. `fetcher` deja de existir como tal; se reemplaza por la lógica de qué `topic` suscribir y cómo mapear el mensaje entrante a la misma forma de datos que ya devolvía el `fetcher` original.
-3. **Nada por fuera del hook de dominio cambia.** `OrganizerDashboard.jsx`, `ActivityTimeline`, `ScannerStatusList`, `FunctionOccupancyList` no se tocan: siguen recibiendo props con la misma forma que siempre.
+3. **Nada por fuera del hook de dominio cambia.** `OrganizerDashboard.jsx`, `ActivityTimeline`, `FunctionOccupancyList` no se tocan: siguen recibiendo props con la misma forma que siempre.
 4. `usePolling` no desaparece necesariamente: puede convivir como fallback (reconexión de WS caída → volver a polling temporalmente) o quedar sólo para las pantallas que todavía no migraron.
 
 Lo que **sí** es exclusivo del motor WS/SSE y nunca debería filtrarse a los hooks de dominio ni a los componentes: manejo de conexión/reconexión, backoff, parseo de mensajes, y el ruteo de "a qué topic corresponde este mensaje". Todo eso vive dentro de `useLiveChannel`, igual que hoy el `setInterval`/Page Visibility viven enteramente dentro de `usePolling` y en ningún otro lado.

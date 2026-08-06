@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
-import { Clock3, DollarSign, Ticket, ScanLine, Gauge, CalendarDays, Receipt, CalendarRange, Activity } from "lucide-react";
+import { Clock3, DollarSign, Ticket, ScanLine, Gauge, CalendarDays, Receipt, Activity } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
 import SkeletonBlock from "../../components/ui/SkeletonBlock.jsx";
@@ -13,8 +13,6 @@ import EventStatusCard from "../../components/organizer/EventStatusCard.jsx";
 import EventCategorySelector from "../../components/organizer/EventCategorySelector.jsx";
 import SalesTable from "../../components/organizer/SalesTable.jsx";
 import SectionHeader from "../../components/organizer/SectionHeader.jsx";
-import FunctionOccupancyList from "../../components/organizer/FunctionOccupancyList.jsx";
-import ScannerStatusList from "../../components/organizer/ScannerStatusList.jsx";
 import ActivityTimeline from "../../components/organizer/ActivityTimeline.jsx";
 import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
 import { useActiveEvent } from "../../context/ActiveEventContext.jsx";
@@ -322,11 +320,12 @@ export default function OrganizerDashboard() {
         </KpiRow>
       </div>
 
-      {/* 3-5) Centro de control del evento seleccionado — Funciones,
-             Scanners y Actividad reciente. Sólo existen si hay un evento
-             elegido: si no hay ninguno en la categoría, el EmptyState de la
-             hero de arriba ya lo explica, repetirlo acá abajo tres veces
-             más sería ruido. */}
+      {/* 3) Actividad reciente del evento seleccionado. Estado de funciones
+             y Estado de scanners se sacaron de acá — viven únicamente en
+             sus propios módulos (Estado de Funciones / Scanners) para que
+             el Dashboard no duplique contenido de otras pantallas. Sólo
+             existe si hay un evento elegido: si no hay ninguno en la
+             categoría, el EmptyState de la hero de arriba ya lo explica. */}
       {(loadingEvents || featured) && (
         <>
           {controlRoom.error && (
@@ -335,16 +334,6 @@ export default function OrganizerDashboard() {
               onRetry={controlRoom.refetch}
             />
           )}
-
-          <div>
-            <SectionHeader icon={CalendarRange} title="Estado de funciones" />
-            <FunctionOccupancyList functions={controlRoom.functionStats} loading={controlRoomLoading} />
-          </div>
-
-          <div>
-            <SectionHeader icon={ScanLine} title="Estado de scanners" />
-            <ScannerStatusList scanners={controlRoom.scanners} now={now} loading={controlRoomLoading} />
-          </div>
 
           <div>
             <SectionHeader icon={Activity} title="Actividad reciente" />

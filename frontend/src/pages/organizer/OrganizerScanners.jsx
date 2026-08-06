@@ -16,12 +16,15 @@ import {
 } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
+import Badge from "../../components/ui/Badge.jsx";
 import Modal from "../../components/ui/Modal.jsx";
 import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
 import { Field, inputClass } from "../../components/ui/FormField.jsx";
 import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
 import { useActiveEvent } from "../../context/ActiveEventContext.jsx";
 import { useToast } from "../../context/ToastContext.jsx";
+import { getScannerHealth } from "../../components/organizer/scannerHealth.js";
+import { formatRelativeTime } from "../../lib/format.js";
 import {
   listEventScanners,
   disableScanner,
@@ -127,8 +130,20 @@ function ScannerActionButton({ icon: Icon, label, onClick, danger, loading }) {
 // puerta, estado, fecha, último acceso, dispositivo) y sólo las acciones
 // válidas para SU estado actual — el backend también lo valida, esto es
 // sólo para no mostrar botones que van a fallar.
-function ScannerCard({ scanner, onAction, actingId, onEdit, onShare }) {
+//
+// El semáforo de salud (verde/amarillo/rojo/gris, `getScannerHealth`) y los
+// ingresos/último escaneo vivían antes en una lista aparte del Dashboard
+// (ScannerStatusList) — se integraron acá para que "Scanners" sea el único
+// lugar con toda la información de un scanner, gestión y estado juntos, en
+// vez de tener dos representaciones distintas del mismo scanner en dos
+// pantallas. `StatusBadge` (ciclo de vida: Invitado/Activo/Desactivado/
+// Revocado) y la salud son cosas distintas a propósito — ver
+// scannerHealth.js: un scanner puede estar ACTIVE y aun así "sin actividad
+// hace unos minutos".
+function ScannerCard({ scanner, now, onAction, actingId, onEdit, onShare }) {
   const isActing = actingId === scanner.id;
+  const health = getScannerHealth(scanner, now);
+
   return (
     <Card>
       <div className="flex flex-col gap-3">
@@ -137,7 +152,10 @@ function ScannerCard({ scanner, onAction, actingId, onEdit, onShare }) {
             <p className="text-sm font-semibold text-white">{scanner.name}</p>
             <p className="text-xs text-slate-500">{scanner.gate}</p>
           </div>
-          <StatusBadge status={scanner.status} />
+          <div className="flex flex-col items-end gap-1.5">
+            <StatusBadge status={scanner.status} />
+            <Badge tone={health.tone}>{health.label}</Badge>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-400 sm:grid-cols-3">
@@ -164,6 +182,14 @@ function ScannerCard({ scanner, onAction, actingId, onEdit, onShare }) {
           <p>
             <span className="text-slate-500">Último acceso: </span>
             {formatDateTime(scanner.lastAccessAt)}
+          </p>
+          <p>
+            <span className="text-slate-500">Ingresos validados: </span>
+            {scanner.checkInsCount ?? 0}
+          </p>
+          <p>
+            <span className="text-slate-500">Último escaneo: </span>
+            {scanner.lastScanAt ? formatRelativeTime(scanner.lastScanAt, now) : "—"}
           </p>
           {scanner.lastDevice && (
             <p className="truncate sm:col-span-3">
@@ -216,6 +242,11 @@ export default function OrganizerScanners() {
   const [confirmAction, setConfirmAction] = useState(null); // { scanner, action }
   const [editingScanner, setEditingScanner] = useState(null);
   const [sharingScanner, setSharingScanner] = useState(null);
+
+  // Para el semáforo de salud (getScannerHealth) y las fechas relativas de
+  // "último escaneo" — un solo valor por render alcanza, esta pantalla no
+  // pollea en vivo (a diferencia del Dashboard).
+  const now = new Date();
 
   // Default: el Evento Activo compartido si sigue siendo válido; si no, el
   // primero disponible (mismo criterio de antes).
@@ -367,6 +398,7 @@ export default function OrganizerScanners() {
                 <ScannerCard
                   key={scanner.id}
                   scanner={scanner}
+                  now={now}
                   actingId={actingId}
                   onAction={handleAction}
                   onEdit={setEditingScanner}

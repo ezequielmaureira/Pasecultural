@@ -4,35 +4,31 @@ import { usePolling } from "../../../hooks/usePolling.js";
 import { listOrganizerSales } from "../../../lib/saleAdminApi.js";
 import { listOrganizerTickets } from "../../../lib/ticketAdminApi.js";
 import { listEventScanners } from "../../../lib/eventScannerApi.js";
-import { getEventFunctionStats } from "../../../lib/functionStatsApi.js";
 
 const POLL_INTERVAL_MS = 10000;
 
-const EMPTY_DATA = { sales: [], tickets: [], scanners: [], functionStats: [] };
+const EMPTY_DATA = { sales: [], tickets: [], scanners: [] };
 
-// Datos del "evento destacado" para Timeline/Scanners/Funciones (Fase 1-3).
-// Toda la mecánica de CUÁNDO refrescar (intervalo, Page Visibility,
-// reinicio al cambiar de evento, un único intervalo activo) vive ahora en
-// usePolling — este hook sólo aporta el QUÉ pedir: las mismas funciones de
-// API que ya existían (con el filtro `eventId` que ya soportaban; nunca las
-// `reloadEvents/Sales/Tickets` globales del contexto, que traen todo el
-// historial de la organización).
-//
-// El contrato externo ({sales, tickets, scanners, functionStats, loading,
-// error, refetch}) es exactamente el mismo de antes de este refactor — el
-// Dashboard no necesitó ningún cambio.
+// Datos del "evento destacado" para KPIs/Timeline/Últimas ventas del
+// Dashboard. `scanners` se sigue pidiendo porque buildActivityFeed lo usa
+// para las entradas "scanner creado" del Timeline — `functionStats` se
+// sacó de acá (ver limpieza "Dashboard ejecutivo, no duplicado de otros
+// módulos"): ya no lo renderiza nada en esta pantalla, esa información vive
+// únicamente en Estado de Funciones (useEventStats). Toda la mecánica de
+// CUÁNDO refrescar (intervalo, Page Visibility, reinicio al cambiar de
+// evento, un único intervalo activo) vive en usePolling — este hook sólo
+// aporta el QUÉ pedir.
 export function useEventControlRoomData(eventId, { enabled: isOngoing }) {
   const { getToken } = useAuth();
 
   const fetcher = useCallback(async () => {
     const token = await getToken();
-    const [sales, tickets, scanners, functionStats] = await Promise.all([
+    const [sales, tickets, scanners] = await Promise.all([
       listOrganizerSales(token, { eventId }),
       listOrganizerTickets(token, { eventId }),
       listEventScanners(token, eventId),
-      getEventFunctionStats(token, eventId),
     ]);
-    return { sales, tickets, scanners, functionStats };
+    return { sales, tickets, scanners };
   }, [eventId, getToken]);
 
   const { data, loading, error, refetch } = usePolling(fetcher, {
