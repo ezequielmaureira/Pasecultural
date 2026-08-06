@@ -169,11 +169,14 @@ export async function sendSaleConfirmationEmail(saleId) {
         }
 
         const { frontendUrl, from, replyTo } = getEmailConfig();
-        // Sólo publicRecoveryToken en la URL — nunca sale.id (ver comentario
-        // del campo en schema.prisma). Misma query string que ya entiende
-        // PurchaseWizard.jsx (?saleToken=...), sin necesidad de slug: el
-        // efecto de recuperación resuelve directo a la pantalla de éxito.
-        const recoveryUrl = `${frontendUrl}/comprar?saleToken=${encodeURIComponent(data.publicRecoveryToken)}`;
+        // El correo ya es autosuficiente (QR + PDF adjunto con todas las
+        // entradas), así que no lleva ningún link de recuperación como
+        // acción principal. Este es sólo el link secundario de "perdí este
+        // correo" — apunta al flujo de recuperación por email+DNI
+        // (RecoverPurchase.jsx / recoverSalesService), no al acceso directo
+        // por publicRecoveryToken: si perdió el correo, tampoco tiene ese
+        // token a mano.
+        const recoverPurchaseUrl = `${frontendUrl}/recuperar-compra`;
 
         const qrImages = await buildTicketQrImages(data.tickets);
         const qrContentIds = new Map(qrImages.map((qr) => [qr.ticket.id, qr.contentId]));
@@ -183,7 +186,7 @@ export async function sendSaleConfirmationEmail(saleId) {
                 buyerFirstName: data.buyerFirstName,
                 eventTitle: data.eventTitle,
                 tickets: data.tickets,
-                recoveryUrl,
+                recoverPurchaseUrl,
                 replyTo,
             },
             qrContentIds

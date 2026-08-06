@@ -48,7 +48,7 @@ function ticketTextBlock(ticket) {
 // `data` viene de getSaleEmailData() (ver sendSaleConfirmationEmail.service.js).
 // `qrContentIds` mapea ticket.id -> contentId, en el mismo orden que los
 // adjuntos inline que arma ese mismo service — nunca se recalcula acá.
-export function buildSaleConfirmationEmail({ buyerFirstName, eventTitle, tickets, recoveryUrl, replyTo }, qrContentIds) {
+export function buildSaleConfirmationEmail({ buyerFirstName, eventTitle, tickets, recoverPurchaseUrl, replyTo }, qrContentIds) {
     const subject = `Tus entradas para ${eventTitle} | PaseCultural`;
     const preheader = "Tu compra fue confirmada. Guardá tus entradas para ingresar al evento.";
     const greetingName = buyerFirstName?.trim() ? escapeHtml(buyerFirstName.trim()) : "";
@@ -93,12 +93,6 @@ export function buildSaleConfirmationEmail({ buyerFirstName, eventTitle, tickets
                   ${ticketsHtml}
                 </table>
 
-                <div style="text-align:center;margin:28px 0 8px;">
-                  <a href="${recoveryUrl}" style="background-color:${BRAND_VIOLET};color:#ffffff;text-decoration:none;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:bold;padding:12px 24px;border-radius:8px;display:inline-block;">
-                    Ver y descargar mis entradas
-                  </a>
-                </div>
-
                 <p style="margin:20px 0 8px;font-size:12px;color:${TEXT_MUTED};line-height:1.5;">
                   No compartas tus códigos QR: son personales e intransferibles y son lo único que valida tu ingreso al evento.
                 </p>
@@ -107,6 +101,10 @@ export function buildSaleConfirmationEmail({ buyerFirstName, eventTitle, tickets
             </tr>
             <tr>
               <td style="padding:16px 24px;background-color:#f9fafb;border-top:1px solid ${BORDER};">
+                <p style="margin:0 0 8px;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:${TEXT_MUTED};line-height:1.5;">
+                  ¿Perdiste este correo? Podés recuperar tus entradas iniciando sesión en
+                  <a href="${recoverPurchaseUrl}" style="color:${TEXT_MUTED};text-decoration:underline;">PaseCultural</a>.
+                </p>
                 <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:${TEXT_MUTED};line-height:1.5;">
                   Este es un email transaccional enviado por una compra realizada en PaseCultural. No es publicidad ni una suscripción.
                 </p>
@@ -129,10 +127,10 @@ export function buildSaleConfirmationEmail({ buyerFirstName, eventTitle, tickets
         "",
         ...tickets.map(ticketTextBlock),
         "",
-        `Ver y descargar mis entradas: ${recoveryUrl}`,
-        "",
         "No compartas tus códigos QR: son personales e intransferibles.",
         replyTo ? `¿Necesitás ayuda? Escribinos a ${replyTo}.` : "",
+        "",
+        `¿Perdiste este correo? Podés recuperar tus entradas iniciando sesión en PaseCultural: ${recoverPurchaseUrl}`,
         "",
         "Este es un email transaccional enviado por una compra realizada en PaseCultural.",
     ]
