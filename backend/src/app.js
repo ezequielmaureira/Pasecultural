@@ -14,6 +14,7 @@ import ticketRoutes from "./routes/ticket.routes.js";
 import scannerRoutes from "./routes/scanner.routes.js";
 import scannerInvitationRoutes from "./routes/scannerInvitation.routes.js";
 import scannerAuthRoutes from "./routes/scannerAuth.routes.js";
+import devToolsRoutes from "./routes/devTools.routes.js";
 import { errorHandler } from "./errors/index.js";
 
 const app = express();
@@ -48,6 +49,9 @@ app.use("/api/tickets", ticketRoutes);
 app.use("/api/scanner", scannerRoutes);
 app.use("/api/scanner-invitations", scannerInvitationRoutes);
 app.use("/api/scanner-auth", scannerAuthRoutes);
+// Sólo DEVELOPER + sólo fuera de producción (ver requireDevelopmentEnv) —
+// panel "Base de Datos" para reiniciar/sembrar la base de desarrollo.
+app.use("/api/dev", devToolsRoutes);
 
 app.get("/debug/prisma-user", async (req, res) => {
     try {
@@ -79,9 +83,9 @@ app.get("/debug/prisma-user", async (req, res) => {
 // Único middleware de manejo de errores de toda la app: se registra al
 // final para que Express lo use como fallback de cualquier error que
 // llegue por next(error) (o que Express 5 reenvíe automáticamente desde un
-// handler async). Todavía ningún controller llama a next(error)
-// explícitamente, así que este paso es aditivo puro: no cambia ninguna
-// respuesta existente.
+// handler async). El resto de los controllers todavía arma sus propias
+// respuestas a mano dentro de cada catch (no cambia nada de eso); sólo
+// devTools.controller.js usa next(error)/AppError por ahora.
 app.use(errorHandler);
 
 export default app;

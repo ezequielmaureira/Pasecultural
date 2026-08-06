@@ -17,6 +17,7 @@ import { OrganizerDataProvider } from "./context/OrganizerDataContext.jsx";
 import DashboardDeveloper from "./pages/DashboardDeveloper.jsx";
 import DeveloperOrganizations from "./pages/developer/DeveloperOrganizations.jsx";
 import DeveloperUsers from "./pages/developer/DeveloperUsers.jsx";
+import DeveloperDatabase from "./pages/developer/DeveloperDatabase.jsx";
 import ScannerShell from "./pages/scanner/ScannerShell.jsx";
 import ScannerHome from "./pages/scanner/ScannerHome.jsx";
 import ScannerInvitationClaim from "./pages/scanner/ScannerInvitationClaim.jsx";
@@ -107,6 +108,7 @@ export default function App() {
                   element={<DeveloperOrganizations />}
                 />
                 <Route path="/developer/usuarios" element={<DeveloperUsers />} />
+                <Route path="/developer/base-de-datos" element={<DeveloperDatabase />} />
               </Route>
 
               <Route element={<RoleGuard allowedRoles={["organizer"]} />}>

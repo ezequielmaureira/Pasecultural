@@ -9,6 +9,7 @@ import {
   LineChart,
   Settings,
   ChevronsLeft,
+  Database,
 } from "lucide-react";
 import { useBackendUser } from "../../context/AuthContext.jsx";
 import { NEW_EVENT_REQUEST_EVENT } from "../../lib/eventChatEvents.js";
@@ -33,6 +34,12 @@ const NAV_BY_ROLE = {
     { label: "Scanners", icon: ScanLine },
     { label: "Ventas", icon: LineChart },
     { label: "Configuración", icon: Settings },
+    {
+      label: "Base de Datos",
+      icon: Database,
+      path: "/developer/base-de-datos",
+      end: true,
+    },
   ],
   organizer: [
     { label: "Dashboard", icon: LayoutDashboard, path: "/organizador", end: true },

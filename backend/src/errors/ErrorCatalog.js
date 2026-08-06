@@ -276,4 +276,24 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Scanner portal login attempted with an invalid email.",
         userMessage: "Ingresá un email válido.",
     },
+
+    // --- Developer / Base de Datos (sólo entorno de desarrollo) ---------
+    // Herramienta exclusiva para limpiar/sembrar la base de datos de
+    // desarrollo (ver devTools.service.js) — nunca debe poder ejecutarse en
+    // producción, ver DEV_TOOLS_UNAVAILABLE.
+    DEV_TOOLS_UNAVAILABLE: {
+        httpStatus: 403,
+        logMessage: "Developer database tool invoked outside a non-production environment.",
+        userMessage: "Esta herramienta no está disponible en este entorno.",
+    },
+    DEV_TOOLS_CONFIRMATION_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "Dev database reset attempted without the exact confirmation phrase.",
+        userMessage: "Confirmación inválida. Esta acción requiere confirmarse explícitamente.",
+    },
+    DEV_TOOLS_NO_ORGANIZATION: {
+        httpStatus: 409,
+        logMessage: "Demo event creation attempted with zero organizations in the database.",
+        userMessage: "No hay ninguna organización en la base todavía — creá una antes de generar el evento demo.",
+    },
 });
