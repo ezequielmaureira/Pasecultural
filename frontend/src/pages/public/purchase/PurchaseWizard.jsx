@@ -51,6 +51,12 @@ function ticketOptionsFor(selectedFunction) {
       name: a.ticketType.name,
       description: a.ticketType.description,
       price: Number(a.priceOverride ?? a.ticketType.price),
+      // El selector de cantidad nunca puede pasar de acá: mínimo entre lo
+      // que queda de stock real (`available`, calculado por el backend en
+      // getPublicEventBySlugService) y el máximo por compra del tipo de
+      // entrada. Antes esto no se leía del payload público y el "+" no
+      // tenía techo — ver auditoría del bug de sobreventa.
+      maxSelectable: Math.max(0, Math.min(a.available, a.ticketType.maxPerPurchase)),
     }));
 }
 
@@ -357,7 +363,11 @@ export default function PurchaseWizard() {
       : stepIdByLabel["Comprador"];
 
   function handleQuantityChange(ticketTypeId, delta) {
-    setQuantities((prev) => ({ ...prev, [ticketTypeId]: Math.max(0, (prev[ticketTypeId] ?? 0) + delta) }));
+    const maxSelectable = ticketOptions.find((o) => o.ticketTypeId === ticketTypeId)?.maxSelectable ?? 0;
+    setQuantities((prev) => ({
+      ...prev,
+      [ticketTypeId]: Math.min(maxSelectable, Math.max(0, (prev[ticketTypeId] ?? 0) + delta)),
+    }));
   }
 
   // Nunca pasa por Clerk: ni token, ni getAuth, ni isSignedIn. La identidad

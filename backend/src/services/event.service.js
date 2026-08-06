@@ -4,6 +4,7 @@ import { generateUniqueSlug } from "../utils/generateSlug.js";
 import { canPublishEvents } from "../utils/organizationTrust.js";
 import { isValidHttpUrl, parseMediaUrl } from "../utils/mediaParser.js";
 import { runArchiveSelfHeal } from "./eventArchive.service.js";
+import { effectiveCapacity, SOLD_TICKET_STATUSES } from "./functionCapacity.service.js";
 
 const UPDATABLE_FIELDS = [
     "title",
@@ -594,6 +595,37 @@ const PUBLIC_EVENT_DETAIL_INCLUDE = {
     },
 };
 
+// El Wizard de compra necesita el stock realmente disponible (no sólo el
+// `quantity` configurado en el catálogo) para poder capar el selector de
+// cantidad en min(stock disponible, maxPerPurchase) — mismo criterio de qué
+// cuenta como "vendido" que getSoldCount en sale.service.js (ACTIVE/USED,
+// nunca CANCELLED/REFUNDED). Se calcula al vuelo con una sola consulta
+// agrupada por (ticketTypeId, functionId) para todas las funciones del
+// evento, no una consulta por asignación.
+async function attachTicketAvailability(event) {
+    const functionIds = event.functions.map((fn) => fn.id);
+    if (functionIds.length === 0) return event;
+
+    const soldGroups = await prisma.ticket.groupBy({
+        by: ["ticketTypeId", "functionId"],
+        where: { functionId: { in: functionIds }, status: { in: SOLD_TICKET_STATUSES } },
+        _count: { _all: true },
+    });
+    const soldByKey = new Map(soldGroups.map((g) => [`${g.ticketTypeId}:${g.functionId}`, g._count._all]));
+
+    return {
+        ...event,
+        functions: event.functions.map((fn) => ({
+            ...fn,
+            ticketAssignments: fn.ticketAssignments.map((assignment) => {
+                const capacity = effectiveCapacity(assignment);
+                const sold = soldByKey.get(`${assignment.ticketTypeId}:${fn.id}`) ?? 0;
+                return { ...assignment, available: Math.max(capacity - sold, 0) };
+            }),
+        })),
+    };
+}
+
 export const getPublicEventBySlugService = async (slug) => {
     const event = await prisma.event.findUnique({
         where: { slug },
@@ -604,7 +636,7 @@ export const getPublicEventBySlugService = async (slug) => {
         return null;
     }
 
-    return event;
+    return attachTicketAvailability(event);
 };
 
 // Sale.eventId y Ticket.eventId son ON DELETE RESTRICT a propósito (nunca

@@ -8,13 +8,13 @@ import { isValidEmail } from "../utils/validateEmail.js";
 import { normalizeBuyerDocument, isValidBuyerDocument } from "../utils/validateBuyerDocument.js";
 import { buildTicketNumber } from "../utils/ticketNumber.js";
 import { encryptSecret, decryptSecret } from "../config/qrEncryption.js";
-import { effectiveCapacity } from "./functionCapacity.service.js";
+import { effectiveCapacity, SOLD_TICKET_STATUSES } from "./functionCapacity.service.js";
 import { logger } from "../logging/logger.js";
 import { sendSaleConfirmationEmail, getSaleEmailData } from "./email/sendSaleConfirmationEmail.service.js";
 import { buildTicketQrImages } from "./email/ticketQrImages.js";
 import { buildTicketsPdfBuffer } from "./email/ticketsPdf.js";
 
-const ACTIVE_TICKET_STATUSES = ["ACTIVE", "USED"];
+const ACTIVE_TICKET_STATUSES = SOLD_TICKET_STATUSES;
 
 const SALE_LIST_INCLUDE = {
     buyer: { select: { id: true, firstName: true, lastName: true, email: true } },
@@ -124,6 +124,9 @@ async function createSaleForBuyer(buyer, input) {
         }
         if (!assignment.enabled) {
             throw new AppError(ErrorCodes.TICKET_TYPE_NOT_AVAILABLE);
+        }
+        if (item.quantity > assignment.ticketType.maxPerPurchase) {
+            throw new AppError(ErrorCodes.MAX_PER_PURCHASE_EXCEEDED, { details: { ticketTypeId: item.ticketTypeId } });
         }
 
         const capacity = effectiveCapacity(assignment);
@@ -324,13 +327,20 @@ export const confirmSaleService = async (clerkId, saleId) => {
         // (incluye el update de status del paso 2).
         const assignments = await tx.functionTicketType.findMany({
             where: { functionId: sale.functionId, ticketTypeId: { in: uniqueTicketTypeIds } },
-            include: { ticketType: { select: { quantity: true } } },
+            include: { ticketType: { select: { quantity: true, maxPerPurchase: true } } },
         });
         const assignmentByTicketTypeId = new Map(assignments.map((a) => [a.ticketTypeId, a]));
 
         for (const item of sale.items) {
             const assignment = assignmentByTicketTypeId.get(item.ticketTypeId);
             const capacity = assignment ? effectiveCapacity(assignment) : item.ticketType.quantity;
+            // Re-chequeado acá también, no sólo en createSale: si el organizador
+            // baja el maxPerPurchase de un tipo de entrada mientras la venta
+            // sigue PENDING, la confirmación no debe dejarla pasar igual.
+            const maxPerPurchase = assignment ? assignment.ticketType.maxPerPurchase : item.ticketType.maxPerPurchase;
+            if (item.quantity > maxPerPurchase) {
+                throw new AppError(ErrorCodes.MAX_PER_PURCHASE_EXCEEDED, { details: { ticketTypeId: item.ticketTypeId } });
+            }
             const sold = await getSoldCount(tx, item.ticketTypeId, sale.functionId);
             if (sold + item.quantity > capacity) {
                 throw new AppError(ErrorCodes.INSUFFICIENT_STOCK, { details: { ticketTypeId: item.ticketTypeId } });

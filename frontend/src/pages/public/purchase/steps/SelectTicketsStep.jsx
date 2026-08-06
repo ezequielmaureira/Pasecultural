@@ -4,10 +4,11 @@ import Button from "../../../../components/ui/Button.jsx";
 import { currency } from "../../../organizer/eventWizard/model.js";
 import { formatEventDateTime, formatEventLocation } from "../../../../lib/eventFormat.js";
 
-// No muestra "stock restante": el endpoint público no trae cuántas
-// entradas de cada tipo ya se vendieron (ver análisis previo a esta fase),
-// así que mostrar un número ahí sería inventarlo. El límite real lo aplica
-// el backend en el momento de comprar (INSUFFICIENT_STOCK) — ver ErrorStep.
+// `option.maxSelectable` (armado en PurchaseWizard#ticketOptionsFor) ya es
+// min(stock disponible, máximo por compra) — el "+" se deshabilita apenas
+// se llega a ese número. El backend vuelve a validar ambas reglas al crear
+// y al confirmar la venta (INSUFFICIENT_STOCK / MAX_PER_PURCHASE_EXCEEDED —
+// ver ErrorStep): esto es sólo la UX, nunca la única barrera.
 export default function SelectTicketsStep({ event, selectedFunction, ticketOptions, quantities, onQuantityChange, total, onContinue }) {
   const hasSelection = Object.values(quantities).some((qty) => qty > 0);
 
@@ -44,12 +45,15 @@ export default function SelectTicketsStep({ event, selectedFunction, ticketOptio
       <div className="flex flex-col gap-3">
         {ticketOptions.map((option) => {
           const qty = quantities[option.ticketTypeId] ?? 0;
+          const atMax = qty >= option.maxSelectable;
           return (
             <div key={option.ticketTypeId} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-white">{option.name}</p>
                 {option.description && <p className="truncate text-xs text-slate-500">{option.description}</p>}
                 <p className="text-sm text-violet-400">{currency(option.price)}</p>
+                {option.maxSelectable === 0 && <p className="text-xs text-red-400">Sin disponibilidad</p>}
+                {option.maxSelectable > 0 && atMax && <p className="text-xs text-slate-500">Llegaste al máximo disponible</p>}
               </div>
               <div className="flex shrink-0 items-center gap-3">
                 <button
@@ -64,9 +68,10 @@ export default function SelectTicketsStep({ event, selectedFunction, ticketOptio
                 <span className="w-4 text-center text-sm font-semibold text-white">{qty}</span>
                 <button
                   type="button"
+                  disabled={atMax}
                   onClick={() => onQuantityChange(option.ticketTypeId, 1)}
                   aria-label={`Sumar ${option.name}`}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-600 text-white transition-colors duration-150 hover:bg-violet-500"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-600 text-white transition-colors duration-150 hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Plus className="h-4 w-4" />
                 </button>

@@ -85,6 +85,11 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Requested quantity exceeds remaining stock for this ticket type/function.",
         userMessage: "No hay suficiente stock disponible para la cantidad solicitada.",
     },
+    MAX_PER_PURCHASE_EXCEEDED: {
+        httpStatus: 400,
+        logMessage: "Requested quantity exceeds maxPerPurchase for this ticket type.",
+        userMessage: "La cantidad solicitada supera el máximo permitido por compra para una de las entradas elegidas.",
+    },
     SALE_NOT_FOUND: {
         httpStatus: 404,
         logMessage: "Sale not found, or does not belong to the requesting user/organization.",

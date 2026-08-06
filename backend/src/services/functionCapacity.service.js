@@ -12,9 +12,10 @@ export function effectiveCapacity(assignment) {
   return assignment.quantityOverride ?? assignment.ticketType.quantity;
 }
 
-// Mismo criterio que ACTIVE_TICKET_STATUSES en sale.service.js:16 — un
-// ticket "vendido" es el que ocupa stock real (nunca CANCELLED/REFUNDED).
-const SOLD_TICKET_STATUSES = ["ACTIVE", "USED"];
+// Única definición de qué estados de Ticket "ocupan stock real" (nunca
+// CANCELLED/REFUNDED) — sale.service.js y event.service.js la importan de
+// acá en vez de repetir el mismo array.
+export const SOLD_TICKET_STATUSES = ["ACTIVE", "USED"];
 
 // Trae, para una función, sólo las asignaciones habilitadas (las que
 // realmente cuentan como capacidad vendible) con lo mínimo necesario para
