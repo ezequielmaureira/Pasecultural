@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { useAuth } from "@clerk/clerk-react";
-import { Clock3, DollarSign, Ticket, ScanLine, Gauge, CalendarDays } from "lucide-react";
+import { Clock3, DollarSign, Ticket, ScanLine, Gauge, CalendarDays, Receipt } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
 import SkeletonBlock from "../../components/ui/SkeletonBlock.jsx";
+import InlineErrorNotice from "../../components/ui/InlineErrorNotice.jsx";
+import TextLink from "../../components/ui/TextLink.jsx";
 import KpiRow from "../../components/organizer/KpiRow.jsx";
 import KpiCard from "../../components/organizer/KpiCard.jsx";
 import EventHeroCard from "../../components/organizer/EventHeroCard.jsx";
 import EventStatusCard from "../../components/organizer/EventStatusCard.jsx";
 import SalesTable from "../../components/organizer/SalesTable.jsx";
+import SectionHeader from "../../components/organizer/SectionHeader.jsx";
 import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
 import { apiFetch } from "../../lib/api.js";
 import { formatCurrencyARS } from "../../lib/format.js";
@@ -77,7 +79,7 @@ function OrganizationStatusBanner() {
 
   return (
     <div className={`flex items-start gap-3 rounded-xl border p-4 ${banner.className}`}>
-      <Clock3 className="mt-0.5 h-5 w-5 shrink-0" />
+      <Clock3 className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
       <div>
         <p className="text-sm font-semibold">{banner.title}</p>
         <p className="mt-1 text-xs opacity-90">{banner.description}</p>
@@ -86,8 +88,40 @@ function OrganizationStatusBanner() {
   );
 }
 
+// Skeleton compuesto (imagen + líneas + botón) en vez de un único rectángulo
+// pulsando: se percibe más rápido y ya anticipa la forma real de la card más
+// importante de la pantalla.
+function EventHeroSkeleton() {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0B1120]">
+      <div className="flex flex-col md:flex-row">
+        <SkeletonBlock className="h-36 w-full shrink-0 sm:h-44 md:h-auto md:w-64" />
+        <div className="flex flex-1 flex-col gap-4 p-6 sm:p-8">
+          <SkeletonBlock className="h-5 w-32 rounded-full" />
+          <SkeletonBlock className="h-8 w-2/3" />
+          <SkeletonBlock className="h-4 w-1/2" />
+          <SkeletonBlock className="h-10 w-44 rounded-lg" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function OrganizerDashboard() {
-  const { events, loadingEvents, sales, loadingSales, tickets, loadingTickets } = useOrganizerData();
+  const {
+    events,
+    loadingEvents,
+    eventsError,
+    reloadEvents,
+    sales,
+    loadingSales,
+    salesError,
+    reloadSales,
+    tickets,
+    loadingTickets,
+    ticketsError,
+    reloadTickets,
+  } = useOrganizerData();
 
   // Un solo `now` por render (no un timer) alcanza para el MVP: no hay
   // ningún otro dato en esta pantalla que cambie en vivo todavía (ver
@@ -117,18 +151,37 @@ export default function OrganizerDashboard() {
     [sales]
   );
 
-  return (
-    <div className="flex flex-col gap-6">
-      <OrganizationStatusBanner />
+  const hasLoadError = eventsError || salesError || ticketsError;
+  function retryFailedLoads() {
+    if (eventsError) reloadEvents();
+    if (salesError) reloadSales();
+    if (ticketsError) reloadTickets();
+  }
 
-      <div>
-        <h1 className="text-xl font-bold text-white">Panel del organizador</h1>
-        <p className="text-sm text-slate-400">Centro de control de tus eventos</p>
+  return (
+    // gap-8/10 (antes gap-6 parejo en todo): más aire entre secciones para
+    // que la pantalla "respire" y no se lea como una grilla continua de
+    // bloques iguales — ver auditoría de la Iteración 0.5.
+    <div className="flex flex-col gap-8 lg:gap-10">
+      <div className="flex flex-col gap-4">
+        <OrganizationStatusBanner />
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-white">Panel del organizador</h1>
+          <p className="mt-1 text-sm text-slate-400">Centro de control de tus eventos</p>
+        </div>
       </div>
 
-      {/* 1) Próximo evento / evento en curso — siempre lo primero que se ve. */}
+      {hasLoadError && (
+        <InlineErrorNotice
+          message="No pudimos cargar toda la información del panel. Algunos datos pueden faltar."
+          onRetry={retryFailedLoads}
+        />
+      )}
+
+      {/* 1) Próximo evento / evento en curso — siempre lo primero que se ve,
+             y el elemento visualmente más grande de la pantalla. */}
       {loadingEvents ? (
-        <SkeletonBlock className="h-48 rounded-2xl" />
+        <EventHeroSkeleton />
       ) : (
         <EventHeroCard
           event={featured?.event ?? null}
@@ -139,32 +192,35 @@ export default function OrganizerDashboard() {
         />
       )}
 
-      {/* 2) Resumen general — 4 KPIs, siempre datos reales o skeleton. */}
-      <KpiRow>
-        <KpiCard
-          label="Recaudación"
-          value={formatCurrencyARS(kpis.revenueTotal)}
-          icon={DollarSign}
-          loading={loadingSales}
-        />
-        <KpiCard label="Entradas vendidas" value={kpis.ticketsSold} icon={Ticket} loading={loadingTickets} />
-        <KpiCard label="Personas ingresadas" value={kpis.checkedIn} icon={ScanLine} loading={loadingTickets} />
-        <KpiCard
-          label="Ocupación"
-          value={kpis.occupancyPct !== null ? `${kpis.occupancyPct}%` : "—"}
-          icon={Gauge}
-          loading={loadingTickets || loadingEvents}
-        />
-      </KpiRow>
+      {/* 2) Resumen general — importante, pero deliberadamente más chico y
+             sobrio que la card de arriba. */}
+      <div>
+        <SectionHeader title="Resumen general" />
+        <KpiRow>
+          <KpiCard
+            label="Recaudación"
+            value={formatCurrencyARS(kpis.revenueTotal)}
+            icon={DollarSign}
+            loading={loadingSales}
+          />
+          <KpiCard label="Entradas vendidas" value={kpis.ticketsSold} icon={Ticket} loading={loadingTickets} />
+          <KpiCard label="Personas ingresadas" value={kpis.checkedIn} icon={ScanLine} loading={loadingTickets} />
+          <KpiCard
+            label="Ocupación"
+            value={kpis.occupancyPct !== null ? `${kpis.occupancyPct}%` : "—"}
+            icon={Gauge}
+            loading={loadingTickets || loadingEvents}
+          />
+        </KpiRow>
+      </div>
 
       {/* 3) Estado de mis eventos. */}
       <div>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-white">Estado de mis eventos</h2>
-          <Link to="/organizador/eventos" className="text-xs font-medium text-violet-400 hover:underline">
-            Ver todos
-          </Link>
-        </div>
+        <SectionHeader
+          icon={CalendarDays}
+          title="Estado de mis eventos"
+          action={<TextLink to="/organizador/eventos">Ver todos</TextLink>}
+        />
 
         {loadingEvents ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -174,7 +230,9 @@ export default function OrganizerDashboard() {
           </div>
         ) : activeEvents.length === 0 ? (
           <Card>
-            <EmptyState icon={CalendarDays}>No tenés eventos publicados todavía.</EmptyState>
+            <EmptyState icon={CalendarDays} title="Todavía no tenés eventos publicados">
+              Cuando publiques un evento, vas a poder ver acá su estado de ventas y ocupación.
+            </EmptyState>
           </Card>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -191,9 +249,16 @@ export default function OrganizerDashboard() {
       </div>
 
       {/* 4) Últimas ventas. */}
-      <Card title="Últimas ventas">
-        <SalesTable sales={recentSales} loading={loadingSales} />
-      </Card>
+      <div>
+        <SectionHeader
+          icon={Receipt}
+          title="Últimas ventas"
+          action={<TextLink to="/organizador/ventas">Ver todas</TextLink>}
+        />
+        <Card>
+          <SalesTable sales={recentSales} loading={loadingSales} />
+        </Card>
+      </div>
     </div>
   );
 }

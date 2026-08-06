@@ -26,8 +26,11 @@ const SPINNER_TONE_BY_VARIANT = {
 
 // Compartido con LinkButton.jsx (mismo look para una acción que navega en
 // vez de ejecutar código) — evita mantener dos copias del mapeo variant/size.
+// El anillo de foco (focus-visible, no :focus) es feedback de teclado real:
+// antes no había ninguno propio y dependía del outline por default del
+// navegador, que puede quedar invisible sobre este fondo oscuro.
 export function buttonClassNames({ variant = "primary", size = "md", className = "" } = {}) {
-  return `inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]} ${className}`;
+  return `inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#05070B] ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]} ${className}`;
 }
 
 // `loading` es el estado reutilizable para cualquier accion asincrona

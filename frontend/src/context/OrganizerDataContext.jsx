@@ -23,13 +23,17 @@ export function OrganizerDataProvider({ children }) {
   const { getToken } = useAuth();
   const [events, setEvents] = useState([]);
   const [loadingEvents, setLoadingEvents] = useState(true);
+  const [eventsError, setEventsError] = useState(false);
   const [sales, setSales] = useState([]);
   const [loadingSales, setLoadingSales] = useState(true);
+  const [salesError, setSalesError] = useState(false);
   const [tickets, setTickets] = useState([]);
   const [loadingTickets, setLoadingTickets] = useState(true);
+  const [ticketsError, setTicketsError] = useState(false);
 
   const loadEvents = useCallback(async () => {
     setLoadingEvents(true);
+    setEventsError(false);
     try {
       const token = await getToken();
       const { events: list } = await apiFetch("/api/events/mine", { token });
@@ -47,6 +51,7 @@ export function OrganizerDataProvider({ children }) {
     } catch (error) {
       console.error("No se pudieron cargar los eventos del organizador", error);
       setEvents([]);
+      setEventsError(true);
     } finally {
       setLoadingEvents(false);
     }
@@ -54,6 +59,7 @@ export function OrganizerDataProvider({ children }) {
 
   const loadSales = useCallback(async () => {
     setLoadingSales(true);
+    setSalesError(false);
     try {
       const token = await getToken();
       const list = await listOrganizerSales(token);
@@ -61,6 +67,7 @@ export function OrganizerDataProvider({ children }) {
     } catch (error) {
       console.error("No se pudieron cargar las ventas del organizador", error);
       setSales([]);
+      setSalesError(true);
     } finally {
       setLoadingSales(false);
     }
@@ -73,6 +80,7 @@ export function OrganizerDataProvider({ children }) {
   // completo al entrar al panel es preferible a N fetches por evento.
   const loadTickets = useCallback(async () => {
     setLoadingTickets(true);
+    setTicketsError(false);
     try {
       const token = await getToken();
       const list = await listOrganizerTickets(token);
@@ -80,6 +88,7 @@ export function OrganizerDataProvider({ children }) {
     } catch (error) {
       console.error("No se pudieron cargar las entradas del organizador", error);
       setTickets([]);
+      setTicketsError(true);
     } finally {
       setLoadingTickets(false);
     }
@@ -95,23 +104,29 @@ export function OrganizerDataProvider({ children }) {
     () => ({
       events,
       loadingEvents,
+      eventsError,
       reloadEvents: loadEvents,
       sales,
       loadingSales,
+      salesError,
       reloadSales: loadSales,
       tickets,
       loadingTickets,
+      ticketsError,
       reloadTickets: loadTickets,
     }),
     [
       events,
       loadingEvents,
+      eventsError,
       loadEvents,
       sales,
       loadingSales,
+      salesError,
       loadSales,
       tickets,
       loadingTickets,
+      ticketsError,
       loadTickets,
     ]
   );

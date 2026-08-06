@@ -13,10 +13,11 @@ const SALE_STATUS_TONE = { PENDING: "warning", CONFIRMED: "success", CANCELLED: 
 
 export default function SalesTable({ sales, loading = false, emptyMessage = "Todavía no registrás ventas." }) {
   if (loading) {
+    const widths = ["w-full", "w-11/12", "w-full", "w-10/12"];
     return (
       <div className="flex flex-col gap-3">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <SkeletonBlock key={i} className="h-10 w-full" />
+        {widths.map((width, i) => (
+          <SkeletonBlock key={i} className={`h-10 ${width}`} />
         ))}
       </div>
     );
@@ -40,7 +41,7 @@ export default function SalesTable({ sales, loading = false, emptyMessage = "Tod
         </thead>
         <tbody className="divide-y divide-white/5">
           {sales.map((sale) => (
-            <tr key={sale.id}>
+            <tr key={sale.id} className="transition-colors duration-150 hover:bg-white/[0.03]">
               <td className="max-w-[160px] truncate py-2.5 pr-3 text-white">
                 {[sale.buyer?.firstName, sale.buyer?.lastName].filter(Boolean).join(" ") || sale.buyer?.email || "—"}
               </td>
