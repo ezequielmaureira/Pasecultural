@@ -110,6 +110,11 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Cannot (re)send the confirmation email for a sale that is not CONFIRMED.",
         userMessage: "Esta venta todavía no está confirmada.",
     },
+    SALE_EMAIL_RESEND_FAILED: {
+        httpStatus: 502,
+        logMessage: "sendSaleConfirmationEmail resolved with status FAILED on a manual resend attempt.",
+        userMessage: "No pudimos reenviar el correo. Probá de nuevo en unos minutos.",
+    },
     TICKET_NOT_FOUND: {
         httpStatus: 404,
         logMessage: "Ticket not found.",

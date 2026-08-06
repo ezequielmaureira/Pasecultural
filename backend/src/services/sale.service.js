@@ -674,7 +674,18 @@ export const resendConfirmationEmailByTokenService = async (recoveryToken) => {
     if (!sale || sale.deletedAt) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
     if (sale.status !== "CONFIRMED") throw new AppError(ErrorCodes.SALE_NOT_CONFIRMED);
 
+    // sendSaleConfirmationEmail() nunca lanza (ver su propio comentario: un
+    // email caído no puede tumbar una venta ya confirmada), así que acá es
+    // donde hay que mirar el resultado explícitamente. Antes esto devolvía
+    // { emailDeliveryStatus: "FAILED" } con éxito HTTP 200 igual que un
+    // envío real — el frontend nunca inspeccionaba ese campo y mostraba
+    // "enviado" aunque Resend hubiera fallado. `status: "SENT"` y los casos
+    // de "no reclamable" (ya estaba SENT, o SENDING en curso) siguen
+    // devolviéndose normalmente: sólo un fallo real de envío es un error.
     const result = await sendSaleConfirmationEmail(sale.id);
+    if (result.status === "FAILED") {
+        throw new AppError(ErrorCodes.SALE_EMAIL_RESEND_FAILED);
+    }
     return { emailDeliveryStatus: result.status ?? "PENDING" };
 };
 

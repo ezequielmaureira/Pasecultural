@@ -276,6 +276,13 @@ export async function resendSaleConfirmationEmailService(clerkId, saleId) {
     }
     if (sale.status !== "CONFIRMED") throw new AppError(ErrorCodes.SALE_NOT_CONFIRMED);
 
+    // Mismo criterio que resendConfirmationEmailByTokenService (sale.service.js):
+    // sendSaleConfirmationEmail() nunca lanza, así que un fallo real de envío
+    // hay que traducirlo a error acá — si no, este endpoint también devolvía
+    // 200 con emailDeliveryStatus: "FAILED" y el caller lo tomaba como éxito.
     const result = await sendSaleConfirmationEmail(sale.id);
+    if (result.status === "FAILED") {
+        throw new AppError(ErrorCodes.SALE_EMAIL_RESEND_FAILED);
+    }
     return { emailDeliveryStatus: result.status ?? "PENDING", sent: result.status === "SENT" };
 }

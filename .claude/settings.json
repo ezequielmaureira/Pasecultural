@@ -11,7 +11,8 @@
       "Bash(pkill -f \"node src/server.js\")",
       "Bash(taskkill //F //PID 21780)",
       "Bash(git fetch *)",
-      "Bash(taskkill //F //PID 380)"
+      "Bash(taskkill //F //PID 380)",
+      "Bash(node --check src/services/email/sendSaleConfirmationEmail.service.js)"
     ]
   }
 }
