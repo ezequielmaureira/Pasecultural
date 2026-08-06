@@ -3,16 +3,13 @@ import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { generateUniqueSlug } from "../utils/generateSlug.js";
 
-// Herramienta exclusiva del panel Developer ("Base de Datos") para
-// facilitar el desarrollo local — nunca debe poder ejecutarse en
-// producción. `requireDevelopmentEnv` (middleware) ya corta antes de
-// llegar acá; `assertNonProduction()` es la segunda capa, por si algún día
-// algo llama a estas funciones sin pasar por esa ruta.
-function assertNonProduction() {
-    if (process.env.NODE_ENV === "production") {
-        throw new AppError(ErrorCodes.DEV_TOOLS_UNAVAILABLE);
-    }
-}
+// Herramienta exclusiva del panel Developer ("Base de Datos"). Protección
+// simplificada TEMPORALMENTE: la única condición es requireRole("DEVELOPER")
+// en devTools.routes.js — todavía no hay producción con clientes reales.
+// Antes había una segunda capa acá (assertNonProduction) que repetía el
+// chequeo de entorno por si algo llamaba a estas funciones sin pasar por la
+// ruta; se saca a propósito junto con la de la ruta. Hay que reincorporar
+// una capa extra cuando el proyecto tenga clientes reales.
 
 // Mismas opciones que sale.service.js#confirmSaleService (maxWait/timeout
 // explícitos en vez del default de Prisma), con el timeout más alto porque
@@ -20,8 +17,6 @@ function assertNonProduction() {
 const TRANSACTION_OPTIONS = { maxWait: 10000, timeout: 30000 };
 
 export const getDevDatabaseStatsService = async () => {
-    assertNonProduction();
-
     const [events, sales, tickets, scanners, checkIns] = await Promise.all([
         prisma.event.count(),
         prisma.sale.count(),
@@ -34,8 +29,8 @@ export const getDevDatabaseStatsService = async () => {
 };
 
 // La UI pide doble confirmación (dos ConfirmDialog encadenados) — esto es
-// la tercera capa, del lado servidor: sin la frase exacta, ni con sesión de
-// DEVELOPER ni en entorno de desarrollo se ejecuta nada.
+// la segunda capa del lado servidor: sin la frase exacta, ni con sesión de
+// DEVELOPER se ejecuta nada.
 const RESET_CONFIRMATION_PHRASE = "REINICIAR";
 
 // Elimina TODAS las entidades transaccionales, en una única transacción y
@@ -46,8 +41,6 @@ const RESET_CONFIRMATION_PHRASE = "REINICIAR";
 // el trabajo solo: cada tabla se vacía explícitamente para que el resultado
 // quede contado y sea auditable. Nunca toca User ni Organization.
 export const resetDevDatabaseService = async ({ confirm } = {}) => {
-    assertNonProduction();
-
     if (confirm !== RESET_CONFIRMATION_PHRASE) {
         throw new AppError(ErrorCodes.DEV_TOOLS_CONFIRMATION_REQUIRED);
     }
@@ -86,8 +79,6 @@ export const resetDevDatabaseService = async ({ confirm } = {}) => {
 // organizador alguna vez). Si no hay ninguna, error claro en vez de
 // inventar una Organization/User falsos.
 export const createDemoEventService = async () => {
-    assertNonProduction();
-
     const organization = await prisma.organization.findFirst({ orderBy: { createdAt: "asc" } });
     if (!organization) {
         throw new AppError(ErrorCodes.DEV_TOOLS_NO_ORGANIZATION);

@@ -49,8 +49,10 @@ app.use("/api/tickets", ticketRoutes);
 app.use("/api/scanner", scannerRoutes);
 app.use("/api/scanner-invitations", scannerInvitationRoutes);
 app.use("/api/scanner-auth", scannerAuthRoutes);
-// Sólo DEVELOPER + sólo fuera de producción (ver requireDevelopmentEnv) —
-// panel "Base de Datos" para reiniciar/sembrar la base de desarrollo.
+// Sólo DEVELOPER (ver devTools.routes.js) — panel "Base de Datos" para
+// reiniciar/sembrar la base. Protección simplificada temporalmente: todavía
+// no hay producción con clientes reales. Reincorporar una capa extra
+// cuando la haya.
 app.use("/api/dev", devToolsRoutes);
 
 app.get("/debug/prisma-user", async (req, res) => {
