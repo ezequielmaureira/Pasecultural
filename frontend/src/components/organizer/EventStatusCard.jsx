@@ -8,14 +8,22 @@ import { EVENT_STATUS_TONE } from "./eventStatusTone.js";
 import { formatShortDate } from "../../lib/format.js";
 import { eventEditPath } from "../../lib/organizerRoutes.js";
 
-// Variante compacta de EventHeroCard para la grilla "Estado de mis eventos".
-// Mismos primitivos (Badge, ProgressBar, LinkButton, EventCoverImage), pero
+// Variante compacta de EventHeroCard para la grilla "Estado de mis eventos"
+// — y, con `hideOccupancy`/`actionLabel`, también para el Historial de
+// Eventos (donde no se piden ventas/capacidad, sólo listar). Mismos
+// primitivos (Badge, ProgressBar, LinkButton, EventCoverImage), pero
 // deliberadamente más chica/densa que la hero para no competirle en
 // jerarquía visual. El hover sutil (borde + elevación) es el único feedback
 // que se agrega acá: son varias cards iguales en una grilla, ese
 // microgesto ayuda a "leerlas" como unidades individuales sin necesitar
 // hacer clic para confirmarlo.
-export default function EventStatusCard({ event, sold, capacity }) {
+export default function EventStatusCard({
+  event,
+  sold,
+  capacity,
+  actionLabel = "Administrar",
+  hideOccupancy = false,
+}) {
   return (
     <div className="flex flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0B1120] transition-colors duration-200 hover:border-white/20">
       <EventCoverImage
@@ -35,7 +43,7 @@ export default function EventStatusCard({ event, sold, capacity }) {
 
         <p className="text-xs text-slate-500">{formatShortDate(event.startDate)}</p>
 
-        <ProgressBar value={sold} max={capacity} size="sm" />
+        {!hideOccupancy && <ProgressBar value={sold} max={capacity} size="sm" />}
 
         <LinkButton
           to={eventEditPath(event.id)}
@@ -43,7 +51,7 @@ export default function EventStatusCard({ event, sold, capacity }) {
           size="sm"
           className="mt-auto"
         >
-          Administrar
+          {actionLabel}
         </LinkButton>
       </div>
     </div>

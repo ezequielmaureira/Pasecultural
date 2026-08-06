@@ -10,6 +10,9 @@ import {
     saveEventSchedule,
     saveEventLinks,
     getEventCategories,
+    listArchivedEvents,
+    restoreEvent,
+    duplicateEvent,
 } from "../controllers/event.controller.js";
 import {
     listActiveEventsForScanner,
@@ -43,6 +46,9 @@ router.get("/categories", getEventCategories);
 // propio, así que también tiene que ir antes de "/:id" para no confundirse
 // con un id de evento literal.
 router.get("/scanner-events", requireAuth, listActiveEventsForScanner);
+// Historial de Eventos — antes de "/:id" por el mismo motivo que
+// "/scanner-events": si no, Express la confundiría con un id literal.
+router.get("/archived", requireAuth, listArchivedEvents);
 
 router.post("/", requireAuth, createEvent);
 router.get("/mine", requireAuth, getMyEvents);
@@ -50,6 +56,8 @@ router.get("/:id", requireAuth, getMyEventById);
 router.patch("/:id", requireAuth, updateMyEvent);
 router.put("/:id/schedule", requireAuth, saveEventSchedule);
 router.put("/:id/links", requireAuth, saveEventLinks);
+router.post("/:id/restore", requireAuth, restoreEvent);
+router.post("/:id/duplicate", requireAuth, duplicateEvent);
 
 // Estado de ocupación/ventas por función, con auth de organizador — wrapper
 // de functionCapacity.service.js#getEventFunctionStats (Iteración 1 del

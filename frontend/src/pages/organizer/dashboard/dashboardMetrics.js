@@ -142,6 +142,20 @@ export function groupEventsByCategory(events, now) {
   };
 }
 
+// Busca en qué categoría (y en qué posición) aparece un evento puntual —
+// usado para que el Dashboard respete el Evento Activo compartido (ver
+// ActiveEventContext) como punto de partida, en vez de siempre priorizar
+// ongoing > upcoming > finished. Devuelve null si el evento no aparece en
+// ninguna categoría (ej. está archivado, o no existe).
+export function findEventCategoryPosition(categorized, eventId) {
+  if (!eventId) return null;
+  for (const category of ["ongoing", "upcoming", "finished"]) {
+    const index = categorized[category].findIndex((candidate) => candidate.event.id === eventId);
+    if (index !== -1) return { category, index };
+  }
+  return null;
+}
+
 // KPIs del "Resumen general" — org-wide, a partir de lo que ya trae el
 // contexto. `occupancyPct` es null (no 0) cuando no hay capacidad relevante
 // todavía: mostrar 0% ahí sería un dato falso, no uno real.

@@ -207,6 +207,20 @@ model Event {
   visibility  EventVisibility @default(PUBLIC)
   publishedAt DateTime?
 
+  // Cuándo pasó a CANCELLED — necesario para la regla de archivado
+  // automático ("cancelado + 7 días"), que nunca podría usar `updatedAt`
+  // para esto: se pisa con cualquier otra edición posterior, no sólo con la
+  // cancelación (mismo motivo por el que EventScanner.lastScanAt no sirve
+  // para "último escaneo" — ver eventScanner.service.js). Se limpia a null
+  // si el estado vuelve a cambiar a otra cosa (updateMyEventService).
+  cancelledAt DateTime?
+
+  // Cuándo pasó al Historial de Eventos (archivado automático, ver
+  // eventArchive.service.js). Nullable = no archivado. Nunca se borra un
+  // evento archivado ni se le pierde información — sólo deja de aparecer en
+  // las pantallas operativas del organizador.
+  archivedAt DateTime?
+
   createdBy String
 
   createdAt DateTime @default(now())

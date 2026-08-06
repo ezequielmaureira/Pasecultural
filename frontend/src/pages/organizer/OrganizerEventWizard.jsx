@@ -18,7 +18,10 @@ import { usePublishFlow } from "../../hooks/usePublishFlow.js";
 import { Field, inputClass, textareaClass } from "../../components/ui/FormField.jsx";
 import ImageUploader from "../../components/ui/ImageUploader.jsx";
 import { apiFetch } from "../../lib/api.js";
+import { restoreEvent, duplicateEvent } from "../../lib/eventArchiveApi.js";
+import ArchivedEventBanner from "../../components/organizer/ArchivedEventBanner.jsx";
 import { useToast } from "../../context/ToastContext.jsx";
+import { useActiveEvent } from "../../context/ActiveEventContext.jsx";
 import { EVENT_CATEGORIES, getEventCategoryLabel } from "../../lib/eventCategories.js";
 import { canPublishEvents } from "../../lib/organizationTrust.js";
 import FunctionCard from "./eventWizard/FunctionCard.jsx";
@@ -83,7 +86,18 @@ export default function OrganizerEventWizard() {
   const navigate = useNavigate();
   const { getToken } = useAuth();
   const toast = useToast();
+  const { setActiveEventId } = useActiveEvent();
   const isEditing = Boolean(id);
+
+  // "No quiero editar directamente un evento archivado" — si el evento
+  // cargado ya pasó al Historial, el render de abajo muestra
+  // ArchivedEventBanner en vez del formulario (ver el `if` antes del
+  // `return` principal). El resto del estado del formulario se sigue
+  // poblando igual (no hace daño, sólo no se usa) para que, si se restaura,
+  // el formulario ya esté listo sin re-fetchear nada.
+  const [archivedAt, setArchivedAt] = useState(null);
+  const [restoring, setRestoring] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
 
   const [step, setStep] = useState(1);
   const [general, setGeneral] = useState(createEmptyGeneralForm);
@@ -177,6 +191,13 @@ export default function OrganizerEventWizard() {
         const token = await getToken();
         const { event } = await apiFetch(`/api/events/${id}`, { token });
         if (cancelled || !event) return;
+
+        setArchivedAt(event.archivedAt ?? null);
+        // Estar editando este evento lo convierte en el Evento Activo para
+        // el resto del panel — salvo que esté archivado (no tiene sentido
+        // que las demás pantallas operativas apunten a algo que no pueden
+        // operar).
+        if (!event.archivedAt) setActiveEventId(event.id);
 
         setGeneral({
           title: event.title || "",
@@ -288,7 +309,7 @@ export default function OrganizerEventWizard() {
     return () => {
       cancelled = true;
     };
-  }, [id, isEditing, getToken]);
+  }, [id, isEditing, getToken, setActiveEventId]);
 
   const canPublish = canPublishEvents(organization);
 
@@ -703,11 +724,68 @@ export default function OrganizerEventWizard() {
 
   const publishButtonLabel = isEditing ? "Guardar y publicar" : "Publicar";
 
+  // El evento ya está completo en memoria (el efecto de carga pobló todo el
+  // formulario igual, archivado o no) — restaurar sólo necesita sacar la
+  // bandera local, sin volver a pedir nada al backend.
+  async function handleRestore() {
+    setRestoring(true);
+    try {
+      const token = await getToken();
+      await restoreEvent(token, id);
+      toast.success("Evento restaurado — ya podés volver a operarlo.");
+      setArchivedAt(null);
+      setActiveEventId(id);
+    } catch (err) {
+      toast.error(err.message || "No se pudo restaurar el evento.");
+    } finally {
+      setRestoring(false);
+    }
+  }
+
+  async function handleDuplicate() {
+    setDuplicating(true);
+    try {
+      const token = await getToken();
+      const newEvent = await duplicateEvent(token, id);
+      toast.success(`Se creó "${newEvent.title}" como borrador.`);
+      navigate(`/organizador/eventos/${newEvent.id}/editar`);
+    } catch (err) {
+      toast.error(err.message || "No se pudo duplicar el evento.");
+    } finally {
+      setDuplicating(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-slate-400">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/10 border-t-violet-500" />
         <p className="text-sm">Cargando evento...</p>
+      </div>
+    );
+  }
+
+  if (archivedAt) {
+    return (
+      <div className="mx-auto flex max-w-3xl flex-col gap-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-white">{general.title || "Evento"}</h1>
+            <p className="text-sm text-slate-400">Este evento está en el Historial de Eventos.</p>
+          </div>
+          <Link to="/organizador/historial">
+            <Button type="button" variant="ghost">
+              Volver al historial
+            </Button>
+          </Link>
+        </div>
+
+        <ArchivedEventBanner
+          onRestore={handleRestore}
+          onDuplicate={handleDuplicate}
+          restoring={restoring}
+          duplicating={duplicating}
+        />
       </div>
     );
   }

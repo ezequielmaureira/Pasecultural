@@ -1,6 +1,7 @@
 import { getAuth } from "@clerk/express";
 import { EVENT_CATEGORIES } from "../utils/eventCategories.js";
 import { EVENT_SERVICE_ERROR_MESSAGES } from "../conversation/errorMessages.js";
+import { ErrorCatalog } from "../errors/ErrorCatalog.js";
 import {
     createEventService,
     getMyEventsService,
@@ -11,6 +12,9 @@ import {
     getPublicEventBySlugService,
     syncEventScheduleService,
     syncEventLinksService,
+    listArchivedEventsService,
+    restoreEventService,
+    duplicateEventService,
 } from "../services/event.service.js";
 
 const PUBLISH_ERROR_MESSAGES = EVENT_SERVICE_ERROR_MESSAGES;
@@ -152,6 +156,10 @@ export const updateMyEvent = async (req, res) => {
             });
         }
 
+        if (error.message === "EVENT_ARCHIVED") {
+            return res.status(409).json({ message: ErrorCatalog.EVENT_ARCHIVED.userMessage });
+        }
+
         if (error.message === "CUSTOM_CATEGORY_REQUIRED") {
             return res.status(400).json({ message: CUSTOM_CATEGORY_REQUIRED_MESSAGE });
         }
@@ -272,5 +280,61 @@ export const deleteMyEvent = async (req, res) => {
         }
 
         res.status(500).json({ message: "Error al eliminar el evento" });
+    }
+};
+
+// Historial de Eventos — sólo lectura/búsqueda + 2 acciones (restaurar,
+// duplicar). Nunca edición directa (updateMyEvent ya rechaza eventos
+// archivados con EVENT_ARCHIVED, ver arriba).
+export const listArchivedEvents = async (req, res) => {
+    try {
+        const { userId } = getAuth(req);
+        if (!userId) {
+            return res.status(401).json({ message: "No autenticado" });
+        }
+
+        const events = await listArchivedEventsService(userId, { search: req.query.search });
+        res.status(200).json({ events });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Error al obtener el historial de eventos" });
+    }
+};
+
+export const restoreEvent = async (req, res) => {
+    try {
+        const { userId } = getAuth(req);
+        if (!userId) {
+            return res.status(401).json({ message: "No autenticado" });
+        }
+
+        const event = await restoreEventService(userId, req.params.id);
+        if (!event) {
+            return res.status(404).json({ message: "Evento no encontrado" });
+        }
+
+        res.status(200).json({ event });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Error al restaurar el evento" });
+    }
+};
+
+export const duplicateEvent = async (req, res) => {
+    try {
+        const { userId } = getAuth(req);
+        if (!userId) {
+            return res.status(401).json({ message: "No autenticado" });
+        }
+
+        const event = await duplicateEventService(userId, req.params.id);
+        if (!event) {
+            return res.status(404).json({ message: "Evento no encontrado" });
+        }
+
+        res.status(201).json({ event });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Error al duplicar el evento" });
     }
 };

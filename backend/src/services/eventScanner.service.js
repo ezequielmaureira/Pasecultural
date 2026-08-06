@@ -4,6 +4,7 @@ import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { getUserByClerkId } from "../utils/getUserByClerkId.js";
 import { logger } from "../logging/logger.js";
+import { runArchiveSelfHeal } from "./eventArchive.service.js";
 
 // Cuánto dura una invitación sin reclamar antes de considerarse vencida —
 // "vencimiento configurable" del requerimiento: el campo lo soporta
@@ -29,15 +30,23 @@ async function getMyOrganization(clerkId) {
     return { user, organization };
 }
 
-// Exportada para ticketAdmin.service.js — mismo criterio de "el
-// organizador dueño de este evento" que ya usan todas las acciones de
-// scanner de acá abajo, reusado tal cual para las acciones de ticket.
+// Exportada para ticketAdmin.service.js y functionCapacity.service.js —
+// mismo criterio de "el organizador dueño de este evento" que ya usan todas
+// las acciones de scanner de acá abajo, reusado tal cual para acciones de
+// ticket y estado de funciones. Punto único de rechazo para "evento
+// archivado": al centralizarlo acá, Scanners (list/crear/editar/
+// deshabilitar/etc.), Entradas (cancelar/rehabilitar/marcar usada/eliminar)
+// y Estado de Funciones quedan protegidos con un solo cambio — nunca hace
+// falta repetir este chequeo en cada service.
 export async function getOwnedEvent(clerkId, eventId) {
     const context = await getMyOrganization(clerkId);
     if (!context) return null;
 
+    await runArchiveSelfHeal(prisma, { eventId });
+
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event || event.organizationId !== context.organization.id) return null;
+    if (event.archivedAt) throw new AppError(ErrorCodes.EVENT_ARCHIVED);
 
     return { ...context, event };
 }
@@ -85,8 +94,14 @@ export const listActiveEventsForScannerService = async (clerkId) => {
     const context = await getMyOrganization(clerkId);
     if (!context) return [];
 
+    await runArchiveSelfHeal(prisma, { organizationId: context.organization.id });
+
     return prisma.event.findMany({
-        where: { organizationId: context.organization.id, status: { notIn: ["CANCELLED", "FINISHED"] } },
+        where: {
+            organizationId: context.organization.id,
+            status: { notIn: ["CANCELLED", "FINISHED"] },
+            archivedAt: null,
+        },
         select: { id: true, title: true },
         orderBy: { createdAt: "desc" },
     });

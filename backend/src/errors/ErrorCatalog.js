@@ -296,4 +296,11 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Demo event creation attempted with zero organizations in the database.",
         userMessage: "No hay ninguna organización en la base todavía — creá una antes de generar el evento demo.",
     },
+
+    // --- Historial de Eventos (archivado automático) --------------------
+    EVENT_ARCHIVED: {
+        httpStatus: 409,
+        logMessage: "Operation attempted on an archived event through an operational (non-history) endpoint.",
+        userMessage: "Este evento ya pasó al Historial de Eventos. Restauralo primero si necesitás operarlo, o duplicalo para crear uno nuevo.",
+    },
 });

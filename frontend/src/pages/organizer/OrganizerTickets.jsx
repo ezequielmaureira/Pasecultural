@@ -20,6 +20,7 @@ import SectionHeader from "../../components/organizer/SectionHeader.jsx";
 import { buildEventStatsKpis } from "../../components/organizer/functionStatsSelectors.js";
 import { useToast } from "../../context/ToastContext.jsx";
 import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
+import { useActiveEvent } from "../../context/ActiveEventContext.jsx";
 import { useEventStats } from "../../hooks/useEventStats.js";
 import { bulkActionTickets, listOrganizerTickets } from "../../lib/ticketAdminApi.js";
 import { formatCurrencyARS } from "../../lib/format.js";
@@ -56,6 +57,7 @@ export default function OrganizerTickets() {
   const { getToken } = useAuth();
   const toast = useToast();
   const { events, loadingEvents } = useOrganizerData();
+  const { activeEventId, setActiveEventId } = useActiveEvent();
 
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [search, setSearch] = useState("");
@@ -98,6 +100,9 @@ export default function OrganizerTickets() {
     }));
   }, [selectedEvent]);
 
+  // Default: el Evento Activo compartido (ver ActiveEventContext) si sigue
+  // siendo un evento válido de esta organización; si no, el mismo criterio
+  // de antes (único evento disponible, o ninguno preseleccionado).
   useEffect(() => {
     if (!events.length) {
       setSelectedEventId(null);
@@ -106,9 +111,11 @@ export default function OrganizerTickets() {
     }
 
     if (!selectedEventId || !events.some((event) => event.id === selectedEventId)) {
-      setSelectedEventId(events.length === 1 ? events[0].id : null);
+      const validActive = activeEventId && events.some((e) => e.id === activeEventId) ? activeEventId : null;
+      setSelectedEventId(validActive ?? (events.length === 1 ? events[0].id : null));
       setSelectedFunctionId("ALL");
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events, selectedEventId]);
 
   const loadTickets = useCallback(async () => {
@@ -240,7 +247,9 @@ export default function OrganizerTickets() {
             <select
               value={selectedEventId ?? ""}
               onChange={(event) => {
-                setSelectedEventId(event.target.value || null);
+                const nextEventId = event.target.value || null;
+                setSelectedEventId(nextEventId);
+                setActiveEventId(nextEventId); // el resto de las pantallas heredan esta elección
                 setSelectedFunctionId("ALL");
                 setSelectedIds([]);
               }}

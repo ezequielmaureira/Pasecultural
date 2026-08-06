@@ -3,6 +3,7 @@ import prisma from "../config/prisma.js";
 import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { getUserByClerkId } from "../utils/getUserByClerkId.js";
+import { runArchiveSelfHeal } from "./eventArchive.service.js";
 import { isValidEmail } from "../utils/validateEmail.js";
 import { normalizeBuyerDocument, isValidBuyerDocument } from "../utils/validateBuyerDocument.js";
 import { buildTicketNumber } from "../utils/ticketNumber.js";
@@ -445,6 +446,11 @@ export const cancelSaleService = async (clerkId, saleId) => {
     return prisma.sale.findUnique({ where: { id: saleId }, include: SALE_LIST_INCLUDE });
 };
 
+// Si se pide un `eventId` puntual, siempre se devuelve (aunque esté
+// archivado — ej. el detalle del Historial de Eventos necesita poder leer
+// sus ventas finales). El filtro `archivedAt: null` sólo aplica al listado
+// "todos mis eventos" (pantalla operativa de Ventas): ese es el que nunca
+// debe mostrar ventas de un evento que ya pasó al Historial.
 export const listSalesOrganizerService = async (clerkId, filters = {}) => {
     const user = await getUserByClerkId(clerkId);
     if (!user) return [];
@@ -452,7 +458,17 @@ export const listSalesOrganizerService = async (clerkId, filters = {}) => {
     const organization = await getOrganizationByOwner(user.id);
     if (!organization) return [];
 
-    const where = { event: { organizationId: organization.id }, deletedAt: null };
+    if (!filters.eventId) {
+        await runArchiveSelfHeal(prisma, { organizationId: organization.id });
+    }
+
+    const where = {
+        event: {
+            organizationId: organization.id,
+            ...(filters.eventId ? {} : { archivedAt: null }),
+        },
+        deletedAt: null,
+    };
 
     if (filters.status) where.status = filters.status;
     if (filters.eventId) where.eventId = filters.eventId;

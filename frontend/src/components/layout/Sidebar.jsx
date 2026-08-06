@@ -10,6 +10,9 @@ import {
   Settings,
   ChevronsLeft,
   Database,
+  CalendarRange,
+  History,
+  Receipt,
 } from "lucide-react";
 import { useBackendUser } from "../../context/AuthContext.jsx";
 import { NEW_EVENT_REQUEST_EVENT } from "../../lib/eventChatEvents.js";
@@ -59,6 +62,7 @@ const NAV_BY_ROLE = {
       ],
     },
     { label: "Entradas", icon: Ticket, path: "/organizador/entradas", end: true },
+    { label: "Ventas", icon: Receipt, path: "/organizador/ventas", end: true },
     { label: "Estadísticas", icon: LineChart },
     {
       label: "Scanners",
@@ -70,6 +74,8 @@ const NAV_BY_ROLE = {
         { label: "Agregar scanner", path: "/organizador/scanners/nuevo", end: true },
       ],
     },
+    { label: "Estado de Funciones", icon: CalendarRange, path: "/organizador/funciones", end: true },
+    { label: "Historial de Eventos", icon: History, path: "/organizador/historial", end: true },
     {
       label: "Configuración",
       icon: Settings,

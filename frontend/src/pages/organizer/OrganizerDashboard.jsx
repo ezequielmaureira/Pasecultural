@@ -17,11 +17,13 @@ import FunctionOccupancyList from "../../components/organizer/FunctionOccupancyL
 import ScannerStatusList from "../../components/organizer/ScannerStatusList.jsx";
 import ActivityTimeline from "../../components/organizer/ActivityTimeline.jsx";
 import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
+import { useActiveEvent } from "../../context/ActiveEventContext.jsx";
 import { useSessionStorageState } from "../../hooks/useSessionStorageState.js";
 import { apiFetch } from "../../lib/api.js";
 import { formatCurrencyARS } from "../../lib/format.js";
 import {
   groupEventsByCategory,
+  findEventCategoryPosition,
   computeEventCapacity,
   groupTicketsByEvent,
   computeSoldCount,
@@ -135,18 +137,38 @@ export default function OrganizerDashboard() {
 
   const categorized = groupEventsByCategory(events, now);
 
+  // Evento Activo compartido (ver ActiveEventContext) — Dashboard, Entradas,
+  // Ventas, Scanners y Estado de Funciones leen/escriben el mismo valor.
+  const { activeEventId, setActiveEventId } = useActiveEvent();
+
   // Categoría: se recuerda mientras dure la sesión (sessionStorage). Sin
-  // elección explícita todavía (primera carga de la sesión), se prioriza
-  // "en curso" > "próximos" > "finalizados" — mismo criterio que ya tenía
-  // el featured event anterior, ahora aplicado sólo como default inicial.
+  // elección explícita todavía (primera carga de la sesión), se prioriza el
+  // Evento Activo si ya apunta a algo dentro de alguna categoría — así, si
+  // el organizador vino de otra pantalla habiendo elegido un evento ahí, el
+  // Dashboard lo respeta en vez de imponer su propia prioridad. Si no hay
+  // Evento Activo (o no aparece en ninguna categoría, ej. se archivó),
+  // prioriza "en curso" > "próximos" > "finalizados", igual que antes.
   const [storedCategory, setStoredCategory] = useSessionStorageState("organizerDashboard.category", null);
+  const activeEventPosition = storedCategory === null ? findEventCategoryPosition(categorized, activeEventId) : null;
   const selectedCategory =
     storedCategory ??
+    activeEventPosition?.category ??
     (categorized.ongoing.length > 0 ? "ongoing" : categorized.upcoming.length > 0 ? "upcoming" : "finished");
 
   // Índice dentro de la categoría — nunca se persiste entre sesiones (sólo
-  // la categoría), y se reinicia a 0 cada vez que se cambia de categoría.
+  // la categoría), y se reinicia a 0 cada vez que el organizador cambia de
+  // categoría a mano. No puede arrancar en `activeEventPosition.index` como
+  // valor inicial de useState: en el primer render `events` todavía no
+  // cargó (siempre null), así que se corrige con el efecto de abajo apenas
+  // termina de cargar.
   const [selectedIndex, setSelectedIndex] = useState(0);
+
+  useEffect(() => {
+    if (!loadingEvents && storedCategory === null && activeEventPosition) {
+      setSelectedIndex(activeEventPosition.index);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingEvents]);
 
   function handleSelectCategory(key) {
     setStoredCategory(key);
@@ -158,6 +180,16 @@ export default function OrganizerDashboard() {
   const featured = activeList[clampedIndex] ?? null;
   const featuredEventId = featured?.event?.id ?? null;
   const featuredIsOngoing = selectedCategory === "ongoing";
+
+  // Cada vez que cambia el evento mostrado acá, se convierte en el Evento
+  // Activo para el resto del panel — nunca al revés en este efecto (leer
+  // activeEventId ya pasó arriba, una sola vez, como default inicial).
+  useEffect(() => {
+    if (featuredEventId && featuredEventId !== activeEventId) {
+      setActiveEventId(featuredEventId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [featuredEventId]);
 
   const ticketsByEvent = groupTicketsByEvent(tickets);
   const featuredCapacity = featured ? computeEventCapacity(featured.event) : 0;

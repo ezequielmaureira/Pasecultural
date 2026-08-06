@@ -20,6 +20,7 @@ import Modal from "../../components/ui/Modal.jsx";
 import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
 import { Field, inputClass } from "../../components/ui/FormField.jsx";
 import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
+import { useActiveEvent } from "../../context/ActiveEventContext.jsx";
 import { useToast } from "../../context/ToastContext.jsx";
 import {
   listEventScanners,
@@ -204,6 +205,7 @@ function ScannerCard({ scanner, onAction, actingId, onEdit, onShare }) {
 export default function OrganizerScanners() {
   const { getToken } = useAuth();
   const { events, loadingEvents } = useOrganizerData();
+  const { activeEventId, setActiveEventId } = useActiveEvent();
   const toast = useToast();
 
   const [eventId, setEventId] = useState("");
@@ -215,10 +217,13 @@ export default function OrganizerScanners() {
   const [editingScanner, setEditingScanner] = useState(null);
   const [sharingScanner, setSharingScanner] = useState(null);
 
+  // Default: el Evento Activo compartido si sigue siendo válido; si no, el
+  // primero disponible (mismo criterio de antes).
   useEffect(() => {
-    if (!loadingEvents && events.length > 0 && !eventId) {
-      setEventId(events[0].id);
-    }
+    if (loadingEvents || events.length === 0 || eventId) return;
+    const validActive = activeEventId && events.some((e) => e.id === activeEventId) ? activeEventId : null;
+    setEventId(validActive ?? events[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingEvents, events, eventId]);
 
   async function loadScanners(id) {
@@ -304,7 +309,14 @@ export default function OrganizerScanners() {
       {events.length > 0 && (
         <>
           <Field label="Evento" className="max-w-sm">
-            <select className={inputClass} value={eventId} onChange={(e) => setEventId(e.target.value)}>
+            <select
+              className={inputClass}
+              value={eventId}
+              onChange={(e) => {
+                setEventId(e.target.value);
+                setActiveEventId(e.target.value); // el resto de las pantallas heredan esta elección
+              }}
+            >
               {events.map((event) => (
                 <option key={event.id} value={event.id}>
                   {event.title}

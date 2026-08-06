@@ -14,6 +14,7 @@ import Profile from "./pages/Profile.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
 import { ToastProvider } from "./context/ToastContext.jsx";
 import { OrganizerDataProvider } from "./context/OrganizerDataContext.jsx";
+import { ActiveEventProvider } from "./context/ActiveEventContext.jsx";
 import DashboardDeveloper from "./pages/DashboardDeveloper.jsx";
 import DeveloperOrganizations from "./pages/developer/DeveloperOrganizations.jsx";
 import DeveloperUsers from "./pages/developer/DeveloperUsers.jsx";
@@ -37,6 +38,8 @@ import OrganizerSales from "./pages/organizer/OrganizerSales.jsx";
 import OrganizerScanners from "./pages/organizer/OrganizerScanners.jsx";
 import OrganizerScannerInvite from "./pages/organizer/OrganizerScannerInvite.jsx";
 import OrganizerSettings from "./pages/organizer/OrganizerSettings.jsx";
+import OrganizerFunctionStatus from "./pages/organizer/OrganizerFunctionStatus.jsx";
+import OrganizerEventHistory from "./pages/organizer/OrganizerEventHistory.jsx";
 
 function NotFound() {
   return (
@@ -116,7 +119,9 @@ export default function App() {
                   path="/organizador"
                   element={
                     <OrganizerDataProvider>
-                      <Outlet />
+                      <ActiveEventProvider>
+                        <Outlet />
+                      </ActiveEventProvider>
                     </OrganizerDataProvider>
                   }
                 >
@@ -129,6 +134,8 @@ export default function App() {
                   <Route path="ventas" element={<OrganizerSales />} />
                   <Route path="scanners" element={<OrganizerScanners />} />
                   <Route path="scanners/nuevo" element={<OrganizerScannerInvite />} />
+                  <Route path="funciones" element={<OrganizerFunctionStatus />} />
+                  <Route path="historial" element={<OrganizerEventHistory />} />
                   <Route path="configuracion" element={<OrganizerSettings />} />
                 </Route>
               </Route>

@@ -3,6 +3,7 @@ import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { getUserByClerkId } from "../utils/getUserByClerkId.js";
 import { decryptSecret } from "../config/qrEncryption.js";
+import { runArchiveSelfHeal } from "./eventArchive.service.js";
 import { normalizeBuyerDocument } from "../utils/validateBuyerDocument.js";
 
 // Nunca incluye `qr` (secretEncrypted) ni datos de la Sale (paymentRef,
@@ -89,6 +90,10 @@ export const getTicketByNumberService = async (clerkId, ticketNumber) => {
 // que venga del cliente.
 const TICKET_STATUS_VALUES = ["ACTIVE", "USED", "CANCELLED", "REFUNDED"];
 
+// Mismo criterio que listSalesOrganizerService: un `eventId` puntual
+// siempre se devuelve aunque el evento esté archivado (detalle del
+// Historial); el filtro `archivedAt: null` sólo aplica al listado "todos
+// mis eventos" (pantalla operativa de Entradas).
 export const listTicketsOrganizerService = async (clerkId, { search, status, eventId, functionId } = {}) => {
     const user = await getUserByClerkId(clerkId);
     if (!user) return [];
@@ -96,7 +101,16 @@ export const listTicketsOrganizerService = async (clerkId, { search, status, eve
     const organization = await prisma.organization.findFirst({ where: { ownerId: user.id } });
     if (!organization) return [];
 
-    const where = { event: { organizationId: organization.id } };
+    if (!eventId) {
+        await runArchiveSelfHeal(prisma, { organizationId: organization.id });
+    }
+
+    const where = {
+        event: {
+            organizationId: organization.id,
+            ...(eventId ? {} : { archivedAt: null }),
+        },
+    };
 
     if (eventId) where.eventId = eventId;
     if (functionId) where.functionId = functionId;

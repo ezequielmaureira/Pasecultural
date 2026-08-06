@@ -3,6 +3,7 @@ import prisma from "../config/prisma.js";
 import { generateUniqueSlug } from "../utils/generateSlug.js";
 import { canPublishEvents } from "../utils/organizationTrust.js";
 import { isValidHttpUrl, parseMediaUrl } from "../utils/mediaParser.js";
+import { runArchiveSelfHeal } from "./eventArchive.service.js";
 
 const UPDATABLE_FIELDS = [
     "title",
@@ -154,12 +155,19 @@ export const createEventService = async (clerkId, input) => {
     });
 };
 
+// "Mis eventos" — SIEMPRE excluye archivados (espacio operativo, ver
+// Historial de Eventos). Self-heal antes de la consulta real: si algo ya
+// cumplió la regla de archivado pero todavía no tiene `archivedAt`, se
+// marca acá mismo — así esta lista nunca muestra un evento que debería
+// haber pasado al Historial, sin necesidad de un cron.
 export const getMyEventsService = async (clerkId) => {
     const context = await getMyOrganization(clerkId);
     if (!context) return [];
 
+    await runArchiveSelfHeal(prisma, { organizationId: context.organization.id });
+
     return prisma.event.findMany({
-        where: { organizationId: context.organization.id },
+        where: { organizationId: context.organization.id, archivedAt: null },
         orderBy: { createdAt: "desc" },
     });
 };
@@ -178,9 +186,17 @@ const EVENT_DETAIL_INCLUDE = {
     links: { orderBy: { order: "asc" } },
 };
 
+// A diferencia de getMyEventsService, ACÁ no se filtra por archivedAt: esta
+// función sirve tanto al wizard de edición como a la vista de sólo lectura
+// del Historial (ver ArchivedEventBanner en el frontend) — el que decide
+// qué mostrar es el caller, no este service. Sí corre el self-heal (acotado
+// a este único evento) para que `archivedAt` esté al día si justo se
+// cumplió la regla ahora.
 export const getMyEventByIdService = async (clerkId, id) => {
     const context = await getMyOrganization(clerkId);
     if (!context) return null;
+
+    await runArchiveSelfHeal(prisma, { eventId: id });
 
     const event = await prisma.event.findUnique({ where: { id }, include: EVENT_DETAIL_INCLUDE });
     if (!event || event.organizationId !== context.organization.id) return null;
@@ -228,6 +244,14 @@ export const updateMyEventService = async (clerkId, id, input) => {
     const event = await prisma.event.findUnique({ where: { id }, include: EVENT_DETAIL_INCLUDE });
     if (!event || event.organizationId !== context.organization.id) return null;
 
+    // "No quiero editar directamente un evento archivado" — restaurarlo
+    // primero (restoreEventService) es el único camino. Se chequea antes de
+    // cualquier otra validación: no tiene sentido explicarle por qué falló
+    // publicar/categorizar algo que ni siquiera se puede tocar.
+    if (event.archivedAt) {
+        throw new Error("EVENT_ARCHIVED");
+    }
+
     assertValidCategory(input);
 
     const data = buildEventData(input);
@@ -243,6 +267,17 @@ export const updateMyEventService = async (clerkId, id, input) => {
         data.status = input.status;
         if (input.status === "PUBLISHED" && !event.publishedAt) {
             data.publishedAt = new Date();
+        }
+
+        // cancelledAt: dedicado (nunca updatedAt) para la regla de archivado
+        // "cancelado + 7 días" — ver eventArchive.service.js. Se limpia si
+        // el estado vuelve a cambiar a otra cosa, para no dejar un
+        // cancelledAt viejo mintiendo sobre un evento que ya no está
+        // cancelado.
+        if (input.status === "CANCELLED" && event.status !== "CANCELLED") {
+            data.cancelledAt = new Date();
+        } else if (input.status !== "CANCELLED" && event.status === "CANCELLED") {
+            data.cancelledAt = null;
         }
     }
 
@@ -603,4 +638,118 @@ export const deleteMyEventService = async (clerkId, id) => {
 
     await prisma.event.delete({ where: { id } });
     return true;
+};
+
+// Historial de Eventos — listado de archivados, con búsqueda opcional por
+// título. No corre self-heal: ya están archivados, no hay nada que
+// recalcular acá (el self-heal vive en los listados OPERATIVOS, que son
+// los que necesitan detectar transiciones nuevas hacia el Historial).
+export const listArchivedEventsService = async (clerkId, { search } = {}) => {
+    const context = await getMyOrganization(clerkId);
+    if (!context) return [];
+
+    const where = { organizationId: context.organization.id, archivedAt: { not: null } };
+    if (search?.trim()) {
+        where.title = { contains: search.trim(), mode: "insensitive" };
+    }
+
+    return prisma.event.findMany({ where, orderBy: { archivedAt: "desc" } });
+};
+
+// Restaurar: vuelve a aparecer en el espacio operativo. Idempotente (si ya
+// no estaba archivado, no rompe nada). No toca status/cancelledAt — un
+// evento CANCELLED restaurado sigue CANCELLED, el organizador decide qué
+// hacer con eso desde ahí; sólo dejó de estar en el Historial.
+export const restoreEventService = async (clerkId, id) => {
+    const context = await getMyOrganization(clerkId);
+    if (!context) return null;
+
+    const event = await prisma.event.findUnique({ where: { id } });
+    if (!event || event.organizationId !== context.organization.id) return null;
+
+    return prisma.event.update({ where: { id }, data: { archivedAt: null }, include: EVENT_DETAIL_INCLUDE });
+};
+
+// Duplicar — copia catálogo/descripción/ubicación/imagen (EventLink[],
+// TicketType[]), NUNCA funciones (las fechas viejas no tienen sentido en
+// una copia — el organizador arma la agenda nueva con syncEventScheduleService,
+// sin tocarlo) ni nada transaccional (Sale/Ticket/CheckIn/ScanAttempt/
+// TicketAuditLog/EventScanner — copiarlos sería peligroso, ej. duplicaría
+// códigos QR "válidos"). Funciona igual sobre un evento archivado (sólo
+// EDITARLO directo está bloqueado, ver updateMyEventService) — es
+// justamente una de las dos acciones que ofrece el Historial. El nuevo
+// evento nace siempre DRAFT.
+export const duplicateEventService = async (clerkId, id) => {
+    const context = await getMyOrganization(clerkId);
+    if (!context) return null;
+
+    const source = await prisma.event.findUnique({ where: { id }, include: EVENT_DETAIL_INCLUDE });
+    if (!source || source.organizationId !== context.organization.id) return null;
+
+    const newTitle = `${source.title} (copia)`;
+    const slug = await generateUniqueSlug(newTitle, async (candidate) => {
+        const existing = await prisma.event.findUnique({ where: { slug: candidate } });
+        return Boolean(existing);
+    });
+
+    return prisma.$transaction(async (tx) => {
+        const newEvent = await tx.event.create({
+            data: {
+                title: newTitle,
+                slug,
+                category: source.category,
+                customCategory: source.customCategory,
+                shortDescription: source.shortDescription,
+                description: source.description,
+                coverImage: source.coverImage,
+                venue: source.venue,
+                address: source.address,
+                city: source.city,
+                province: source.province,
+                venueName: source.venueName,
+                formattedAddress: source.formattedAddress,
+                addressLine: source.addressLine,
+                country: source.country,
+                postalCode: source.postalCode,
+                latitude: source.latitude,
+                longitude: source.longitude,
+                googlePlaceId: source.googlePlaceId,
+                isFree: source.isFree,
+                status: "DRAFT",
+                organizationId: context.organization.id,
+                createdBy: context.user.id,
+            },
+        });
+
+        if (source.links.length > 0) {
+            await tx.eventLink.createMany({
+                data: source.links.map((link) => ({
+                    eventId: newEvent.id,
+                    type: link.type,
+                    title: link.title,
+                    url: link.url,
+                    order: link.order,
+                    embedUrl: link.embedUrl,
+                    thumbnail: link.thumbnail,
+                    isEmbeddable: link.isEmbeddable,
+                })),
+            });
+        }
+
+        if (source.ticketTypes.length > 0) {
+            await tx.ticketType.createMany({
+                data: source.ticketTypes.map((tt) => ({
+                    eventId: newEvent.id,
+                    name: tt.name,
+                    price: tt.price,
+                    quantity: tt.quantity,
+                    maxPerPurchase: tt.maxPerPurchase,
+                    description: tt.description,
+                    visible: tt.visible,
+                })),
+            });
+        }
+
+        return tx.event.findUnique({ where: { id: newEvent.id }, include: EVENT_DETAIL_INCLUDE });
+    });
 };
