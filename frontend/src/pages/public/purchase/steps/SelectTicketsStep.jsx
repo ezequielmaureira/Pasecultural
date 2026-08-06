@@ -1,14 +1,18 @@
 import { Minus, Plus, ImageOff, CalendarDays, MapPin } from "lucide-react";
 import Card from "../../../../components/ui/Card.jsx";
 import Button from "../../../../components/ui/Button.jsx";
+import ProgressBar from "../../../../components/ui/ProgressBar.jsx";
 import { currency } from "../../../organizer/eventWizard/model.js";
 import { formatEventDateTime, formatEventLocation } from "../../../../lib/eventFormat.js";
 
 // `option.maxSelectable` (armado en PurchaseWizard#ticketOptionsFor) ya es
 // min(stock disponible, máximo por compra) — el "+" se deshabilita apenas
-// se llega a ese número. El backend vuelve a validar ambas reglas al crear
-// y al confirmar la venta (INSUFFICIENT_STOCK / MAX_PER_PURCHASE_EXCEEDED —
-// ver ErrorStep): esto es sólo la UX, nunca la única barrera.
+// se llega a ese número. `option.available` es el stock crudo (sin aplicar
+// maxPerPurchase): se usa como `max` de la barra de ProgressBar para que el
+// comprador vea el stock real, incluso cuando el techo real de su compra es
+// más bajo por maxPerPurchase. El backend vuelve a validar ambas reglas al
+// crear y al confirmar la venta (INSUFFICIENT_STOCK / MAX_PER_PURCHASE_EXCEEDED
+// — ver ErrorStep): esto es sólo la UX, nunca la única barrera.
 export default function SelectTicketsStep({ event, selectedFunction, ticketOptions, quantities, onQuantityChange, total, onContinue }) {
   const hasSelection = Object.values(quantities).some((qty) => qty > 0);
 
@@ -46,16 +50,32 @@ export default function SelectTicketsStep({ event, selectedFunction, ticketOptio
         {ticketOptions.map((option) => {
           const qty = quantities[option.ticketTypeId] ?? 0;
           const atMax = qty >= option.maxSelectable;
+          // Cuánto de `available` (stock al cargar el Wizard) sigue libre
+          // después de restar lo que ESTE comprador ya puso en el carrito —
+          // se recalcula en cada render, así la barra queda siempre
+          // sincronizada con el contador de al lado, sin estado propio.
+          const remaining = Math.max(0, option.available - qty);
           return (
-            <div key={option.ticketTypeId} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-white">{option.name}</p>
-                {option.description && <p className="truncate text-xs text-slate-500">{option.description}</p>}
-                <p className="text-sm text-violet-400">{currency(option.price)}</p>
-                {option.maxSelectable === 0 && <p className="text-xs text-red-400">Sin disponibilidad</p>}
-                {option.maxSelectable > 0 && atMax && <p className="text-xs text-slate-500">Llegaste al máximo disponible</p>}
+            <div key={option.ticketTypeId} className="flex flex-col gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-white">{option.name}</p>
+                  {option.description && <p className="truncate text-xs text-slate-500">{option.description}</p>}
+                </div>
+                <p className="shrink-0 text-sm text-violet-400">{currency(option.price)}</p>
               </div>
-              <div className="flex shrink-0 items-center gap-3">
+
+              {option.available > 0 ? (
+                <div>
+                  <p className="mb-1 text-xs text-slate-400">Disponibles</p>
+                  <ProgressBar value={remaining} max={option.available} tone={remaining === 0 ? "danger" : "brand"} size="sm" />
+                </div>
+              ) : (
+                <p className="text-xs text-red-400">Sin disponibilidad</p>
+              )}
+              {option.maxSelectable > 0 && atMax && <p className="text-xs text-slate-500">Llegaste al máximo disponible</p>}
+
+              <div className="flex items-center justify-center gap-3">
                 <button
                   type="button"
                   disabled={qty === 0}
@@ -65,7 +85,7 @@ export default function SelectTicketsStep({ event, selectedFunction, ticketOptio
                 >
                   <Minus className="h-4 w-4" />
                 </button>
-                <span className="w-4 text-center text-sm font-semibold text-white">{qty}</span>
+                <span className="w-8 text-center text-sm font-semibold text-white">{qty}</span>
                 <button
                   type="button"
                   disabled={atMax}

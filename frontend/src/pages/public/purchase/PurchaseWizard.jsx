@@ -51,11 +51,14 @@ function ticketOptionsFor(selectedFunction) {
       name: a.ticketType.name,
       description: a.ticketType.description,
       price: Number(a.priceOverride ?? a.ticketType.price),
+      // Stock real al momento de cargar el Wizard (calculado por el backend
+      // en getPublicEventBySlugService) — se usa tal cual como `max` de la
+      // barra de disponibilidad en SelectTicketsStep.
+      available: a.available,
       // El selector de cantidad nunca puede pasar de acá: mínimo entre lo
-      // que queda de stock real (`available`, calculado por el backend en
-      // getPublicEventBySlugService) y el máximo por compra del tipo de
-      // entrada. Antes esto no se leía del payload público y el "+" no
-      // tenía techo — ver auditoría del bug de sobreventa.
+      // que queda de stock real (`available`) y el máximo por compra del
+      // tipo de entrada. Antes esto no se leía del payload público y el "+"
+      // no tenía techo — ver auditoría del bug de sobreventa.
       maxSelectable: Math.max(0, Math.min(a.available, a.ticketType.maxPerPurchase)),
     }));
 }
