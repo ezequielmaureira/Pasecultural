@@ -3,6 +3,8 @@
 // necesita mostrar. Separadas del componente para poder reutilizarlas desde
 // otras pantallas del organizador y para no mezclar cálculo con presentación.
 
+import { AUDIT_ACTION_LABEL } from "../ticketAdminDisplay.js";
+
 // Mismo criterio que ACTIVE_TICKET_STATUSES en
 // backend/src/services/sale.service.js:16 — nunca CANCELLED/REFUNDED.
 const SOLD_TICKET_STATUSES = new Set(["ACTIVE", "USED"]);
@@ -111,4 +113,96 @@ export function buildOrganizerKpis({ events, tickets, sales }) {
   const occupancyPct = capacityTotal > 0 ? Math.round((checkedIn / capacityTotal) * 1000) / 10 : null;
 
   return { revenueTotal, ticketsSold, checkedIn, capacityTotal, occupancyPct };
+}
+
+// TicketAuditAction -> tipo de actividad del Timeline. Reusa el texto de
+// AUDIT_ACTION_LABEL (ya usado en la pantalla de Entradas) para no tener dos
+// vocabularios distintos para la misma acción — incluye la inversión de
+// nombres ya documentada ahí: REHABILITATE (CANCELLED->ACTIVE) se etiqueta
+// "Reactivada" y REACTIVATE (USED->ACTIVE) se etiqueta "Rehabilitada", tal
+// como ya lo ve el organizador en /organizador/entradas.
+const AUDIT_ACTION_TYPE = {
+  CANCEL: "cancel",
+  REHABILITATE: "reactivate",
+  REACTIVATE: "rehabilitate",
+  MARK_USED_MANUAL: "markUsedManual",
+  SOFT_DELETE: "softDelete",
+};
+
+// Arma el feed de "Actividad reciente" del evento destacado combinando 3
+// fuentes que YA están cargadas — cero consultas nuevas:
+// - `sales` (confirmadas) -> "compró".
+// - `tickets[].checkIns` (sólo source SCAN — un check-in MANUAL ya lo cubre
+//   su propio TicketAuditLog MARK_USED_MANUAL con más detalle; mostrar los
+//   dos sería la misma acción dos veces) -> "check-in".
+// - `tickets[].auditLogs` -> cancelación/reactivación/rehabilitación/marcado
+//   manual/eliminación.
+// `scanners` (Fase 2, mismo fetch) sólo aporta "scanner creado" (createdAt).
+// NO se emite "scanner deshabilitado": EventScanner no tiene un
+// `disabledAt`/`revokedAt` propio, sólo `updatedAt` genérico (se pisa con
+// CUALQUIER edición — nombre, puerta, etc.), así que no hay forma de saber
+// con certeza que un cambio de `updatedAt` fue una deshabilitación real.
+// Mostrarlo igual violaría la regla de no inventar datos.
+export function buildActivityFeed({ sales, tickets, scanners, now, limit = 20 }) {
+  const items = [];
+
+  for (const sale of sales) {
+    if (sale.status !== "CONFIRMED") continue;
+    const timestamp = sale.confirmedAt ?? sale.createdAt;
+    if (!timestamp) continue;
+
+    const quantity = (sale.items ?? []).reduce((sum, item) => sum + (item.quantity ?? 0), 0);
+    const buyerName =
+      [sale.buyer?.firstName, sale.buyer?.lastName].filter(Boolean).join(" ") || sale.buyer?.email || "Alguien";
+
+    items.push({
+      id: `sale-${sale.id}`,
+      type: "purchase",
+      timestamp,
+      title: "Nueva venta",
+      description: `${buyerName} compró ${quantity} ${quantity === 1 ? "entrada" : "entradas"}`,
+    });
+  }
+
+  for (const ticket of tickets) {
+    for (const checkIn of ticket.checkIns ?? []) {
+      if (checkIn.source !== "SCAN") continue;
+      items.push({
+        id: `checkin-${checkIn.id}`,
+        type: "checkin",
+        timestamp: checkIn.scannedAt,
+        title: "Check-in validado",
+        description: `${checkIn.scannerName ?? "Un scanner"} validó la entrada #${ticket.ticketNumber}`,
+      });
+    }
+
+    for (const log of ticket.auditLogs ?? []) {
+      const type = AUDIT_ACTION_TYPE[log.action];
+      if (!type) continue;
+      const label = AUDIT_ACTION_LABEL[log.action] ?? log.action;
+      items.push({
+        id: `audit-${log.id}`,
+        type,
+        timestamp: log.createdAt,
+        title: label,
+        description: `Entrada #${ticket.ticketNumber} ${label.toLowerCase()}`,
+      });
+    }
+  }
+
+  for (const scanner of scanners) {
+    if (!scanner.createdAt) continue;
+    items.push({
+      id: `scanner-${scanner.id}`,
+      type: "scannerRegistered",
+      timestamp: scanner.createdAt,
+      title: "Scanner creado",
+      description: `Se creó el scanner "${scanner.name}" para la puerta ${scanner.gate}`,
+    });
+  }
+
+  return items
+    .filter((item) => item.timestamp && new Date(item.timestamp) <= now)
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    .slice(0, limit);
 }

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
-import { Clock3, DollarSign, Ticket, ScanLine, Gauge, CalendarDays, Receipt } from "lucide-react";
+import { Clock3, DollarSign, Ticket, ScanLine, Gauge, CalendarDays, Receipt, CalendarRange, Activity } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
 import SkeletonBlock from "../../components/ui/SkeletonBlock.jsx";
@@ -12,6 +12,9 @@ import EventHeroCard from "../../components/organizer/EventHeroCard.jsx";
 import EventStatusCard from "../../components/organizer/EventStatusCard.jsx";
 import SalesTable from "../../components/organizer/SalesTable.jsx";
 import SectionHeader from "../../components/organizer/SectionHeader.jsx";
+import FunctionOccupancyList from "../../components/organizer/FunctionOccupancyList.jsx";
+import ScannerStatusList from "../../components/organizer/ScannerStatusList.jsx";
+import ActivityTimeline from "../../components/organizer/ActivityTimeline.jsx";
 import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
 import { apiFetch } from "../../lib/api.js";
 import { formatCurrencyARS } from "../../lib/format.js";
@@ -21,7 +24,9 @@ import {
   groupTicketsByEvent,
   computeSoldCount,
   buildOrganizerKpis,
+  buildActivityFeed,
 } from "./dashboard/dashboardMetrics.js";
+import { useEventControlRoomData } from "./dashboard/useEventControlRoomData.js";
 
 const ORG_STATUS_BANNER = {
   PENDING: {
@@ -123,33 +128,28 @@ export default function OrganizerDashboard() {
     reloadTickets,
   } = useOrganizerData();
 
-  // Un solo `now` por render (no un timer) alcanza para el MVP: no hay
-  // ningún otro dato en esta pantalla que cambie en vivo todavía (ver
-  // Iteración 2, actividad reciente, para el caso que sí lo justifica).
-  const now = useMemo(() => new Date(), []);
+  // Ya no se memoiza con `[]`: la Fase 4 (polling) y el Timeline (fechas
+  // relativas en vivo) necesitan que "ahora" avance en cada re-render, no
+  // que quede congelado en el momento del montaje. El cálculo en sí es
+  // trivial — recalcularlo en cada render no tiene costo real.
+  const now = new Date();
 
-  const featured = useMemo(() => pickFeaturedFunction(events, now), [events, now]);
-  const ticketsByEvent = useMemo(() => groupTicketsByEvent(tickets), [tickets]);
+  const featured = pickFeaturedFunction(events, now);
+  const featuredEventId = featured?.event?.id ?? null;
 
+  const ticketsByEvent = groupTicketsByEvent(tickets);
   const featuredTickets = featured ? ticketsByEvent.get(featured.event.id) ?? [] : [];
   const featuredSold = computeSoldCount(featuredTickets);
   const featuredCapacity = featured ? computeEventCapacity(featured.event) : 0;
 
-  const kpis = useMemo(() => buildOrganizerKpis({ events, tickets, sales }), [events, tickets, sales]);
+  const kpis = buildOrganizerKpis({ events, tickets, sales });
 
-  const activeEvents = useMemo(
-    () =>
-      events
-        .filter((e) => e.status === "PUBLISHED")
-        .sort((a, b) => new Date(a.startDate ?? 0) - new Date(b.startDate ?? 0))
-        .slice(0, 6),
-    [events]
-  );
+  const activeEvents = events
+    .filter((e) => e.status === "PUBLISHED")
+    .sort((a, b) => new Date(a.startDate ?? 0) - new Date(b.startDate ?? 0))
+    .slice(0, 6);
 
-  const recentSales = useMemo(
-    () => [...sales].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 8),
-    [sales]
-  );
+  const recentSales = [...sales].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 8);
 
   const hasLoadError = eventsError || salesError || ticketsError;
   function retryFailedLoads() {
@@ -157,6 +157,18 @@ export default function OrganizerDashboard() {
     if (salesError) reloadSales();
     if (ticketsError) reloadTickets();
   }
+
+  // "Centro de control" del evento destacado — Timeline/Scanners/Funciones
+  // (Fases 1-3), con polling (Fase 4) sólo cuando ese evento está EN CURSO.
+  const controlRoom = useEventControlRoomData(featuredEventId, { enabled: featured?.isOngoing ?? false });
+  const controlRoomLoading = loadingEvents || controlRoom.loading;
+  const activityItems = buildActivityFeed({
+    sales: controlRoom.sales,
+    tickets: controlRoom.tickets,
+    scanners: controlRoom.scanners,
+    now,
+    limit: 20,
+  });
 
   return (
     // gap-8/10 (antes gap-6 parejo en todo): más aire entre secciones para
@@ -193,7 +205,8 @@ export default function OrganizerDashboard() {
       )}
 
       {/* 2) Resumen general — importante, pero deliberadamente más chico y
-             sobrio que la card de arriba. */}
+             sobrio que la card de arriba. Sigue siendo de TODA la
+             organización (a diferencia de las 3 secciones de abajo). */}
       <div>
         <SectionHeader title="Resumen general" />
         <KpiRow>
@@ -214,7 +227,40 @@ export default function OrganizerDashboard() {
         </KpiRow>
       </div>
 
-      {/* 3) Estado de mis eventos. */}
+      {/* 3-5) Centro de control del evento destacado — Funciones, Scanners y
+             Actividad reciente. Sólo existen si hay un evento destacado (en
+             curso o próximo): si no hay ninguno, el EmptyState de la hero de
+             arriba ya lo explica, repetirlo acá abajo tres veces más sería
+             ruido. */}
+      {(loadingEvents || featured) && (
+        <>
+          {controlRoom.error && (
+            <InlineErrorNotice
+              message="No pudimos actualizar la información en vivo del evento destacado."
+              onRetry={controlRoom.refetch}
+            />
+          )}
+
+          <div>
+            <SectionHeader icon={CalendarRange} title="Estado de funciones" />
+            <FunctionOccupancyList functions={controlRoom.functionStats} loading={controlRoomLoading} />
+          </div>
+
+          <div>
+            <SectionHeader icon={ScanLine} title="Estado de scanners" />
+            <ScannerStatusList scanners={controlRoom.scanners} now={now} loading={controlRoomLoading} />
+          </div>
+
+          <div>
+            <SectionHeader icon={Activity} title="Actividad reciente" />
+            <Card>
+              <ActivityTimeline items={activityItems} now={now} loading={controlRoomLoading} />
+            </Card>
+          </div>
+        </>
+      )}
+
+      {/* 6) Estado de mis eventos — org-wide, no del evento destacado. */}
       <div>
         <SectionHeader
           icon={CalendarDays}
@@ -248,7 +294,7 @@ export default function OrganizerDashboard() {
         )}
       </div>
 
-      {/* 4) Últimas ventas. */}
+      {/* 7) Últimas ventas — org-wide. */}
       <div>
         <SectionHeader
           icon={Receipt}

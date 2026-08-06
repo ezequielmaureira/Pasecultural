@@ -30,3 +30,24 @@ export function formatDateTime(value) {
   if (!value) return "";
   return new Date(value).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" });
 }
+
+// "Hace 8 segundos" / "Hace 3 minutos" — para el Timeline de actividad
+// (Iteración 1). `now` se recibe como parámetro (no `new Date()` interno)
+// para que el caller controle cuándo se recalcula, en vez de que cada
+// re-render mueva el reloj por su cuenta.
+export function formatRelativeTime(value, now) {
+  if (!value) return "";
+  const diffSec = Math.max(0, Math.floor((now - new Date(value)) / 1000));
+
+  if (diffSec < 5) return "Hace instantes";
+  if (diffSec < 60) return `Hace ${diffSec} segundos`;
+
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `Hace ${diffMin} ${diffMin === 1 ? "minuto" : "minutos"}`;
+
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `Hace ${diffHour} ${diffHour === 1 ? "hora" : "horas"}`;
+
+  const diffDay = Math.floor(diffHour / 24);
+  return `Hace ${diffDay} ${diffDay === 1 ? "día" : "días"}`;
+}

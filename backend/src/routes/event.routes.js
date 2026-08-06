@@ -30,6 +30,7 @@ import {
     softDeleteTicket,
     bulkActionTickets,
 } from "../controllers/ticketAdmin.controller.js";
+import { getEventFunctionStats } from "../controllers/functionCapacity.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 
 const router = Router();
@@ -49,6 +50,14 @@ router.get("/:id", requireAuth, getMyEventById);
 router.patch("/:id", requireAuth, updateMyEvent);
 router.put("/:id/schedule", requireAuth, saveEventSchedule);
 router.put("/:id/links", requireAuth, saveEventLinks);
+
+// Estado de ocupación/ventas por función, con auth de organizador — wrapper
+// de functionCapacity.service.js#getEventFunctionStats (Iteración 1 del
+// Dashboard). Antes sólo existía el equivalente del lado Scanner
+// (GET /api/scanner/events/:eventId/functions/:functionId/stats, una
+// función a la vez, con sesión propia). Va antes de "/:id/scanners" nomás
+// por orden de lectura, no hay conflicto de rutas entre ambas.
+router.get("/:id/functions/stats", requireAuth, getEventFunctionStats);
 
 router.get("/:id/scanners", requireAuth, listEventScanners);
 // Paso 4 del asistente: crea `quantity` invitaciones para una puerta.

@@ -574,6 +574,11 @@ model CheckIn {
 
   scannedAt DateTime @default(now())
 
+  // scannerId sigue sin ser una relación formal (ver comentario de arriba),
+  // pero desde la Iteración 1 del Dashboard se agrupa por acá para calcular
+  // "ingresos por scanner" en tiempo real (organizerEventScanner stats) — sin
+  // este índice, ese groupBy escanea toda la tabla.
+  @@index([scannerId])
   @@map("check_ins")
 }
 

@@ -55,7 +55,10 @@ const SCANNER_SELECT = {
     activatedAt: true,
     lastAccessAt: true,
     lastDevice: true,
-    lastScanAt: true,
+    // lastScanAt (columna) NO se selecciona a propósito: nada la escribe
+    // nunca (ver validateScanService en scanner.service.js) — quedaría
+    // siempre null. listEventScannersService calcula el valor real por
+    // separado, desde CheckIn.scannedAt.
     // Datos del registro (paso 3 del formulario público) — única identidad
     // que existe de esta persona, no hay cuenta/User detrás.
     firstName: true,
@@ -89,15 +92,41 @@ export const listActiveEventsForScannerService = async (clerkId) => {
     });
 };
 
+// "Cantidad de ingresos" y "último escaneo" reales (Iteración 1 del
+// Dashboard del Organizador, sección Scanners) — CheckIn.scannerId no es una
+// relación formal (String suelto, ver schema.prisma) pero SÍ es el id real
+// de EventScanner en cada escaneo válido (ver validateScanService), así que
+// un groupBy sobre esa columna es la única fuente correcta. Nunca se usa
+// EventScanner.lastScanAt: esa columna está preparada en el schema pero
+// ningún caller la escribe todavía.
 export const listEventScannersService = async (clerkId, eventId) => {
     const owned = await getOwnedEvent(clerkId, eventId);
     if (!owned) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
 
-    return prisma.eventScanner.findMany({
+    const scanners = await prisma.eventScanner.findMany({
         where: { eventId, deletedAt: null },
         select: SCANNER_SELECT,
         orderBy: { createdAt: "asc" },
     });
+
+    const scannerIds = scanners.map((s) => s.id);
+    const checkInStats = scannerIds.length
+        ? await prisma.checkIn.groupBy({
+              by: ["scannerId"],
+              where: { scannerId: { in: scannerIds } },
+              _count: { _all: true },
+              _max: { scannedAt: true },
+          })
+        : [];
+    const statsByScannerId = new Map(
+        checkInStats.map((s) => [s.scannerId, { checkInsCount: s._count._all, lastScanAt: s._max.scannedAt }])
+    );
+
+    return scanners.map((scanner) => ({
+        ...scanner,
+        checkInsCount: statsByScannerId.get(scanner.id)?.checkInsCount ?? 0,
+        lastScanAt: statsByScannerId.get(scanner.id)?.lastScanAt ?? null,
+    }));
 };
 
 // Paso 4 del asistente: crea `quantity` invitaciones iguales para la misma
