@@ -263,6 +263,14 @@ export const deleteMyEvent = async (req, res) => {
         res.status(204).send();
     } catch (error) {
         console.error(error);
+
+        if (error.message === "EVENT_HAS_DEPENDENCIES") {
+            return res.status(409).json({
+                message:
+                    "Este evento no puede eliminarse porque tiene información asociada (ventas o entradas). Cancelalo en vez de eliminarlo.",
+            });
+        }
+
         res.status(500).json({ message: "Error al eliminar el evento" });
     }
 };

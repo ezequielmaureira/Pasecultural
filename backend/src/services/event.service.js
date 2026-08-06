@@ -572,12 +572,34 @@ export const getPublicEventBySlugService = async (slug) => {
     return event;
 };
 
+// Sale.eventId y Ticket.eventId son ON DELETE RESTRICT a propósito (nunca
+// CASCADE): ver sales_eventId_fkey/tickets_eventId_fkey en las migraciones.
+// event_functions/ticket_types SÍ tienen CASCADE desde Event, pero a su vez
+// están referenciadas por sales.functionId/tickets.functionId y
+// sale_items.ticketTypeId/tickets.ticketTypeId — también RESTRICT — así que
+// en la práctica, si el evento tiene una venta o un ticket, ninguna cascada
+// llega a completarse y Postgres rechaza el DELETE (P2003). Se valida acá,
+// antes, para que Prisma nunca llegue a intentarlo: un evento con ventas o
+// entradas asociadas no se borra — hay que cancelarlo. EventScanner sí
+// cascada limpio (nada más lo referencia), así que no hace falta chequearlo.
+//
+// Nunca se filtra por `deletedAt`: una venta o un ticket con soft-delete
+// sigue siendo una fila real en la base y sigue bloqueando el DELETE igual
+// que una activa — filtrar acá daría un falso "se puede borrar".
 export const deleteMyEventService = async (clerkId, id) => {
     const context = await getMyOrganization(clerkId);
     if (!context) return false;
 
     const event = await prisma.event.findUnique({ where: { id } });
     if (!event || event.organizationId !== context.organization.id) return false;
+
+    const [existingSale, existingTicket] = await Promise.all([
+        prisma.sale.findFirst({ where: { eventId: id }, select: { id: true } }),
+        prisma.ticket.findFirst({ where: { eventId: id }, select: { id: true } }),
+    ]);
+    if (existingSale || existingTicket) {
+        throw new Error("EVENT_HAS_DEPENDENCIES");
+    }
 
     await prisma.event.delete({ where: { id } });
     return true;
