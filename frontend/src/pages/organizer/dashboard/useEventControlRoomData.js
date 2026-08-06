@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { useAuth } from "@clerk/clerk-react";
+import { usePolling } from "../../../hooks/usePolling.js";
 import { listOrganizerSales } from "../../../lib/saleAdminApi.js";
 import { listOrganizerTickets } from "../../../lib/ticketAdminApi.js";
 import { listEventScanners } from "../../../lib/eventScannerApi.js";
@@ -9,101 +10,43 @@ const POLL_INTERVAL_MS = 10000;
 
 const EMPTY_DATA = { sales: [], tickets: [], scanners: [], functionStats: [] };
 
-// Datos del "evento destacado" para Timeline/Scanners/Funciones (Fase 1-3) —
-// reusa las MISMAS funciones de API que ya existen, sólo con el filtro
-// `eventId` que ya soportaban (nunca las `reloadEvents/Sales/Tickets`
-// globales del contexto, que traen todo el historial de la organización).
+// Datos del "evento destacado" para Timeline/Scanners/Funciones (Fase 1-3).
+// Toda la mecánica de CUÁNDO refrescar (intervalo, Page Visibility,
+// reinicio al cambiar de evento, un único intervalo activo) vive ahora en
+// usePolling — este hook sólo aporta el QUÉ pedir: las mismas funciones de
+// API que ya existían (con el filtro `eventId` que ya soportaban; nunca las
+// `reloadEvents/Sales/Tickets` globales del contexto, que traen todo el
+// historial de la organización).
 //
-// Polling (Fase 4): sólo corre si `enabled` es true (evento EN CURSO) y la
-// pestaña está visible. Reglas duras:
-// - Un único intervalo activo a la vez: el efecto de abajo siempre limpia el
-//   intervalo anterior (cleanup de useEffect) antes de crear uno nuevo —
-//   nunca puede haber dos corriendo en paralelo.
-// - Cambiar de evento destacado (`eventId` distinto) reinicia todo: el mismo
-//   cleanup se dispara porque `eventId` es dependencia del efecto.
-// - Cambiar de pestaña detiene el polling de verdad (clearInterval, no sólo
-//   "saltar el fetch"); al volver, refresca al toque y retoma el intervalo.
-export function useEventControlRoomData(eventId, { enabled }) {
+// El contrato externo ({sales, tickets, scanners, functionStats, loading,
+// error, refetch}) es exactamente el mismo de antes de este refactor — el
+// Dashboard no necesitó ningún cambio.
+export function useEventControlRoomData(eventId, { enabled: isOngoing }) {
   const { getToken } = useAuth();
-  const [data, setData] = useState(EMPTY_DATA);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const eventIdRef = useRef(eventId);
-  eventIdRef.current = eventId;
 
-  const fetchAll = useCallback(async () => {
-    const targetEventId = eventIdRef.current;
-    if (!targetEventId) return;
-    try {
-      const token = await getToken();
-      const [sales, tickets, scanners, functionStats] = await Promise.all([
-        listOrganizerSales(token, { eventId: targetEventId }),
-        listOrganizerTickets(token, { eventId: targetEventId }),
-        listEventScanners(token, targetEventId),
-        getEventFunctionStats(token, targetEventId),
-      ]);
-      // Si el evento destacado cambió mientras esta llamada estaba en
-      // vuelo, se descarta el resultado viejo en vez de pisar los datos del
-      // evento nuevo con una respuesta tardía del anterior.
-      if (eventIdRef.current !== targetEventId) return;
-      setData({ sales, tickets, scanners, functionStats });
-      setError(false);
-    } catch (err) {
-      if (eventIdRef.current !== targetEventId) return;
-      console.error("No se pudo cargar la información del evento destacado", err);
-      setError(true);
-    } finally {
-      if (eventIdRef.current === targetEventId) setLoading(false);
-    }
-  }, [getToken]);
+  const fetcher = useCallback(async () => {
+    const token = await getToken();
+    const [sales, tickets, scanners, functionStats] = await Promise.all([
+      listOrganizerSales(token, { eventId }),
+      listOrganizerTickets(token, { eventId }),
+      listEventScanners(token, eventId),
+      getEventFunctionStats(token, eventId),
+    ]);
+    return { sales, tickets, scanners, functionStats };
+  }, [eventId, getToken]);
 
-  // Carga inicial (y recarga completa) cada vez que cambia el evento
-  // destacado.
+  const { data, loading, error, refetch } = usePolling(fetcher, {
+    intervalMs: POLL_INTERVAL_MS,
+    enabled: Boolean(eventId),
+    polling: Boolean(eventId) && Boolean(isOngoing),
+    deps: [eventId],
+  });
+
+  // Loguea sólo cuando aparece un error nuevo (no en cada re-render
+  // mientras el error sigue activo por otro cambio de estado ajeno).
   useEffect(() => {
-    if (!eventId) {
-      setData(EMPTY_DATA);
-      setError(false);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    fetchAll();
-  }, [eventId, fetchAll]);
+    if (error) console.error("No se pudo cargar la información del evento destacado", error);
+  }, [error]);
 
-  // Polling — único intervalo activo, con pausa/reanudación real por
-  // visibilidad de pestaña.
-  useEffect(() => {
-    if (!enabled || !eventId) return undefined;
-
-    let intervalId = null;
-
-    function start() {
-      if (intervalId) return; // ya hay uno corriendo — nunca se acumulan
-      intervalId = setInterval(fetchAll, POLL_INTERVAL_MS);
-    }
-    function stop() {
-      if (intervalId) {
-        clearInterval(intervalId);
-        intervalId = null;
-      }
-    }
-    function handleVisibilityChange() {
-      if (document.visibilityState === "visible") {
-        fetchAll();
-        start();
-      } else {
-        stop();
-      }
-    }
-
-    if (document.visibilityState === "visible") start();
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      stop();
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [enabled, eventId, fetchAll]);
-
-  return { ...data, loading, error, refetch: fetchAll };
+  return { ...(data ?? EMPTY_DATA), loading, error: Boolean(error), refetch };
 }
