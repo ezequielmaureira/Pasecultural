@@ -660,10 +660,13 @@ export const recoverSalesService = async ({ email, buyerDocument }) => {
 
 // Botón "Reenviar correo" de la pantalla de recuperación — mismo modelo de
 // autorización que confirm-by-buyer/status (conocer el publicRecoveryToken
-// alcanza, sin sesión). Reutiliza sendSaleConfirmationEmail tal cual: hereda
-// gratis el reclamo atómico (nunca dos envíos en paralelo, nunca reenvía si
-// ya está SENT) y nunca genera tickets nuevos ni toca la venta — sólo
-// intenta el envío.
+// alcanza, sin sesión). Es una acción manual explícita (alguien apretó el
+// botón), así que usa force:true: a diferencia del auto-trigger de
+// confirmSaleService, este llamado SÍ tiene que reclamar y reenviar de
+// verdad aunque la venta ya esté SENT — si no, "Reenviar" queda inutilizado
+// para siempre en cuanto el primer envío automático se marca SENT (bug
+// reportado: el botón decía "reenviado" sin haber llamado a Resend). Nunca
+// genera tickets nuevos ni toca la venta — sólo intenta el envío.
 export const resendConfirmationEmailByTokenService = async (recoveryToken) => {
     if (!recoveryToken) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
 
@@ -676,13 +679,14 @@ export const resendConfirmationEmailByTokenService = async (recoveryToken) => {
 
     // sendSaleConfirmationEmail() nunca lanza (ver su propio comentario: un
     // email caído no puede tumbar una venta ya confirmada), así que acá es
-    // donde hay que mirar el resultado explícitamente. Antes esto devolvía
-    // { emailDeliveryStatus: "FAILED" } con éxito HTTP 200 igual que un
-    // envío real — el frontend nunca inspeccionaba ese campo y mostraba
-    // "enviado" aunque Resend hubiera fallado. `status: "SENT"` y los casos
-    // de "no reclamable" (ya estaba SENT, o SENDING en curso) siguen
-    // devolviéndose normalmente: sólo un fallo real de envío es un error.
-    const result = await sendSaleConfirmationEmail(sale.id);
+    // donde hay que mirar el resultado explícitamente. `result.status` es
+    // siempre "FAILED" para este intento puntual si Resend no pudo mandar
+    // el correo — sin importar que confirmationEmailStatus haya quedado en
+    // "SENT" en la base (ver markEmailFailed: preserva SENT si ya lo estaba
+    // antes de este reenvío, para no borrar el rastro de una entrega previa
+    // real). El único caso "no reclamable" que sigue existiendo con force
+    // es un envío realmente en curso en este momento (SENDING fresco).
+    const result = await sendSaleConfirmationEmail(sale.id, { force: true });
     if (result.status === "FAILED") {
         throw new AppError(ErrorCodes.SALE_EMAIL_RESEND_FAILED);
     }
