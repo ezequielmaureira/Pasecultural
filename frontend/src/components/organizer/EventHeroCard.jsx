@@ -8,23 +8,51 @@ import { formatShortDate, formatTime } from "../../lib/format.js";
 import { formatEventLocation } from "../../lib/eventFormat.js";
 import { eventEditPath } from "../../lib/organizerRoutes.js";
 
-// Lo primero que ve el organizador al entrar al panel: el evento en curso
-// (si hay uno) o, si no, la próxima función programada. `event`/`eventFunction`
-// nulos es un estado real (no hay funciones próximas), no un placeholder.
+// Identidad visual por categoría (badge + estado vacío) — la misma
+// clasificación que ya usa groupEventsByCategory (dashboardMetrics.js):
+// "ongoing" | "upcoming" | "finished". `event`/`eventFunction` nulos es un
+// estado real (no hay nada en esa categoría), nunca un placeholder.
+const BADGE_BY_CATEGORY = {
+  ongoing: { tone: "success", label: "EVENTO EN CURSO" },
+  upcoming: { tone: "info", label: "Próximo evento" },
+  finished: { tone: "neutral", label: "Evento finalizado" },
+};
+
+const EMPTY_STATE_BY_CATEGORY = {
+  ongoing: {
+    title: "No tenés eventos en curso",
+    description: "Cuando una función esté activa ahora mismo, la vas a ver acá.",
+  },
+  upcoming: {
+    title: "No tenés funciones próximas",
+    description: "Publicá un evento o programá una función para verlo acá.",
+  },
+  finished: {
+    title: "Todavía no tenés eventos finalizados",
+    description: "Cuando termine una función, la vas a ver acá.",
+  },
+};
+
+// Lo primero que ve el organizador al entrar al panel: el evento de la
+// categoría elegida en el selector de arriba (en curso / próximo /
+// finalizado).
 //
 // Es, a propósito, el elemento tipográficamente más grande de toda la
 // pantalla (título text-2xl/3xl + sombra propia): los KPI de abajo nunca
 // deben competir en peso visual con esto — ver Iteración 0.5.
-export default function EventHeroCard({ event, eventFunction, isOngoing, sold, capacity }) {
+export default function EventHeroCard({ event, eventFunction, category = "upcoming", sold, capacity }) {
   if (!event || !eventFunction) {
+    const empty = EMPTY_STATE_BY_CATEGORY[category] ?? EMPTY_STATE_BY_CATEGORY.upcoming;
     return (
       <div className="rounded-2xl border border-white/10 bg-[#0B1120] p-8 shadow-lg shadow-black/20">
-        <EmptyState icon={CalendarClock} title="No tenés funciones próximas">
-          Publicá un evento o programá una función para verlo acá.
+        <EmptyState icon={CalendarClock} title={empty.title}>
+          {empty.description}
         </EmptyState>
       </div>
     );
   }
+
+  const badge = BADGE_BY_CATEGORY[category] ?? BADGE_BY_CATEGORY.upcoming;
 
   return (
     <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0B1120] shadow-lg shadow-black/20">
@@ -37,15 +65,9 @@ export default function EventHeroCard({ event, eventFunction, isOngoing, sold, c
         />
 
         <div className="flex flex-1 flex-col gap-5 p-6 sm:p-8">
-          {isOngoing ? (
-            <Badge tone="success" className="w-fit">
-              EVENTO EN CURSO
-            </Badge>
-          ) : (
-            <Badge tone="info" className="w-fit">
-              Próximo evento
-            </Badge>
-          )}
+          <Badge tone={badge.tone} className="w-fit">
+            {badge.label}
+          </Badge>
 
           <div>
             <h2 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">{event.title}</h2>

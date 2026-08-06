@@ -10,16 +10,18 @@ import KpiRow from "../../components/organizer/KpiRow.jsx";
 import KpiCard from "../../components/organizer/KpiCard.jsx";
 import EventHeroCard from "../../components/organizer/EventHeroCard.jsx";
 import EventStatusCard from "../../components/organizer/EventStatusCard.jsx";
+import EventCategorySelector from "../../components/organizer/EventCategorySelector.jsx";
 import SalesTable from "../../components/organizer/SalesTable.jsx";
 import SectionHeader from "../../components/organizer/SectionHeader.jsx";
 import FunctionOccupancyList from "../../components/organizer/FunctionOccupancyList.jsx";
 import ScannerStatusList from "../../components/organizer/ScannerStatusList.jsx";
 import ActivityTimeline from "../../components/organizer/ActivityTimeline.jsx";
 import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
+import { useSessionStorageState } from "../../hooks/useSessionStorageState.js";
 import { apiFetch } from "../../lib/api.js";
 import { formatCurrencyARS } from "../../lib/format.js";
 import {
-  pickFeaturedFunction,
+  groupEventsByCategory,
   computeEventCapacity,
   groupTicketsByEvent,
   computeSoldCount,
@@ -118,12 +120,9 @@ export default function OrganizerDashboard() {
     loadingEvents,
     eventsError,
     reloadEvents,
-    sales,
-    loadingSales,
     salesError,
     reloadSales,
     tickets,
-    loadingTickets,
     ticketsError,
     reloadTickets,
   } = useOrganizerData();
@@ -134,22 +133,34 @@ export default function OrganizerDashboard() {
   // trivial — recalcularlo en cada render no tiene costo real.
   const now = new Date();
 
-  const featured = pickFeaturedFunction(events, now);
+  const categorized = groupEventsByCategory(events, now);
+
+  // Categoría: se recuerda mientras dure la sesión (sessionStorage). Sin
+  // elección explícita todavía (primera carga de la sesión), se prioriza
+  // "en curso" > "próximos" > "finalizados" — mismo criterio que ya tenía
+  // el featured event anterior, ahora aplicado sólo como default inicial.
+  const [storedCategory, setStoredCategory] = useSessionStorageState("organizerDashboard.category", null);
+  const selectedCategory =
+    storedCategory ??
+    (categorized.ongoing.length > 0 ? "ongoing" : categorized.upcoming.length > 0 ? "upcoming" : "finished");
+
+  // Índice dentro de la categoría — nunca se persiste entre sesiones (sólo
+  // la categoría), y se reinicia a 0 cada vez que se cambia de categoría.
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  function handleSelectCategory(key) {
+    setStoredCategory(key);
+    setSelectedIndex(0);
+  }
+
+  const activeList = categorized[selectedCategory] ?? [];
+  const clampedIndex = activeList.length > 0 ? Math.min(selectedIndex, activeList.length - 1) : 0;
+  const featured = activeList[clampedIndex] ?? null;
   const featuredEventId = featured?.event?.id ?? null;
+  const featuredIsOngoing = selectedCategory === "ongoing";
 
   const ticketsByEvent = groupTicketsByEvent(tickets);
-  const featuredTickets = featured ? ticketsByEvent.get(featured.event.id) ?? [] : [];
-  const featuredSold = computeSoldCount(featuredTickets);
   const featuredCapacity = featured ? computeEventCapacity(featured.event) : 0;
-
-  const kpis = buildOrganizerKpis({ events, tickets, sales });
-
-  const activeEvents = events
-    .filter((e) => e.status === "PUBLISHED")
-    .sort((a, b) => new Date(a.startDate ?? 0) - new Date(b.startDate ?? 0))
-    .slice(0, 6);
-
-  const recentSales = [...sales].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 8);
 
   const hasLoadError = eventsError || salesError || ticketsError;
   function retryFailedLoads() {
@@ -158,10 +169,29 @@ export default function OrganizerDashboard() {
     if (ticketsError) reloadTickets();
   }
 
-  // "Centro de control" del evento destacado — Timeline/Scanners/Funciones
-  // (Fases 1-3), con polling (Fase 4) sólo cuando ese evento está EN CURSO.
-  const controlRoom = useEventControlRoomData(featuredEventId, { enabled: featured?.isOngoing ?? false });
+  // "Centro de control" del evento seleccionado — Hero/KPIs/Funciones/
+  // Scanners/Timeline/Últimas ventas, TODOS alimentados por el mismo fetch
+  // scopeado a `featuredEventId`. El polling (Fase 4) sólo corre cuando la
+  // categoría activa es "en curso".
+  const controlRoom = useEventControlRoomData(featuredEventId, { enabled: featuredIsOngoing });
   const controlRoomLoading = loadingEvents || controlRoom.loading;
+
+  const featuredSold = computeSoldCount(controlRoom.tickets);
+
+  // KPIs y "Últimas ventas" ahora son del evento seleccionado, no de toda la
+  // organización — buildOrganizerKpis/SalesTable no cambiaron, sólo lo que
+  // se les pasa: en vez de `tickets`/`sales` de todo el contexto, los ya
+  // filtrados por evento que trae controlRoom (mismo fetch que usan
+  // Funciones/Scanners/Timeline, sin pedir nada dos veces).
+  const kpis = buildOrganizerKpis({
+    events: featured ? [featured.event] : [],
+    tickets: controlRoom.tickets,
+    sales: controlRoom.sales,
+  });
+  const recentSales = [...controlRoom.sales]
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .slice(0, 8);
+
   const activityItems = buildActivityFeed({
     sales: controlRoom.sales,
     tickets: controlRoom.tickets,
@@ -169,6 +199,14 @@ export default function OrganizerDashboard() {
     now,
     limit: 20,
   });
+
+  // "Estado de mis eventos" sigue siendo de TODA la organización a
+  // propósito (no cambia con el selector de categoría) — es la vista
+  // general, el selector de arriba es la vista de foco en un evento.
+  const activeEvents = events
+    .filter((e) => e.status === "PUBLISHED")
+    .sort((a, b) => new Date(a.startDate ?? 0) - new Date(b.startDate ?? 0))
+    .slice(0, 6);
 
   return (
     // gap-8/10 (antes gap-6 parejo en todo): más aire entre secciones para
@@ -190,53 +228,78 @@ export default function OrganizerDashboard() {
         />
       )}
 
-      {/* 1) Próximo evento / evento en curso — siempre lo primero que se ve,
-             y el elemento visualmente más grande de la pantalla. */}
+      {/* 0) Selector de categoría — decide qué evento alimenta todo lo de
+             abajo (Hero/KPIs/Funciones/Scanners/Timeline/Últimas ventas). */}
+      {loadingEvents ? (
+        <SkeletonBlock className="h-11 w-72 rounded-xl" />
+      ) : (
+        <EventCategorySelector
+          counts={{
+            ongoing: categorized.ongoing.length,
+            upcoming: categorized.upcoming.length,
+            finished: categorized.finished.length,
+          }}
+          selected={selectedCategory}
+          onSelect={handleSelectCategory}
+          currentLabel={featured?.event?.title}
+          currentIndex={clampedIndex}
+          total={activeList.length}
+          onPrevious={() => setSelectedIndex((i) => Math.max(0, i - 1))}
+          onNext={() => setSelectedIndex((i) => Math.min(activeList.length - 1, i + 1))}
+        />
+      )}
+
+      {/* 1) Evento seleccionado — siempre lo primero que se ve, y el
+             elemento visualmente más grande de la pantalla. */}
       {loadingEvents ? (
         <EventHeroSkeleton />
       ) : (
         <EventHeroCard
           event={featured?.event ?? null}
           eventFunction={featured?.eventFunction ?? null}
-          isOngoing={featured?.isOngoing ?? false}
+          category={selectedCategory}
           sold={featuredSold}
           capacity={featuredCapacity}
         />
       )}
 
-      {/* 2) Resumen general — importante, pero deliberadamente más chico y
-             sobrio que la card de arriba. Sigue siendo de TODA la
-             organización (a diferencia de las 3 secciones de abajo). */}
+      {/* 2) Resumen del evento seleccionado. Importante, pero
+             deliberadamente más chico y sobrio que la card de arriba. */}
       <div>
-        <SectionHeader title="Resumen general" />
+        <SectionHeader title="Resumen del evento" />
         <KpiRow>
           <KpiCard
             label="Recaudación"
             value={formatCurrencyARS(kpis.revenueTotal)}
             icon={DollarSign}
-            loading={loadingSales}
+            loading={controlRoomLoading}
           />
-          <KpiCard label="Entradas vendidas" value={kpis.ticketsSold} icon={Ticket} loading={loadingTickets} />
-          <KpiCard label="Personas ingresadas" value={kpis.checkedIn} icon={ScanLine} loading={loadingTickets} />
+          <KpiCard label="Entradas vendidas" value={kpis.ticketsSold} icon={Ticket} loading={controlRoomLoading} />
+          <KpiCard
+            label="Personas ingresadas"
+            value={kpis.checkedIn}
+            icon={ScanLine}
+            loading={controlRoomLoading}
+          />
           <KpiCard
             label="Ocupación"
             value={kpis.occupancyPct !== null ? `${kpis.occupancyPct}%` : "—"}
             icon={Gauge}
-            loading={loadingTickets || loadingEvents}
+            loading={controlRoomLoading}
           />
         </KpiRow>
       </div>
 
-      {/* 3-5) Centro de control del evento destacado — Funciones, Scanners y
-             Actividad reciente. Sólo existen si hay un evento destacado (en
-             curso o próximo): si no hay ninguno, el EmptyState de la hero de
-             arriba ya lo explica, repetirlo acá abajo tres veces más sería
-             ruido. */}
+      {/* 3-5) Centro de control del evento seleccionado — Funciones,
+             Scanners y Actividad reciente. Sólo existen si hay un evento
+             elegido: si no hay ninguno en la categoría, el EmptyState de la
+             hero de arriba ya lo explica, repetirlo acá abajo tres veces
+             más sería ruido. */}
       {(loadingEvents || featured) && (
         <>
           {controlRoom.error && (
             <InlineErrorNotice
-              message="No pudimos actualizar la información en vivo del evento destacado."
+              message="No pudimos actualizar la información en vivo de este evento."
               onRetry={controlRoom.refetch}
             />
           )}
@@ -260,7 +323,7 @@ export default function OrganizerDashboard() {
         </>
       )}
 
-      {/* 6) Estado de mis eventos — org-wide, no del evento destacado. */}
+      {/* 6) Estado de mis eventos — org-wide, no cambia con el selector. */}
       <div>
         <SectionHeader
           icon={CalendarDays}
@@ -294,15 +357,16 @@ export default function OrganizerDashboard() {
         )}
       </div>
 
-      {/* 7) Últimas ventas — org-wide. */}
+      {/* 7) Últimas ventas — del evento seleccionado. */}
       <div>
         <SectionHeader
           icon={Receipt}
           title="Últimas ventas"
+          subtitle="Del evento seleccionado arriba."
           action={<TextLink to="/organizador/ventas">Ver todas</TextLink>}
         />
         <Card>
-          <SalesTable sales={recentSales} loading={loadingSales} />
+          <SalesTable sales={recentSales} loading={controlRoomLoading} />
         </Card>
       </div>
     </div>

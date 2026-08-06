@@ -57,42 +57,89 @@ export function computeCheckedInCount(ticketsForEvent) {
   return ticketsForEvent.filter((t) => t.status === "USED").length;
 }
 
+// Límite de "todavía no terminó" de una función: endAt si está cargado, si
+// no el fin del día de `date` (nunca se inventa una duración fija de
+// evento). Extraído aparte porque isFunctionOngoing Y
+// getFunctionTemporalState necesitan exactamente el mismo límite — así no
+// hay forma de que una función quede "ongoing" para una y "finished" para
+// la otra por una diferencia de cálculo.
+function getFunctionEndBoundary(fn) {
+  if (fn.endAt) return new Date(fn.endAt);
+  const endOfDay = new Date(fn.date);
+  endOfDay.setHours(23, 59, 59, 999);
+  return endOfDay;
+}
+
 // Una función se considera "en curso" sólo con datos reales: necesita
-// doorsOpenAt ya pasado. Si tiene endAt cargado, ese es el límite exacto; si
-// no, se usa el fin del día de `date` como límite razonable (nunca se
-// inventa una duración fija de evento).
+// doorsOpenAt ya pasado. Comportamiento idéntico al de antes de extraer
+// getFunctionEndBoundary — mismo resultado para los mismos datos.
 function isFunctionOngoing(fn, now) {
   if (!fn.doorsOpenAt) return false;
   const opens = new Date(fn.doorsOpenAt);
   if (now < opens) return false;
-  if (fn.endAt) return now <= new Date(fn.endAt);
-  const endOfDay = new Date(fn.date);
-  endOfDay.setHours(23, 59, 59, 999);
-  return now <= endOfDay;
+  return now <= getFunctionEndBoundary(fn);
 }
 
-// Elige qué mostrar en la card grande de arriba: la primera función en curso
-// que encuentra entre los eventos PUBLICADOS, o si no hay ninguna, la
-// próxima función futura más cercana. Devuelve null si no hay nada que
-// mostrar (nunca se inventa un evento).
-export function pickFeaturedFunction(events, now) {
-  const candidates = [];
+// "ongoing" | "upcoming" | "finished" — la única fuente de verdad de en qué
+// categoría cae una función puntual, reusada tanto por groupEventsByCategory
+// como por cualquier otro lado que necesite lo mismo.
+function getFunctionTemporalState(fn, now) {
+  if (isFunctionOngoing(fn, now)) return "ongoing";
+  return now > getFunctionEndBoundary(fn) ? "finished" : "upcoming";
+}
+
+// Agrupa los eventos del organizador en las 3 categorías del selector del
+// Dashboard. Un evento "cuenta" con el mismo criterio que ya usaba
+// CAPACITY_RELEVANT_EVENT_STATUSES (PUBLISHED o FINISHED — nunca
+// DRAFT/SCHEDULED/CANCELLED). Un mismo evento puede aparecer en más de una
+// categoría a la vez si tiene funciones en estados distintos (ej. un evento
+// recurrente con una función ya pasada y otra todavía programada) — es
+// correcto, no un bug: cada categoría muestra su propia función
+// representativa de ESE evento (la que está en curso, la próxima más
+// cercana, o la última que ya terminó).
+export function groupEventsByCategory(events, now) {
+  const byEventOngoing = new Map();
+  const byEventUpcoming = new Map();
+  const byEventFinished = new Map();
+
   for (const event of events) {
-    if (event.status !== "PUBLISHED") continue;
+    if (!CAPACITY_RELEVANT_EVENT_STATUSES.has(event.status)) continue;
+
     for (const fn of event.functions ?? []) {
       if (fn.status === "CANCELLED") continue;
-      candidates.push({ event, eventFunction: fn });
+
+      const state = getFunctionTemporalState(fn, now);
+      const candidate = { event, eventFunction: fn };
+
+      if (state === "ongoing") {
+        // Si un evento tiene más de una función simultánea "en curso"
+        // (raro, pero posible), se queda con la primera que encuentra — no
+        // hace falta desempatar más fino que eso para esta pantalla.
+        if (!byEventOngoing.has(event.id)) byEventOngoing.set(event.id, candidate);
+      } else if (state === "upcoming") {
+        const current = byEventUpcoming.get(event.id);
+        if (!current || new Date(fn.date) < new Date(current.eventFunction.date)) {
+          byEventUpcoming.set(event.id, candidate); // la próxima más cercana
+        }
+      } else {
+        const current = byEventFinished.get(event.id);
+        if (!current || new Date(fn.date) > new Date(current.eventFunction.date)) {
+          byEventFinished.set(event.id, candidate); // la última en terminar
+        }
+      }
     }
   }
 
-  const ongoing = candidates.find(({ eventFunction }) => isFunctionOngoing(eventFunction, now));
-  if (ongoing) return { ...ongoing, isOngoing: true };
+  const byDateAsc = (a, b) => new Date(a.eventFunction.date) - new Date(b.eventFunction.date);
+  const byDateDesc = (a, b) => new Date(b.eventFunction.date) - new Date(a.eventFunction.date);
 
-  const upcoming = candidates
-    .filter(({ eventFunction }) => new Date(eventFunction.date) >= now)
-    .sort((a, b) => new Date(a.eventFunction.date) - new Date(b.eventFunction.date))[0];
-
-  return upcoming ? { ...upcoming, isOngoing: false } : null;
+  return {
+    ongoing: [...byEventOngoing.values()].sort(byDateAsc),
+    upcoming: [...byEventUpcoming.values()].sort(byDateAsc),
+    // Finalizados: el más reciente primero (lo más relevante de "lo que ya
+    // pasó" suele ser lo último que pasó, no lo más viejo).
+    finished: [...byEventFinished.values()].sort(byDateDesc),
+  };
 }
 
 // KPIs del "Resumen general" — org-wide, a partir de lo que ya trae el
