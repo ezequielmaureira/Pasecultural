@@ -1,27 +1,32 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
 import { apiFetch } from "../lib/api.js";
+import { listOrganizerSales } from "../lib/saleAdminApi.js";
+import { listOrganizerTickets } from "../lib/ticketAdminApi.js";
 
 const OrganizerDataContext = createContext(null);
 
 // Única fuente de datos del panel de organizador para todo lo que no tiene
-// su propio fetch dedicado (Dashboard, Entradas). `events` viene siempre de
-// la API real — nunca hay datos de ejemplo precargados acá.
+// su propio fetch dedicado. `events`, `sales` y `tickets` vienen siempre de
+// la API real (GET /api/events/mine+detalle, GET /api/sales, GET
+// /api/tickets/organizer) — nunca hay datos de ejemplo precargados acá.
+// `tickets` es la lista completa del organizador (sin filtro de evento): se
+// usa para agregados (KPIs, ocupación por evento en el Dashboard) — ver
+// pages/organizer/dashboard/dashboardMetrics.js. OrganizerTickets.jsx (la
+// pantalla de administración) sigue teniendo su propio fetch filtrado y
+// paginado por evento, independiente de este.
 //
-// `sales` y `recentScans` quedan intencionalmente vacíos: todavía no existe
-// un sistema de ventas/escaneos en el backend (no hay endpoint de órdenes ni
-// de escaneos), así que mostrar algo ahí sería inventar información. En
-// cuanto exista ese backend, esto pasa a fetchear igual que `events`.
-//
-// Scanners ya NO vive acá: es información por-evento (EventScanner), no una
+// Scanners no vive acá: es información por-evento (EventScanner), no una
 // lista global del organizador — ver OrganizerScanners.jsx, que fetchea
 // directo GET/POST/DELETE /api/events/:id/scanners para el evento elegido.
 export function OrganizerDataProvider({ children }) {
   const { getToken } = useAuth();
   const [events, setEvents] = useState([]);
   const [loadingEvents, setLoadingEvents] = useState(true);
-  const [sales] = useState([]);
-  const [recentScans] = useState([]);
+  const [sales, setSales] = useState([]);
+  const [loadingSales, setLoadingSales] = useState(true);
+  const [tickets, setTickets] = useState([]);
+  const [loadingTickets, setLoadingTickets] = useState(true);
 
   const loadEvents = useCallback(async () => {
     setLoadingEvents(true);
@@ -47,9 +52,44 @@ export function OrganizerDataProvider({ children }) {
     }
   }, [getToken]);
 
+  const loadSales = useCallback(async () => {
+    setLoadingSales(true);
+    try {
+      const token = await getToken();
+      const list = await listOrganizerSales(token);
+      setSales(list);
+    } catch (error) {
+      console.error("No se pudieron cargar las ventas del organizador", error);
+      setSales([]);
+    } finally {
+      setLoadingSales(false);
+    }
+  }, [getToken]);
+
+  // Sin filtro de evento a propósito: el Dashboard necesita agregados de
+  // TODOS los eventos del organizador en una sola carga. Es la misma llamada
+  // (GET /api/tickets/organizer) que ya usa OrganizerTickets.jsx con
+  // filtros — acá se pide sin filtrar porque el costo de un solo fetch
+  // completo al entrar al panel es preferible a N fetches por evento.
+  const loadTickets = useCallback(async () => {
+    setLoadingTickets(true);
+    try {
+      const token = await getToken();
+      const list = await listOrganizerTickets(token);
+      setTickets(list);
+    } catch (error) {
+      console.error("No se pudieron cargar las entradas del organizador", error);
+      setTickets([]);
+    } finally {
+      setLoadingTickets(false);
+    }
+  }, [getToken]);
+
   useEffect(() => {
     loadEvents();
-  }, [loadEvents]);
+    loadSales();
+    loadTickets();
+  }, [loadEvents, loadSales, loadTickets]);
 
   const value = useMemo(
     () => ({
@@ -57,9 +97,23 @@ export function OrganizerDataProvider({ children }) {
       loadingEvents,
       reloadEvents: loadEvents,
       sales,
-      recentScans,
+      loadingSales,
+      reloadSales: loadSales,
+      tickets,
+      loadingTickets,
+      reloadTickets: loadTickets,
     }),
-    [events, loadingEvents, loadEvents, sales, recentScans]
+    [
+      events,
+      loadingEvents,
+      loadEvents,
+      sales,
+      loadingSales,
+      loadSales,
+      tickets,
+      loadingTickets,
+      loadTickets,
+    ]
   );
 
   return <OrganizerDataContext.Provider value={value}>{children}</OrganizerDataContext.Provider>;

@@ -24,6 +24,12 @@ const SPINNER_TONE_BY_VARIANT = {
   ghost: "border-slate-500/40 border-t-slate-200",
 };
 
+// Compartido con LinkButton.jsx (mismo look para una acción que navega en
+// vez de ejecutar código) — evita mantener dos copias del mapeo variant/size.
+export function buttonClassNames({ variant = "primary", size = "md", className = "" } = {}) {
+  return `inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]} ${className}`;
+}
+
 // `loading` es el estado reutilizable para cualquier accion asincrona
 // (guardar, continuar, publicar, etc.): deshabilita el boton, evita clicks
 // duplicados y muestra un spinner + texto temporal en vez de dejarlo
@@ -43,7 +49,7 @@ export default function Button({
 
   return (
     <button
-      className={`inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]} ${className}`}
+      className={buttonClassNames({ variant, size, className })}
       disabled={isDisabled}
       aria-busy={loading || undefined}
       {...props}
