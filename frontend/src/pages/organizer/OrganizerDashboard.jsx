@@ -233,10 +233,10 @@ export default function OrganizerDashboard() {
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-white">Últimas ventas</h3>
             <Link
-              to="/organizador/ventas"
+              to="/organizador/entradas"
               className="text-xs font-medium text-violet-400 hover:underline"
             >
-              Ver todas
+              Ver entradas
             </Link>
           </div>
           {latestSales.length === 0 ? (
