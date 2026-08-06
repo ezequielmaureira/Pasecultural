@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build output
+dist/
+dist-ssr/
+build/
+
+# Prisma
+backend/generated/prisma/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.local
+
+# Codespaces / devcontainer runtime
+.devcontainer/.env
+
+# Test / coverage
+coverage/
+
+# Misc temp files
+*.tmp
+*.temp
+*.session.sql
