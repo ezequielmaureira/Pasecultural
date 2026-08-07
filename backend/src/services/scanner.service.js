@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import prisma from "../config/prisma.js";
 import { decryptSecret } from "../config/qrEncryption.js";
 import { getFunctionCounters } from "./functionCapacity.service.js";
+import { resolveScannerAccess } from "./scannerAccess.service.js";
 import { logger } from "../logging/logger.js";
 
 const RESULT_MESSAGES = {
@@ -75,18 +76,25 @@ function buildResult(result, { ticket, checkIn, scannerName, gate } = {}) {
 // sin importar el resultado (incluso NOT_FOUND/WRONG_EVENT/CANCELLED).
 // Nunca lanza un error HTTP por un resultado de negocio — eso es lo que
 // devuelve `status`. `scannerContext` es req.scanner (ya autenticado y
-// verificado ACTIVE por requireScannerSession) — el eventId SIEMPRE sale de
-// ahí, nunca de lo que mande el cliente en el body: un scannerSessionToken
-// está ligado a un único evento, así que no hace falta (ni conviene)
-// confiar en un eventId que venga del request.
+// verificado ACTIVE por requireScannerSession). El eventId puede venir del
+// cliente (input.eventId, un scanner con varias asignaciones activas elige
+// con cuál está operando) — pero NUNCA se confía en él sin más:
+// resolveScannerAccess lo valida contra la base (¿existe una fila
+// EventScanner ACTIVE con el mismo email para ese evento?) antes de usarlo
+// para nada. Si no se manda ninguno, es exactamente el mismo camino de
+// siempre (el evento del ancla, sin query extra). `access` — no
+// scannerContext — es lo que se usa para atribuir el CheckIn/ScanAttempt:
+// tiene que quedar registrado con el EventScanner de ESE evento, nunca con
+// el de la sesión con la que se inició sesión si son distintos.
 export const validateScanService = async (scannerContext, input) => {
-    const eventId = scannerContext.eventId;
+    const access = await resolveScannerAccess(scannerContext, input?.eventId);
+    const eventId = access.eventId;
     const functionId = input?.functionId || null;
-    const gate = input?.gate || scannerContext.gate || null;
+    const gate = input?.gate || access.gate || null;
     const ip = input?.ip || null;
     const userAgent = input?.userAgent || null;
 
-    const scannerName = [scannerContext.firstName, scannerContext.lastName].filter(Boolean).join(" ").trim() || scannerContext.name;
+    const scannerName = [access.firstName, access.lastName].filter(Boolean).join(" ").trim() || access.name;
 
     // Token: "<ticketId>.<secret>" (base64url, sin puntos, por eso alcanza
     // con partir en el primer punto).
@@ -98,7 +106,7 @@ export const validateScanService = async (scannerContext, input) => {
     const result = await prisma.$transaction(async (tx) => {
         async function recordAttempt(scanResult, resolvedTicketId) {
             await tx.scanAttempt.create({
-                data: { ticketId: resolvedTicketId ?? null, eventId, result: scanResult, scannedBy: scannerContext.id, gate, ip, userAgent },
+                data: { ticketId: resolvedTicketId ?? null, eventId, result: scanResult, scannedBy: access.id, gate, ip, userAgent },
             });
         }
 
@@ -182,7 +190,7 @@ export const validateScanService = async (scannerContext, input) => {
         // contra doble-registro sigue siendo el updateMany atómico de
         // arriba, que ya garantiza que sólo un escaneo gana la carrera.
         const checkIn = await tx.checkIn.create({
-            data: { ticketId: ticket.id, source: "SCAN", scannerId: scannerContext.id, gate, device: userAgent },
+            data: { ticketId: ticket.id, source: "SCAN", scannerId: access.id, gate, device: userAgent },
         });
         await tx.ticketQr.update({ where: { ticketId: ticket.id }, data: { usedAt: new Date() } });
         await recordAttempt("VALID", ticket.id);
@@ -190,6 +198,6 @@ export const validateScanService = async (scannerContext, input) => {
         return withStats(buildResult("VALID", { ticket, checkIn, scannerName, gate }));
     }, TRANSACTION_OPTIONS);
 
-    logger.info("Scan validated", { eventId, functionId, scannerId: scannerContext.id, result: result.status });
+    logger.info("Scan validated", { eventId, functionId, scannerId: access.id, result: result.status });
     return result;
 };

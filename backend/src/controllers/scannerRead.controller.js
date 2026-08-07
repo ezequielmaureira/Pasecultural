@@ -10,7 +10,7 @@ import {
 
 export const getScannerDashboard = async (req, res, next) => {
     try {
-        const dashboard = await getScannerDashboardService(req.scanner);
+        const dashboard = await getScannerDashboardService(req.scanner, req.query.eventId);
         res.status(200).json({ dashboard });
     } catch (error) {
         next(AppError.from(error));

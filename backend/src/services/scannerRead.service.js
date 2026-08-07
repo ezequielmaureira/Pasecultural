@@ -2,6 +2,7 @@ import prisma from "../config/prisma.js";
 import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { effectiveCapacity, getFunctionStats } from "./functionCapacity.service.js";
+import { resolveScannerAccess } from "./scannerAccess.service.js";
 
 const MAX_SCAN_ATTEMPTS_LIMIT = 50;
 const DEFAULT_SCAN_ATTEMPTS_LIMIT = 20;
@@ -17,22 +18,33 @@ function startOfTodayInBuenosAires() {
 }
 
 // `scannerContext` es req.scanner, ya resuelto y verificado ACTIVE por
-// requireScannerSession — nunca se vuelve a resolver identidad acá. Un
-// scannerSessionToken está ligado a UN solo EventScanner = UN solo evento
-// (a diferencia del viejo modelo por Clerk, donde una cuenta podía tener
-// varias asignaciones), así que "mis eventos" es siempre, a lo sumo, un
-// array de un elemento — se mantiene la forma de array para no tocar nada
-// del frontend (selección de evento/función), que ya sabe manejar 1 o más.
+// requireScannerSession — nunca se vuelve a resolver identidad acá. Antes
+// "mis eventos" era siempre, a lo sumo, el único evento del EventScanner
+// "ancla" (email no es @@unique — la misma persona puede tener varias
+// filas ACTIVE, una por evento, ver resolveScannerAccess). Ahora se
+// resuelven TODAS las filas ACTIVE con el mismo email: el shape por evento
+// queda igual que siempre, sólo cambia que puede haber más de uno — el
+// frontend (selección de evento/función) ya sabía manejar 1 o más.
 export const listScannerEventsService = async (scannerContext) => {
     // "Último acceso" (columna que pide la gestión de scanners): se
     // actualiza acá, no en validateScanService — este endpoint ya se llama
-    // cada vez que el scanner abre la app (antes de escanear nada). No se
-    // espera el resultado (no debe demorar la respuesta al scanner por
-    // esto).
+    // cada vez que el scanner abre la app (antes de escanear nada). Sólo la
+    // fila "ancla" (con la que se inició sesión), no las demás asignaciones
+    // — no se espera el resultado (no debe demorar la respuesta por esto).
     prisma.eventScanner.update({ where: { id: scannerContext.id }, data: { lastAccessAt: new Date() } }).catch(() => {});
 
-    const event = await prisma.event.findUnique({
-        where: { id: scannerContext.eventId },
+    const eventIds = scannerContext.email
+        ? (
+              await prisma.eventScanner.findMany({
+                  where: { email: scannerContext.email, status: "ACTIVE", deletedAt: null },
+                  select: { eventId: true },
+                  distinct: ["eventId"],
+              })
+          ).map((row) => row.eventId)
+        : [scannerContext.eventId];
+
+    const events = await prisma.event.findMany({
+        where: { id: { in: eventIds } },
         select: {
             id: true,
             title: true,
@@ -56,18 +68,20 @@ export const listScannerEventsService = async (scannerContext) => {
             },
         },
     });
-    if (!event || event.functions.length === 0) return [];
 
-    const functionIds = event.functions.map((fn) => fn.id);
-    const checkedInGroups = await prisma.ticket.groupBy({
-        by: ["functionId"],
-        where: { functionId: { in: functionIds }, status: "USED" },
-        _count: { _all: true },
-    });
+    const functionIds = events.flatMap((event) => event.functions.map((fn) => fn.id));
+    const checkedInGroups = functionIds.length
+        ? await prisma.ticket.groupBy({
+              by: ["functionId"],
+              where: { functionId: { in: functionIds }, status: "USED" },
+              _count: { _all: true },
+          })
+        : [];
     const checkedInByFunction = new Map(checkedInGroups.map((g) => [g.functionId, g._count._all]));
 
-    return [
-        {
+    return events
+        .filter((event) => event.functions.length > 0)
+        .map((event) => ({
             id: event.id,
             title: event.title,
             slug: event.slug,
@@ -83,18 +97,24 @@ export const listScannerEventsService = async (scannerContext) => {
                     remaining: Math.max(capacity - checkedIn, 0),
                 };
             }),
-        },
-    ];
+        }));
 };
 
 // Pantalla previa "Dashboard Scanner" (antes de abrir el lector QR):
 // identidad + estado + actividad de hoy. Nunca datos de otros scanners ni
 // de la Sale — sólo lo que ya vive en la fila del propio EventScanner más
-// un conteo de ScanAttempt, sin tocar validateScanService.
-export const getScannerDashboardService = async (scannerContext) => {
+// un conteo de ScanAttempt, sin tocar validateScanService. `eventId`
+// opcional: sin él (o si coincide con el ancla) es EXACTAMENTE lo mismo de
+// siempre, camino rápido de resolveScannerAccess sin query extra. Con un
+// eventId de otra asignación propia, arma el dashboard de ESA fila —
+// selector de evento en el Dashboard cuando hay más de uno.
+export const getScannerDashboardService = async (scannerContext, eventId) => {
+    const access = await resolveScannerAccess(scannerContext, eventId);
+
     const fresh = await prisma.eventScanner.findUnique({
-        where: { id: scannerContext.id },
+        where: { id: access.id },
         select: {
+            eventId: true,
             name: true,
             gate: true,
             firstName: true,
@@ -107,13 +127,14 @@ export const getScannerDashboardService = async (scannerContext) => {
 
     const validatedToday = await prisma.scanAttempt.count({
         where: {
-            scannedBy: scannerContext.id,
+            scannedBy: access.id,
             result: "VALID",
             scannedAt: { gte: startOfTodayInBuenosAires() },
         },
     });
 
     return {
+        eventId: fresh.eventId,
         name: fresh.name,
         gate: fresh.gate,
         firstName: fresh.firstName,
@@ -126,7 +147,7 @@ export const getScannerDashboardService = async (scannerContext) => {
 };
 
 export const getFunctionStatsService = async (scannerContext, eventId, functionId) => {
-    if (eventId !== scannerContext.eventId) throw new AppError(ErrorCodes.SCANNER_NOT_AUTHORIZED);
+    await resolveScannerAccess(scannerContext, eventId);
 
     const eventFunction = await prisma.eventFunction.findUnique({ where: { id: functionId } });
     if (!eventFunction || eventFunction.eventId !== eventId) {
@@ -141,7 +162,7 @@ export const getFunctionStatsService = async (scannerContext, eventId, functionI
 // Sale — sólo lo necesario para reconocer un intento en pantalla.
 export const listScanAttemptsService = async (scannerContext, eventId, functionId, limit) => {
     if (!eventId) throw new AppError(ErrorCodes.SCAN_ATTEMPTS_EVENT_REQUIRED);
-    if (eventId !== scannerContext.eventId) throw new AppError(ErrorCodes.SCANNER_NOT_AUTHORIZED);
+    await resolveScannerAccess(scannerContext, eventId);
 
     const parsedLimit = Number(limit);
     const safeLimit = Number.isFinite(parsedLimit) && parsedLimit > 0

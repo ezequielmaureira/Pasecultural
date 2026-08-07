@@ -2,9 +2,14 @@ import { apiFetch } from "./api.js";
 
 // Pantalla previa "Dashboard Scanner" (antes de abrir el lector QR):
 // identidad + estado + actividad de hoy, resuelto por el backend a partir
-// del scannerSessionToken.
-export async function getScannerDashboard(token) {
-    const { dashboard } = await apiFetch("/api/scanner/dashboard", { token });
+// del scannerSessionToken. `eventId` opcional: sin él, es el evento
+// "ancla" con el que se inició sesión (comportamiento de siempre). Con un
+// eventId de otra asignación activa del mismo scanner, trae el dashboard
+// de ESE evento — el backend valida la pertenencia (resolveScannerAccess),
+// nunca se confía en este id sin más.
+export async function getScannerDashboard(token, eventId) {
+    const params = eventId ? `?${new URLSearchParams({ eventId }).toString()}` : "";
+    const { dashboard } = await apiFetch(`/api/scanner/dashboard${params}`, { token });
     return dashboard;
 }
 

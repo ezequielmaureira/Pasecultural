@@ -40,8 +40,13 @@ export default function ScannerHome() {
     const [phase, setPhase] = useState("loading");
     const [cachedSelection, setCachedSelection] = useState(null);
     const [events, setEvents] = useState([]);
-    const [scannerInfo, setScannerInfo] = useState(null); // { name, gate } — "puesto del scanner", nunca editable
     const [dashboard, setDashboard] = useState(null);
+    // Evento cuya información muestra el Dashboard ahora mismo (tarjeta de
+    // identidad + selector de arriba cuando hay más de uno) — no es
+    // necesariamente `selectedEvent` (ese es el elegido para escanear/ver
+    // historial/estadísticas, que puede no coincidir mientras se está
+    // resolviendo). `dashboard` siempre corresponde a este id.
+    const [activeEventId, setActiveEventId] = useState(null);
     const [selectedEvent, setSelectedEvent] = useState(null);
     const [selectedFunction, setSelectedFunction] = useState(null);
     const [errorMessage, setErrorMessage] = useState("");
@@ -66,6 +71,26 @@ export default function ScannerHome() {
         navigate("/scanner/portal", { replace: true });
     }
 
+    // Recarga el dashboard de UN evento puntual (no el de carga inicial —
+    // ver `load`) y lo deja como activo. Usado al cambiar de evento desde el
+    // selector del Dashboard: nunca rompe la pantalla si falla, sólo avisa
+    // y deja el dashboard anterior tal cual (mismo criterio que el resto de
+    // la app: un fallo de red puntual no debe tirar abajo toda la sesión).
+    async function loadDashboardFor(eventId) {
+        try {
+            const token = readScannerSessionToken();
+            const fresh = await getScannerDashboard(token, eventId);
+            setDashboard(fresh);
+            setActiveEventId(eventId);
+        } catch (err) {
+            if (err.code === "SCANNER_SESSION_INVALID" || err.code === "SCANNER_NOT_AUTHORIZED") {
+                exitWithoutSession("Tu sesión de scanner venció o ya no es válida.");
+                return;
+            }
+            toast.error(err.message || "No pudimos actualizar la información de ese evento.");
+        }
+    }
+
     const load = useCallback(async () => {
         const sessionToken = readScannerSessionToken();
         if (!sessionToken) {
@@ -78,13 +103,41 @@ export default function ScannerHome() {
         setPhase(stored ? "reconnecting" : "loading");
 
         try {
-            const [{ events: fetchedEvents, scanner }, dashboardInfo] = await Promise.all([
+            const [{ events: fetchedEvents }, anchorDashboard] = await Promise.all([
                 listScannerEvents(sessionToken),
-                getScannerDashboard(sessionToken),
+                getScannerDashboard(sessionToken), // sin eventId: el ancla, exactamente como siempre
             ]);
             setEvents(fetchedEvents);
-            setScannerInfo(scanner);
-            setDashboard(dashboardInfo);
+
+            // Si hay más de un evento y ya había una preferencia guardada
+            // distinta al ancla, se respeta — es el único caso que paga una
+            // consulta extra (getScannerDashboard de ese evento puntual). En
+            // cualquier otro caso (un solo evento, o sin preferencia
+            // guardada, o la preferencia coincide con el ancla) se reusa
+            // directamente `anchorDashboard`: cero consultas de más.
+            const preferredEventId =
+                fetchedEvents.length > 1 && stored?.eventId && fetchedEvents.some((e) => e.id === stored.eventId)
+                    ? stored.eventId
+                    : anchorDashboard.eventId;
+
+            if (preferredEventId === anchorDashboard.eventId) {
+                setDashboard(anchorDashboard);
+                setActiveEventId(anchorDashboard.eventId);
+            } else {
+                try {
+                    const preferredDashboard = await getScannerDashboard(sessionToken, preferredEventId);
+                    setDashboard(preferredDashboard);
+                    setActiveEventId(preferredEventId);
+                } catch {
+                    // La preferencia guardada ya no es válida, o falló la
+                    // consulta puntual: se cae al ancla en vez de dejar el
+                    // Dashboard sin nada que mostrar. El selector de arriba
+                    // sigue permitiendo elegir cualquier evento igual.
+                    setDashboard(anchorDashboard);
+                    setActiveEventId(anchorDashboard.eventId);
+                }
+            }
+
             // Toda sesión válida aterriza en el Dashboard primero — la
             // resolución de evento/función (resolveSelection) ya no corre
             // sola al cargar, sólo cuando la persona elige una acción.
@@ -135,6 +188,15 @@ export default function ScannerHome() {
                 autoSelectOrPrompt(fetchedEvents);
                 return;
             }
+            if (!stored.functionId) {
+                // Evento guardado (elegido desde el selector del Dashboard)
+                // sin una función todavía — mismo camino que elegirlo a
+                // mano: auto-aplica si tiene una sola función, si no pide
+                // elegir. Nunca es "función ya no disponible": acá nunca
+                // hubo ninguna guardada.
+                handleSelectEvent(event);
+                return;
+            }
             const fn = event.functions.find((f) => f.id === stored.functionId);
             if (!fn) {
                 clearActiveScannerSelection();
@@ -173,6 +235,15 @@ export default function ScannerHome() {
                 functionName: functionLabel(fn),
             });
         }
+        // Cualquier resolución de evento+función (venga de "Escanear",
+        // "Historial", "Estadísticas", o de "Cambiar evento" a mitad de
+        // flujo) deja al Dashboard mostrando la información de ESE evento —
+        // así la puerta que ve ScanningScreen y la tarjeta a la que se
+        // vuelve después nunca quedan desincronizadas del evento realmente
+        // activo. Sólo dispara la consulta si de verdad cambió.
+        if (event.id !== activeEventId) {
+            loadDashboardFor(event.id);
+        }
         setPhase(selectionIntent === "scan" ? "ready" : selectionIntent);
     }
 
@@ -198,18 +269,42 @@ export default function ScannerHome() {
         resolveSelection(events, readActiveScannerSelection());
     }
 
-    // "Historial"/"Estadísticas": van directo a la función si sólo hay una
-    // (1 evento + 1 función, caso típico), si no piden elegir primero —
-    // mismas pantallas de selección ya existentes, nunca se auto-recuerda
-    // una elección anterior para esto (siempre autoSelectOrPrompt "fresco").
+    // "Historial"/"Estadísticas": parten SIEMPRE del evento que el
+    // Dashboard está mostrando ahora mismo (activeEventId) — nunca vuelven
+    // a preguntar qué evento, ya se eligió arriba. Van directo a la función
+    // si sólo hay una, si no piden elegir (mismas pantallas de selección ya
+    // existentes) — pero a diferencia de "Escanear", nunca se auto-recuerda
+    // una función anterior para esto, ni se persiste la que se auto-aplique.
+    function startViewingActiveEvent() {
+        const event = events.find((e) => e.id === activeEventId) ?? events[0];
+        if (!event) return;
+        if (event.functions.length === 1) {
+            applySelection(event, event.functions[0], { persist: false });
+            return;
+        }
+        setSelectedEvent(event);
+        setPhase("select-function");
+    }
+
     function handleOpenHistory() {
         setSelectionIntent("history");
-        resolveSelection(events, null);
+        startViewingActiveEvent();
     }
 
     function handleOpenStats() {
         setSelectionIntent("stats");
-        resolveSelection(events, null);
+        startViewingActiveEvent();
+    }
+
+    // Selector de evento arriba del Dashboard (sólo se muestra si hay más
+    // de uno asignado — ver DashboardScreen.jsx). Nunca navega a otra
+    // pantalla: sólo recarga `dashboard` para el evento elegido y lo
+    // recuerda (mismo storage que ya usa el flujo de escaneo, sin
+    // functionId todavía — ver scannerStorage.js).
+    function handleSelectDashboardEvent(event) {
+        if (event.id === activeEventId) return;
+        writeActiveScannerSelection({ eventId: event.id, eventName: event.title });
+        loadDashboardFor(event.id);
     }
 
     function handleLogout() {
@@ -233,6 +328,9 @@ export default function ScannerHome() {
         return (
             <DashboardScreen
                 dashboard={dashboard}
+                events={events}
+                activeEventId={activeEventId}
+                onSelectEvent={handleSelectDashboardEvent}
                 onStartScanning={handleStartScanning}
                 onOpenHistory={handleOpenHistory}
                 onOpenStats={handleOpenStats}
@@ -269,7 +367,7 @@ export default function ScannerHome() {
             <ScanningScreen
                 event={selectedEvent}
                 fn={selectedFunction}
-                scannerGate={scannerInfo?.gate ?? scannerInfo?.name ?? ""}
+                scannerGate={dashboard?.gate ?? dashboard?.name ?? ""}
                 onExitScanning={() => setPhase("ready")}
                 onChangeFunction={() => setPhase("select-function")}
                 onRevoked={() => exitWithoutSession("Ya no tenés acceso como scanner de este evento.")}

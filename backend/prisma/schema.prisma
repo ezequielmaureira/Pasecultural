@@ -773,5 +773,11 @@ model EventScanner {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  // Soporte multi-evento: findActiveScannerByEmail (login) y
+  // resolveScannerAccess (autorización por evento) filtran por email en
+  // cada request de un scanner con más de una asignación — sin índice,
+  // full scan de la tabla. No es @@unique a propósito (ver comentario de
+  // `email` arriba): la misma persona puede tener varias filas ACTIVE.
+  @@index([email])
   @@map("event_scanners")
 }

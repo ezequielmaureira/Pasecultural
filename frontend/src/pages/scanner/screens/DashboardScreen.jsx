@@ -1,6 +1,7 @@
 import { ScanLine, History, BarChart3, LogOut } from "lucide-react";
 import Button from "../../../components/ui/Button.jsx";
 import ScannerCenter from "../components/ScannerCenter.jsx";
+import EventSelectScreen from "./EventSelectScreen.jsx";
 
 const STATUS_LABEL = {
     ACTIVE: "Activo",
@@ -16,8 +17,18 @@ function formatLastAccess(value) {
 // quién sos, dónde operás y cuánto llevás hoy, y desde acá se decide a
 // dónde ir: escanear (lógica existente, sin cambios), historial,
 // estadísticas, o cerrar sesión.
-export default function DashboardScreen({ dashboard, onStartScanning, onOpenHistory, onOpenStats, onLogout }) {
+//
+// `events`/`activeEventId`/`onSelectEvent` sólo importan cuando hay más de
+// un evento asignado (ScannerHome ya resuelve el caso de uno solo antes de
+// llegar acá — `events` puede venir undefined/[len 1] y el selector
+// simplemente no se renderiza, pantalla idéntica a la de siempre). Elegir
+// otro evento acá NO navega a ninguna pantalla nueva: sólo dispara
+// onSelectEvent, que en ScannerHome recarga `dashboard` para ese evento —
+// toda la tarjeta de abajo (evento/puerta/estado/validadas hoy) y los tres
+// botones quedan automáticamente apuntando al evento recién elegido.
+export default function DashboardScreen({ dashboard, events, activeEventId, onSelectEvent, onStartScanning, onOpenHistory, onOpenStats, onLogout }) {
     const displayName = [dashboard.firstName, dashboard.lastName].filter(Boolean).join(" ").trim() || dashboard.name;
+    const hasMultipleEvents = (events?.length ?? 0) > 1;
 
     return (
         <ScannerCenter>
@@ -25,6 +36,13 @@ export default function DashboardScreen({ dashboard, onStartScanning, onOpenHist
                 <ScanLine className="h-7 w-7 text-violet-400" />
             </div>
             <h1 className="text-lg font-bold text-white">{displayName}</h1>
+
+            {hasMultipleEvents && (
+                <div className="w-full text-left">
+                    <p className="mb-1.5 text-xs uppercase tracking-wide text-slate-500">Evento activo</p>
+                    <EventSelectScreen events={events} onSelect={onSelectEvent} activeEventId={activeEventId} embedded />
+                </div>
+            )}
 
             <div className="w-full rounded-xl border border-white/10 bg-white/5 p-4 text-left">
                 <dl className="flex flex-col gap-2 text-sm">
