@@ -25,7 +25,17 @@ export async function requireScannerSession(req, res, next) {
 
         const scanner = await prisma.eventScanner.findUnique({
             where: { id: eventScannerId },
-            select: { id: true, eventId: true, name: true, gate: true, firstName: true, lastName: true, status: true, deletedAt: true },
+            select: {
+                id: true,
+                eventId: true,
+                email: true,
+                name: true,
+                gate: true,
+                firstName: true,
+                lastName: true,
+                status: true,
+                deletedAt: true,
+            },
         });
         if (!scanner || scanner.deletedAt || scanner.status !== "ACTIVE") {
             throw new AppError(ErrorCodes.SCANNER_SESSION_INVALID);
