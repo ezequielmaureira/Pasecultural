@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
-import { Clock3, DollarSign, Ticket, ScanLine, Gauge, CalendarDays, Receipt, Activity, Layers } from "lucide-react";
+import { Clock3, DollarSign, Ticket, ScanLine, Gauge, CalendarDays, Receipt, Activity, Layers, XCircle } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
 import SkeletonBlock from "../../components/ui/SkeletonBlock.jsx";
@@ -19,15 +19,9 @@ import { useActiveEvent } from "../../context/ActiveEventContext.jsx";
 import { useSessionStorageState } from "../../hooks/useSessionStorageState.js";
 import { apiFetch } from "../../lib/api.js";
 import { formatCurrencyARS } from "../../lib/format.js";
-import {
-  groupEventsByCategory,
-  findEventCategoryPosition,
-  computeEventCapacity,
-  groupTicketsByEvent,
-  computeSoldCount,
-  buildActivityFeed,
-} from "./dashboard/dashboardMetrics.js";
-import { buildEventStatsKpis, formatIssuedByOriginHint } from "../../components/organizer/functionStatsSelectors.js";
+import { groupEventsByCategory, findEventCategoryPosition, buildActivityFeed } from "./dashboard/dashboardMetrics.js";
+import { buildEventStatsKpis, buildIssuedByOriginBreakdown } from "../../components/organizer/functionStatsSelectors.js";
+import OriginBreakdownList from "../../components/organizer/OriginBreakdownList.jsx";
 import { useEventControlRoomData } from "./dashboard/useEventControlRoomData.js";
 
 const ORG_STATUS_BANNER = {
@@ -122,9 +116,10 @@ export default function OrganizerDashboard() {
     reloadEvents,
     salesError,
     reloadSales,
-    tickets,
-    ticketsError,
-    reloadTickets,
+    eventsStats,
+    loadingEventsStats,
+    eventsStatsError,
+    reloadEventsStats,
   } = useOrganizerData();
 
   // Ya no se memoiza con `[]`: la Fase 4 (polling) y el Timeline (fechas
@@ -189,13 +184,16 @@ export default function OrganizerDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [featuredEventId]);
 
-  const ticketsByEvent = groupTicketsByEvent(tickets);
+  // Capacidad/emitidas/vendidas por evento para la grilla de abajo — una
+  // sola fuente (functionCapacity.service.js#getOrganizerEventsSummaryService),
+  // nunca tallado a mano sobre tickets en el cliente.
+  const statsByEvent = new Map(eventsStats.map((s) => [s.eventId, s]));
 
-  const hasLoadError = eventsError || salesError || ticketsError;
+  const hasLoadError = eventsError || salesError || eventsStatsError;
   function retryFailedLoads() {
     if (eventsError) reloadEvents();
     if (salesError) reloadSales();
-    if (ticketsError) reloadTickets();
+    if (eventsStatsError) reloadEventsStats();
   }
 
   // "Centro de control" del evento seleccionado — Hero/KPIs/Funciones/
@@ -215,6 +213,7 @@ export default function OrganizerDashboard() {
     sales: controlRoom.sales,
     functionId: "ALL",
   });
+  const issuedByOriginBreakdown = buildIssuedByOriginBreakdown(kpis.issuedByOrigin);
   const recentSales = [...controlRoom.sales]
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 8);
@@ -322,13 +321,8 @@ export default function OrganizerDashboard() {
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Emisión</p>
           <div className="max-w-xs">
-            <KpiCard
-              label="Entradas emitidas"
-              value={kpis.issued}
-              hint={formatIssuedByOriginHint(kpis.issuedByOrigin)}
-              icon={Layers}
-              loading={controlRoomLoading}
-            />
+            <KpiCard label="Entradas emitidas" value={kpis.issued} icon={Layers} loading={controlRoomLoading} />
+            {!controlRoomLoading && <OriginBreakdownList breakdown={issuedByOriginBreakdown} />}
           </div>
         </div>
 
@@ -337,6 +331,9 @@ export default function OrganizerDashboard() {
           <KpiRow columns={3}>
             <KpiCard label="Ingresadas" value={kpis.checkedIn} icon={ScanLine} loading={controlRoomLoading} />
             <KpiCard label="Pendientes de ingreso" value={kpis.pending} icon={Clock3} loading={controlRoomLoading} />
+            {!controlRoomLoading && kpis.cancelled > 0 && (
+              <KpiCard label="Canceladas" value={kpis.cancelled} icon={XCircle} />
+            )}
           </KpiRow>
         </div>
 
@@ -388,7 +385,7 @@ export default function OrganizerDashboard() {
           action={<TextLink to="/organizador/eventos">Ver todos</TextLink>}
         />
 
-        {loadingEvents ? (
+        {loadingEvents || loadingEventsStats ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 3 }).map((_, i) => (
               <SkeletonBlock key={i} className="h-56 rounded-xl" />
@@ -402,14 +399,17 @@ export default function OrganizerDashboard() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {activeEvents.map((event) => (
-              <EventStatusCard
-                key={event.id}
-                event={event}
-                sold={computeSoldCount(ticketsByEvent.get(event.id) ?? [])}
-                capacity={computeEventCapacity(event)}
-              />
-            ))}
+            {activeEvents.map((event) => {
+              const stats = statsByEvent.get(event.id);
+              return (
+                <EventStatusCard
+                  key={event.id}
+                  event={event}
+                  sold={stats?.issued ?? 0}
+                  capacity={stats?.capacity ?? 0}
+                />
+              );
+            })}
           </div>
         )}
       </div>

@@ -33,7 +33,7 @@ import {
     softDeleteTicket,
     bulkActionTickets,
 } from "../controllers/ticketAdmin.controller.js";
-import { getEventFunctionStats } from "../controllers/functionCapacity.controller.js";
+import { getEventFunctionStats, getMyEventsStats } from "../controllers/functionCapacity.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 
 const router = Router();
@@ -52,6 +52,10 @@ router.get("/archived", requireAuth, listArchivedEvents);
 
 router.post("/", requireAuth, createEvent);
 router.get("/mine", requireAuth, getMyEvents);
+// Resumen de capacidad/emitidas/vendidas de todos los eventos del
+// organizador (grilla "Estado de mis eventos") — antes de "/:id" para que
+// Express no confunda "stats" con un id de evento literal.
+router.get("/mine/stats", requireAuth, getMyEventsStats);
 router.get("/:id", requireAuth, getMyEventById);
 router.patch("/:id", requireAuth, updateMyEvent);
 router.put("/:id/schedule", requireAuth, saveEventSchedule);

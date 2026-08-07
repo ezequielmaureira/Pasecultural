@@ -88,6 +88,12 @@ function buildResult(result, { ticket, checkIn, scannerName, gate } = {}) {
             ticketNumber: ticket.ticketNumber,
             buyerName: buyerName(ticket),
             ticketType: ticket.ticketType.name,
+            // Ticket.origin ya viene incluido en `ticket` (buildTicketInclude
+            // trae todos los campos escalares) — no es una consulta nueva,
+            // sólo se agrega al payload para que el Scanner pueda mostrar el
+            // canal (venta/cortesía/futuro) sin cambiar ninguna regla de
+            // validación. Ver lib/ticketOrigin.js en el frontend.
+            origin: ticket.origin,
             eventName: ticket.event.title,
             scannedAt: checkIn.scannedAt,
             scannerName,
@@ -204,6 +210,9 @@ export const scanTicketService = async (scannerContext, input) => {
             ticketNumber: ticket.ticketNumber,
             buyerName: buyerName(ticket),
             ticketType: ticket.ticketType.name,
+            // Ver comentario equivalente en buildResult (VALID): mismo dato
+            // ya incluido en `ticket`, ninguna consulta nueva.
+            origin: ticket.origin,
             eventName: ticket.event.title,
             functionDate: ticket.function.date,
             venue: ticket.function.venue,

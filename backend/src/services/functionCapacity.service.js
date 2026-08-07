@@ -2,6 +2,7 @@ import prisma from "../config/prisma.js";
 import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { getOwnedEvent } from "./eventScanner.service.js";
+import { getMyOrganizationService } from "./organization.service.js";
 
 // Única definición de "cuánta capacidad tiene un TicketType para una
 // función puntual" de toda la app: override de la función si existe, si no
@@ -16,6 +17,11 @@ export function effectiveCapacity(assignment) {
 // CANCELLED/REFUNDED) — sale.service.js y event.service.js la importan de
 // acá en vez de repetir el mismo array.
 export const SOLD_TICKET_STATUSES = ["ACTIVE", "USED"];
+
+// Estados que significan "esta entrada ya no da derecho a ingresar" — el
+// complemento exacto de SOLD_TICKET_STATUSES. Se usa sólo para el bloque
+// "Accesos" (Cancelada/Reintegrada), nunca para capacidad/stock.
+const CANCELLED_TICKET_STATUSES = ["CANCELLED", "REFUNDED"];
 
 // Trae, para una función, sólo las asignaciones habilitadas (las que
 // realmente cuentan como capacidad vendible) con lo mínimo necesario para
@@ -65,7 +71,7 @@ export async function getFunctionCounters(client, functionId) {
 // origen nuevo (STAFF, VIP, PRENSA, etc.) aparece solo en ese objeto en
 // cuanto se emite el primer ticket con ese origen, sin tocar este archivo.
 export async function getFunctionStats(client, functionId) {
-  const [assignments, checkedInGroups, issuedGroups] = await Promise.all([
+  const [assignments, checkedInGroups, issuedGroups, cancelledGroups] = await Promise.all([
     getFunctionCapacityAssignments(client, functionId),
     client.ticket.groupBy({
       by: ["ticketTypeId"],
@@ -77,9 +83,15 @@ export async function getFunctionStats(client, functionId) {
       where: { functionId, status: { in: SOLD_TICKET_STATUSES } },
       _count: { _all: true },
     }),
+    client.ticket.groupBy({
+      by: ["ticketTypeId"],
+      where: { functionId, status: { in: CANCELLED_TICKET_STATUSES } },
+      _count: { _all: true },
+    }),
   ]);
 
   const checkedInByType = new Map(checkedInGroups.map((g) => [g.ticketTypeId, g._count._all]));
+  const cancelledByType = new Map(cancelledGroups.map((g) => [g.ticketTypeId, g._count._all]));
 
   const soldByType = new Map();
   const issuedByType = new Map();
@@ -103,6 +115,7 @@ export async function getFunctionStats(client, functionId) {
       issued: issuedByType.get(a.ticketTypeId) ?? 0,
       issuedByOrigin: issuedByOriginByType.get(a.ticketTypeId) ?? {},
       checkedIn,
+      cancelled: cancelledByType.get(a.ticketTypeId) ?? 0,
       remaining: Math.max(a.capacity - checkedIn, 0),
     };
   });
@@ -113,12 +126,13 @@ export async function getFunctionStats(client, functionId) {
       acc.sold += t.sold;
       acc.issued += t.issued;
       acc.checkedIn += t.checkedIn;
+      acc.cancelled += t.cancelled;
       for (const [origin, count] of Object.entries(t.issuedByOrigin)) {
         acc.issuedByOrigin[origin] = (acc.issuedByOrigin[origin] ?? 0) + count;
       }
       return acc;
     },
-    { capacity: 0, sold: 0, issued: 0, checkedIn: 0, issuedByOrigin: {} }
+    { capacity: 0, sold: 0, issued: 0, checkedIn: 0, cancelled: 0, issuedByOrigin: {} }
   );
 
   return {
@@ -127,6 +141,7 @@ export async function getFunctionStats(client, functionId) {
     issued: totals.issued,
     issuedByOrigin: totals.issuedByOrigin,
     checkedIn: totals.checkedIn,
+    cancelled: totals.cancelled,
     remaining: Math.max(totals.capacity - totals.checkedIn, 0),
     byTicketType,
   };
@@ -148,7 +163,7 @@ export async function getEventFunctionStats(client, eventId) {
 
   const functionIds = functions.map((f) => f.id);
 
-  const [assignments, checkedInGroups, issuedGroups] = await Promise.all([
+  const [assignments, checkedInGroups, issuedGroups, cancelledGroups] = await Promise.all([
     client.functionTicketType.findMany({
       where: { functionId: { in: functionIds }, enabled: true },
       select: { functionId: true, quantityOverride: true, ticketType: { select: { quantity: true } } },
@@ -166,6 +181,11 @@ export async function getEventFunctionStats(client, eventId) {
       where: { functionId: { in: functionIds }, status: { in: SOLD_TICKET_STATUSES } },
       _count: { _all: true },
     }),
+    client.ticket.groupBy({
+      by: ["functionId"],
+      where: { functionId: { in: functionIds }, status: { in: CANCELLED_TICKET_STATUSES } },
+      _count: { _all: true },
+    }),
   ]);
 
   const capacityByFunction = new Map();
@@ -174,6 +194,7 @@ export async function getEventFunctionStats(client, eventId) {
     capacityByFunction.set(assignment.functionId, current + effectiveCapacity(assignment));
   }
   const checkedInByFunction = new Map(checkedInGroups.map((g) => [g.functionId, g._count._all]));
+  const cancelledByFunction = new Map(cancelledGroups.map((g) => [g.functionId, g._count._all]));
 
   const soldByFunction = new Map();
   const issuedByFunction = new Map();
@@ -199,6 +220,7 @@ export async function getEventFunctionStats(client, eventId) {
       issued: issuedByFunction.get(fn.id) ?? 0,
       issuedByOrigin: issuedByOriginByFunction.get(fn.id) ?? {},
       checkedIn,
+      cancelled: cancelledByFunction.get(fn.id) ?? 0,
       remaining: Math.max(capacity - checkedIn, 0),
     };
   });
@@ -214,4 +236,86 @@ export const getOrganizerEventFunctionStatsService = async (clerkId, eventId) =>
   if (!owned) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
 
   return getEventFunctionStats(prisma, eventId);
+};
+
+// Variante batched de getEventFunctionStats, un nivel más arriba: en vez de
+// todas las funciones de UN evento, calcula capacidad/emitidas/vendidas/
+// ingresadas de TODOS los eventos vigentes del organizador en una sola tanda
+// de consultas. Es la única fuente de estos números para la grilla "Estado
+// de mis eventos" del Dashboard — antes cada card los tallaba a mano sobre
+// la lista completa de tickets del organizador (sin distinguir origen, y
+// duplicando esta misma cuenta). Mismos criterios que getEventFunctionStats
+// (SOLD_TICKET_STATUSES/CANCELLED_TICKET_STATUSES/effectiveCapacity), sólo
+// agrupado por eventId en vez de por functionId.
+export const getOrganizerEventsSummaryService = async (clerkId) => {
+  const organization = await getMyOrganizationService(clerkId);
+  if (!organization) return [];
+
+  const events = await prisma.event.findMany({
+    where: { organizationId: organization.id, archivedAt: null },
+    select: { id: true },
+  });
+  if (events.length === 0) return [];
+  const eventIds = events.map((e) => e.id);
+
+  const [assignments, checkedInGroups, issuedGroups, cancelledGroups] = await Promise.all([
+    prisma.functionTicketType.findMany({
+      where: {
+        enabled: true,
+        function: { eventId: { in: eventIds }, status: { not: "CANCELLED" } },
+      },
+      select: { quantityOverride: true, ticketType: { select: { quantity: true } }, function: { select: { eventId: true } } },
+    }),
+    prisma.ticket.groupBy({
+      by: ["eventId"],
+      where: { eventId: { in: eventIds }, status: "USED" },
+      _count: { _all: true },
+    }),
+    prisma.ticket.groupBy({
+      by: ["eventId", "origin"],
+      where: { eventId: { in: eventIds }, status: { in: SOLD_TICKET_STATUSES } },
+      _count: { _all: true },
+    }),
+    prisma.ticket.groupBy({
+      by: ["eventId"],
+      where: { eventId: { in: eventIds }, status: { in: CANCELLED_TICKET_STATUSES } },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const capacityByEvent = new Map();
+  for (const assignment of assignments) {
+    const eventId = assignment.function.eventId;
+    const current = capacityByEvent.get(eventId) ?? 0;
+    capacityByEvent.set(eventId, current + effectiveCapacity(assignment));
+  }
+  const checkedInByEvent = new Map(checkedInGroups.map((g) => [g.eventId, g._count._all]));
+  const cancelledByEvent = new Map(cancelledGroups.map((g) => [g.eventId, g._count._all]));
+
+  const soldByEvent = new Map();
+  const issuedByEvent = new Map();
+  const issuedByOriginByEvent = new Map();
+  for (const g of issuedGroups) {
+    const count = g._count._all;
+    issuedByEvent.set(g.eventId, (issuedByEvent.get(g.eventId) ?? 0) + count);
+    if (g.origin === "SALE") soldByEvent.set(g.eventId, (soldByEvent.get(g.eventId) ?? 0) + count);
+    const originCounts = issuedByOriginByEvent.get(g.eventId) ?? {};
+    originCounts[g.origin] = (originCounts[g.origin] ?? 0) + count;
+    issuedByOriginByEvent.set(g.eventId, originCounts);
+  }
+
+  return eventIds.map((eventId) => {
+    const capacity = capacityByEvent.get(eventId) ?? 0;
+    const checkedIn = checkedInByEvent.get(eventId) ?? 0;
+    return {
+      eventId,
+      capacity,
+      sold: soldByEvent.get(eventId) ?? 0,
+      issued: issuedByEvent.get(eventId) ?? 0,
+      issuedByOrigin: issuedByOriginByEvent.get(eventId) ?? {},
+      checkedIn,
+      cancelled: cancelledByEvent.get(eventId) ?? 0,
+      remaining: Math.max(capacity - checkedIn, 0),
+    };
+  });
 };

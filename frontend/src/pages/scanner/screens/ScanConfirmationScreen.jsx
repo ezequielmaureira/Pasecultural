@@ -1,5 +1,6 @@
 import { User, CheckCircle2, XCircle, Ticket, CheckCircle } from "lucide-react";
 import { formatFunctionTime } from "../scannerFormat.js";
+import { getOriginMeta } from "../../../lib/ticketOrigin.js";
 
 // `allowed` null/undefined = ilimitado (convención acordada con el backend,
 // ver computeEntryCounters en scanner.service.js — hoy nunca manda null,
@@ -94,9 +95,20 @@ export default function ScanConfirmationScreen({ data, onConfirm, onCancel, conf
 
                     {data.ticketType && (
                         <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-violet-500/15 px-4 py-1.5 text-sm font-bold text-violet-300">
-                            <Ticket className="h-4 w-4" />
+                            {/* Emoji del canal de emisión (venta/cortesía/futuro) en vez
+                                del ícono genérico — mismo dato que ya trae `data.origin`
+                                (ticket.origin, Scanner.service.js), sólo se aprovecha acá.
+                                Sin origin (respuesta vieja en caché) cae al ícono de siempre. */}
+                            {data.origin ? (
+                                <span aria-hidden="true">{getOriginMeta(data.origin).emoji}</span>
+                            ) : (
+                                <Ticket className="h-4 w-4" />
+                            )}
                             {data.ticketType}
                         </div>
+                    )}
+                    {data.origin && (
+                        <p className="mt-1 text-xs font-medium text-slate-400">{getOriginMeta(data.origin).ticketLabel}</p>
                     )}
 
                     <EntriesSummary used={data.usedEntries} allowed={data.allowedEntries} remaining={data.remainingEntries} />

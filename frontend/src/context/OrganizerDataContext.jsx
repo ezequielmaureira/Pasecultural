@@ -2,19 +2,23 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { useAuth } from "@clerk/clerk-react";
 import { apiFetch } from "../lib/api.js";
 import { listOrganizerSales } from "../lib/saleAdminApi.js";
-import { listOrganizerTickets } from "../lib/ticketAdminApi.js";
+import { getMyEventsStats } from "../lib/functionStatsApi.js";
 
 const OrganizerDataContext = createContext(null);
 
 // Única fuente de datos del panel de organizador para todo lo que no tiene
-// su propio fetch dedicado. `events`, `sales` y `tickets` vienen siempre de
-// la API real (GET /api/events/mine+detalle, GET /api/sales, GET
-// /api/tickets/organizer) — nunca hay datos de ejemplo precargados acá.
-// `tickets` es la lista completa del organizador (sin filtro de evento): se
-// usa para agregados (KPIs, ocupación por evento en el Dashboard) — ver
-// pages/organizer/dashboard/dashboardMetrics.js. OrganizerTickets.jsx (la
-// pantalla de administración) sigue teniendo su propio fetch filtrado y
-// paginado por evento, independiente de este.
+// su propio fetch dedicado. `events`, `sales` y `eventsStats` vienen siempre
+// de la API real (GET /api/events/mine+detalle, GET /api/sales, GET
+// /api/events/mine/stats) — nunca hay datos de ejemplo precargados acá.
+// `eventsStats` es capacidad/emitidas/vendidas/ingresadas YA agregadas por
+// evento (functionCapacity.service.js#getOrganizerEventsSummaryService) — se
+// usa en la grilla "Estado de mis eventos" del Dashboard. Antes acá se
+// pedía la lista COMPLETA de tickets del organizador sólo para tallarla a
+// mano en el cliente; se reemplazó por este resumen ya calculado en el
+// backend, así ninguna pantalla vuelve a calcular vendidas/ocupación por su
+// cuenta (ver auditoría "fuente única de verdad"). OrganizerTickets.jsx (la
+// pantalla de administración de entradas) sigue teniendo su propio fetch de
+// tickets, filtrado y paginado por evento, independiente de este.
 //
 // Scanners no vive acá: es información por-evento (EventScanner), no una
 // lista global del organizador — ver OrganizerScanners.jsx, que fetchea
@@ -27,9 +31,9 @@ export function OrganizerDataProvider({ children }) {
   const [sales, setSales] = useState([]);
   const [loadingSales, setLoadingSales] = useState(true);
   const [salesError, setSalesError] = useState(false);
-  const [tickets, setTickets] = useState([]);
-  const [loadingTickets, setLoadingTickets] = useState(true);
-  const [ticketsError, setTicketsError] = useState(false);
+  const [eventsStats, setEventsStats] = useState([]);
+  const [loadingEventsStats, setLoadingEventsStats] = useState(true);
+  const [eventsStatsError, setEventsStatsError] = useState(false);
 
   const loadEvents = useCallback(async () => {
     setLoadingEvents(true);
@@ -73,32 +77,30 @@ export function OrganizerDataProvider({ children }) {
     }
   }, [getToken]);
 
-  // Sin filtro de evento a propósito: el Dashboard necesita agregados de
-  // TODOS los eventos del organizador en una sola carga. Es la misma llamada
-  // (GET /api/tickets/organizer) que ya usa OrganizerTickets.jsx con
-  // filtros — acá se pide sin filtrar porque el costo de un solo fetch
-  // completo al entrar al panel es preferible a N fetches por evento.
-  const loadTickets = useCallback(async () => {
-    setLoadingTickets(true);
-    setTicketsError(false);
+  // Un solo fetch batcheado (GET /api/events/mine/stats) en vez de N
+  // consultas por evento — misma lógica que ya usa Estado de Funciones, sólo
+  // agrupada un nivel más arriba (por evento en vez de por función).
+  const loadEventsStats = useCallback(async () => {
+    setLoadingEventsStats(true);
+    setEventsStatsError(false);
     try {
       const token = await getToken();
-      const list = await listOrganizerTickets(token);
-      setTickets(list);
+      const list = await getMyEventsStats(token);
+      setEventsStats(list);
     } catch (error) {
-      console.error("No se pudieron cargar las entradas del organizador", error);
-      setTickets([]);
-      setTicketsError(true);
+      console.error("No se pudieron cargar las estadísticas de los eventos del organizador", error);
+      setEventsStats([]);
+      setEventsStatsError(true);
     } finally {
-      setLoadingTickets(false);
+      setLoadingEventsStats(false);
     }
   }, [getToken]);
 
   useEffect(() => {
     loadEvents();
     loadSales();
-    loadTickets();
-  }, [loadEvents, loadSales, loadTickets]);
+    loadEventsStats();
+  }, [loadEvents, loadSales, loadEventsStats]);
 
   const value = useMemo(
     () => ({
@@ -110,10 +112,10 @@ export function OrganizerDataProvider({ children }) {
       loadingSales,
       salesError,
       reloadSales: loadSales,
-      tickets,
-      loadingTickets,
-      ticketsError,
-      reloadTickets: loadTickets,
+      eventsStats,
+      loadingEventsStats,
+      eventsStatsError,
+      reloadEventsStats: loadEventsStats,
     }),
     [
       events,
@@ -124,10 +126,10 @@ export function OrganizerDataProvider({ children }) {
       loadingSales,
       salesError,
       loadSales,
-      tickets,
-      loadingTickets,
-      ticketsError,
-      loadTickets,
+      eventsStats,
+      loadingEventsStats,
+      eventsStatsError,
+      loadEventsStats,
     ]
   );
 

@@ -1,61 +1,21 @@
-// Funciones puras (sin JSX, sin fetch) que convierten `events`/`sales`/
-// `tickets` — ya cargados por OrganizerDataContext — en lo que el Dashboard
-// necesita mostrar. Separadas del componente para poder reutilizarlas desde
-// otras pantallas del organizador y para no mezclar cálculo con presentación.
+// Funciones puras (sin JSX, sin fetch) que convierten `events`/`sales` — ya
+// cargados por OrganizerDataContext — en lo que el Dashboard necesita
+// mostrar. Separadas del componente para poder reutilizarlas desde otras
+// pantallas del organizador y para no mezclar cálculo con presentación.
+//
+// Ya NO vive acá ningún cálculo de capacidad/vendidas/ocupación: esos
+// números son responsabilidad exclusiva del backend
+// (functionCapacity.service.js, vía getEventFunctionStats/
+// getOrganizerEventsSummaryService) — única fuente de verdad para toda la
+// plataforma, ver auditoría de arquitectura de estadísticas.
 
 import { AUDIT_ACTION_LABEL } from "../ticketAdminDisplay.js";
 
-// Mismo criterio que ACTIVE_TICKET_STATUSES en
-// backend/src/services/sale.service.js:16 — nunca CANCELLED/REFUNDED.
-const SOLD_TICKET_STATUSES = new Set(["ACTIVE", "USED"]);
-
-// Un evento sólo "cuenta" para capacidad/ocupación si llegó a estar a la
-// venta alguna vez (PUBLISHED o ya FINISHED) — un DRAFT/SCHEDULED puede tener
-// tipos de entrada cargados sin que eso sea capacidad real, y un CANCELLED
-// nunca vendió de verdad.
+// Un evento sólo "cuenta" para el selector de categorías si llegó a estar a
+// la venta alguna vez (PUBLISHED o ya FINISHED) — un DRAFT/SCHEDULED puede
+// tener funciones cargadas sin que eso sea un evento real todavía, y un
+// CANCELLED nunca llegó a estarlo.
 const CAPACITY_RELEVANT_EVENT_STATUSES = new Set(["PUBLISHED", "FINISHED"]);
-
-// Espeja backend/src/services/functionCapacity.service.js#effectiveCapacity
-// (misma fórmula de una línea, comentada ahí como "única definición de
-// capacidad de toda la app"). Se duplica acá porque hoy no existe un
-// endpoint que devuelva la capacidad ya calculada al organizador — ver
-// Iteración 1 ("wrapper organizador de getFunctionStats"), que debería
-// reemplazar este cálculo client-side por el real del backend.
-export function effectiveCapacity(assignment) {
-  return assignment.quantityOverride ?? assignment.ticketType?.quantity ?? 0;
-}
-
-// Capacidad total de un evento: suma de la capacidad de cada asignación
-// habilitada, en cada función no cancelada.
-export function computeEventCapacity(event) {
-  if (!Array.isArray(event?.functions)) return 0;
-  return event.functions
-    .filter((fn) => fn.status !== "CANCELLED")
-    .reduce((sum, fn) => {
-      const assignments = fn.ticketAssignments ?? [];
-      return sum + assignments.filter((a) => a.enabled).reduce((s, a) => s + effectiveCapacity(a), 0);
-    }, 0);
-}
-
-// GET /api/tickets/organizer no filtra por evento cuando se pide completo —
-// se agrupa una sola vez acá y se reusa para el KPI global y para cada card
-// de "Estado de mis eventos", en vez de recorrer el array entero por evento.
-export function groupTicketsByEvent(tickets) {
-  const map = new Map();
-  for (const ticket of tickets) {
-    if (!map.has(ticket.eventId)) map.set(ticket.eventId, []);
-    map.get(ticket.eventId).push(ticket);
-  }
-  return map;
-}
-
-export function computeSoldCount(ticketsForEvent) {
-  return ticketsForEvent.filter((t) => SOLD_TICKET_STATUSES.has(t.status)).length;
-}
-
-export function computeCheckedInCount(ticketsForEvent) {
-  return ticketsForEvent.filter((t) => t.status === "USED").length;
-}
 
 // Límite de "todavía no terminó" de una función: endAt si está cargado, si
 // no el fin del día de `date` (nunca se inventa una duración fija de

@@ -1,5 +1,6 @@
 import { CheckCircle2, RotateCcw, ArrowLeftRight, Ban, HelpCircle, WifiOff, Clock } from "lucide-react";
 import { SCAN_RESULT_TONE, SCAN_RESULT_LABEL } from "../scanResultConfig.js";
+import { getOriginMeta } from "../../../lib/ticketOrigin.js";
 
 const ICON_BY_STATUS = {
     VALID: CheckCircle2,
@@ -40,6 +41,10 @@ export default function ScanResultOverlay({ status, data, labelOverride }) {
                 <div className="mt-1 flex flex-col gap-0.5">
                     {data?.buyerName && <p className="text-lg font-semibold">{data.buyerName}</p>}
                     <p className="text-sm opacity-90">
+                        {/* Emoji del canal de emisión (data.origin, ver
+                            scanner.service.js#buildResult) delante del tipo de
+                            entrada — mismo dato ya presente, sólo se muestra. */}
+                        {data?.origin ? `${getOriginMeta(data.origin).emoji} ` : ""}
                         {data?.ticketType}
                         {data?.ticketType && data?.ticketNumber ? " · " : ""}
                         {data?.ticketNumber}

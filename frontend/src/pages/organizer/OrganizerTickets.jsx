@@ -19,7 +19,8 @@ import InlineErrorNotice from "../../components/ui/InlineErrorNotice.jsx";
 import KpiRow from "../../components/organizer/KpiRow.jsx";
 import KpiCard from "../../components/organizer/KpiCard.jsx";
 import SectionHeader from "../../components/organizer/SectionHeader.jsx";
-import { buildEventStatsKpis, formatIssuedByOriginHint } from "../../components/organizer/functionStatsSelectors.js";
+import { buildEventStatsKpis, buildIssuedByOriginBreakdown } from "../../components/organizer/functionStatsSelectors.js";
+import OriginBreakdownList from "../../components/organizer/OriginBreakdownList.jsx";
 import { useToast } from "../../context/ToastContext.jsx";
 import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
 import { useActiveEvent } from "../../context/ActiveEventContext.jsx";
@@ -92,6 +93,10 @@ export default function OrganizerTickets() {
         functionId: selectedFunctionId,
       }),
     [eventStats.functionStats, eventStats.sales, selectedFunctionId]
+  );
+  const issuedByOriginBreakdown = useMemo(
+    () => buildIssuedByOriginBreakdown(eventKpis.issuedByOrigin),
+    [eventKpis.issuedByOrigin]
   );
 
   const functionOptions = useMemo(() => {
@@ -340,23 +345,22 @@ export default function OrganizerTickets() {
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Emisión</p>
             <div className="max-w-xs">
-              <KpiCard
-                label="Entradas emitidas"
-                value={eventKpis.issued}
-                hint={formatIssuedByOriginHint(eventKpis.issuedByOrigin)}
-                icon={Layers}
-                loading={eventStats.loading}
-              />
+              <KpiCard label="Entradas emitidas" value={eventKpis.issued} icon={Layers} loading={eventStats.loading} />
+              {!eventStats.loading && <OriginBreakdownList breakdown={issuedByOriginBreakdown} />}
             </div>
           </div>
 
           {/* Accesos: ingresos reales al evento, sin importar el origen de
-              la entrada. */}
+              la entrada. "Canceladas" sólo se muestra si aplica (si hay al
+              menos una) — nunca un 0 sin sentido para eventos sin cancelaciones. */}
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Accesos</p>
             <KpiRow columns={3}>
               <KpiCard label="Ingresadas" value={eventKpis.checkedIn} icon={ScanLine} loading={eventStats.loading} />
               <KpiCard label="Pendientes de ingreso" value={eventKpis.pending} icon={Clock3} loading={eventStats.loading} />
+              {!eventStats.loading && eventKpis.cancelled > 0 && (
+                <KpiCard label="Canceladas" value={eventKpis.cancelled} icon={XCircle} />
+              )}
             </KpiRow>
           </div>
 
