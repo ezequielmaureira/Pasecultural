@@ -3,7 +3,7 @@ import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 
 // Única fuente de verdad para "¿este scanner realmente tiene acceso a este
-// evento?" — reutilizada por validateScanService, getFunctionStatsService,
+// evento?" — reutilizada por checkInService, getFunctionStatsService,
 // listScanAttemptsService y getScannerDashboardService. `scannerContext` es
 // req.scanner (el EventScanner "ancla" con el que se inició sesión, ya
 // verificado ACTIVE por requireScannerSession).

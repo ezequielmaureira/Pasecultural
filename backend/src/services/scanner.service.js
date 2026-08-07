@@ -34,9 +34,10 @@ function buildTicketInclude() {
         buyer: { select: { firstName: true, lastName: true } },
         ticketType: { select: { name: true } },
         event: { select: { title: true } },
-        // Sólo lo usa el preview (fecha/lugar de la función a mostrar antes
-        // de confirmar) — buildResult (VALID/ALREADY_USED/CANCELLED) nunca
-        // lo lee, así que agregarlo acá no cambia ninguna respuesta existente.
+        // Sólo lo usa scanTicketService (fecha/lugar de la función a mostrar
+        // antes de confirmar) — buildResult (VALID/ALREADY_USED/CANCELLED)
+        // nunca lo lee, así que agregarlo acá no cambia ninguna respuesta
+        // existente.
         function: { select: { date: true, venue: true } },
     };
 }
@@ -45,9 +46,21 @@ function buyerName(ticket) {
     return [ticket.buyer?.firstName, ticket.buyer?.lastName].filter(Boolean).join(" ").trim() || null;
 }
 
+// Único lugar donde se calcula "cuántos ingresos permite/usó/le quedan a
+// esta entrada". Hoy el modelo de Ticket es de una sola entrada (no hay
+// pases multi-ingreso ni ilimitados) — se calcula así, en una función
+// propia, a propósito: el día que TicketType sume un límite de reingresos o
+// un flag de "ilimitado", sólo hay que tocar ESTA función. Ni scanTicketService
+// ni la pantalla de confirmación necesitan cambiar — ya reciben estos tres
+// números como datos, nunca como texto fijo.
+function computeEntryCounters(ticket) {
+    const used = ticket.status === "ACTIVE" ? 0 : 1;
+    return { allowedEntries: 1, usedEntries: used, remainingEntries: Math.max(1 - used, 0) };
+}
+
 // Token crudo del QR: "<ticketId>.<secret>" (base64url, sin puntos, por eso
-// alcanza con partir en el primer punto). Extraído para que preview y
-// confirmación lo parseen exactamente igual, una sola vez.
+// alcanza con partir en el primer punto). Extraído para que escanear y
+// confirmar lo parseen exactamente igual, una sola vez.
 function parseScanToken(raw) {
     const token = typeof raw === "string" ? raw : "";
     const separatorIndex = token.indexOf(".");
@@ -88,13 +101,15 @@ function buildResult(result, { ticket, checkIn, scannerName, gate } = {}) {
 }
 
 // ÚNICA definición de "qué pasa con este QR" — evento correcto, función
-// correcta, cancelada/reembolsada, ya usada. La llama tanto previewScanService
-// (de sólo lectura, con el cliente `prisma` normal) como validateScanService
+// correcta, cancelada/reembolsada, ya usada. La llama tanto scanTicketService
+// (de sólo lectura, con el cliente `prisma` normal) como checkInService
 // (adentro de su transacción, con el cliente `tx`) — mismo código, ninguna
 // regla duplicada ni reimplementada dos veces. Nunca escribe nada: sólo lee
 // y devuelve qué encontró. `status: "READY"` es el único caso en el que el
 // ticket pasó TODAS las reglas y sigue ACTIVE — recién ahí tiene sentido
 // intentar el paso siguiente (mostrar confirmación, o escribir el CheckIn).
+// Cualquier regla nueva a futuro (entrada nominada, validación adicional)
+// se agrega ACÁ, como una rama más — nunca hay que tocar los dos callers.
 async function resolveScanOutcome(client, { ticketId, providedSecret, eventId, functionId }) {
     const ticket = await client.ticket.findUnique({ where: { id: ticketId }, include: buildTicketInclude() });
     if (!ticket || ticket.deletedAt) {
@@ -140,24 +155,26 @@ async function resolveScanOutcome(client, { ticketId, providedSecret, eventId, f
     return { status: "READY", ticket };
 }
 
-// Paso 1 del nuevo flujo de dos fases: leer el QR y mostrarle al operador
-// contra quién está a punto de autorizar el ingreso, SIN registrar nada
-// todavía. Nunca escribe ScanAttempt/CheckIn/Ticket, nunca devuelve `stats`
-// (nada se consumió). Reutiliza exactamente resolveScanOutcome() y
-// buildResult() — ninguna regla de negocio se reimplementa acá aparte del
-// armado de la info adicional para READY (nombre del titular, tipo de
-// entrada, función, ingresos permitidos/usados/restantes).
+// Paso 1 del flujo en dos momentos: ESCANEAR (leer y validar un QR) es un
+// momento de negocio distinto de CONFIRMAR EL INGRESO — por eso son dos
+// funciones/endpoints con nombres propios, no una sola cosa con un modo
+// "preview". Ésta sólo lee: nunca escribe ScanAttempt/CheckIn/Ticket, nunca
+// devuelve `stats` (nada se consumió todavía). Reutiliza exactamente
+// resolveScanOutcome() y buildResult() — ninguna regla de negocio se
+// reimplementa acá, sólo se arma la info adicional para READY (identidad
+// del titular, tipo de entrada, evento, función, puerta, ingresos).
 //
-// Esto NUNCA es la fuente de verdad: es sólo una vista previa de sólo
-// lectura. Si el operador aprieta "Confirmar ingreso", validateScanService
+// Esto NUNCA es la fuente de verdad: es sólo el resultado de haber escaneado,
+// para que el operador decida. Si aprieta "Confirmar ingreso", checkInService
 // vuelve a correr resolveScanOutcome() desde cero, adentro de una
-// transacción con el mismo guard atómico de siempre — así que si esta
-// preview quedó desactualizada (otro scanner se adelantó, el evento se
+// transacción con el mismo guard atómico de siempre — así que si este
+// escaneo quedó desactualizado (otro scanner se adelantó, el evento se
 // canceló, lo que sea) nunca puede colarse un ingreso indebido.
-export const previewScanService = async (scannerContext, input) => {
+export const scanTicketService = async (scannerContext, input) => {
     const access = await resolveScannerAccess(scannerContext, input?.eventId);
     const eventId = access.eventId;
     const functionId = input?.functionId || null;
+    const gate = input?.gate || access.gate || null;
 
     const { ticketId, providedSecret } = parseScanToken(input?.token);
     if (!ticketId || !providedSecret) {
@@ -173,11 +190,6 @@ export const previewScanService = async (scannerContext, input) => {
         return buildResult("ALREADY_USED", { ticket: outcome.ticket, checkIn: outcome.checkIn });
     }
 
-    // READY: el modelo actual de Ticket es de una sola entrada (no hay
-    // pases multi-ingreso) — allowed/used/remaining se calculan así a
-    // propósito, no se hardcodean sueltos, para que si el día de mañana
-    // TicketType suma un límite de reingresos, sólo haya que tocar este
-    // cálculo y no el resto de la pantalla.
     const ticket = outcome.ticket;
     return {
         status: "READY",
@@ -189,15 +201,15 @@ export const previewScanService = async (scannerContext, input) => {
             eventName: ticket.event.title,
             functionDate: ticket.function.date,
             venue: ticket.function.venue,
-            allowedEntries: 1,
-            usedEntries: 0,
-            remainingEntries: 1,
+            gate,
             ticketStatus: ticket.status,
+            ...computeEntryCounters(ticket),
         },
     };
 };
 
-// El corazón del sistema: valida un QR y, si es válido, registra el
+// El corazón del sistema: el SEGUNDO momento del flujo — el operador ya vio
+// la pantalla de confirmación (scanTicketService) y decidió autorizar el
 // ingreso. Todo dentro de UNA transacción. SIEMPRE registra un ScanAttempt,
 // sin importar el resultado (incluso NOT_FOUND/WRONG_EVENT/CANCELLED).
 // Nunca lanza un error HTTP por un resultado de negocio — eso es lo que
@@ -212,7 +224,12 @@ export const previewScanService = async (scannerContext, input) => {
 // scannerContext — es lo que se usa para atribuir el CheckIn/ScanAttempt:
 // tiene que quedar registrado con el EventScanner de ESE evento, nunca con
 // el de la sesión con la que se inició sesión si son distintos.
-export const validateScanService = async (scannerContext, input) => {
+//
+// ÚNICA función de todo el módulo que puede escribir un CheckIn. Ni
+// scanTicketService ni ninguna otra pantalla tiene ese poder — así se
+// garantiza que "confirmar" siga siendo la única fuente de verdad posible,
+// nunca una casualidad de cómo está armado el frontend.
+export const checkInService = async (scannerContext, input) => {
     const access = await resolveScannerAccess(scannerContext, input?.eventId);
     const eventId = access.eventId;
     const functionId = input?.functionId || null;
@@ -253,9 +270,9 @@ export const validateScanService = async (scannerContext, input) => {
         }
 
         // Única fuente de verdad de las reglas de negocio (evento, función,
-        // cancelada, ya usada) — la misma que usa previewScanService, pero
+        // cancelada, ya usada) — la misma que usa scanTicketService, pero
         // corrida DE NUEVO acá, adentro de esta transacción con `tx`. Nunca
-        // se confía en un resultado de preview resuelto segundos antes: si
+        // se confía en un resultado de escaneo resuelto segundos antes: si
         // otro scanner ya la usó mientras esta pantalla de confirmación
         // estaba abierta, esta consulta lo va a ver.
         const outcome = await resolveScanOutcome(tx, { ticketId, providedSecret, eventId, functionId });

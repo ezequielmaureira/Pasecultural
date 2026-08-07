@@ -30,25 +30,24 @@ export async function getFunctionStats(token, eventId, functionId) {
     return stats;
 }
 
-// Paso 1 del flujo de dos fases: valida el QR SIN registrar nada — nunca
-// genera CheckIn, nunca gasta el ingreso, nunca cuenta para las
-// estadísticas (por eso no devuelve `stats`, a diferencia de validateScan).
-// Mismo formato de token que validateScan.
-export async function previewScan(token, { qrToken, eventId, functionId }) {
-    return apiFetch("/api/scanner/scan-preview", {
+// Momento 1: ESCANEAR. Valida el QR SIN registrar nada — nunca genera
+// CheckIn, nunca gasta el ingreso, nunca cuenta para las estadísticas (por
+// eso no devuelve `stats`, a diferencia de checkIn). `qrToken` es el texto
+// crudo decodificado del QR (formato "<ticketId>.<secret>", ver backend) —
+// se reenvía tal cual, nunca se parsea del lado del cliente.
+export async function scanTicket(token, { qrToken, eventId, functionId }) {
+    return apiFetch("/api/scanner/scan", {
         token,
         method: "POST",
         body: JSON.stringify({ token: qrToken, eventId, functionId }),
     });
 }
 
-// `qrToken` es el texto crudo decodificado del QR (formato "<ticketId>.<secret>",
-// ver backend) — se reenvía tal cual, nunca se parsea del lado del cliente.
-// Paso 2 del flujo: el único que de verdad registra el ingreso. El backend
-// vuelve a correr TODAS las reglas desde cero (nunca confía en lo que dijo
-// previewScan) — ver validateScanService.
-export async function validateScan(token, { qrToken, eventId, functionId }) {
-    return apiFetch("/api/scanner/validate", {
+// Momento 2: CONFIRMAR EL INGRESO. El único que de verdad registra algo. El
+// backend vuelve a correr TODAS las reglas desde cero (nunca confía en lo
+// que dijo scanTicket) — ver checkInService.
+export async function checkIn(token, { qrToken, eventId, functionId }) {
+    return apiFetch("/api/scanner/check-in", {
         token,
         method: "POST",
         body: JSON.stringify({ token: qrToken, eventId, functionId }),

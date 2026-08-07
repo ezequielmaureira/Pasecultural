@@ -1,11 +1,16 @@
 // Única fuente de verdad de cómo se ve/cuánto dura cada resultado de
-// escaneo. VALID/ALREADY_USED en ~2s (pedido explícito: "mantener el
-// resultado aproximadamente 2 segundos" para ambos). NOT_FOUND se mantiene
-// corto a propósito: en la práctica es el resultado más frecuente de un mal
-// encuadre o un QR de otra app — alargarlo entrena al operador a esperar en
-// el caso que menos información nueva aporta.
+// escaneo. VALID dura ~1s a propósito (pedido explícito): confirmar un
+// ingreso pasa por la pantalla de verificación completa (ScanConfirmationScreen)
+// ANTES de esto — para cuando se ve la pantalla verde, el operador ya
+// identificó a la persona, así que esta pantalla sólo necesita confirmar
+// "listo" antes de volver sola al lector, nunca requiere que apriete nada.
+// ALREADY_USED se mantiene en ~2s: ahí sí hay algo más para leer (cuándo/en
+// qué puerta entró antes). NOT_FOUND se mantiene corto a propósito: en la
+// práctica es el resultado más frecuente de un mal encuadre o un QR de otra
+// app — alargarlo entrena al operador a esperar en el caso que menos
+// información nueva aporta.
 export const SCAN_RESULT_DURATION_MS = {
-    VALID: 2000,
+    VALID: 1000,
     ALREADY_USED: 2000,
     CANCELLED: 2000,
     WRONG_EVENT: 2500,

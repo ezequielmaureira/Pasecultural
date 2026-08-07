@@ -2,14 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import QrScanner from "qr-scanner";
 import { History, SwitchCamera, Zap, ZapOff, LogOut, WifiOff } from "lucide-react";
 import Spinner from "../../../components/ui/Spinner.jsx";
-import { previewScan, validateScan } from "../../../lib/scannerApi.js";
+import { checkIn, scanTicket } from "../../../lib/scannerApi.js";
 import { readScannerSessionToken } from "../../../lib/scannerSessionStorage.js";
 import { primeAudio, playResultSound } from "../scannerSound.js";
 import { vibrateForResult } from "../scannerVibration.js";
 import { SCAN_RESULT_DURATION_MS } from "../scanResultConfig.js";
 import { functionLabel } from "../scannerFormat.js";
 import ScanResultOverlay from "../components/ScanResultOverlay.jsx";
-import ScanConfirmationOverlay from "../components/ScanConfirmationOverlay.jsx";
+import ScanConfirmationScreen from "./ScanConfirmationScreen.jsx";
 import ScanHistoryDrawer from "../components/ScanHistoryDrawer.jsx";
 import CameraErrorScreen from "./CameraErrorScreen.jsx";
 
@@ -19,6 +19,12 @@ import CameraErrorScreen from "./CameraErrorScreen.jsx";
 // lograr esto (a diferencia del diseño anterior), es sólo un filtro por
 // contenido+tiempo antes de decidir si vale la pena procesar la lectura.
 const DUPLICATE_IGNORE_MS = 3000;
+
+// Si el operador deja la pantalla de confirmación abierta sin decidir,
+// se cancela sola — pedido explícito: nunca debe quedar una entrada
+// "pendiente" indefinidamente. Mismo efecto que "Declinar" (nada se
+// registra), sólo que lo dispara el tiempo en vez de un tap.
+const CONFIRMATION_TIMEOUT_MS = 15000;
 
 function classifyCameraError(err) {
     const name = err?.name || "";
@@ -51,10 +57,10 @@ export default function ScanningScreen({ event, fn, scannerGate, onExitScanning,
     const [cameraErrorType, setCameraErrorType] = useState(null);
     const [availableCameras, setAvailableCameras] = useState([]);
     const [result, setResult] = useState(null); // { status, data, labelOverride } | null
-    // Paso 1 del flujo en dos fases: un QR que pasó preview con status
-    // READY, esperando que el operador confirme o decline — ver
-    // ScanConfirmationOverlay. `qrToken` se guarda tal cual para reenviarlo
-    // sin cambios al confirmar (nunca se vuelve a leer del QR).
+    // Momento 1 del flujo: un QR ya escaneado con status READY, esperando
+    // que el operador confirme o decline — ver ScanConfirmationScreen.
+    // `qrToken` se guarda tal cual para reenviarlo sin cambios al
+    // confirmar (nunca se vuelve a leer del QR).
     const [pendingConfirmation, setPendingConfirmation] = useState(null); // { qrToken, data } | null
     const [confirming, setConfirming] = useState(false);
     const [stats, setStats] = useState({ capacity: fn.capacity, checkedIn: fn.checkedIn, remaining: fn.remaining });
@@ -87,8 +93,8 @@ export default function ScanningScreen({ event, fn, scannerGate, onExitScanning,
         }, duration);
     }
 
-    // Paso 1: lee el QR y sólo VALIDA (preview, de sólo lectura — ver
-    // previewScanService en el backend). Si está todo en orden, no registra
+    // Momento 1: ESCANEAR — sólo valida, de sólo lectura (ver
+    // scanTicketService en el backend). Si está todo en orden, no registra
     // nada todavía: muestra la pantalla de confirmación y espera a que el
     // operador decida. Cualquier motivo de rechazo (QR inválido, evento/
     // función equivocados, cancelada, ya usada) se muestra exactamente
@@ -121,14 +127,14 @@ export default function ScanningScreen({ event, fn, scannerGate, onExitScanning,
             busyRef.current = true;
             try {
                 const token = readScannerSessionToken();
-                const response = await previewScan(token, { qrToken, eventId: event.id, functionId: fn.id });
+                const response = await scanTicket(token, { qrToken, eventId: event.id, functionId: fn.id });
 
                 if (response.status === "READY") {
                     if (isMountedRef.current) setPendingConfirmation({ qrToken, data: response.data });
                     return;
                 }
 
-                // No pasó el preview: mismo feedback de siempre (sonido,
+                // No pasó el escaneo: mismo feedback de siempre (sonido,
                 // vibración, contador de rechazadas, overlay) — la pantalla
                 // de confirmación nunca llega a mostrarse para esto.
                 playResultSound(response.status);
@@ -158,10 +164,10 @@ export default function ScanningScreen({ event, fn, scannerGate, onExitScanning,
     );
 
     // Paso 2: el operador ya vio la información y decide. Confirmar es el
-    // ÚNICO llamado que puede registrar algo — reusa validateScan tal cual
-    // (el mismo endpoint que antes hacía todo en un solo paso), que vuelve a
+    // ÚNICO llamado que puede registrar algo — reusa checkIn tal cual (el
+    // mismo endpoint que antes hacía todo en un solo paso), que vuelve a
     // correr TODAS las reglas desde cero adentro de una transacción: nunca
-    // confía en que el preview de hace unos segundos siga vigente. Si otro
+    // confía en que el escaneo de hace unos segundos siga vigente. Si otro
     // scanner ya la usó mientras tanto, esto va a volver ALREADY_USED — acá
     // se distingue con un mensaje específico en vez del genérico.
     async function handleConfirmEntry() {
@@ -169,7 +175,7 @@ export default function ScanningScreen({ event, fn, scannerGate, onExitScanning,
         setConfirming(true);
         try {
             const token = readScannerSessionToken();
-            const response = await validateScan(token, {
+            const response = await checkIn(token, {
                 qrToken: pendingConfirmation.qrToken,
                 eventId: event.id,
                 functionId: fn.id,
@@ -215,6 +221,21 @@ export default function ScanningScreen({ event, fn, scannerGate, onExitScanning,
         recentTokensRef.current.set(pendingConfirmation.qrToken, Date.now());
         setPendingConfirmation(null);
     }
+
+    // Timeout automático: mismo efecto que declinar (nada se registra), sólo
+    // que lo dispara el tiempo en vez del operador — nunca debe quedar una
+    // confirmación pendiente indefinidamente. Se reinicia solo cada vez que
+    // cambia `pendingConfirmation` (entrada nueva) y se cancela si el
+    // operador decide antes (confirmar/declinar limpian pendingConfirmation,
+    // lo que dispara el cleanup de este efecto).
+    useEffect(() => {
+        if (!pendingConfirmation) return undefined;
+        const timeoutId = setTimeout(() => {
+            recentTokensRef.current.set(pendingConfirmation.qrToken, Date.now());
+            setPendingConfirmation(null);
+        }, CONFIRMATION_TIMEOUT_MS);
+        return () => clearTimeout(timeoutId);
+    }, [pendingConfirmation]);
 
     // El motor qr-scanner se crea UNA sola vez (ver startCamera más abajo) y
     // llama siempre a esta misma función wrapper — nunca hay que recrear la
@@ -455,20 +476,25 @@ export default function ScanningScreen({ event, fn, scannerGate, onExitScanning,
                     </div>
                 )}
 
-                {pendingConfirmation && (
-                    <ScanConfirmationOverlay
-                        data={pendingConfirmation.data}
-                        onConfirm={handleConfirmEntry}
-                        onDecline={handleDeclineEntry}
-                        confirming={confirming}
-                    />
-                )}
-
                 {result && <ScanResultOverlay status={result.status} data={result.data} labelOverride={result.labelOverride} />}
             </div>
 
             {historyOpen && (
                 <ScanHistoryDrawer eventId={event.id} functionId={fn.id} onClose={() => setHistoryOpen(false)} />
+            )}
+
+            {/* Pantalla propia, no un overlay del visor — cubre TODO
+                (fixed inset-0, z por encima del header) mientras el
+                operador decide. La cámara sigue corriendo debajo, sin
+                reiniciarse: sólo se ignoran las lecturas nuevas mientras
+                está abierta (ver pendingConfirmationRef en handleDecode). */}
+            {pendingConfirmation && (
+                <ScanConfirmationScreen
+                    data={pendingConfirmation.data}
+                    onConfirm={handleConfirmEntry}
+                    onDecline={handleDeclineEntry}
+                    confirming={confirming}
+                />
             )}
         </div>
     );

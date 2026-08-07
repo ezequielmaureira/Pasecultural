@@ -27,7 +27,7 @@ function startOfTodayInBuenosAires() {
 // frontend (selección de evento/función) ya sabía manejar 1 o más.
 export const listScannerEventsService = async (scannerContext) => {
     // "Último acceso" (columna que pide la gestión de scanners): se
-    // actualiza acá, no en validateScanService — este endpoint ya se llama
+    // actualiza acá, no en checkInService — este endpoint ya se llama
     // cada vez que el scanner abre la app (antes de escanear nada). Sólo la
     // fila "ancla" (con la que se inició sesión), no las demás asignaciones
     // — no se espera el resultado (no debe demorar la respuesta por esto).
@@ -103,7 +103,7 @@ export const listScannerEventsService = async (scannerContext) => {
 // Pantalla previa "Dashboard Scanner" (antes de abrir el lector QR):
 // identidad + estado + actividad de hoy. Nunca datos de otros scanners ni
 // de la Sale — sólo lo que ya vive en la fila del propio EventScanner más
-// un conteo de ScanAttempt, sin tocar validateScanService. `eventId`
+// un conteo de ScanAttempt, sin tocar checkInService. `eventId`
 // opcional: sin él (o si coincide con el ancla) es EXACTAMENTE lo mismo de
 // siempre, camino rápido de resolveScannerAccess sin query extra. Con un
 // eventId de otra asignación propia, arma el dashboard de ESA fila —

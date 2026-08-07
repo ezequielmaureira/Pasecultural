@@ -65,7 +65,7 @@ const SCANNER_SELECT = {
     lastAccessAt: true,
     lastDevice: true,
     // lastScanAt (columna) NO se selecciona a propósito: nada la escribe
-    // nunca (ver validateScanService en scanner.service.js) — quedaría
+    // nunca (ver checkInService en scanner.service.js) — quedaría
     // siempre null. listEventScannersService calcula el valor real por
     // separado, desde CheckIn.scannedAt.
     // Datos del registro (paso 3 del formulario público) — única identidad
@@ -110,7 +110,7 @@ export const listActiveEventsForScannerService = async (clerkId) => {
 // "Cantidad de ingresos" y "último escaneo" reales (Iteración 1 del
 // Dashboard del Organizador, sección Scanners) — CheckIn.scannerId no es una
 // relación formal (String suelto, ver schema.prisma) pero SÍ es el id real
-// de EventScanner en cada escaneo válido (ver validateScanService), así que
+// de EventScanner en cada escaneo válido (ver checkInService), así que
 // un groupBy sobre esa columna es la única fuente correcta. Nunca se usa
 // EventScanner.lastScanAt: esa columna está preparada en el schema pero
 // ningún caller la escribe todavía.
