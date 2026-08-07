@@ -14,8 +14,14 @@ function Stat({ label, value }) {
 }
 
 function FunctionOccupancyRow({ fn }) {
+  // `issued` = todas las entradas emitidas (venta + cortesía + futuros
+  // orígenes); `sold` ahora es sólo origin=SALE. "Disponibles"/la barra
+  // tienen que restar contra `issued` — una cortesía ocupa un lugar real
+  // aunque no sea una venta. Fallback a `sold` sólo por si algún consumidor
+  // viejo de este componente todavía no manda `issued`.
+  const issued = fn.issued ?? fn.sold;
   const hasCapacity = typeof fn.capacity === "number" && fn.capacity > 0;
-  const available = hasCapacity ? Math.max(fn.capacity - fn.sold, 0) : null;
+  const available = hasCapacity ? Math.max(fn.capacity - issued, 0) : null;
 
   return (
     <div className="rounded-lg border border-white/10 p-4">
@@ -26,14 +32,15 @@ function FunctionOccupancyRow({ fn }) {
         {fn.venue && <p className="text-xs text-slate-500">{fn.venue}</p>}
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+      <div className="mt-3 grid grid-cols-4 gap-3 text-center">
         <Stat label="Vendidas" value={fn.sold} />
+        <Stat label="Emitidas" value={issued} />
         <Stat label="Ingresadas" value={fn.checkedIn} />
         <Stat label="Disponibles" value={available ?? "—"} />
       </div>
 
       <div className="mt-3">
-        <ProgressBar value={fn.sold} max={fn.capacity} secondaryValue={fn.checkedIn} tone="brand" secondaryTone="success" />
+        <ProgressBar value={issued} max={fn.capacity} secondaryValue={fn.checkedIn} tone="brand" secondaryTone="success" />
       </div>
     </div>
   );

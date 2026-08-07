@@ -156,26 +156,6 @@ export function findEventCategoryPosition(categorized, eventId) {
   return null;
 }
 
-// KPIs del "Resumen general" — org-wide, a partir de lo que ya trae el
-// contexto. `occupancyPct` es null (no 0) cuando no hay capacidad relevante
-// todavía: mostrar 0% ahí sería un dato falso, no uno real.
-export function buildOrganizerKpis({ events, tickets, sales }) {
-  const revenueTotal = sales
-    .filter((s) => s.status === "CONFIRMED")
-    .reduce((sum, s) => sum + Number(s.total ?? 0), 0);
-
-  const ticketsSold = tickets.filter((t) => SOLD_TICKET_STATUSES.has(t.status)).length;
-  const checkedIn = tickets.filter((t) => t.status === "USED").length;
-
-  const capacityTotal = events
-    .filter((e) => CAPACITY_RELEVANT_EVENT_STATUSES.has(e.status))
-    .reduce((sum, e) => sum + computeEventCapacity(e), 0);
-
-  const occupancyPct = capacityTotal > 0 ? Math.round((checkedIn / capacityTotal) * 1000) / 10 : null;
-
-  return { revenueTotal, ticketsSold, checkedIn, capacityTotal, occupancyPct };
-}
-
 // TicketAuditAction -> tipo de actividad del Timeline. Reusa el texto de
 // AUDIT_ACTION_LABEL (ya usado en la pantalla de Entradas) para no tener dos
 // vocabularios distintos para la misma acción — incluye la inversión de

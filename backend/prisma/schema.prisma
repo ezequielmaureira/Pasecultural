@@ -586,6 +586,14 @@ model Ticket {
 
   status TicketStatus @default(ACTIVE)
 
+  // Copia de sale.origin al momento de emitir el ticket. Denormalizado a
+  // propósito: Prisma no puede agrupar (`groupBy`) por un campo de una
+  // relación, así que sin esto el desglose de estadísticas por origen
+  // (venta vs. cortesía vs. futuros orígenes) sería imposible de escalar
+  // sin tocar código cada vez. Nunca se recalcula ni se usa para lógica
+  // comercial — sólo para reportes operativos (functionCapacity.service.js).
+  origin SaleOrigin @default(SALE)
+
   saleId String
   sale   Sale   @relation(fields: [saleId], references: [id])
 

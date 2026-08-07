@@ -6,6 +6,7 @@
 // cambia). Mapa fijo en vez de interpolar la clase: Tailwind necesita ver
 // el nombre completo de la clase en el código para generarla.
 const COLUMN_CLASSES = {
+  3: "md:grid-cols-3",
   4: "md:grid-cols-4",
   5: "md:grid-cols-5",
 };

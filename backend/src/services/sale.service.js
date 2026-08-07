@@ -425,6 +425,7 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
                     ticketTypeId: item.ticketTypeId,
                     buyerId: sale.buyerId,
                     ownerId: sale.buyerId, // hoy siempre igual al buyer; separado para permitir transferencias a futuro
+                    origin: sale.origin, // denormalizado desde la Sale — ver comentario en schema.prisma
                 });
                 qrRows.push({
                     id: crypto.randomUUID(),

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
-import { Clock3, DollarSign, Ticket, ScanLine, Gauge, CalendarDays, Receipt, Activity } from "lucide-react";
+import { Clock3, DollarSign, Ticket, ScanLine, Gauge, CalendarDays, Receipt, Activity, Layers } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
 import SkeletonBlock from "../../components/ui/SkeletonBlock.jsx";
@@ -25,9 +25,9 @@ import {
   computeEventCapacity,
   groupTicketsByEvent,
   computeSoldCount,
-  buildOrganizerKpis,
   buildActivityFeed,
 } from "./dashboard/dashboardMetrics.js";
+import { buildEventStatsKpis, formatIssuedByOriginHint } from "../../components/organizer/functionStatsSelectors.js";
 import { useEventControlRoomData } from "./dashboard/useEventControlRoomData.js";
 
 const ORG_STATUS_BANNER = {
@@ -190,7 +190,6 @@ export default function OrganizerDashboard() {
   }, [featuredEventId]);
 
   const ticketsByEvent = groupTicketsByEvent(tickets);
-  const featuredCapacity = featured ? computeEventCapacity(featured.event) : 0;
 
   const hasLoadError = eventsError || salesError || ticketsError;
   function retryFailedLoads() {
@@ -206,17 +205,15 @@ export default function OrganizerDashboard() {
   const controlRoom = useEventControlRoomData(featuredEventId, { enabled: featuredIsOngoing });
   const controlRoomLoading = loadingEvents || controlRoom.loading;
 
-  const featuredSold = computeSoldCount(controlRoom.tickets);
-
-  // KPIs y "Últimas ventas" ahora son del evento seleccionado, no de toda la
-  // organización — buildOrganizerKpis/SalesTable no cambiaron, sólo lo que
-  // se les pasa: en vez de `tickets`/`sales` de todo el contexto, los ya
-  // filtrados por evento que trae controlRoom (mismo fetch que usan
-  // Funciones/Scanners/Timeline, sin pedir nada dos veces).
-  const kpis = buildOrganizerKpis({
-    events: featured ? [featured.event] : [],
-    tickets: controlRoom.tickets,
+  // KPIs y "Últimas ventas" son del evento seleccionado, no de toda la
+  // organización. Mismo selector puro que usa "Estadísticas del evento" en
+  // Entradas (functionStatsSelectors.js) sobre el mismo functionStats que ya
+  // trae controlRoom — capacidad/emitidas/ocupación dejaron de tallarse a
+  // mano sobre `tickets` (eso ya no distinguía venta de cortesía).
+  const kpis = buildEventStatsKpis({
+    functionStats: controlRoom.functionStats,
     sales: controlRoom.sales,
+    functionId: "ALL",
   });
   const recentSales = [...controlRoom.sales]
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
@@ -288,36 +285,75 @@ export default function OrganizerDashboard() {
           event={featured?.event ?? null}
           eventFunction={featured?.eventFunction ?? null}
           category={selectedCategory}
-          sold={featuredSold}
-          capacity={featuredCapacity}
+          sold={kpis.issued}
+          capacity={kpis.capacity}
         />
       )}
 
       {/* 2) Resumen del evento seleccionado. Importante, pero
-             deliberadamente más chico y sobrio que la card de arriba. */}
-      <div>
+             deliberadamente más chico y sobrio que la card de arriba.
+             Mismos 4 grupos que "Estadísticas del evento" en Entradas
+             (Comercial/Emisión/Accesos/Ocupación): Comercial es sólo
+             origin=SALE (recaudación, Mercado Pago, balances no se tocan);
+             el resto es operativo, todos los orígenes que dan derecho a
+             ingresar. */}
+      <div className="flex flex-col gap-5">
         <SectionHeader title="Resumen del evento" />
-        <KpiRow>
-          <KpiCard
-            label="Recaudación"
-            value={formatCurrencyARS(kpis.revenueTotal)}
-            icon={DollarSign}
-            loading={controlRoomLoading}
-          />
-          <KpiCard label="Entradas vendidas" value={kpis.ticketsSold} icon={Ticket} loading={controlRoomLoading} />
-          <KpiCard
-            label="Personas ingresadas"
-            value={kpis.checkedIn}
-            icon={ScanLine}
-            loading={controlRoomLoading}
-          />
-          <KpiCard
-            label="Ocupación"
-            value={kpis.occupancyPct !== null ? `${kpis.occupancyPct}%` : "—"}
-            icon={Gauge}
-            loading={controlRoomLoading}
-          />
-        </KpiRow>
+
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Comercial</p>
+          <KpiRow columns={3}>
+            <KpiCard
+              label="Recaudación"
+              value={formatCurrencyARS(kpis.revenue)}
+              icon={DollarSign}
+              loading={controlRoomLoading}
+            />
+            <KpiCard label="Entradas vendidas" value={kpis.sold} icon={Ticket} loading={controlRoomLoading} />
+            <KpiCard
+              label="Ticket promedio"
+              value={formatCurrencyARS(kpis.averageTicket)}
+              icon={DollarSign}
+              loading={controlRoomLoading}
+            />
+          </KpiRow>
+        </div>
+
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Emisión</p>
+          <div className="max-w-xs">
+            <KpiCard
+              label="Entradas emitidas"
+              value={kpis.issued}
+              hint={formatIssuedByOriginHint(kpis.issuedByOrigin)}
+              icon={Layers}
+              loading={controlRoomLoading}
+            />
+          </div>
+        </div>
+
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Accesos</p>
+          <KpiRow columns={3}>
+            <KpiCard label="Ingresadas" value={kpis.checkedIn} icon={ScanLine} loading={controlRoomLoading} />
+            <KpiCard label="Pendientes de ingreso" value={kpis.pending} icon={Clock3} loading={controlRoomLoading} />
+          </KpiRow>
+        </div>
+
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Ocupación</p>
+          <KpiRow>
+            <KpiCard label="Capacidad total" value={kpis.capacity} icon={Gauge} loading={controlRoomLoading} />
+            <KpiCard label="Entradas emitidas" value={kpis.issued} icon={Layers} loading={controlRoomLoading} />
+            <KpiCard label="Disponibles" value={kpis.remaining} icon={Ticket} loading={controlRoomLoading} />
+            <KpiCard
+              label="% de ocupación"
+              value={kpis.occupancyPct !== null ? `${kpis.occupancyPct}%` : "—"}
+              icon={Gauge}
+              loading={controlRoomLoading}
+            />
+          </KpiRow>
+        </div>
       </div>
 
       {/* 3) Actividad reciente del evento seleccionado. Estado de funciones

@@ -10,6 +10,8 @@ import {
   CheckCircle2,
   XCircle,
   RotateCcw,
+  Clock3,
+  Layers,
 } from "lucide-react";
 import Spinner from "../../components/ui/Spinner.jsx";
 import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
@@ -17,7 +19,7 @@ import InlineErrorNotice from "../../components/ui/InlineErrorNotice.jsx";
 import KpiRow from "../../components/organizer/KpiRow.jsx";
 import KpiCard from "../../components/organizer/KpiCard.jsx";
 import SectionHeader from "../../components/organizer/SectionHeader.jsx";
-import { buildEventStatsKpis } from "../../components/organizer/functionStatsSelectors.js";
+import { buildEventStatsKpis, formatIssuedByOriginHint } from "../../components/organizer/functionStatsSelectors.js";
 import { useToast } from "../../context/ToastContext.jsx";
 import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
 import { useActiveEvent } from "../../context/ActiveEventContext.jsx";
@@ -301,7 +303,7 @@ export default function OrganizerTickets() {
       </div>
 
       {selectedEventId && (
-        <div>
+        <div className="flex flex-col gap-5">
           <SectionHeader title="Estadísticas del evento" />
           {eventStats.error && (
             <InlineErrorNotice
@@ -309,22 +311,72 @@ export default function OrganizerTickets() {
               onRetry={eventStats.refetch}
             />
           )}
-          <KpiRow>
-            <KpiCard
-              label="Recaudación"
-              value={formatCurrencyARS(eventKpis.revenue)}
-              icon={DollarSign}
-              loading={eventStats.loading}
-            />
-            <KpiCard label="Vendidas" value={eventKpis.sold} icon={Ticket} loading={eventStats.loading} />
-            <KpiCard label="Ingresadas" value={eventKpis.checkedIn} icon={ScanLine} loading={eventStats.loading} />
-            <KpiCard
-              label="Ocupación"
-              value={eventKpis.occupancyPct !== null ? `${eventKpis.occupancyPct}%` : "—"}
-              icon={Gauge}
-              loading={eventStats.loading}
-            />
-          </KpiRow>
+
+          {/* Comercial: sólo origin=SALE — recaudación, Mercado Pago y
+              cualquier reporte financiero se siguen basando únicamente en
+              esto. Las cortesías nunca entran acá. */}
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Comercial</p>
+            <KpiRow columns={3}>
+              <KpiCard
+                label="Recaudación"
+                value={formatCurrencyARS(eventKpis.revenue)}
+                icon={DollarSign}
+                loading={eventStats.loading}
+              />
+              <KpiCard label="Entradas vendidas" value={eventKpis.sold} icon={Ticket} loading={eventStats.loading} />
+              <KpiCard
+                label="Ticket promedio"
+                value={formatCurrencyARS(eventKpis.averageTicket)}
+                icon={DollarSign}
+                loading={eventStats.loading}
+              />
+            </KpiRow>
+          </div>
+
+          {/* Emisión: todos los orígenes que dan derecho a ingresar (venta +
+              cortesía + los que se agreguen a futuro), nunca una métrica
+              financiera. */}
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Emisión</p>
+            <div className="max-w-xs">
+              <KpiCard
+                label="Entradas emitidas"
+                value={eventKpis.issued}
+                hint={formatIssuedByOriginHint(eventKpis.issuedByOrigin)}
+                icon={Layers}
+                loading={eventStats.loading}
+              />
+            </div>
+          </div>
+
+          {/* Accesos: ingresos reales al evento, sin importar el origen de
+              la entrada. */}
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Accesos</p>
+            <KpiRow columns={3}>
+              <KpiCard label="Ingresadas" value={eventKpis.checkedIn} icon={ScanLine} loading={eventStats.loading} />
+              <KpiCard label="Pendientes de ingreso" value={eventKpis.pending} icon={Clock3} loading={eventStats.loading} />
+            </KpiRow>
+          </div>
+
+          {/* Ocupación: capacidad física del evento vs. lo emitido — la
+              barra/porcentaje se calcula sobre TODO lo emitido, no sólo lo
+              vendido, porque una cortesía también ocupa un lugar. */}
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Ocupación</p>
+            <KpiRow>
+              <KpiCard label="Capacidad total" value={eventKpis.capacity} icon={Gauge} loading={eventStats.loading} />
+              <KpiCard label="Entradas emitidas" value={eventKpis.issued} icon={Layers} loading={eventStats.loading} />
+              <KpiCard label="Disponibles" value={eventKpis.remaining} icon={CheckCircle2} loading={eventStats.loading} />
+              <KpiCard
+                label="% de ocupación"
+                value={eventKpis.occupancyPct !== null ? `${eventKpis.occupancyPct}%` : "—"}
+                icon={Gauge}
+                loading={eventStats.loading}
+              />
+            </KpiRow>
+          </div>
         </div>
       )}
 
