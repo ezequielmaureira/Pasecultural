@@ -5,13 +5,18 @@ import Button from "../../../components/ui/Button.jsx";
 import ScannerCenter from "../components/ScannerCenter.jsx";
 import { getFunctionStats } from "../../../lib/scannerApi.js";
 import { readScannerSessionToken } from "../../../lib/scannerSessionStorage.js";
+import { functionLabel } from "../scannerFormat.js";
 
 // Sólo lectura — a diferencia de ReadyScreen (que también muestra
 // capacidad/ingresados/restantes pero como paso previo a escanear), esta
 // pantalla consume el endpoint /functions/:functionId/stats que ya existía
 // en el backend pero el frontend nunca llamaba (ver scannerApi.js), con el
 // desglose por tipo de entrada que ReadyScreen no muestra.
-export default function ScannerStatsScreen({ event, fn, onBack }) {
+//
+// `gate` opcional — recordatorio de contexto (mismo motivo que en
+// ScanningScreen/ScanConfirmationScreen: un scanner que trabaja varios
+// eventos en el día nunca debería perder de vista dónde está parado).
+export default function ScannerStatsScreen({ event, fn, gate, onBack }) {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -38,6 +43,10 @@ export default function ScannerStatsScreen({ event, fn, onBack }) {
         <ScannerCenter>
             <p className="text-xs uppercase tracking-wide text-slate-500">Estadísticas</p>
             <h1 className="text-lg font-bold text-white">{event.title}</h1>
+            <p className="-mt-2 text-xs text-slate-500">
+                {functionLabel(fn)}
+                {gate ? ` · ${gate}` : ""}
+            </p>
 
             {loading && <Spinner size="lg" />}
 

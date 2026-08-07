@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "../../context/ToastContext.jsx";
 import { listScannerEvents, getScannerDashboard } from "../../lib/scannerApi.js";
 import { readActiveScannerSelection, writeActiveScannerSelection, clearActiveScannerSelection } from "../../lib/scannerStorage.js";
 import { readScannerSessionToken, clearScannerSessionToken } from "../../lib/scannerSessionStorage.js";
 import { functionLabel } from "./scannerFormat.js";
+import { useScannerBackGuard } from "./useScannerBackGuard.js";
 import LoadingScreen from "./screens/LoadingScreen.jsx";
 import ReconnectingScreen from "./screens/ReconnectingScreen.jsx";
 import EmptyScreen from "./screens/EmptyScreen.jsx";
@@ -311,6 +312,52 @@ export default function ScannerHome() {
         exitWithoutSession();
     }
 
+    // Qué significa "atrás" en cada fase — nunca sale de /scanner, siempre
+    // se mueve un nivel dentro del propio flujo (o no hace nada si ya está
+    // en el nivel más alto, dashboard/empty). Mismo destino que ya usan los
+    // botones "Volver"/"Cambiar función"/etc. de cada pantalla — no inventa
+    // transiciones nuevas, sólo les da también un camino por atrás.
+    function handleBackWithinScanner() {
+        if (phase === "scanning" || phase === "history" || phase === "stats") {
+            setPhase(phase === "scanning" ? "ready" : "dashboard");
+            return;
+        }
+        if (phase === "ready") {
+            setPhase("dashboard");
+            return;
+        }
+        if (phase === "select-function") {
+            setPhase(events.length > 1 ? "select-event" : "dashboard");
+            return;
+        }
+        if (phase === "select-event") {
+            setPhase("dashboard");
+            return;
+        }
+        // dashboard/empty/loading/reconnecting/error/offline: no hay un
+        // nivel "más arriba" dentro del Scanner — el guard sólo se re-arma,
+        // la sesión sigue intacta (ver useScannerBackGuard.js).
+    }
+
+    // Mientras `ScanningScreen` tenga una confirmación pendiente, ESA
+    // pantalla decide qué hace "atrás" (cancelar la confirmación, no salir
+    // de escaneo) — se registra acá mismo, sin que ScannerHome necesite
+    // saber nada de pendingConfirmation. Ver ScanningScreen.jsx.
+    const backOverrideRef = useRef(null);
+
+    // Activo siempre que haya una sesión real (cualquier fase menos
+    // "no-session", que sólo se llega a ella cuando no hay ningún
+    // scannerSessionToken guardado). "Salir" (handleLogout) sigue siendo el
+    // único camino real fuera de acá — navega con replace, nunca depende de
+    // este guard.
+    useScannerBackGuard(phase !== "no-session", () => {
+        if (backOverrideRef.current) {
+            backOverrideRef.current();
+            return;
+        }
+        handleBackWithinScanner();
+    });
+
     if (phase === "loading") return <LoadingScreen />;
     if (phase === "reconnecting") {
         return <ReconnectingScreen eventName={cachedSelection?.eventName} functionName={cachedSelection?.functionName} />;
@@ -372,14 +419,31 @@ export default function ScannerHome() {
                 onChangeFunction={() => setPhase("select-function")}
                 onRevoked={() => exitWithoutSession("Ya no tenés acceso como scanner de este evento.")}
                 onLogout={handleLogout}
+                registerBackAction={(fn) => {
+                    backOverrideRef.current = fn;
+                }}
             />
         );
     }
     if (phase === "history") {
-        return <ScanHistoryDrawer eventId={selectedEvent.id} functionId={selectedFunction.id} onClose={() => setPhase("dashboard")} />;
+        return (
+            <ScanHistoryDrawer
+                eventId={selectedEvent.id}
+                functionId={selectedFunction.id}
+                contextLabel={`${selectedEvent.title} · ${functionLabel(selectedFunction)}`}
+                onClose={() => setPhase("dashboard")}
+            />
+        );
     }
     if (phase === "stats") {
-        return <ScannerStatsScreen event={selectedEvent} fn={selectedFunction} onBack={() => setPhase("dashboard")} />;
+        return (
+            <ScannerStatsScreen
+                event={selectedEvent}
+                fn={selectedFunction}
+                gate={dashboard?.gate ?? dashboard?.name ?? ""}
+                onBack={() => setPhase("dashboard")}
+            />
+        );
     }
     return null;
 }

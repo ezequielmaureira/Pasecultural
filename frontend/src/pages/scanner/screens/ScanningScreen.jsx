@@ -22,7 +22,7 @@ const DUPLICATE_IGNORE_MS = 3000;
 
 // Si el operador deja la pantalla de confirmación abierta sin decidir,
 // se cancela sola — pedido explícito: nunca debe quedar una entrada
-// "pendiente" indefinidamente. Mismo efecto que "Declinar" (nada se
+// "pendiente" indefinidamente. Mismo efecto que "Cancelar" (nada se
 // registra), sólo que lo dispara el tiempo en vez de un tap.
 const CONFIRMATION_TIMEOUT_MS = 15000;
 
@@ -40,7 +40,16 @@ function classifyCameraError(err) {
 // el hilo principal). La cámara arranca una sola vez al montar y no se
 // vuelve a detener/reiniciar por ningún resultado de escaneo — pensado
 // para validar cientos/miles de entradas seguidas sin fricción.
-export default function ScanningScreen({ event, fn, scannerGate, onExitScanning, onChangeFunction, onRevoked, onLogout }) {
+export default function ScanningScreen({
+    event,
+    fn,
+    scannerGate,
+    onExitScanning,
+    onChangeFunction,
+    onRevoked,
+    onLogout,
+    registerBackAction,
+}) {
     const videoRef = useRef(null);
     const qrScannerRef = useRef(null);
     const resultTimeoutRef = useRef(null);
@@ -213,19 +222,33 @@ export default function ScanningScreen({ event, fn, scannerGate, onExitScanning,
         }
     }
 
-    // Declinar NUNCA llama al backend — pedido explícito: no se registra
+    // Cancelar NUNCA llama al backend — pedido explícito: no se registra
     // absolutamente nada (ni CheckIn, ni ScanAttempt, ni estadísticas).
     // Sólo vuelve al lector.
-    function handleDeclineEntry() {
+    function handleCancelEntry() {
         if (!pendingConfirmation) return;
         recentTokensRef.current.set(pendingConfirmation.qrToken, Date.now());
         setPendingConfirmation(null);
     }
 
-    // Timeout automático: mismo efecto que declinar (nada se registra), sólo
+    // Mientras haya una confirmación pendiente, un back-press (navegador o
+    // hardware) tiene que cancelarla en vez de sacar al operador de la
+    // pantalla de escaneo — se registra acá, en el mismo componente que ya
+    // sabe cuándo hay algo pendiente, sin que ScannerHome necesite conocer
+    // este estado interno (ver useScannerBackGuard.js/ScannerHome.jsx).
+    useEffect(() => {
+        if (!registerBackAction) return undefined;
+        if (pendingConfirmation) {
+            registerBackAction(handleCancelEntry);
+        }
+        return () => registerBackAction(null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pendingConfirmation, registerBackAction]);
+
+    // Timeout automático: mismo efecto que cancelar (nada se registra), sólo
     // que lo dispara el tiempo en vez del operador — nunca debe quedar una
     // confirmación pendiente indefinidamente. Además, a diferencia de
-    // declinar, avisa brevemente por qué volvió sola al lector (pedido
+    // cancelar, avisa brevemente por qué volvió sola al lector (pedido
     // explícito: "el operador debe entender qué ocurrió") reutilizando el
     // mismo mecanismo de flash que cualquier otro resultado — ver
     // showResult/SCAN_RESULT_DURATION_MS.TIMEOUT (~500ms). Se reinicia solo
@@ -497,7 +520,7 @@ export default function ScanningScreen({ event, fn, scannerGate, onExitScanning,
                 <ScanConfirmationScreen
                     data={pendingConfirmation.data}
                     onConfirm={handleConfirmEntry}
-                    onDecline={handleDeclineEntry}
+                    onCancel={handleCancelEntry}
                     confirming={confirming}
                 />
             )}

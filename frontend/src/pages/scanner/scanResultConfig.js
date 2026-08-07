@@ -22,7 +22,7 @@ export const SCAN_RESULT_DURATION_MS = {
     // Otro pseudo-estado sintetizado en el cliente: el operador dejó la
     // pantalla de confirmación abierta sin decidir (ver el timeout de
     // ScanningScreen). Nunca se registra nada — mismo comportamiento que
-    // Declinar, sólo que además avisa brevemente por qué volvió sola al
+    // Cancelar, sólo que además avisa brevemente por qué volvió sola al
     // lector, para que el operador entienda qué pasó.
     TIMEOUT: 500,
 };

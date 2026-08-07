@@ -14,7 +14,12 @@ function formatTime(value) {
 // acumula nada del lado del cliente. Se vuelve a pedir cada vez que se abre
 // (no se cachea entre aperturas): es justo la pantalla que alguien abre
 // para chequear "qué pasó recién", tiene que reflejar el estado real.
-export default function ScanHistoryDrawer({ eventId, functionId, onClose }) {
+//
+// `contextLabel` opcional (ej. "Pase Cultural · Función 21:00 hs") —
+// recordatorio de contexto, mismo motivo que en el resto de las pantallas
+// del flujo: un scanner con varios eventos en el día nunca debería perder
+// de vista para cuál está viendo el historial.
+export default function ScanHistoryDrawer({ eventId, functionId, contextLabel, onClose }) {
     const [attempts, setAttempts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -60,7 +65,10 @@ export default function ScanHistoryDrawer({ eventId, functionId, onClose }) {
                 className="flex max-h-[70vh] flex-col rounded-t-2xl border-t border-white/10 bg-[#0B1120]"
             >
                 <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-                    <h2 className="text-sm font-semibold text-white">Últimos escaneos</h2>
+                    <div className="min-w-0">
+                        <h2 className="text-sm font-semibold text-white">Últimos escaneos</h2>
+                        {contextLabel && <p className="truncate text-xs text-slate-500">{contextLabel}</p>}
+                    </div>
                     <button
                         type="button"
                         onClick={onClose}
