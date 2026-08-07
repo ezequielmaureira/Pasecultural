@@ -19,6 +19,12 @@ export const SCAN_RESULT_DURATION_MS = {
     // cliente cuando no hay conexión o validate() falla por red/timeout
     // durante el escaneo (ver ScanningScreen).
     OFFLINE: 1500,
+    // Otro pseudo-estado sintetizado en el cliente: el operador dejó la
+    // pantalla de confirmación abierta sin decidir (ver el timeout de
+    // ScanningScreen). Nunca se registra nada — mismo comportamiento que
+    // Declinar, sólo que además avisa brevemente por qué volvió sola al
+    // lector, para que el operador entienda qué pasó.
+    TIMEOUT: 500,
 };
 
 export const SCAN_RESULT_TONE = {
@@ -28,6 +34,7 @@ export const SCAN_RESULT_TONE = {
     WRONG_EVENT: "bg-orange-500 text-white",
     NOT_FOUND: "bg-rose-600 text-white",
     OFFLINE: "bg-slate-700 text-white",
+    TIMEOUT: "bg-slate-700 text-white",
 };
 
 export const SCAN_RESULT_LABEL = {
@@ -37,6 +44,7 @@ export const SCAN_RESULT_LABEL = {
     CANCELLED: "Entrada cancelada",
     NOT_FOUND: "QR inválido",
     OFFLINE: "Sin conexión",
+    TIMEOUT: "Tiempo de confirmación agotado",
 };
 
 // Versión "suave" del mismo tono, para usar en filas de lista (historial)

@@ -44,7 +44,7 @@ async function applyTransition(clerkId, eventId, ticketId, { allowedFrom, toStat
     });
 }
 
-// ACTIVE -> CANCELLED. checkInService ya sabe rechazar un ticket
+// ACTIVE -> CANCELLED. confirmScanService ya sabe rechazar un ticket
 // CANCELLED (mensaje "La entrada fue cancelada") — no hace falta tocar esa
 // lógica para que cancelar funcione de punta a punta.
 export const cancelTicketService = (clerkId, eventId, ticketId, { reason } = {}) =>
@@ -59,7 +59,7 @@ export const rehabilitateTicketService = (clerkId, eventId, ticketId, { reason }
 // USED -> ACTIVE. Permite que el ticket vuelva a escanearse. A propósito
 // NO toca los CheckIn existentes — quedan como historial de que ya entró
 // antes; el próximo escaneo válido crea un CheckIn nuevo (ver
-// checkInService, ya no hay @unique que lo impida).
+// confirmScanService, ya no hay @unique que lo impida).
 export const reactivateUsedTicketService = (clerkId, eventId, ticketId, { reason } = {}) =>
     applyTransition(clerkId, eventId, ticketId, { allowedFrom: ["USED"], toStatus: "ACTIVE", action: "REACTIVATE", reason });
 

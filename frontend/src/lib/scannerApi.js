@@ -32,9 +32,9 @@ export async function getFunctionStats(token, eventId, functionId) {
 
 // Momento 1: ESCANEAR. Valida el QR SIN registrar nada — nunca genera
 // CheckIn, nunca gasta el ingreso, nunca cuenta para las estadísticas (por
-// eso no devuelve `stats`, a diferencia de checkIn). `qrToken` es el texto
-// crudo decodificado del QR (formato "<ticketId>.<secret>", ver backend) —
-// se reenvía tal cual, nunca se parsea del lado del cliente.
+// eso no devuelve `stats`, a diferencia de confirmScan). `qrToken` es el
+// texto crudo decodificado del QR (formato "<ticketId>.<secret>", ver
+// backend) — se reenvía tal cual, nunca se parsea del lado del cliente.
 export async function scanTicket(token, { qrToken, eventId, functionId }) {
     return apiFetch("/api/scanner/scan", {
         token,
@@ -45,9 +45,11 @@ export async function scanTicket(token, { qrToken, eventId, functionId }) {
 
 // Momento 2: CONFIRMAR EL INGRESO. El único que de verdad registra algo. El
 // backend vuelve a correr TODAS las reglas desde cero (nunca confía en lo
-// que dijo scanTicket) — ver checkInService.
-export async function checkIn(token, { qrToken, eventId, functionId }) {
-    return apiFetch("/api/scanner/check-in", {
+// que dijo scanTicket) — ver confirmScanService. Anidado bajo /scan a
+// propósito (misma acción, momento distinto) — deja lugar para
+// /scan/cancel o /scan/check-out el día de mañana sin romper el namespace.
+export async function confirmScan(token, { qrToken, eventId, functionId }) {
+    return apiFetch("/api/scanner/scan/confirm", {
         token,
         method: "POST",
         body: JSON.stringify({ token: qrToken, eventId, functionId }),

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { checkIn, scanTicket } from "../controllers/scanner.controller.js";
+import { confirmScan, scanTicket } from "../controllers/scanner.controller.js";
 import {
     listScannerEvents,
     getFunctionStats,
@@ -19,12 +19,19 @@ router.get("/dashboard", requireScannerSession, getScannerDashboard);
 router.get("/events", requireScannerSession, listScannerEvents);
 router.get("/events/:eventId/functions/:functionId/stats", requireScannerSession, getFunctionStats);
 router.get("/scan-attempts", requireScannerSession, listScanAttempts);
-// Dos momentos de negocio, dos rutas con nombre propio — ninguna de las dos
-// describe cómo está implementada, describen QUÉ hacen:
-//   POST /scan     -> escanear (sólo lectura, ver scanTicketService)
-//   POST /check-in -> confirmar el ingreso (el único que escribe, ver
-//                     checkInService) — mismo nombre que el modelo CheckIn
+// Dos acciones del MISMO flujo, anidadas bajo /scan — ninguna describe cómo
+// está implementada, describen QUÉ hacen. Deja el namespace preparado para
+// futuras extensiones del mismo flujo sin romper la coherencia del dominio
+// (ej. /scan/cancel, /scan/check-out para un futuro control de egresos):
+//   POST /scan         -> escanear (sólo lectura, ver scanTicketService)
+//   POST /scan/confirm -> confirmar el ingreso (el único que escribe, ver
+//                         confirmScanService)
+//
+// Auditoría antes de renombrar (pedido explícito): el nombre anterior,
+// POST /check-in, sólo lo usaba el propio scannerApi.js de este frontend —
+// no hay ninguna otra integración, doc pública ni cliente externo que
+// dependa de él, así que se renombra directo, sin alias deprecado.
 router.post("/scan", requireScannerSession, scanTicket);
-router.post("/check-in", requireScannerSession, checkIn);
+router.post("/scan/confirm", requireScannerSession, confirmScan);
 
 export default router;

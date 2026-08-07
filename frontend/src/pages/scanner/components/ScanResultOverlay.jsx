@@ -1,4 +1,4 @@
-import { CheckCircle2, RotateCcw, ArrowLeftRight, Ban, HelpCircle, WifiOff } from "lucide-react";
+import { CheckCircle2, RotateCcw, ArrowLeftRight, Ban, HelpCircle, WifiOff, Clock } from "lucide-react";
 import { SCAN_RESULT_TONE, SCAN_RESULT_LABEL } from "../scanResultConfig.js";
 
 const ICON_BY_STATUS = {
@@ -8,6 +8,7 @@ const ICON_BY_STATUS = {
     CANCELLED: Ban,
     NOT_FOUND: HelpCircle,
     OFFLINE: WifiOff,
+    TIMEOUT: Clock,
 };
 
 function formatTime(value) {
@@ -17,9 +18,9 @@ function formatTime(value) {
 
 // Pantalla completa, color sólido — nunca un modal ni una tarjeta chica
 // (tiene que leerse de reojo). Un solo componente para los 5 estados del
-// backend + el pseudo-estado OFFLINE sintetizado en el cliente. Todos los
-// datos vienen tal cual del backend (buildResult en scanner.service.js) —
-// nada se recalcula ni se inventa acá.
+// backend + los pseudo-estados sintetizados en el cliente (OFFLINE,
+// TIMEOUT). Todos los datos vienen tal cual del backend (buildResult en
+// scanner.service.js) — nada se recalcula ni se inventa acá.
 //
 // `labelOverride`: sólo lo usa ScanningScreen para distinguir, en el
 // flujo de confirmación en dos fases, un ALREADY_USED detectado recién al

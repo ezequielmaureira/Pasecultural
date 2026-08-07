@@ -53,6 +53,12 @@ function buyerName(ticket) {
 // un flag de "ilimitado", sólo hay que tocar ESTA función. Ni scanTicketService
 // ni la pantalla de confirmación necesitan cambiar — ya reciben estos tres
 // números como datos, nunca como texto fijo.
+//
+// Contrato ya acordado con el frontend para cuando exista "ilimitado":
+// `allowedEntries: null` (nunca Infinity, no serializa en JSON) — el
+// frontend ya sabe interpretar null como "sin límite" (ver
+// ScanConfirmationScreen.jsx). No se implementa todavía: hoy esta función
+// nunca devuelve null.
 function computeEntryCounters(ticket) {
     const used = ticket.status === "ACTIVE" ? 0 : 1;
     return { allowedEntries: 1, usedEntries: used, remainingEntries: Math.max(1 - used, 0) };
@@ -102,7 +108,7 @@ function buildResult(result, { ticket, checkIn, scannerName, gate } = {}) {
 
 // ÚNICA definición de "qué pasa con este QR" — evento correcto, función
 // correcta, cancelada/reembolsada, ya usada. La llama tanto scanTicketService
-// (de sólo lectura, con el cliente `prisma` normal) como checkInService
+// (de sólo lectura, con el cliente `prisma` normal) como confirmScanService
 // (adentro de su transacción, con el cliente `tx`) — mismo código, ninguna
 // regla duplicada ni reimplementada dos veces. Nunca escribe nada: sólo lee
 // y devuelve qué encontró. `status: "READY"` es el único caso en el que el
@@ -165,7 +171,7 @@ async function resolveScanOutcome(client, { ticketId, providedSecret, eventId, f
 // del titular, tipo de entrada, evento, función, puerta, ingresos).
 //
 // Esto NUNCA es la fuente de verdad: es sólo el resultado de haber escaneado,
-// para que el operador decida. Si aprieta "Confirmar ingreso", checkInService
+// para que el operador decida. Si aprieta "Confirmar ingreso", confirmScanService
 // vuelve a correr resolveScanOutcome() desde cero, adentro de una
 // transacción con el mismo guard atómico de siempre — así que si este
 // escaneo quedó desactualizado (otro scanner se adelantó, el evento se
@@ -229,7 +235,7 @@ export const scanTicketService = async (scannerContext, input) => {
 // scanTicketService ni ninguna otra pantalla tiene ese poder — así se
 // garantiza que "confirmar" siga siendo la única fuente de verdad posible,
 // nunca una casualidad de cómo está armado el frontend.
-export const checkInService = async (scannerContext, input) => {
+export const confirmScanService = async (scannerContext, input) => {
     const access = await resolveScannerAccess(scannerContext, input?.eventId);
     const eventId = access.eventId;
     const functionId = input?.functionId || null;

@@ -1,5 +1,5 @@
 import { AppError } from "../errors/AppError.js";
-import { checkInService, scanTicketService } from "../services/scanner.service.js";
+import { confirmScanService, scanTicketService } from "../services/scanner.service.js";
 
 // Momento 1: ESCANEAR — sólo lectura, nunca registra nada (ver
 // scanTicketService). No necesita ip/userAgent (no hay ScanAttempt que
@@ -19,9 +19,9 @@ export const scanTicket = async (req, res, next) => {
 // resultado. Sólo un error real del sistema (AppError) usa un status HTTP
 // distinto, vía next(error). req.scanner ya viene resuelto y verificado
 // ACTIVE por requireScannerSession — no hay Clerk en este flujo.
-export const checkIn = async (req, res, next) => {
+export const confirmScan = async (req, res, next) => {
     try {
-        const result = await checkInService(req.scanner, {
+        const result = await confirmScanService(req.scanner, {
             ...req.body,
             ip: req.ip,
             userAgent: req.get("user-agent") || null,

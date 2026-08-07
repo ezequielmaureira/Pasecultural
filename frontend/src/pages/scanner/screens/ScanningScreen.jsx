@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import QrScanner from "qr-scanner";
 import { History, SwitchCamera, Zap, ZapOff, LogOut, WifiOff } from "lucide-react";
 import Spinner from "../../../components/ui/Spinner.jsx";
-import { checkIn, scanTicket } from "../../../lib/scannerApi.js";
+import { confirmScan, scanTicket } from "../../../lib/scannerApi.js";
 import { readScannerSessionToken } from "../../../lib/scannerSessionStorage.js";
 import { primeAudio, playResultSound } from "../scannerSound.js";
 import { vibrateForResult } from "../scannerVibration.js";
@@ -163,19 +163,19 @@ export default function ScanningScreen({ event, fn, scannerGate, onExitScanning,
         [event.id, fn.id, onRevoked]
     );
 
-    // Paso 2: el operador ya vio la información y decide. Confirmar es el
-    // ÚNICO llamado que puede registrar algo — reusa checkIn tal cual (el
-    // mismo endpoint que antes hacía todo en un solo paso), que vuelve a
-    // correr TODAS las reglas desde cero adentro de una transacción: nunca
-    // confía en que el escaneo de hace unos segundos siga vigente. Si otro
-    // scanner ya la usó mientras tanto, esto va a volver ALREADY_USED — acá
-    // se distingue con un mensaje específico en vez del genérico.
+    // Momento 2: CONFIRMAR EL INGRESO — el operador ya vio la información y
+    // decide. Es el ÚNICO llamado que puede registrar algo — reusa
+    // confirmScan tal cual, que vuelve a correr TODAS las reglas desde cero
+    // adentro de una transacción: nunca confía en que el escaneo de hace
+    // unos segundos siga vigente. Si otro scanner ya la usó mientras tanto,
+    // esto va a volver ALREADY_USED — acá se distingue con un mensaje
+    // específico en vez del genérico.
     async function handleConfirmEntry() {
         if (!pendingConfirmation || confirming) return;
         setConfirming(true);
         try {
             const token = readScannerSessionToken();
-            const response = await checkIn(token, {
+            const response = await confirmScan(token, {
                 qrToken: pendingConfirmation.qrToken,
                 eventId: event.id,
                 functionId: fn.id,
@@ -224,15 +224,20 @@ export default function ScanningScreen({ event, fn, scannerGate, onExitScanning,
 
     // Timeout automático: mismo efecto que declinar (nada se registra), sólo
     // que lo dispara el tiempo en vez del operador — nunca debe quedar una
-    // confirmación pendiente indefinidamente. Se reinicia solo cada vez que
-    // cambia `pendingConfirmation` (entrada nueva) y se cancela si el
-    // operador decide antes (confirmar/declinar limpian pendingConfirmation,
-    // lo que dispara el cleanup de este efecto).
+    // confirmación pendiente indefinidamente. Además, a diferencia de
+    // declinar, avisa brevemente por qué volvió sola al lector (pedido
+    // explícito: "el operador debe entender qué ocurrió") reutilizando el
+    // mismo mecanismo de flash que cualquier otro resultado — ver
+    // showResult/SCAN_RESULT_DURATION_MS.TIMEOUT (~500ms). Se reinicia solo
+    // cada vez que cambia `pendingConfirmation` (entrada nueva) y se cancela
+    // si el operador decide antes (confirmar/declinar limpian
+    // pendingConfirmation, lo que dispara el cleanup de este efecto).
     useEffect(() => {
         if (!pendingConfirmation) return undefined;
         const timeoutId = setTimeout(() => {
             recentTokensRef.current.set(pendingConfirmation.qrToken, Date.now());
             setPendingConfirmation(null);
+            showResult("TIMEOUT", null);
         }, CONFIRMATION_TIMEOUT_MS);
         return () => clearTimeout(timeoutId);
     }, [pendingConfirmation]);
