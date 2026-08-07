@@ -20,13 +20,20 @@ function formatTime(value) {
 // backend + el pseudo-estado OFFLINE sintetizado en el cliente. Todos los
 // datos vienen tal cual del backend (buildResult en scanner.service.js) —
 // nada se recalcula ni se inventa acá.
-export default function ScanResultOverlay({ status, data }) {
+//
+// `labelOverride`: sólo lo usa ScanningScreen para distinguir, en el
+// flujo de confirmación en dos fases, un ALREADY_USED detectado recién al
+// confirmar (otro scanner se adelantó mientras esta pantalla estaba
+// abierta) del mismo estado detectado directo en la lectura — mismo
+// componente, mismo tono/ícono, un texto más específico para ese caso
+// puntual en vez de duplicar la pantalla entera.
+export default function ScanResultOverlay({ status, data, labelOverride }) {
     const Icon = ICON_BY_STATUS[status] ?? HelpCircle;
 
     return (
         <div className={`absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 px-8 text-center ${SCAN_RESULT_TONE[status] ?? SCAN_RESULT_TONE.NOT_FOUND}`}>
             <Icon className="h-20 w-20" strokeWidth={1.75} />
-            <h1 className="text-2xl font-extrabold uppercase tracking-wide">{SCAN_RESULT_LABEL[status]}</h1>
+            <h1 className="text-2xl font-extrabold uppercase tracking-wide">{labelOverride ?? SCAN_RESULT_LABEL[status]}</h1>
 
             {status === "VALID" && (
                 <div className="mt-1 flex flex-col gap-0.5">

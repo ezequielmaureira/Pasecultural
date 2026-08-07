@@ -34,11 +34,27 @@ function buildTicketInclude() {
         buyer: { select: { firstName: true, lastName: true } },
         ticketType: { select: { name: true } },
         event: { select: { title: true } },
+        // Sólo lo usa el preview (fecha/lugar de la función a mostrar antes
+        // de confirmar) — buildResult (VALID/ALREADY_USED/CANCELLED) nunca
+        // lo lee, así que agregarlo acá no cambia ninguna respuesta existente.
+        function: { select: { date: true, venue: true } },
     };
 }
 
 function buyerName(ticket) {
     return [ticket.buyer?.firstName, ticket.buyer?.lastName].filter(Boolean).join(" ").trim() || null;
+}
+
+// Token crudo del QR: "<ticketId>.<secret>" (base64url, sin puntos, por eso
+// alcanza con partir en el primer punto). Extraído para que preview y
+// confirmación lo parseen exactamente igual, una sola vez.
+function parseScanToken(raw) {
+    const token = typeof raw === "string" ? raw : "";
+    const separatorIndex = token.indexOf(".");
+    return {
+        ticketId: separatorIndex > 0 ? token.slice(0, separatorIndex) : null,
+        providedSecret: separatorIndex > 0 ? token.slice(separatorIndex + 1) : null,
+    };
 }
 
 // Contrato uniforme de respuesta: siempre { status, message, data }, siempre
@@ -71,6 +87,116 @@ function buildResult(result, { ticket, checkIn, scannerName, gate } = {}) {
     return { status: result, message: RESULT_MESSAGES[result], data };
 }
 
+// ÚNICA definición de "qué pasa con este QR" — evento correcto, función
+// correcta, cancelada/reembolsada, ya usada. La llama tanto previewScanService
+// (de sólo lectura, con el cliente `prisma` normal) como validateScanService
+// (adentro de su transacción, con el cliente `tx`) — mismo código, ninguna
+// regla duplicada ni reimplementada dos veces. Nunca escribe nada: sólo lee
+// y devuelve qué encontró. `status: "READY"` es el único caso en el que el
+// ticket pasó TODAS las reglas y sigue ACTIVE — recién ahí tiene sentido
+// intentar el paso siguiente (mostrar confirmación, o escribir el CheckIn).
+async function resolveScanOutcome(client, { ticketId, providedSecret, eventId, functionId }) {
+    const ticket = await client.ticket.findUnique({ where: { id: ticketId }, include: buildTicketInclude() });
+    if (!ticket || ticket.deletedAt) {
+        return { status: "NOT_FOUND" };
+    }
+
+    let secretMatches;
+    try {
+        const expectedSecret = decryptSecret(ticket.qr.secretEncrypted);
+        const expectedBuffer = Buffer.from(expectedSecret);
+        const providedBuffer = Buffer.from(providedSecret);
+        secretMatches =
+            expectedBuffer.length === providedBuffer.length &&
+            crypto.timingSafeEqual(expectedBuffer, providedBuffer);
+    } catch {
+        secretMatches = false;
+    }
+    if (!secretMatches) {
+        // No se distingue de "no existe": no hay que confirmarle a quien
+        // escanea un token adulterado que el ticketId sí era real. Igual se
+        // devuelve `ticket` (nunca en la respuesta pública — sólo para que
+        // el caller pueda loguear a qué ticket real apuntaba el intento).
+        return { status: "NOT_FOUND", ticket };
+    }
+
+    if (ticket.eventId !== eventId || (functionId && ticket.functionId !== functionId)) {
+        return { status: "WRONG_EVENT", ticket };
+    }
+
+    if (ticket.status === "CANCELLED" || ticket.status === "REFUNDED") {
+        return { status: "CANCELLED", ticket };
+    }
+
+    if (ticket.status === "USED") {
+        // CheckIn ya no es 1:1 con Ticket (puede reactivarse y volver a
+        // escanearse, ver ticketAdmin.service.js) — findFirst + orderBy
+        // trae el ingreso más reciente, que es lo que corresponde mostrar
+        // como "cuándo entró" mientras siga USED.
+        const checkIn = await client.checkIn.findFirst({ where: { ticketId: ticket.id }, orderBy: { scannedAt: "desc" } });
+        return { status: "ALREADY_USED", ticket, checkIn };
+    }
+
+    return { status: "READY", ticket };
+}
+
+// Paso 1 del nuevo flujo de dos fases: leer el QR y mostrarle al operador
+// contra quién está a punto de autorizar el ingreso, SIN registrar nada
+// todavía. Nunca escribe ScanAttempt/CheckIn/Ticket, nunca devuelve `stats`
+// (nada se consumió). Reutiliza exactamente resolveScanOutcome() y
+// buildResult() — ninguna regla de negocio se reimplementa acá aparte del
+// armado de la info adicional para READY (nombre del titular, tipo de
+// entrada, función, ingresos permitidos/usados/restantes).
+//
+// Esto NUNCA es la fuente de verdad: es sólo una vista previa de sólo
+// lectura. Si el operador aprieta "Confirmar ingreso", validateScanService
+// vuelve a correr resolveScanOutcome() desde cero, adentro de una
+// transacción con el mismo guard atómico de siempre — así que si esta
+// preview quedó desactualizada (otro scanner se adelantó, el evento se
+// canceló, lo que sea) nunca puede colarse un ingreso indebido.
+export const previewScanService = async (scannerContext, input) => {
+    const access = await resolveScannerAccess(scannerContext, input?.eventId);
+    const eventId = access.eventId;
+    const functionId = input?.functionId || null;
+
+    const { ticketId, providedSecret } = parseScanToken(input?.token);
+    if (!ticketId || !providedSecret) {
+        return buildResult("NOT_FOUND");
+    }
+
+    const outcome = await resolveScanOutcome(prisma, { ticketId, providedSecret, eventId, functionId });
+
+    if (outcome.status === "NOT_FOUND") return buildResult("NOT_FOUND");
+    if (outcome.status === "WRONG_EVENT") return buildResult("WRONG_EVENT");
+    if (outcome.status === "CANCELLED") return buildResult("CANCELLED", { ticket: outcome.ticket });
+    if (outcome.status === "ALREADY_USED") {
+        return buildResult("ALREADY_USED", { ticket: outcome.ticket, checkIn: outcome.checkIn });
+    }
+
+    // READY: el modelo actual de Ticket es de una sola entrada (no hay
+    // pases multi-ingreso) — allowed/used/remaining se calculan así a
+    // propósito, no se hardcodean sueltos, para que si el día de mañana
+    // TicketType suma un límite de reingresos, sólo haya que tocar este
+    // cálculo y no el resto de la pantalla.
+    const ticket = outcome.ticket;
+    return {
+        status: "READY",
+        message: "Entrada válida — verificá antes de confirmar.",
+        data: {
+            ticketNumber: ticket.ticketNumber,
+            buyerName: buyerName(ticket),
+            ticketType: ticket.ticketType.name,
+            eventName: ticket.event.title,
+            functionDate: ticket.function.date,
+            venue: ticket.function.venue,
+            allowedEntries: 1,
+            usedEntries: 0,
+            remainingEntries: 1,
+            ticketStatus: ticket.status,
+        },
+    };
+};
+
 // El corazón del sistema: valida un QR y, si es válido, registra el
 // ingreso. Todo dentro de UNA transacción. SIEMPRE registra un ScanAttempt,
 // sin importar el resultado (incluso NOT_FOUND/WRONG_EVENT/CANCELLED).
@@ -96,12 +222,7 @@ export const validateScanService = async (scannerContext, input) => {
 
     const scannerName = [access.firstName, access.lastName].filter(Boolean).join(" ").trim() || access.name;
 
-    // Token: "<ticketId>.<secret>" (base64url, sin puntos, por eso alcanza
-    // con partir en el primer punto).
-    const raw = typeof input?.token === "string" ? input.token : "";
-    const separatorIndex = raw.indexOf(".");
-    const ticketId = separatorIndex > 0 ? raw.slice(0, separatorIndex) : null;
-    const providedSecret = separatorIndex > 0 ? raw.slice(separatorIndex + 1) : null;
+    const { ticketId, providedSecret } = parseScanToken(input?.token);
 
     const result = await prisma.$transaction(async (tx) => {
         async function recordAttempt(scanResult, resolvedTicketId) {
@@ -131,55 +252,44 @@ export const validateScanService = async (scannerContext, input) => {
             return withStats(buildResult("NOT_FOUND"));
         }
 
-        const ticket = await tx.ticket.findUnique({ where: { id: ticketId }, include: buildTicketInclude() });
-        if (!ticket || ticket.deletedAt) {
-            await recordAttempt("NOT_FOUND", null);
+        // Única fuente de verdad de las reglas de negocio (evento, función,
+        // cancelada, ya usada) — la misma que usa previewScanService, pero
+        // corrida DE NUEVO acá, adentro de esta transacción con `tx`. Nunca
+        // se confía en un resultado de preview resuelto segundos antes: si
+        // otro scanner ya la usó mientras esta pantalla de confirmación
+        // estaba abierta, esta consulta lo va a ver.
+        const outcome = await resolveScanOutcome(tx, { ticketId, providedSecret, eventId, functionId });
+
+        if (outcome.status === "NOT_FOUND") {
+            await recordAttempt("NOT_FOUND", outcome.ticket?.id ?? null);
             return withStats(buildResult("NOT_FOUND"));
         }
-
-        let secretMatches;
-        try {
-            const expectedSecret = decryptSecret(ticket.qr.secretEncrypted);
-            const expectedBuffer = Buffer.from(expectedSecret);
-            const providedBuffer = Buffer.from(providedSecret);
-            secretMatches =
-                expectedBuffer.length === providedBuffer.length &&
-                crypto.timingSafeEqual(expectedBuffer, providedBuffer);
-        } catch {
-            secretMatches = false;
-        }
-        if (!secretMatches) {
-            // No se distingue de "no existe": no hay que confirmarle a quien
-            // escanea un token adulterado que el ticketId sí era real.
-            await recordAttempt("NOT_FOUND", ticket.id);
-            return withStats(buildResult("NOT_FOUND"));
-        }
-
-        if (ticket.eventId !== eventId || (functionId && ticket.functionId !== functionId)) {
-            await recordAttempt("WRONG_EVENT", ticket.id);
+        if (outcome.status === "WRONG_EVENT") {
+            await recordAttempt("WRONG_EVENT", outcome.ticket.id);
             return withStats(buildResult("WRONG_EVENT"));
         }
-
-        if (ticket.status === "CANCELLED" || ticket.status === "REFUNDED") {
-            await recordAttempt("CANCELLED", ticket.id);
-            return withStats(buildResult("CANCELLED", { ticket }));
+        if (outcome.status === "CANCELLED") {
+            await recordAttempt("CANCELLED", outcome.ticket.id);
+            return withStats(buildResult("CANCELLED", { ticket: outcome.ticket }));
+        }
+        if (outcome.status === "ALREADY_USED") {
+            await recordAttempt("ALREADY_USED", outcome.ticket.id);
+            return withStats(buildResult("ALREADY_USED", { ticket: outcome.ticket, checkIn: outcome.checkIn }));
         }
 
-        if (ticket.status === "USED") {
-            // CheckIn ya no es 1:1 con Ticket (puede reactivarse y volver a
-            // escanearse, ver ticketAdmin.service.js) — findFirst + orderBy
-            // trae el ingreso más reciente, que es lo que corresponde
-            // mostrar como "cuándo entró" mientras siga USED.
-            const checkIn = await tx.checkIn.findFirst({ where: { ticketId: ticket.id }, orderBy: { scannedAt: "desc" } });
-            await recordAttempt("ALREADY_USED", ticket.id);
-            return withStats(buildResult("ALREADY_USED", { ticket, checkIn }));
-        }
+        const ticket = outcome.ticket;
 
         // Update condicional atómico ACTIVE -> USED: si dos escaneos del mismo
-        // QR llegan al mismo tiempo, sólo uno encuentra status: ACTIVE todavía.
+        // QR llegan al mismo tiempo (o si esta confirmación llega tarde
+        // porque el operador tardó en mirar la pantalla de verificación y
+        // otro scanner ya la registró), sólo uno encuentra status: ACTIVE
+        // todavía. Es el guard real, siempre fue éste — resolveScanOutcome
+        // de arriba dijo "READY" hace un instante, pero nunca es la
+        // autorización en sí, sólo este UPDATE lo es.
         const updated = await tx.ticket.updateMany({ where: { id: ticket.id, status: "ACTIVE" }, data: { status: "USED" } });
         if (updated.count === 0) {
-            // Perdió la carrera contra otro scan simultáneo.
+            // Perdió la carrera contra otro scan simultáneo (o contra una
+            // confirmación que llegó primero).
             const checkIn = await tx.checkIn.findFirst({ where: { ticketId: ticket.id }, orderBy: { scannedAt: "desc" } });
             await recordAttempt("ALREADY_USED", ticket.id);
             return withStats(buildResult("ALREADY_USED", { ticket, checkIn }));

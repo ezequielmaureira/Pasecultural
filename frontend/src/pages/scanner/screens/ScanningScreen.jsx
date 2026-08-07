@@ -2,13 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import QrScanner from "qr-scanner";
 import { History, SwitchCamera, Zap, ZapOff, LogOut, WifiOff } from "lucide-react";
 import Spinner from "../../../components/ui/Spinner.jsx";
-import { validateScan } from "../../../lib/scannerApi.js";
+import { previewScan, validateScan } from "../../../lib/scannerApi.js";
 import { readScannerSessionToken } from "../../../lib/scannerSessionStorage.js";
 import { primeAudio, playResultSound } from "../scannerSound.js";
 import { vibrateForResult } from "../scannerVibration.js";
 import { SCAN_RESULT_DURATION_MS } from "../scanResultConfig.js";
 import { functionLabel } from "../scannerFormat.js";
 import ScanResultOverlay from "../components/ScanResultOverlay.jsx";
+import ScanConfirmationOverlay from "../components/ScanConfirmationOverlay.jsx";
 import ScanHistoryDrawer from "../components/ScanHistoryDrawer.jsx";
 import CameraErrorScreen from "./CameraErrorScreen.jsx";
 
@@ -49,7 +50,13 @@ export default function ScanningScreen({ event, fn, scannerGate, onExitScanning,
     const [cameraStatus, setCameraStatus] = useState("starting"); // starting | active | error
     const [cameraErrorType, setCameraErrorType] = useState(null);
     const [availableCameras, setAvailableCameras] = useState([]);
-    const [result, setResult] = useState(null); // { status, data } | null
+    const [result, setResult] = useState(null); // { status, data, labelOverride } | null
+    // Paso 1 del flujo en dos fases: un QR que pasó preview con status
+    // READY, esperando que el operador confirme o decline — ver
+    // ScanConfirmationOverlay. `qrToken` se guarda tal cual para reenviarlo
+    // sin cambios al confirmar (nunca se vuelve a leer del QR).
+    const [pendingConfirmation, setPendingConfirmation] = useState(null); // { qrToken, data } | null
+    const [confirming, setConfirming] = useState(false);
     const [stats, setStats] = useState({ capacity: fn.capacity, checkedIn: fn.checkedIn, remaining: fn.remaining });
     const [rejectedCount, setRejectedCount] = useState(0);
     const [historyOpen, setHistoryOpen] = useState(false);
@@ -57,10 +64,20 @@ export default function ScanningScreen({ event, fn, scannerGate, onExitScanning,
     const [hasFlash, setHasFlash] = useState(false);
     const [flashOn, setFlashOn] = useState(false);
 
-    function showResult(status, data) {
+    // handleDecode corre desde un callback del motor qr-scanner que nunca
+    // se recrea (ver handleDecodeRef más abajo) — necesita una lectura
+    // siempre fresca de "¿hay una confirmación pendiente ahora mismo?" sin
+    // depender de que su propio useCallback se vuelva a crear, mismo
+    // criterio que ya usan busyRef/isOnlineRef acá abajo.
+    const pendingConfirmationRef = useRef(null);
+    useEffect(() => {
+        pendingConfirmationRef.current = pendingConfirmation;
+    }, [pendingConfirmation]);
+
+    function showResult(status, data, labelOverride) {
         if (!isMountedRef.current) return;
         clearTimeout(resultTimeoutRef.current);
-        setResult({ status, data });
+        setResult({ status, data, labelOverride });
         const duration = SCAN_RESULT_DURATION_MS[status] ?? SCAN_RESULT_DURATION_MS.NOT_FOUND;
         // No pausa/reanuda el motor de lectura — sólo esconde el overlay. Si
         // ya entró un resultado más nuevo mientras tanto, este timeout viejo
@@ -70,10 +87,18 @@ export default function ScanningScreen({ event, fn, scannerGate, onExitScanning,
         }, duration);
     }
 
+    // Paso 1: lee el QR y sólo VALIDA (preview, de sólo lectura — ver
+    // previewScanService en el backend). Si está todo en orden, no registra
+    // nada todavía: muestra la pantalla de confirmación y espera a que el
+    // operador decida. Cualquier motivo de rechazo (QR inválido, evento/
+    // función equivocados, cancelada, ya usada) se muestra exactamente
+    // igual que antes — nunca se llega a la pantalla de confirmación en
+    // esos casos.
     const handleDecode = useCallback(
         async (scanResult) => {
             const qrToken = typeof scanResult === "string" ? scanResult : scanResult.data;
             if (!qrToken) return;
+            if (pendingConfirmationRef.current) return; // esperando que el operador confirme/decline otra entrada
 
             const now = Date.now();
             const recent = recentTokensRef.current;
@@ -96,13 +121,20 @@ export default function ScanningScreen({ event, fn, scannerGate, onExitScanning,
             busyRef.current = true;
             try {
                 const token = readScannerSessionToken();
-                const response = await validateScan(token, { qrToken, eventId: event.id, functionId: fn.id });
+                const response = await previewScan(token, { qrToken, eventId: event.id, functionId: fn.id });
 
+                if (response.status === "READY") {
+                    if (isMountedRef.current) setPendingConfirmation({ qrToken, data: response.data });
+                    return;
+                }
+
+                // No pasó el preview: mismo feedback de siempre (sonido,
+                // vibración, contador de rechazadas, overlay) — la pantalla
+                // de confirmación nunca llega a mostrarse para esto.
                 playResultSound(response.status);
                 vibrateForResult(response.status);
                 if (isMountedRef.current) {
-                    if (response.stats) setStats(response.stats);
-                    if (response.status !== "VALID") setRejectedCount((n) => n + 1);
+                    setRejectedCount((n) => n + 1);
                     showResult(response.status, response.data);
                 }
             } catch (err) {
@@ -124,6 +156,65 @@ export default function ScanningScreen({ event, fn, scannerGate, onExitScanning,
         },
         [event.id, fn.id, onRevoked]
     );
+
+    // Paso 2: el operador ya vio la información y decide. Confirmar es el
+    // ÚNICO llamado que puede registrar algo — reusa validateScan tal cual
+    // (el mismo endpoint que antes hacía todo en un solo paso), que vuelve a
+    // correr TODAS las reglas desde cero adentro de una transacción: nunca
+    // confía en que el preview de hace unos segundos siga vigente. Si otro
+    // scanner ya la usó mientras tanto, esto va a volver ALREADY_USED — acá
+    // se distingue con un mensaje específico en vez del genérico.
+    async function handleConfirmEntry() {
+        if (!pendingConfirmation || confirming) return;
+        setConfirming(true);
+        try {
+            const token = readScannerSessionToken();
+            const response = await validateScan(token, {
+                qrToken: pendingConfirmation.qrToken,
+                eventId: event.id,
+                functionId: fn.id,
+            });
+
+            playResultSound(response.status);
+            vibrateForResult(response.status);
+            if (isMountedRef.current) {
+                if (response.stats) setStats(response.stats);
+                if (response.status !== "VALID") setRejectedCount((n) => n + 1);
+                const labelOverride =
+                    response.status === "ALREADY_USED" ? "Esta entrada acaba de ser utilizada por otro scanner." : undefined;
+                showResult(response.status, response.data, labelOverride);
+            }
+        } catch (err) {
+            if (err.code === "SCANNER_NOT_AUTHORIZED" || err.code === "SCANNER_SESSION_INVALID") {
+                onRevoked();
+                return;
+            }
+            if (err.isTimeout || err.isNetworkError) {
+                showResult("OFFLINE", null);
+            } else {
+                setRejectedCount((n) => n + 1);
+                showResult("NOT_FOUND", null);
+            }
+        } finally {
+            if (isMountedRef.current) {
+                setConfirming(false);
+                // Refresca el debounce de este QR recién ahora — el operador
+                // pudo haber tardado más de DUPLICATE_IGNORE_MS en decidir,
+                // y el mismo QR puede seguir encuadrado un instante más.
+                recentTokensRef.current.set(pendingConfirmation.qrToken, Date.now());
+                setPendingConfirmation(null);
+            }
+        }
+    }
+
+    // Declinar NUNCA llama al backend — pedido explícito: no se registra
+    // absolutamente nada (ni CheckIn, ni ScanAttempt, ni estadísticas).
+    // Sólo vuelve al lector.
+    function handleDeclineEntry() {
+        if (!pendingConfirmation) return;
+        recentTokensRef.current.set(pendingConfirmation.qrToken, Date.now());
+        setPendingConfirmation(null);
+    }
 
     // El motor qr-scanner se crea UNA sola vez (ver startCamera más abajo) y
     // llama siempre a esta misma función wrapper — nunca hay que recrear la
@@ -364,7 +455,16 @@ export default function ScanningScreen({ event, fn, scannerGate, onExitScanning,
                     </div>
                 )}
 
-                {result && <ScanResultOverlay status={result.status} data={result.data} />}
+                {pendingConfirmation && (
+                    <ScanConfirmationOverlay
+                        data={pendingConfirmation.data}
+                        onConfirm={handleConfirmEntry}
+                        onDecline={handleDeclineEntry}
+                        confirming={confirming}
+                    />
+                )}
+
+                {result && <ScanResultOverlay status={result.status} data={result.data} labelOverride={result.labelOverride} />}
             </div>
 
             {historyOpen && (

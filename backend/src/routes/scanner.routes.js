@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { validateScan } from "../controllers/scanner.controller.js";
+import { validateScan, previewScan } from "../controllers/scanner.controller.js";
 import {
     listScannerEvents,
     getFunctionStats,
@@ -19,6 +19,10 @@ router.get("/dashboard", requireScannerSession, getScannerDashboard);
 router.get("/events", requireScannerSession, listScannerEvents);
 router.get("/events/:eventId/functions/:functionId/stats", requireScannerSession, getFunctionStats);
 router.get("/scan-attempts", requireScannerSession, listScanAttempts);
+// scan-preview: paso 1 (sólo lectura, ver previewScanService) del flujo de
+// confirmación en dos fases. validate sigue siendo el único punto que
+// escribe — sin cambios en su contrato.
+router.post("/scan-preview", requireScannerSession, previewScan);
 router.post("/validate", requireScannerSession, validateScan);
 
 export default router;
