@@ -345,12 +345,18 @@ export default function ScannerHome() {
     // saber nada de pendingConfirmation. Ver ScanningScreen.jsx.
     const backOverrideRef = useRef(null);
 
-    // Activo siempre que haya una sesión real (cualquier fase menos
-    // "no-session", que sólo se llega a ella cuando no hay ningún
-    // scannerSessionToken guardado). "Salir" (handleLogout) sigue siendo el
-    // único camino real fuera de acá — navega con replace, nunca depende de
-    // este guard.
-    useScannerBackGuard(phase !== "no-session", () => {
+    // Activo siempre que haya un scannerSessionToken guardado — se lee
+    // directo de localStorage en cada render (síncrono, no depende de
+    // `phase`) a propósito: si se derivara de `phase !== "no-session"`, el
+    // primer render arranca en "loading" (todavía no se sabe si hay
+    // sesión), así que el efecto de abajo alcanzaría a empujar UNA entrada
+    // guardia antes de que `load()` recién esté por descubrir que no hay
+    // token — inofensivo (se limpia solo en el siguiente render), pero
+    // evitable. Leyendo el token acá, el primer render YA sabe la
+    // respuesta correcta, sin ventana intermedia. "Salir" (handleLogout)
+    // sigue siendo el único camino real fuera de acá — navega con replace,
+    // nunca depende de este guard.
+    useScannerBackGuard(Boolean(readScannerSessionToken()), () => {
         if (backOverrideRef.current) {
             backOverrideRef.current();
             return;
