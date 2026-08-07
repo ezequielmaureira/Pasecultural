@@ -73,9 +73,16 @@ export async function apiFetch(path, { token, timeoutMs = DEFAULT_TIMEOUT_MS, ..
 // siempre, así que esta variante hermana lee el cuerpo como Blob en vez de
 // hacer res.json(). El manejo de timeout/error de red y de errores HTTP con
 // body JSON (el backend sigue devolviendo JSON en los errores) es el mismo
-// que apiFetch, para no duplicar esa lógica.
-export async function apiFetchBlob(path, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
-  const res = await fetchWithTimeout(`${API_URL}${path}`, {}, timeoutMs);
+// que apiFetch, para no duplicar esa lógica. `token` opcional: los primeros
+// usos (recuperación de compra por publicRecoveryToken) no lo necesitaban,
+// por eso no existía — un caller autenticado (ej. courtesyApi.js) lo pasa
+// igual que apiFetch.
+export async function apiFetchBlob(path, { token, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+  const res = await fetchWithTimeout(
+    `${API_URL}${path}`,
+    { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } },
+    timeoutMs
+  );
 
   if (!res.ok) {
     let message = `Error ${res.status} al llamar ${path}`;

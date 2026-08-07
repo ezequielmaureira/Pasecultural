@@ -77,7 +77,24 @@ async function getOrCreateGuestBuyer({ firstName, lastName, email }) {
 // comprador arme una reserva imposible), pero el chequeo autoritativo y
 // definitivo ocurre recién en confirmSale(), bajo lock, que es el único
 // punto que realmente genera tickets.
-async function createSaleForBuyer(buyer, input) {
+// `options` es la única forma en la que el módulo Cortesías (courtesy.service.js)
+// se engancha a este mismo núcleo sin bifurcarlo:
+//   - requireBuyerDocument: el DNI existe para la futura recuperación de
+//     compras reales — una cortesía nunca le pide DNI a nadie.
+//   - enforceMaxPerPurchase: ese límite es anti-scalping para el checkout
+//     público; no tiene sentido contra un organizador autorizado emitiendo
+//     entradas propias.
+//   - origin: se graba tal cual en la Sale — el resto de esta función
+//     (validación de evento/función/tipo de entrada, chequeo de STOCK) es
+//     IDÉNTICO para los dos orígenes a propósito: una cortesía consume el
+//     mismo cupo que una venta real, nunca hay overselling por este atajo.
+// Los dos callers existentes (createSaleService/createGuestSaleService) no
+// pasan `options` — quedan con el comportamiento exacto de siempre.
+// Exportada (además de usada internamente por create[Guest]SaleService) para
+// que courtesy.service.js la reutilice tal cual con su propio buyer ya
+// resuelto y `options` relajadas — nunca reimplementa esta validación.
+export async function createSaleForBuyer(buyer, input, options = {}) {
+    const { requireBuyerDocument = true, enforceMaxPerPurchase = true, origin = "SALE" } = options;
     const event = await prisma.event.findUnique({ where: { id: input?.eventId } });
     if (!event) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
 
@@ -98,15 +115,20 @@ async function createSaleForBuyer(buyer, input) {
 
     // Preparación para la futura recuperación segura de entradas (ver
     // Sale.buyerDocument en schema.prisma) — obligatorio para toda venta
-    // NUEVA de acá en adelante; las ventas viejas simplemente no lo tienen
-    // y siguen funcionando igual (QR, PDF, recuperación por
-    // publicRecoveryToken no dependen de este campo para nada).
-    if (!input?.buyerDocument) {
+    // real NUEVA de acá en adelante; las ventas viejas simplemente no lo
+    // tienen y siguen funcionando igual (QR, PDF, recuperación por
+    // publicRecoveryToken no dependen de este campo para nada). Una
+    // cortesía (requireBuyerDocument: false) nunca lo pide — si de todos
+    // modos vino uno, se valida igual en vez de guardarlo tal cual.
+    let buyerDocument = null;
+    if (requireBuyerDocument && !input?.buyerDocument) {
         throw new AppError(ErrorCodes.GUEST_BUYER_DOCUMENT_REQUIRED);
     }
-    const buyerDocument = normalizeBuyerDocument(input.buyerDocument);
-    if (!isValidBuyerDocument(buyerDocument)) {
-        throw new AppError(ErrorCodes.GUEST_BUYER_INVALID_DOCUMENT);
+    if (input?.buyerDocument) {
+        buyerDocument = normalizeBuyerDocument(input.buyerDocument);
+        if (!isValidBuyerDocument(buyerDocument)) {
+            throw new AppError(ErrorCodes.GUEST_BUYER_INVALID_DOCUMENT);
+        }
     }
 
     const ticketTypeIds = [...new Set(itemsInput.map((item) => item.ticketTypeId))];
@@ -125,7 +147,7 @@ async function createSaleForBuyer(buyer, input) {
         if (!assignment.enabled) {
             throw new AppError(ErrorCodes.TICKET_TYPE_NOT_AVAILABLE);
         }
-        if (item.quantity > assignment.ticketType.maxPerPurchase) {
+        if (enforceMaxPerPurchase && item.quantity > assignment.ticketType.maxPerPurchase) {
             throw new AppError(ErrorCodes.MAX_PER_PURCHASE_EXCEEDED, { details: { ticketTypeId: item.ticketTypeId } });
         }
 
@@ -145,6 +167,7 @@ async function createSaleForBuyer(buyer, input) {
     const sale = await prisma.sale.create({
         data: {
             status: "PENDING",
+            origin,
             buyerId: buyer.id,
             eventId: event.id,
             functionId: eventFunction.id,
@@ -241,7 +264,13 @@ async function buildConfirmedSaleResult(saleId) {
 // Pago — ver nota de compatibilidad en confirmedBy). Todo en UNA
 // transacción: si cualquier paso falla, rollback completo, cero estados
 // intermedios.
-export const confirmSaleService = async (clerkId, saleId) => {
+// `skipAutoEmail`: sólo lo usa courtesy.service.js para el delivery
+// "Compartir" — una cortesía compartida por link nunca debe mandar un
+// correo no pedido. Con `false` (default, todos los callers existentes)
+// el comportamiento es exactamente el de siempre: sendSaleConfirmationEmail
+// se dispara igual que hoy, sin excepciones.
+export const confirmSaleService = async (clerkId, saleId, options = {}) => {
+    const { skipAutoEmail = false } = options;
     logger.info("confirmSaleService entered", { clerkId, saleId });
     const organizerUser = await getUserByClerkId(clerkId);
     if (!organizerUser) {
@@ -257,7 +286,14 @@ export const confirmSaleService = async (clerkId, saleId) => {
         },
     });
     if (!sale || sale.deletedAt) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
-    if (sale.event.organization.ownerId !== organizerUser.id) {
+    // Mismo bypass que ya usa resendSaleConfirmationEmailService para
+    // DEVELOPER — agregado acá para que courtesy.service.js pueda confirmar
+    // una cortesía emitida por un DEVELOPER en una organización que no es la
+    // suya (issueCourtesyService ya validó ese acceso antes de llegar acá).
+    // No cambia nada para el resto de los callers: un ORGANIZER sigue sin
+    // poder confirmar ventas ajenas, exactamente como siempre.
+    const isDeveloper = organizerUser.role === "DEVELOPER";
+    if (!isDeveloper && sale.event.organization.ownerId !== organizerUser.id) {
         logger.info("confirmSaleService failed: organizer does not own event organization", {
             saleId,
             organizerUserId: organizerUser.id,
@@ -278,6 +314,9 @@ export const confirmSaleService = async (clerkId, saleId) => {
     if (sale.status === "CONFIRMED") {
         logger.info("confirmSaleService: sale already CONFIRMED, replaying result", { saleId });
         const replayed = await buildConfirmedSaleResult(sale.id);
+        if (skipAutoEmail) {
+            return { ...replayed, emailDeliveryStatus: sale.confirmationEmailStatus };
+        }
         const emailOutcome = await sendSaleConfirmationEmail(sale.id);
         return { ...replayed, emailDeliveryStatus: emailOutcome.status ?? "PENDING" };
     }
@@ -418,6 +457,10 @@ export const confirmSaleService = async (clerkId, saleId) => {
     // mantener sincronizadas.
     const confirmedResult = await buildConfirmedSaleResult(sale.id);
 
+    if (skipAutoEmail) {
+        return { ...confirmedResult, emailDeliveryStatus: "PENDING" };
+    }
+
     // Nunca dentro de la transacción de arriba (ya cerrada): Resend es una
     // llamada de red a un servicio externo, no puede formar parte de un
     // rollback de Postgres. Si el email falla, sendSaleConfirmationEmail lo
@@ -478,6 +521,10 @@ export const listSalesOrganizerService = async (clerkId, filters = {}) => {
             ...(filters.eventId ? {} : { archivedAt: null }),
         },
         deletedAt: null,
+        // "Ventas" es exclusivamente ingresos reales — las cortesías tienen
+        // su propio listado (courtesy.service.js#listCourtesiesService) y
+        // nunca deben aparecer acá mezcladas con precio $0.
+        origin: "SALE",
     };
 
     if (filters.status) where.status = filters.status;

@@ -76,6 +76,17 @@ enum SaleStatus {
   EXPIRED
 }
 
+// SALE = venta real (paga o manual, el flujo de siempre). COURTESY = emitida
+// por un organizador desde el módulo Cortesías, sin costo — ver
+// CourtesyIssuance más abajo para el resto de sus datos (motivo, quién la
+// emitió, cómo se entregó). Todo lo demás de Sale/Ticket/QR/Scanner/CheckIn
+// es IDÉNTICO para ambos orígenes: una cortesía es un Ticket normal, esto
+// es sólo la etiqueta mínima para distinguir de dónde vino.
+enum SaleOrigin {
+  SALE
+  COURTESY
+}
+
 enum PaymentMethod {
   MANUAL
   MERCADO_PAGO
@@ -132,6 +143,9 @@ model User {
   salesAsBuyer    Sale[]
   ticketsAsBuyer  Ticket[]       @relation("TicketBuyer")
   ticketsAsOwner  Ticket[]       @relation("TicketOwner")
+  // Cortesías que este usuario emitió como organizador (nunca como
+  // comprador/destinatario — eso ya lo cubre salesAsBuyer).
+  courtesyIssuances CourtesyIssuance[]
 }
 
 model Organization {
@@ -379,6 +393,12 @@ model Sale {
   id            String        @id @default(cuid())
   status        SaleStatus    @default(PENDING)
   paymentMethod PaymentMethod @default(MANUAL)
+  // @default(SALE) a propósito: cero impacto en las filas existentes, y
+  // todo el código que ya arma/lee una Sale sigue funcionando sin saber que
+  // este campo existe. Sólo lo mira el módulo Cortesías (para no mezclarse
+  // con listados/estadísticas de ventas reales) y CourtesyIssuance (su
+  // compañera 1:1 cuando origin = COURTESY).
+  origin        SaleOrigin    @default(SALE)
 
   // Credencial pública para que el comprador invitado (sin sesión) recupere
   // esta venta puntual desde el navegador — confirm-by-buyer y status se
@@ -442,7 +462,63 @@ model Sale {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  // Sólo existe cuando origin = COURTESY — ver CourtesyIssuance.
+  courtesy CourtesyIssuance?
+
   @@map("sales")
+}
+
+enum CourtesyReason {
+  SPONSOR
+  PRENSA
+  INVITADO
+  STAFF
+  ARTISTA
+  FAMILIAR
+  PROTOCOLO
+  OTRO
+}
+
+enum CourtesyDeliveryMethod {
+  SHARE
+  EMAIL
+}
+
+// Compañera 1:1 de una Sale con origin=COURTESY — sólo lo que una cortesía
+// necesita de más sobre una venta normal (motivo, quién la emitió, cómo se
+// entregó). Separada de Sale en vez de agregarle columnas nullable que no
+// significan nada para el otro 99% de las filas (mismo criterio que
+// TicketQr como compañera 1:1 de Ticket). El "estado" que ve el organizador
+// en el Historial (Pendiente/Entregada/Utilizada/Cancelada) NUNCA se guarda
+// acá — se calcula al leer, a partir de Sale.status, Ticket.status y
+// Sale.confirmationEmailStatus (mismo criterio que el stock: siempre
+// derivado, nunca una columna que se pueda desincronizar).
+model CourtesyIssuance {
+  id String @id @default(cuid())
+
+  saleId String @unique
+  sale   Sale   @relation(fields: [saleId], references: [id])
+
+  reason     CourtesyReason?
+  reasonNote String?
+
+  deliveryMethod CourtesyDeliveryMethod
+  // Sólo tiene valor con deliveryMethod = EMAIL — es el email al que
+  // realmente se mandó (mismo email que termina siendo Sale.buyer.email
+  // para esta venta, guardado también acá para que el Historial no
+  // dependa de resolver el buyer sólo para mostrar la columna
+  // "Destinatario").
+  recipientEmail String?
+
+  // Quién emitió — nunca null: sólo ORGANIZER/DEVELOPER pueden llegar a
+  // crear esta fila (ver requireRole en courtesy.routes.js).
+  issuedByUserId String
+  issuedBy       User   @relation(fields: [issuedByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("courtesy_issuances")
 }
 
 // Sesión de verificación por código de 6 dígitos para "Recuperar mis

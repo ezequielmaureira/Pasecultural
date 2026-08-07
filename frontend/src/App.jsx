@@ -35,6 +35,9 @@ import OrganizerEventChat from "./pages/organizer/OrganizerEventChat.jsx";
 import OrganizerTickets from "./pages/organizer/OrganizerTickets.jsx";
 import OrganizerTicketTypes from "./pages/organizer/OrganizerTicketTypes.jsx";
 import OrganizerSales from "./pages/organizer/OrganizerSales.jsx";
+import OrganizerCourtesies from "./pages/organizer/OrganizerCourtesies.jsx";
+import IssueCourtesyWizard from "./pages/organizer/courtesies/IssueCourtesyWizard.jsx";
+import CourtesyHistory from "./pages/organizer/courtesies/CourtesyHistory.jsx";
 import OrganizerScanners from "./pages/organizer/OrganizerScanners.jsx";
 import OrganizerScannerInvite from "./pages/organizer/OrganizerScannerInvite.jsx";
 import OrganizerSettings from "./pages/organizer/OrganizerSettings.jsx";
@@ -131,6 +134,9 @@ export default function App() {
                   <Route path="eventos/:id/editar" element={<OrganizerEventWizard />} />
                   <Route path="entradas" element={<OrganizerTickets />} />
                   <Route path="tipos-de-entrada" element={<OrganizerTicketTypes />} />
+                  <Route path="cortesias" element={<OrganizerCourtesies />} />
+                  <Route path="cortesias/emitir" element={<IssueCourtesyWizard />} />
+                  <Route path="cortesias/historial" element={<CourtesyHistory />} />
                   <Route path="ventas" element={<OrganizerSales />} />
                   <Route path="scanners" element={<OrganizerScanners />} />
                   <Route path="scanners/nuevo" element={<OrganizerScannerInvite />} />

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarRange } from "lucide-react";
+import { useAuth } from "@clerk/clerk-react";
+import { CalendarRange, Gift } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
 import InlineErrorNotice from "../../components/ui/InlineErrorNotice.jsx";
@@ -8,6 +9,7 @@ import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
 import { useActiveEvent } from "../../context/ActiveEventContext.jsx";
 import { useEventStats } from "../../hooks/useEventStats.js";
 import { groupEventsByCategory } from "./dashboard/dashboardMetrics.js";
+import { getCourtesyStats } from "../../lib/courtesyApi.js";
 
 // Pantalla dedicada "Estado de Funciones" — antes esto sólo existía como
 // sección del Dashboard (ya scopeada a un evento). Acá se agrega el
@@ -16,9 +18,16 @@ import { groupEventsByCategory } from "./dashboard/dashboardMetrics.js";
 // (vía useEventStats, mismo hook que ya usa Entradas) y FunctionOccupancyList
 // tal cual, sin ningún cambio en las tarjetas.
 export default function OrganizerFunctionStatus() {
+  const { getToken } = useAuth();
   const { events, loadingEvents } = useOrganizerData();
   const { activeEventId, setActiveEventId } = useActiveEvent();
   const [selectedEventId, setSelectedEventId] = useState(null);
+  // Desglose propio de Cortesías (courtesy.service.js#getCourtesyStatsService)
+  // — nunca toca ni recalcula lo que ya devuelve useEventStats/
+  // FunctionOccupancyList: esos siguen contando TODOS los tickets emitidos
+  // (cortesía o no), exactamente como contaban antes de que este módulo
+  // existiera. Esto es sólo información adicional, en su propia tarjeta.
+  const [courtesyStats, setCourtesyStats] = useState(null);
 
   const categorized = useMemo(() => groupEventsByCategory(events, new Date()), [events]);
 
@@ -47,6 +56,28 @@ export default function OrganizerFunctionStatus() {
 
   const eventStats = useEventStats(selectedEventId);
   const selectedEvent = events.find((e) => e.id === selectedEventId) ?? null;
+
+  useEffect(() => {
+    if (!selectedEventId) {
+      setCourtesyStats(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        const stats = await getCourtesyStats(token, selectedEventId);
+        if (!cancelled) setCourtesyStats(stats);
+      } catch {
+        // No es crítico para esta pantalla — si falla, simplemente no se
+        // muestra la tarjeta de Cortesías, sin romper el resto.
+        if (!cancelled) setCourtesyStats(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEventId, getToken]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -84,8 +115,31 @@ export default function OrganizerFunctionStatus() {
           <EmptyState icon={CalendarRange}>Elegí un evento para ver el estado de sus funciones.</EmptyState>
         </Card>
       ) : (
-        <div>
-          {selectedEvent && <p className="mb-3 text-sm font-medium text-white">{selectedEvent.title}</p>}
+        <div className="flex flex-col gap-4">
+          {selectedEvent && <p className="text-sm font-medium text-white">{selectedEvent.title}</p>}
+
+          {courtesyStats && courtesyStats.issued > 0 && (
+            <Card>
+              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
+                <Gift className="h-4 w-4 text-violet-400" />
+                Cortesías de este evento
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {[
+                  { label: "Emitidas", value: courtesyStats.issued },
+                  { label: "Utilizadas", value: courtesyStats.used },
+                  { label: "Pendientes", value: courtesyStats.pending },
+                  { label: "Canceladas", value: courtesyStats.cancelled },
+                ].map((s) => (
+                  <div key={s.label} className="rounded-lg bg-white/5 px-3 py-2 text-center">
+                    <p className="text-lg font-bold text-white">{s.value}</p>
+                    <p className="text-xs text-slate-500">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
           <FunctionOccupancyList functions={eventStats.functionStats} loading={eventStats.loading} />
         </div>
       )}

@@ -313,4 +313,21 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Operation attempted on an archived event through an operational (non-history) endpoint.",
         userMessage: "Este evento ya pasó al Historial de Eventos. Restauralo primero si necesitás operarlo, o duplicalo para crear uno nuevo.",
     },
+
+    // --- Cortesías --------------------------------------------------------
+    COURTESY_NOT_FOUND: {
+        httpStatus: 404,
+        logMessage: "CourtesyIssuance not found, or its Sale does not belong to the requesting organizer.",
+        userMessage: "La cortesía no existe.",
+    },
+    COURTESY_DELIVERY_METHOD_INVALID: {
+        httpStatus: 400,
+        logMessage: "Courtesy issuance attempted with a deliveryMethod other than SHARE/EMAIL.",
+        userMessage: "Elegí cómo entregar la cortesía: compartir o enviar por correo.",
+    },
+    COURTESY_RECIPIENT_EMAIL_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "Courtesy issuance with deliveryMethod=EMAIL attempted without a recipientEmail.",
+        userMessage: "Ingresá el correo electrónico del destinatario.",
+    },
 });

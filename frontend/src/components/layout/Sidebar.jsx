@@ -13,6 +13,7 @@ import {
   CalendarRange,
   History,
   Receipt,
+  Gift,
 } from "lucide-react";
 import { useBackendUser } from "../../context/AuthContext.jsx";
 import { NEW_EVENT_REQUEST_EVENT } from "../../lib/eventChatEvents.js";
@@ -62,6 +63,16 @@ const NAV_BY_ROLE = {
       ],
     },
     { label: "Entradas", icon: Ticket, path: "/organizador/entradas", end: true },
+    {
+      label: "Cortesías",
+      icon: Gift,
+      path: "/organizador/cortesias",
+      end: true,
+      children: [
+        { label: "Emitir cortesía", path: "/organizador/cortesias/emitir", end: true },
+        { label: "Historial", path: "/organizador/cortesias/historial", end: true },
+      ],
+    },
     { label: "Ventas", icon: Receipt, path: "/organizador/ventas", end: true },
     { label: "Estadísticas", icon: LineChart },
     {
