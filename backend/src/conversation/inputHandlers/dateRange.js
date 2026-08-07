@@ -1,4 +1,5 @@
 import { isValidDateString } from "./date.js";
+import { normalizeCalendarDateString, compareCalendarDateStrings } from "../../utils/calendarDate.js";
 
 export function parse(rawValue) {
     const from = rawValue?.from;
@@ -8,11 +9,11 @@ export function parse(rawValue) {
         return { error: "Necesito una fecha de inicio y una de fin válidas." };
     }
 
-    const fromDate = new Date(from);
-    const toDate = new Date(to);
-    if (fromDate > toDate) {
+    const fromNormalized = normalizeCalendarDateString(from);
+    const toNormalized = normalizeCalendarDateString(to);
+    if (compareCalendarDateStrings(fromNormalized, toNormalized) > 0) {
         return { error: 'La fecha "hasta" no puede ser anterior a la fecha "desde".' };
     }
 
-    return { value: { from: fromDate.toISOString(), to: toDate.toISOString() } };
+    return { value: { from: fromNormalized, to: toNormalized } };
 }

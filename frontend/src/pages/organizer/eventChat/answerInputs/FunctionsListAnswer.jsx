@@ -5,12 +5,23 @@ import ScheduleRowsEditor, {
   scheduleRowKey,
   rowsAreSubmittable,
 } from "../../../../components/ui/ScheduleRowsEditor.jsx";
-import { toIsoDate } from "../../../../lib/dateGrid.js";
+import { parseLocalDate, toLocalDateString } from "../../../../lib/dateGrid.js";
+
+// `slot.date` ya viene como fecha de calendario ("YYYY-MM-DD") desde el
+// motor de conversación (conversation/steps/definitions.js#generateRecurringSlots)
+// o desde un paso anterior de este mismo wizard — nunca un timestamp. Igual
+// se normaliza acá vía parseLocalDate (nunca `new Date(slot.date)` directo)
+// por si llegara algo con forma legada (fecha+hora); parseLocalDate sólo lee
+// los primeros 10 caracteres, así que no hay ninguna ambigüedad de timezone.
+function normalizeSlotDate(rawDate) {
+  const parsed = rawDate ? parseLocalDate(rawDate) : null;
+  return parsed ? toLocalDateString(parsed) : "";
+}
 
 function toRow(slot) {
   return {
     _key: scheduleRowKey(),
-    date: slot.date ? toIsoDate(new Date(slot.date)) : "",
+    date: normalizeSlotDate(slot.date),
     startTime: slot.startTime ?? "21:00",
     endTime: slot.endTime ?? "",
     editing: false,

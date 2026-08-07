@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { WEEKDAY_LABELS, MONTH_LABELS, startOfDay, toIsoDate, sameDay, buildMonthGrid } from "../../../../lib/dateGrid.js";
+import { WEEKDAY_LABELS, MONTH_LABELS, startOfDay, toLocalDateString, sameDay, buildMonthGrid } from "../../../../lib/dateGrid.js";
 
 // Selector de fecha estilo chat: calendario navegable con accesos rápidos
 // (Hoy/Mañana), sin submit explícito — tocar un día ya envía la respuesta,
@@ -22,7 +22,7 @@ export default function DateAnswer({ onSubmit, disabled }) {
 
   function selectDate(date) {
     if (disabled || date < today) return;
-    onSubmit(toIsoDate(date));
+    onSubmit(toLocalDateString(date));
   }
 
   function goToMonth(offset) {

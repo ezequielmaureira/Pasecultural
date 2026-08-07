@@ -2,6 +2,7 @@ import { Pencil, MapPin, CalendarDays, Ticket, Rocket, Save } from "lucide-react
 import Button from "../../../components/ui/Button.jsx";
 import { parseMediaUrl } from "../../../utils/mediaParser.js";
 import { getSocialNetworkIcon } from "../../../lib/socialNetworkIcons.js";
+import { formatLocalDate } from "../../../lib/dateGrid.js";
 
 // stepId de entrada al que vuelve el motor cuando se pide editar cada
 // sección desde el preview (backend/src/conversation/steps/definitions.js).
@@ -38,15 +39,6 @@ function SectionCard({ title, section, onEdit, children }) {
       {children}
     </div>
   );
-}
-
-function formatDate(iso) {
-  return new Date(iso).toLocaleDateString("es-AR", {
-    weekday: "long",
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  });
 }
 
 export default function PreviewCard({
@@ -102,7 +94,7 @@ export default function PreviewCard({
           {(draft.functions ?? []).map((fn, i) => (
             <li key={i} className="flex items-center gap-2 text-sm text-slate-300">
               <CalendarDays className="h-4 w-4 shrink-0 text-violet-400" />
-              {formatDate(fn.date)} · {fn.startTime} a {fn.endTime}
+              {formatLocalDate(fn.date)} · {fn.startTime} a {fn.endTime}
             </li>
           ))}
         </ul>

@@ -1,16 +1,19 @@
+import { isValidCalendarDateString, normalizeCalendarDateString } from "../../utils/calendarDate.js";
+
+// Una fecha de calendario ("YYYY-MM-DD") nunca es un instante — se valida y
+// normaliza sin pasar por `new Date(string)` (ver utils/calendarDate.js).
+// Antes esta función devolvía `.toISOString()`, fabricando un timestamp
+// falso a medianoche UTC donde sólo correspondía guardar un día.
 export function parse(rawValue) {
-    const raw = typeof rawValue === "string" ? rawValue.trim() : "";
-    const parsed = raw ? new Date(raw) : null;
-    if (!parsed || Number.isNaN(parsed.getTime())) {
+    const normalized = normalizeCalendarDateString(rawValue);
+    if (!normalized) {
         return { error: "Mandame una fecha válida (ej: 2026-08-15)." };
     }
-    return { value: parsed.toISOString() };
+    return { value: normalized };
 }
 
 // Reutilizado por los demás inputHandlers de Funciones (fecha suelta dentro
 // de un objeto compuesto, rango de fechas, listas).
 export function isValidDateString(raw) {
-    if (typeof raw !== "string" || !raw.trim()) return false;
-    const parsed = new Date(raw);
-    return !Number.isNaN(parsed.getTime());
+    return isValidCalendarDateString(raw);
 }

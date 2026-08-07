@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { EVENT_CATEGORIES, SOCIAL_NETWORKS } from "../../utils/eventCategories.js";
+import { addCalendarDays, calendarWeekday, compareCalendarDateStrings } from "../../utils/calendarDate.js";
 
 // Cada StepDefinition es un objeto de datos, no una clase, y todos cumplen
 // el MISMO contrato — sin excepciones por tipo de dato:
@@ -62,23 +63,28 @@ function upsertItem(list, item) {
     return list.map((existing, i) => (i === index ? item : existing));
 }
 
-// Recorre día por día el rango [from, to] (ambos ISO) y arma una función por
-// cada combinación de (día cuyo día de semana esté en `weekdays`, horario de
-// `schedules`) — así "Viernes/Sábado" + "18:00-20:00 y 21:00-23:00" genera
-// las 4 funciones semanales sin repetir el asistente por cada horario.
-// 0=Lunes..6=Domingo, misma convención que usa el calendario del frontend.
+// Recorre día por día el rango [from, to] (ambos "YYYY-MM-DD", fechas de
+// calendario) y arma una función por cada combinación de (día cuyo día de
+// semana esté en `weekdays`, horario de `schedules`) — así "Viernes/Sábado"
+// + "18:00-20:00 y 21:00-23:00" genera las 4 funciones semanales sin repetir
+// el asistente por cada horario. 0=Lunes..6=Domingo, misma convención que
+// usa el calendario del frontend.
+//
+// Toda la aritmética de fechas pasa por utils/calendarDate.js (Date.UTC()
+// puro, nunca `new Date(string)` ni la timezone del proceso) — antes usaba
+// `new Date(from)`/`cursor.setDate()` con getters locales, lo que dependía
+// de la timezone del servidor tanto para decidir qué días caían en el rango
+// como para el `date` que terminaba emitiendo cada slot (un timestamp falso
+// a medianoche UTC en vez de la fecha de calendario real).
 function generateRecurringSlots(from, to, weekdays, schedules) {
     const weekdaySet = new Set(weekdays);
     const slots = [];
-    const end = new Date(to).getTime();
 
-    for (let cursor = new Date(from); cursor.getTime() <= end; cursor.setDate(cursor.getDate() + 1)) {
-        const isoWeekday = (cursor.getDay() + 6) % 7;
-        if (!weekdaySet.has(isoWeekday)) continue;
+    for (let cursor = from; compareCalendarDateStrings(cursor, to) <= 0; cursor = addCalendarDays(cursor, 1)) {
+        if (!weekdaySet.has(calendarWeekday(cursor))) continue;
 
-        const isoDate = new Date(cursor).toISOString();
         for (const { startTime, endTime } of schedules) {
-            slots.push({ date: isoDate, startTime, endTime });
+            slots.push({ date: cursor, startTime, endTime });
         }
     }
 

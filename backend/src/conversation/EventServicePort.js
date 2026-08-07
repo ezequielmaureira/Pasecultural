@@ -6,6 +6,7 @@ import {
     getMyEventByIdService,
 } from "../services/event.service.js";
 import { SOCIAL_NETWORKS } from "../utils/eventCategories.js";
+import { combineCalendarDateTime } from "../utils/calendarDate.js";
 import { translateEventServiceError } from "./errorMessages.js";
 
 const SOCIAL_NETWORK_LABEL = Object.fromEntries(SOCIAL_NETWORKS.map((s) => [s.id, s.label]));
@@ -46,11 +47,18 @@ function buildTicketTypesInput(draft) {
     return [{ name: "Entrada general", price: 0, quantity: FREE_TICKET_DEFAULT_QUANTITY }];
 }
 
+// `fn.date` es una fecha de calendario ("YYYY-MM-DD"), nunca un instante —
+// combineCalendarDateTime la combina con la hora aplicando el offset fijo
+// de la plataforma (América/Argentina, -03:00) explícitamente en el string,
+// así el resultado no depende de la timezone del proceso de Node. Antes esto
+// usaba `new Date(...)` sin offset, que se interpreta con la timezone LOCAL
+// DEL SERVIDOR — en un host configurado en UTC (lo más común), una función
+// cargada a las 21:00 se guardaba 3 horas más tarde de lo real.
 function buildFunctionsInput(draft) {
     const venue = draft.location?.venueName || draft.location?.address || "";
     return (draft.functions ?? []).map((fn) => ({
-        date: new Date(`${fn.date.slice(0, 10)}T${fn.startTime}:00`).toISOString(),
-        endAt: new Date(`${fn.date.slice(0, 10)}T${fn.endTime}:00`).toISOString(),
+        date: combineCalendarDateTime(fn.date, fn.startTime),
+        endAt: combineCalendarDateTime(fn.date, fn.endTime),
         venue,
         address: draft.location?.address ?? null,
     }));

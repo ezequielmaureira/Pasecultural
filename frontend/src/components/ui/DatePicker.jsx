@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
-import { WEEKDAY_LABELS, MONTH_LABELS, startOfDay, toIsoDate, sameDay, buildMonthGrid } from "../../lib/dateGrid.js";
+import { WEEKDAY_LABELS, MONTH_LABELS, startOfDay, parseLocalDate, toLocalDateString, sameDay, buildMonthGrid } from "../../lib/dateGrid.js";
 
 // Selector de fecha en dropdown: mismo calendario navegable que DateAnswer
 // (chat), pero embebible dentro de tarjetas/listas compactas (ej. la tarjeta
@@ -11,7 +11,11 @@ export default function DatePicker({ value, onChange, placeholder = "Elegir fech
   const containerRef = useRef(null);
   const today = useMemo(() => startOfDay(new Date()), []);
 
-  const initialMonth = value ? new Date(value) : today;
+  // `value` es una fecha de calendario ("YYYY-MM-DD") — parseLocalDate es el
+  // único punto de conversión a Date, nunca `new Date(value)` (esa era la
+  // causa del desfase: un string de sólo-fecha se interpreta como medianoche
+  // UTC, un día antes del real para cualquier timezone detrás de UTC).
+  const initialMonth = value ? parseLocalDate(value) ?? today : today;
   const [viewedMonth, setViewedMonth] = useState(
     () => new Date(initialMonth.getFullYear(), initialMonth.getMonth(), 1)
   );
@@ -33,7 +37,7 @@ export default function DatePicker({ value, onChange, placeholder = "Elegir fech
 
   function select(date) {
     if (date < today) return;
-    onChange(toIsoDate(date));
+    onChange(toLocalDateString(date));
     setOpen(false);
   }
 
@@ -43,7 +47,7 @@ export default function DatePicker({ value, onChange, placeholder = "Elegir fech
 
   const isPrevDisabled =
     viewedMonth.getFullYear() === today.getFullYear() && viewedMonth.getMonth() === today.getMonth();
-  const selectedDate = value ? startOfDay(new Date(value)) : null;
+  const selectedDate = value ? parseLocalDate(value) : null;
 
   return (
     <div ref={containerRef} className="relative">
