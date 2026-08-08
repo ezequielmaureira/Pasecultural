@@ -74,7 +74,6 @@ const NAV_BY_ROLE = {
       ],
     },
     { label: "Ventas", icon: Receipt, path: "/organizador/ventas", end: true },
-    { label: "Estadísticas", icon: LineChart },
     {
       label: "Scanners",
       icon: ScanLine,
