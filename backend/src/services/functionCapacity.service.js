@@ -319,3 +319,30 @@ export const getOrganizerEventsSummaryService = async (clerkId) => {
     };
   });
 };
+
+// "Vendidas" a nivel CATÁLOGO (pantalla Tipos de Entrada) — no es una
+// variante de capacidad, pero reutiliza el mismo criterio de "vendido" que
+// el resto del archivo (SOLD_TICKET_STATUSES + origin=SALE) en vez de
+// definirlo de nuevo. Un mismo TicketType puede estar asignado a varias
+// EventFunction (FunctionTicketType): acá NO se toca esa tabla en absoluto
+// — se cuentan directamente los `Ticket` reales agrupados por
+// `ticketTypeId`, sin importar en qué función fueron emitidos, así que un
+// tipo usado en 3 funciones (10+15+8) da 33 en una sola fila, nunca 3 filas
+// a sumar en el cliente. Una sola query agregada para TODOS los tipos de
+// entrada de la organización — cero N+1, ni por evento ni por tipo.
+export const getOrganizerTicketTypeSalesService = async (clerkId) => {
+  const organization = await getMyOrganizationService(clerkId);
+  if (!organization) return [];
+
+  const soldGroups = await prisma.ticket.groupBy({
+    by: ["ticketTypeId"],
+    where: {
+      status: { in: SOLD_TICKET_STATUSES },
+      origin: "SALE",
+      event: { organizationId: organization.id, archivedAt: null },
+    },
+    _count: { _all: true },
+  });
+
+  return soldGroups.map((g) => ({ ticketTypeId: g.ticketTypeId, sold: g._count._all }));
+};

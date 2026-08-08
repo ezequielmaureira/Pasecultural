@@ -3,6 +3,7 @@ import { AppError } from "../errors/AppError.js";
 import {
     getOrganizerEventFunctionStatsService,
     getOrganizerEventsSummaryService,
+    getOrganizerTicketTypeSalesService,
 } from "../services/functionCapacity.service.js";
 
 // Sólo valida req, llama al service y devuelve la respuesta — misma
@@ -27,6 +28,21 @@ export const getMyEventsStats = async (req, res, next) => {
         const { userId } = getAuth(req);
         const events = await getOrganizerEventsSummaryService(userId);
         res.status(200).json({ events });
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
+
+// "Vendidas" por TicketType, para TODO el catálogo de la organización —
+// única fuente de la columna "Vendidas" en Tipos de Entrada. Devuelve sólo
+// los tipos con al menos una venta (getOrganizerTicketTypeSalesService no
+// arma una fila por cada TicketType existente); el frontend completa 0 para
+// el resto.
+export const getMyTicketTypesSales = async (req, res, next) => {
+    try {
+        const { userId } = getAuth(req);
+        const ticketTypes = await getOrganizerTicketTypeSalesService(userId);
+        res.status(200).json({ ticketTypes });
     } catch (error) {
         next(AppError.from(error));
     }

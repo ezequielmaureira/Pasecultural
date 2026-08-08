@@ -20,3 +20,12 @@ export async function getMyEventsStats(token) {
     const { events } = await apiFetch("/api/events/mine/stats", { token });
     return events;
 }
+
+// GET /api/events/mine/ticket-types-sales — "Vendidas" real por tipo de
+// entrada, para TODO el catálogo de la organización en una sola llamada
+// (nunca una por evento ni una por tipo de entrada). Única fuente de la
+// columna "Vendidas" en Tipos de Entrada.
+export async function getMyTicketTypesSales(token) {
+    const { ticketTypes } = await apiFetch("/api/events/mine/ticket-types-sales", { token });
+    return ticketTypes;
+}

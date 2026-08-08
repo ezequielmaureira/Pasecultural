@@ -247,63 +247,92 @@ export default function OrganizerTickets() {
         </p>
       </div>
 
-      <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-[#0B1120]/90 p-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-end">
-          <label className="flex min-w-[240px] flex-1 flex-col gap-2 text-sm text-slate-300">
-            <span className="text-xs uppercase tracking-wide text-slate-500">Evento</span>
-            <select
-              value={selectedEventId ?? ""}
-              onChange={(event) => {
-                const nextEventId = event.target.value || null;
-                setSelectedEventId(nextEventId);
-                setActiveEventId(nextEventId); // el resto de las pantallas heredan esta elección
-                setSelectedFunctionId("ALL");
-                setSelectedIds([]);
-              }}
-              className="h-10 rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-gray-100 outline-none"
-              disabled={loadingEvents}
-            >
-              <option value="">{events.length > 1 ? "Elegí un evento" : "Seleccionar evento"}</option>
-              {events.map((event) => (
-                <option key={event.id} value={event.id}>
-                  {event.title}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {functionOptions.length > 1 && (
-            <label className="flex min-w-[220px] flex-1 flex-col gap-2 text-sm text-slate-300">
-              <span className="text-xs uppercase tracking-wide text-slate-500">Función</span>
+      <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-[#0B1120]/90 p-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-end">
+            <label className="flex min-w-[240px] flex-1 flex-col gap-2 text-sm text-slate-300">
+              <span className="text-xs uppercase tracking-wide text-slate-500">Evento</span>
               <select
-                value={selectedFunctionId}
+                value={selectedEventId ?? ""}
                 onChange={(event) => {
-                  setSelectedFunctionId(event.target.value);
+                  const nextEventId = event.target.value || null;
+                  setSelectedEventId(nextEventId);
+                  setActiveEventId(nextEventId); // el resto de las pantallas heredan esta elección
+                  setSelectedFunctionId("ALL");
                   setSelectedIds([]);
                 }}
                 className="h-10 rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-gray-100 outline-none"
-                disabled={!selectedEventId}
+                disabled={loadingEvents}
               >
-                <option value="ALL">Todas las funciones</option>
-                {functionOptions.map((functionOption) => (
-                  <option key={functionOption.id} value={functionOption.id}>
-                    {functionOption.label}
+                <option value="">{events.length > 1 ? "Elegí un evento" : "Seleccionar evento"}</option>
+                {events.map((event) => (
+                  <option key={event.id} value={event.id}>
+                    {event.title}
                   </option>
                 ))}
               </select>
             </label>
-          )}
+
+            {functionOptions.length > 1 && (
+              <label className="flex min-w-[220px] flex-1 flex-col gap-2 text-sm text-slate-300">
+                <span className="text-xs uppercase tracking-wide text-slate-500">Función</span>
+                <select
+                  value={selectedFunctionId}
+                  onChange={(event) => {
+                    setSelectedFunctionId(event.target.value);
+                    setSelectedIds([]);
+                  }}
+                  className="h-10 rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-gray-100 outline-none"
+                  disabled={!selectedEventId}
+                >
+                  <option value="ALL">Todas las funciones</option>
+                  {functionOptions.map((functionOption) => (
+                    <option key={functionOption.id} value={functionOption.id}>
+                      {functionOption.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+
+          <div className="relative w-full sm:w-72">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <input
+              className="h-10 w-full rounded-lg border border-white/10 bg-white/5 pl-9 pr-3 text-sm text-gray-100 outline-none placeholder:text-slate-500 focus:border-violet-500 focus:bg-white/10 focus:ring-2 focus:ring-violet-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+              placeholder="Buscar por número, nombre, correo o DNI"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              disabled={!selectedEventId}
+            />
+          </div>
         </div>
 
-        <div className="relative w-full sm:w-72">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-          <input
-            className="h-10 w-full rounded-lg border border-white/10 bg-white/5 pl-9 pr-3 text-sm text-gray-100 outline-none placeholder:text-slate-500 focus:border-violet-500 focus:bg-white/10 focus:ring-2 focus:ring-violet-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-            placeholder="Buscar por número, nombre, correo o DNI"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            disabled={!selectedEventId}
-          />
+        {/* Filtro por estado — reutiliza exactamente el `statusFilter` que ya
+            existía y ya viajaba al backend (listOrganizerTickets); esto sólo
+            agrega el control visual que faltaba. Scroll horizontal en mobile
+            (`overflow-x-auto` + `shrink-0` en cada pill) en vez de comprimir
+            las etiquetas o pasarlas a una segunda línea. */}
+        <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-0.5">
+          {STATUS_FILTERS.map((filter) => {
+            const isActive = statusFilter === filter.id;
+            return (
+              <button
+                key={filter.id}
+                type="button"
+                aria-pressed={isActive}
+                disabled={!selectedEventId}
+                onClick={() => setStatusFilter(filter.id)}
+                className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 disabled:cursor-not-allowed disabled:opacity-40 ${
+                  isActive
+                    ? "bg-violet-600 text-white"
+                    : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
+                }`}
+              >
+                {filter.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 

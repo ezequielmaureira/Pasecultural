@@ -1,7 +1,10 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { useAuth } from "@clerk/clerk-react";
 import { Pencil, Ticket, Plus } from "lucide-react";
 import Button from "../../components/ui/Button.jsx";
 import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
+import { getMyTicketTypesSales } from "../../lib/functionStatsApi.js";
 
 function TableSkeleton() {
   return (
@@ -24,13 +27,45 @@ function TableSkeleton() {
 // componente, misma tabla, mismos datos) — sólo cambió el título y esta
 // pantalla pasó a su propia ruta.
 export default function OrganizerTicketTypes() {
+  const { getToken } = useAuth();
   const { events, loadingEvents } = useOrganizerData();
+
+  // "Vendidas" real por tipo de entrada — una sola llamada para todo el
+  // catálogo de la organización (functionCapacity.service.js#
+  // getOrganizerTicketTypeSalesService), nunca una por evento ni por tipo de
+  // entrada. Un tipo sin ventas simplemente no viene en la respuesta; `sold`
+  // completa 0 para esos casos al armar `rows`.
+  const [soldByTicketType, setSoldByTicketType] = useState(new Map());
+  const [loadingSold, setLoadingSold] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoadingSold(true);
+      try {
+        const token = await getToken();
+        const list = await getMyTicketTypesSales(token);
+        if (!cancelled) setSoldByTicketType(new Map(list.map((t) => [t.ticketTypeId, t.sold])));
+      } catch (error) {
+        console.error("No se pudieron cargar las ventas por tipo de entrada", error);
+        if (!cancelled) setSoldByTicketType(new Map());
+      } finally {
+        if (!cancelled) setLoadingSold(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken]);
+
+  const loading = loadingEvents || loadingSold;
 
   const rows = events.flatMap((event) =>
     (event.ticketTypes ?? []).map((tt) => ({
       ...tt,
       eventId: event.id,
       eventName: event.title,
+      sold: soldByTicketType.get(tt.id) ?? 0,
     }))
   );
 
@@ -58,7 +93,7 @@ export default function OrganizerTicketTypes() {
                 <th className="px-6 py-3 font-medium text-right">Acciones</th>
               </tr>
             </thead>
-            {loadingEvents ? (
+            {loading ? (
               <TableSkeleton />
             ) : (
               <tbody className="divide-y divide-white/5">
@@ -75,7 +110,7 @@ export default function OrganizerTicketTypes() {
                     </td>
                     <td className="px-6 py-4 text-slate-300">${row.price}</td>
                     <td className="px-6 py-4 text-slate-300">{row.quantity}</td>
-                    <td className="px-6 py-4 text-slate-300">0</td>
+                    <td className="px-6 py-4 text-slate-300">{row.sold}</td>
                     <td className="px-6 py-4">
                       <span
                         className={`rounded-full px-2.5 py-1 text-xs font-medium ${

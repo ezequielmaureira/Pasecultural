@@ -33,7 +33,11 @@ import {
     softDeleteTicket,
     bulkActionTickets,
 } from "../controllers/ticketAdmin.controller.js";
-import { getEventFunctionStats, getMyEventsStats } from "../controllers/functionCapacity.controller.js";
+import {
+    getEventFunctionStats,
+    getMyEventsStats,
+    getMyTicketTypesSales,
+} from "../controllers/functionCapacity.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 
 const router = Router();
@@ -56,6 +60,9 @@ router.get("/mine", requireAuth, getMyEvents);
 // organizador (grilla "Estado de mis eventos") — antes de "/:id" para que
 // Express no confunda "stats" con un id de evento literal.
 router.get("/mine/stats", requireAuth, getMyEventsStats);
+// "Vendidas" por tipo de entrada, para toda la organización (pantalla Tipos
+// de Entrada) — mismo motivo de orden que "/mine/stats", antes de "/:id".
+router.get("/mine/ticket-types-sales", requireAuth, getMyTicketTypesSales);
 router.get("/:id", requireAuth, getMyEventById);
 router.patch("/:id", requireAuth, updateMyEvent);
 router.put("/:id/schedule", requireAuth, saveEventSchedule);
