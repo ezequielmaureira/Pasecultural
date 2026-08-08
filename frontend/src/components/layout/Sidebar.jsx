@@ -21,7 +21,7 @@ import { NEW_EVENT_REQUEST_EVENT } from "../../lib/eventChatEvents.js";
 const NAV_BY_ROLE = {
   developer: [
     { label: "Dashboard", icon: LayoutDashboard, path: "/developer", end: true },
-    { label: "Eventos", icon: CalendarDays },
+    { label: "Eventos", icon: CalendarDays, path: "/developer/eventos", end: true },
     { label: "Entradas", icon: Ticket },
     {
       label: "Usuarios",

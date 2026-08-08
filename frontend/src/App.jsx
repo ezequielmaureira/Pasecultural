@@ -19,6 +19,7 @@ import DashboardDeveloper from "./pages/DashboardDeveloper.jsx";
 import DeveloperOrganizations from "./pages/developer/DeveloperOrganizations.jsx";
 import DeveloperUsers from "./pages/developer/DeveloperUsers.jsx";
 import DeveloperDatabase from "./pages/developer/DeveloperDatabase.jsx";
+import DeveloperEvents from "./pages/developer/DeveloperEvents.jsx";
 import ScannerShell from "./pages/scanner/ScannerShell.jsx";
 import ScannerHome from "./pages/scanner/ScannerHome.jsx";
 import ScannerInvitationClaim from "./pages/scanner/ScannerInvitationClaim.jsx";
@@ -114,6 +115,7 @@ export default function App() {
                   element={<DeveloperOrganizations />}
                 />
                 <Route path="/developer/usuarios" element={<DeveloperUsers />} />
+                <Route path="/developer/eventos" element={<DeveloperEvents />} />
                 <Route path="/developer/base-de-datos" element={<DeveloperDatabase />} />
               </Route>
 
