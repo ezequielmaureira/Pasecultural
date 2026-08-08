@@ -18,13 +18,26 @@ const RECENT_ACTIVITY_LIMIT = 8;
 // `sold`/"vendido" = origin SALE + status en SOLD_TICKET_STATUSES, sin
 // filtrar `deletedAt` (inconsistencia heredada, deliberadamente no
 // corregida acá — ver informe).
-async function getKpis() {
+async function getKpis(now) {
     const [usersTotal, organizersTotal, pendingOrganizations, publishedEvents, soldTickets, grossSales] =
         await Promise.all([
             prisma.user.count(),
             prisma.user.count({ where: { role: "ORGANIZER" } }),
             prisma.organization.count({ where: { status: "PENDING" } }),
-            prisma.event.count({ where: { status: "PUBLISHED", archivedAt: null } }),
+            // "Publicado" no alcanza con status+archivedAt: un evento cuya
+            // última función ya pasó (o cuyas funciones están todas
+            // canceladas) sigue PUBLISHED/no archivado indefinidamente (no
+            // hay transición automática a FINISHED ni cron de archivado —
+            // ver eventArchive.service.js). Por eso además exige al menos
+            // una función vigente, mismo criterio que ya usa
+            // getUpcomingEvents más abajo.
+            prisma.event.count({
+                where: {
+                    status: "PUBLISHED",
+                    archivedAt: null,
+                    functions: { some: { status: { not: "CANCELLED" }, date: { gte: now } } },
+                },
+            }),
             prisma.ticket.count({ where: { origin: "SALE", status: { in: SOLD_TICKET_STATUSES } } }),
             prisma.sale.aggregate({
                 where: { origin: "SALE", status: "CONFIRMED", deletedAt: null },
@@ -189,7 +202,7 @@ export const getDeveloperDashboardService = async () => {
     await runArchiveSelfHeal(prisma, {}, now);
 
     const [kpis, upcomingEvents, recentActivity] = await Promise.all([
-        getKpis(),
+        getKpis(now),
         getUpcomingEvents(now),
         getRecentActivity(now),
     ]);
