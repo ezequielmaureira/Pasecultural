@@ -16,6 +16,7 @@ import scannerRoutes from "./routes/scanner.routes.js";
 import scannerInvitationRoutes from "./routes/scannerInvitation.routes.js";
 import scannerAuthRoutes from "./routes/scannerAuth.routes.js";
 import devToolsRoutes from "./routes/devTools.routes.js";
+import developerDashboardRoutes from "./routes/developerDashboard.routes.js";
 import { errorHandler } from "./errors/index.js";
 
 const app = express();
@@ -56,6 +57,10 @@ app.use("/api/scanner-auth", scannerAuthRoutes);
 // no hay producción con clientes reales. Reincorporar una capa extra
 // cuando la haya.
 app.use("/api/dev", devToolsRoutes);
+// Panel de control real de la plataforma (Dashboard Developer V1) — sólo
+// GET /api/developer/dashboard, agregaciones platform-wide, exclusivo
+// DEVELOPER. Ver developerDashboard.service.js.
+app.use("/api/developer", developerDashboardRoutes);
 
 app.get("/debug/prisma-user", async (req, res) => {
     try {

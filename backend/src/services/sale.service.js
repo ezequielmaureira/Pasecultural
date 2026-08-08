@@ -537,15 +537,19 @@ export const listSalesOrganizerService = async (clerkId, filters = {}) => {
         if (filters.dateTo) where.createdAt.lte = new Date(filters.dateTo);
     }
 
+    // Mismo criterio que listTicketsOrganizerService (ticket.service.js):
+    // nombre/apellido/email del comprador + DNI normalizado de la venta
+    // puntual (Sale.buyerDocument, no un campo del comprador) en un único OR
+    // — nunca una segunda búsqueda paralela.
     if (filters.buyer?.trim()) {
         const term = filters.buyer.trim();
-        where.buyer = {
-            OR: [
-                { firstName: { contains: term, mode: "insensitive" } },
-                { lastName: { contains: term, mode: "insensitive" } },
-                { email: { contains: term, mode: "insensitive" } },
-            ],
-        };
+        const normalizedDocument = normalizeBuyerDocument(term);
+        where.OR = [
+            { buyer: { firstName: { contains: term, mode: "insensitive" } } },
+            { buyer: { lastName: { contains: term, mode: "insensitive" } } },
+            { buyer: { email: { contains: term, mode: "insensitive" } } },
+            ...(normalizedDocument ? [{ buyerDocument: { contains: normalizedDocument } }] : []),
+        ];
     }
 
     return prisma.sale.findMany({ where, include: SALE_LIST_INCLUDE, orderBy: { createdAt: "desc" } });
