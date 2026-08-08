@@ -353,7 +353,6 @@ Tres emails implementados, los tres vía Resend:
 ## 14. DEUDA TÉCNICA
 
 **Problemas conocidos / hallazgos concretos de código:**
-- **[Nuevo, sin corregir — hallazgo de auditoría]** "Capacidad total"/"Entradas emitidas" a nivel evento (Dashboard y, por defecto, "Estadísticas del evento" en Entradas) suman la capacidad de **todas las funciones vigentes del evento**, no de una sola. Para un evento de una función coincide con el catálogo (ej. 50+20=70); para un evento con N funciones el número mostrado es 70×N. No es un bug de conteo (no hay filas duplicadas ni datos huérfanos — verificado en la auditoría, que no llegó a modificar código): es que `selectFunctionCapacityStats`/`getOrganizerEventsSummaryService` están definidos para sumar por evento, y ni el Dashboard ni el default de Entradas dejan claro que el número es una suma de funciones. Pendiente decidir si es el comportamiento deseado (capacidad total de la temporada) o si debería mostrarse por función.
 - En la pantalla de administración de entradas del organizador, el estado `statusFilter` y su lógica de filtrado siguen presentes y viajan al backend, pero no hay ningún control en la interfaz que permita cambiarlo — quedó código vivo sin punto de entrada visible tras una evolución posterior de la pantalla (que agregó selector de evento/función y acciones masivas).
 - La acción masiva "Exportar seleccionadas" está en la interfaz pero no hace nada real (sólo un aviso).
 - El campo "Vendidas" de la pantalla "Tipos de entrada" es un valor fijo, no calculado.
@@ -369,25 +368,24 @@ Tres emails implementados, los tres vía Resend:
 
 **Código duplicado identificado:** normalización de email/DNI y los pequeños formateadores de fecha (los que trabajan con timestamps reales, no con fechas de calendario — ver arriba) están repetidos en varios archivos del frontend en lugar de centralizados en un único lugar (patrón usado deliberadamente en este proyecto para no crear una dependencia cruzada entre pantallas que evolucionan por separado — no necesariamente un problema a resolver, pero es duplicación real si se lo mide así). Del lado del backend, la lógica de "cuál es la organización de este usuario" (`findFirst` por `ownerId`) está repetida como una función local pequeña en más de un archivo de servicio en lugar de una única función compartida.
 
-**Módulos candidatos a mejora:** el Dashboard de Developer (reconstruir sobre datos reales), la semántica de "Capacidad total" en eventos multi-función (ver hallazgo arriba), la pantalla de administración de entradas (terminar exportación y reponer el filtro por estado).
+**Módulos candidatos a mejora:** el Dashboard de Developer (reconstruir sobre datos reales), la pantalla de administración de entradas (terminar exportación y reponer el filtro por estado).
 
 ## 15. PRÓXIMOS PASOS (orden de prioridad real, según el estado actual del código, sin inventar funcionalidades)
 
 1. Integrar Mercado Pago (SDK, checkout, webhook, conciliación de estados) — es el único paso que falta para que el dinero se mueva de verdad.
-2. Decidir y, si corresponde, corregir la semántica de "Capacidad total" para eventos con más de una función (hallazgo de auditoría, ver §14) — es el gap más importante ya identificado en el Dashboard.
-3. Terminar la exportación de entradas seleccionadas.
-4. Reponer el control de filtro por estado en la pantalla de administración de entradas.
-5. Conectar el Dashboard de Developer a datos reales.
-6. Calcular "Vendidas" de verdad en la pantalla de Tipos de entrada.
-7. Emails adicionales (aprobación de organización, venta nueva).
-8. Páginas legales reales y pantalla de perfil.
-9. Adaptador de WhatsApp para el motor conversacional (si el negocio lo sigue necesitando).
-10. Filtro visible por canal de emisión en el historial de Cortesías.
+2. Terminar la exportación de entradas seleccionadas.
+3. Reponer el control de filtro por estado en la pantalla de administración de entradas.
+4. Conectar el Dashboard de Developer a datos reales.
+5. Calcular "Vendidas" de verdad en la pantalla de Tipos de entrada.
+6. Emails adicionales (aprobación de organización, venta nueva).
+7. Páginas legales reales y pantalla de perfil.
+8. Adaptador de WhatsApp para el motor conversacional (si el negocio lo sigue necesitando).
+9. Filtro visible por canal de emisión en el historial de Cortesías.
 
 ## 16. EVALUACIÓN GENERAL
 
 **Avance aproximado del proyecto: ~75-80%.** El core funcional completo (catálogo de eventos, checkout, entradas con QR cifrado, control de acceso con garantías de concurrencia verificadas, recuperación de compra, administración de entradas con auditoría, cortesías, estadísticas reales del organizador, paneles de Developer y Organizador para todo lo que no es venta) está implementado y, en la enorme mayoría de los casos, terminado de punta a punta backend+frontend. El hueco más grande, con diferencia, sigue siendo el cobro real.
 
-**Para una versión Beta** (uso real con usuarios externos pero controlado): falta, como mínimo, integrar Mercado Pago (sin esto no hay negocio real posible salvo ventas 100% manuales/gratuitas). El Dashboard del organizador ya no es un bloqueante — un organizador puede ver recaudación, ocupación y accesos reales desde el panel — salvo por resolver la semántica de "capacidad total" en eventos multi-función antes de mostrarlo a usuarios externos. El resto del sistema ya está en condiciones de sostener una Beta acotada con pagos manuales/en efectivo mientras se construye la integración de pago.
+**Para una versión Beta** (uso real con usuarios externos pero controlado): falta, como mínimo, integrar Mercado Pago (sin esto no hay negocio real posible salvo ventas 100% manuales/gratuitas). El Dashboard del organizador ya no es un bloqueante — un organizador puede ver recaudación, ocupación y accesos reales desde el panel. El resto del sistema ya está en condiciones de sostener una Beta acotada con pagos manuales/en efectivo mientras se construye la integración de pago.
 
 **Para una versión Comercial**: además de lo anterior, se necesita el Dashboard de Developer conectado a datos reales (hoy no sirve para operar el negocio), la exportación de entradas terminada, notificaciones por email adicionales (aprobación de organización, venta nueva), páginas legales reales, y revisar/formalizar las relaciones de datos que hoy son texto suelto (scanner que hizo un check-in, actor de una auditoría) si el volumen de uso lo justifica.
