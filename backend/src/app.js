@@ -18,6 +18,7 @@ import scannerAuthRoutes from "./routes/scannerAuth.routes.js";
 import devToolsRoutes from "./routes/devTools.routes.js";
 import developerDashboardRoutes from "./routes/developerDashboard.routes.js";
 import developerEventsRoutes from "./routes/developerEvents.routes.js";
+import developerTicketsRoutes from "./routes/developerTickets.routes.js";
 import { errorHandler } from "./errors/index.js";
 
 const app = express();
@@ -67,6 +68,13 @@ app.use("/api/developer", developerDashboardRoutes);
 // /api/developer/events y GET /api/developer/organizations/options. Sólo
 // lectura, platform-wide, exclusivo DEVELOPER. Ver developerEvents.service.js.
 app.use("/api/developer", developerEventsRoutes);
+// Mismo prefijo "/api/developer", tercer router en paralelo (sin tocar
+// developerDashboard.routes.js ni developerEvents.routes.js) — Developer →
+// Entradas: GET /api/developer/tickets, GET /api/developer/tickets/:id y
+// GET /api/developer/events/options (dropdown en cascada, vive acá para no
+// tocar developerEvents.routes.js). Sólo lectura, platform-wide, exclusivo
+// DEVELOPER. Ver developerTickets.service.js.
+app.use("/api/developer", developerTicketsRoutes);
 
 app.get("/debug/prisma-user", async (req, res) => {
     try {

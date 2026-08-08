@@ -22,7 +22,7 @@ const NAV_BY_ROLE = {
   developer: [
     { label: "Dashboard", icon: LayoutDashboard, path: "/developer", end: true },
     { label: "Eventos", icon: CalendarDays, path: "/developer/eventos", end: true },
-    { label: "Entradas", icon: Ticket },
+    { label: "Entradas", icon: Ticket, path: "/developer/entradas", end: true },
     {
       label: "Usuarios",
       icon: Users,
