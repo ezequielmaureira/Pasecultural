@@ -10,6 +10,8 @@ import SignUpPage from "./pages/SignUp.jsx";
 import PostAuth from "./pages/PostAuth.jsx";
 import OrganizerOnboarding from "./pages/organizer/OrganizerOnboarding.jsx";
 import HowItWorks from "./pages/HowItWorks.jsx";
+import PrivacyPolicy from "./pages/PrivacyPolicy.jsx";
+import DataDeletion from "./pages/DataDeletion.jsx";
 import Profile from "./pages/Profile.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
 import { ToastProvider } from "./context/ToastContext.jsx";
@@ -87,6 +89,11 @@ export default function App() {
             <Route path="/scanner/portal" element={<ScannerPortal />} />
             <Route path="/para-organizadores" element={<OrganizersLanding />} />
             <Route path="/como-funciona" element={<HowItWorks />} />
+            {/* Páginas legales públicas requeridas por Meta para publicar la
+                app de WhatsApp Business — sin auth, mismo patrón que
+                /como-funciona. */}
+            <Route path="/privacidad" element={<PrivacyPolicy />} />
+            <Route path="/eliminacion-de-datos" element={<DataDeletion />} />
             <Route path="/perfil" element={<Profile />} />
             <Route path="/iniciar-sesion" element={<SignInPage />} />
             <Route path="/registro" element={<SignUpPage />} />
