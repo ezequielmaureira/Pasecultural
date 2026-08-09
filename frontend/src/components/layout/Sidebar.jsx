@@ -35,7 +35,7 @@ const NAV_BY_ROLE = {
       path: "/developer/organizaciones",
       end: true,
     },
-    { label: "Scanners", icon: ScanLine },
+    { label: "Scanners", icon: ScanLine, path: "/developer/scanners", end: true },
     { label: "Ventas", icon: LineChart },
     { label: "Configuración", icon: Settings },
     {
