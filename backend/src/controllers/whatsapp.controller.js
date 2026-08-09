@@ -1,5 +1,9 @@
 import { logger } from "../logging/logger.js";
-import { evaluateWebhookVerification, getWhatsappVerifyToken } from "../services/whatsapp.service.js";
+import {
+    evaluateWebhookVerification,
+    getWhatsappVerifyToken,
+    parseInboundWhatsappMessages,
+} from "../services/whatsapp.service.js";
 
 // GET /api/whatsapp/webhook — mecanismo oficial de verificación de Meta
 // ("Paso 2. Configuración de producción" del panel de WhatsApp Cloud API).
@@ -32,15 +36,26 @@ export const verifyWhatsappWebhook = (req, res) => {
     res.status(200).send(result.challenge);
 };
 
-// POST /api/whatsapp/webhook — Fase 2A: sólo confirmar que Meta llega al
-// backend. A propósito NO procesa el payload, NO llama a
-// EventCreationEngine/EventServicePort, NO escribe en la base y NO le
-// responde nada a WhatsApp — eso es de una fase posterior. Se loguea sólo
-// forma/tamaño del payload, nunca su contenido (puede incluir datos de
-// contacto del remitente).
+// POST /api/whatsapp/webhook — Fase 2B: reconoce mensajes entrantes de
+// forma segura. A propósito NO llama a EventCreationEngine/EventServicePort,
+// NO escribe en la base, NO llama APIs externas y NO le responde nada a
+// WhatsApp — eso sigue siendo de una fase posterior. Los webhooks de status
+// (sent/delivered/read/failed) no tienen `value.messages`, así que
+// parseInboundWhatsappMessages ya los ignora limpiamente (devuelve []) sin
+// necesidad de distinguirlos acá.
 export const receiveWhatsappWebhook = (req, res) => {
-    const entries = Array.isArray(req.body?.entry) ? req.body.entry : [];
-    logger.info("whatsapp webhook: POST recibido", { object: req.body?.object, entryCount: entries.length });
+    const messages = parseInboundWhatsappMessages(req.body);
+
+    // Nunca se loguea text.body, el nombre del contacto ni el teléfono
+    // completo — sólo lo mínimo para confirmar en desarrollo que llegó un
+    // mensaje real.
+    for (const message of messages) {
+        logger.info("WhatsApp inbound message", {
+            messageId: message.messageId,
+            type: message.type,
+            phoneNumberId: message.phoneNumberId,
+        });
+    }
 
     res.sendStatus(200);
 };
