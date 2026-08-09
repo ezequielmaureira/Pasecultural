@@ -20,6 +20,7 @@ import developerDashboardRoutes from "./routes/developerDashboard.routes.js";
 import developerEventsRoutes from "./routes/developerEvents.routes.js";
 import developerTicketsRoutes from "./routes/developerTickets.routes.js";
 import developerScannersRoutes from "./routes/developerScanners.routes.js";
+import developerSalesRoutes from "./routes/developerSales.routes.js";
 import { errorHandler } from "./errors/index.js";
 
 const app = express();
@@ -82,6 +83,12 @@ app.use("/api/developer", developerTicketsRoutes);
 // /api/developer/scanners/:id. Sólo lectura, platform-wide, exclusivo
 // DEVELOPER. Ver developerScanners.service.js.
 app.use("/api/developer", developerScannersRoutes);
+// Mismo prefijo "/api/developer", quinto router en paralelo (sin tocar
+// developerDashboard/developerEvents/developerTickets/developerScanners.routes.js)
+// — Developer → Ventas: GET /api/developer/sales y GET
+// /api/developer/sales/:id. Sólo lectura, platform-wide, exclusivo
+// DEVELOPER. Ver developerSales.service.js.
+app.use("/api/developer", developerSalesRoutes);
 
 app.get("/debug/prisma-user", async (req, res) => {
     try {
