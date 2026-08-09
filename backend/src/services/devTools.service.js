@@ -2,6 +2,7 @@ import prisma from "../config/prisma.js";
 import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { generateUniqueSlug } from "../utils/generateSlug.js";
+import { sendWhatsappTextMessage } from "./whatsapp.service.js";
 
 // Herramienta exclusiva del panel Developer ("Base de Datos"). Protección
 // simplificada TEMPORALMENTE: la única condición es requireRole("DEVELOPER")
@@ -131,4 +132,26 @@ export const createDemoEventService = async () => {
 
         return event;
     }, TRANSACTION_OPTIONS);
+};
+
+// "Probar WhatsApp" — dispara UN mensaje de texto libre puntual vía
+// sendWhatsappTextMessage (whatsapp.service.js), sin ninguna lógica propia
+// de negocio: sólo valida el destinatario y traduce el resultado
+// normalizado a un AppError si Meta lo rechazó. No acopla nada de
+// EventCreationEngine/EventServicePort — ver contexto de Fase 2C.
+export const testSendWhatsappService = async ({ to, text }) => {
+    if (!to || typeof to !== "string" || !to.trim()) {
+        throw new AppError(ErrorCodes.WHATSAPP_RECIPIENT_REQUIRED);
+    }
+
+    const result = await sendWhatsappTextMessage({
+        to: to.trim(),
+        text: typeof text === "string" && text.trim() ? text.trim() : "Conexión PaseCultural OK",
+    });
+
+    if (!result.success) {
+        throw new AppError(ErrorCodes.WHATSAPP_SEND_FAILED, { details: { metaError: result.error } });
+    }
+
+    return { messageId: result.messageId };
 };

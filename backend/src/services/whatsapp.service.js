@@ -71,6 +71,132 @@ function normalizeMessage(message, value) {
     };
 }
 
+// ==================================================================
+// Envío — Fase 2C. Sigue sin conocer EventCreationEngine/EventServicePort:
+// esto es sólo "cómo mandar un mensaje por WhatsApp", nada de cuándo/por
+// qué mandarlo (eso lo decide quien llame a estas funciones, en una fase
+// posterior).
+// ==================================================================
+
+const GRAPH_API_TIMEOUT_MS = 10000;
+
+// Mismo criterio LAZY que getWhatsappVerifyToken/config/scannerSession.js:
+// recién exige la variable al primer envío real, nunca al arrancar. Tres
+// variables independientes (no una sola "config" empaquetada) para poder
+// reportar cuál falta exactamente.
+let cachedAccessToken;
+function getWhatsappAccessToken() {
+    if (cachedAccessToken) return cachedAccessToken;
+    const value = process.env.WHATSAPP_ACCESS_TOKEN;
+    if (!value || !value.trim()) {
+        throw new Error("Falta configurar la variable de entorno WHATSAPP_ACCESS_TOKEN.");
+    }
+    cachedAccessToken = value.trim();
+    return cachedAccessToken;
+}
+
+let cachedPhoneNumberId;
+function getWhatsappPhoneNumberId() {
+    if (cachedPhoneNumberId) return cachedPhoneNumberId;
+    const value = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    if (!value || !value.trim()) {
+        throw new Error("Falta configurar la variable de entorno WHATSAPP_PHONE_NUMBER_ID.");
+    }
+    cachedPhoneNumberId = value.trim();
+    return cachedPhoneNumberId;
+}
+
+let cachedGraphApiVersion;
+function getWhatsappGraphApiVersion() {
+    if (cachedGraphApiVersion) return cachedGraphApiVersion;
+    const value = process.env.WHATSAPP_GRAPH_API_VERSION;
+    if (!value || !value.trim()) {
+        throw new Error("Falta configurar la variable de entorno WHATSAPP_GRAPH_API_VERSION.");
+    }
+    cachedGraphApiVersion = value.trim();
+    return cachedGraphApiVersion;
+}
+
+// POST https://graph.facebook.com/{VERSION}/{PHONE_NUMBER_ID}/messages —
+// única función que efectivamente llama a Meta. Usa el `fetch` global de
+// Node (18+, ya disponible acá) — no agrega ninguna dependencia HTTP nueva.
+// Nunca lanza por un rechazo de Meta ni por timeout/red: siempre devuelve
+// {success, messageId, error}, así el caller no necesita un try/catch
+// distinto para cada motivo de falla. Sí puede lanzar (Error simple, sin
+// AppError — igual que scannerSession.js#getSecret) si falta configurar
+// alguna de las 3 variables de entorno, porque eso es un error de
+// configuración, no una respuesta de Meta.
+async function postToGraphApi(body) {
+    const url = `https://graph.facebook.com/${getWhatsappGraphApiVersion()}/${getWhatsappPhoneNumberId()}/messages`;
+    const accessToken = getWhatsappAccessToken();
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), GRAPH_API_TIMEOUT_MS);
+
+    let response;
+    try {
+        response = await fetch(url, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+        });
+    } catch (error) {
+        // Nunca se loguea acá — el caller decide qué loguear (nunca el
+        // token/teléfono/texto, ver whatsapp.controller.js/devTools.controller.js).
+        return { success: false, messageId: null, error: error.name === "AbortError" ? "TIMEOUT" : "NETWORK_ERROR" };
+    } finally {
+        clearTimeout(timeoutId);
+    }
+
+    let payload = null;
+    try {
+        payload = await response.json();
+    } catch {
+        payload = null;
+    }
+
+    if (!response.ok) {
+        // Meta devuelve {error:{message,type,code,...}} en el body — se
+        // conserva sólo el mensaje, nunca el payload completo (podría
+        // repetir datos del destinatario).
+        return { success: false, messageId: null, error: payload?.error?.message ?? `HTTP_${response.status}` };
+    }
+
+    return { success: true, messageId: payload?.messages?.[0]?.id ?? null, error: null };
+}
+
+// Mensaje de texto libre — sujeto a la ventana de 24hs de WhatsApp (sólo se
+// puede mandar texto libre si el destinatario escribió primero dentro de
+// las últimas 24hs). Si Meta lo rechaza por esa restricción, esta función
+// NO reintenta ni cambia de estrategia sola: devuelve {success:false,
+// error} tal cual lo reportó Meta, para que el caller lo muestre claro.
+export async function sendWhatsappTextMessage({ to, text }) {
+    return postToGraphApi({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "text",
+        text: { body: text },
+    });
+}
+
+// hello_world — el único template ya probado desde el panel de Meta (ver
+// contexto de esta fase). No crea templates nuevos: dispara exactamente
+// ese, con el mismo mecanismo de envío que sendWhatsappTextMessage.
+export async function sendWhatsappHelloWorldTemplate({ to }) {
+    return postToGraphApi({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "template",
+        template: { name: "hello_world", language: { code: "en_US" } },
+    });
+}
+
 // Navega entry[] → changes[] → value → messages[] de forma completamente
 // defensiva: cualquier nivel ausente, vacío o con otra forma (ej. un
 // webhook de status: value.statuses en vez de value.messages) simplemente

@@ -1,5 +1,10 @@
 import { Router } from "express";
-import { getDevDatabaseStats, resetDevDatabase, createDemoEvent } from "../controllers/devTools.controller.js";
+import {
+    getDevDatabaseStats,
+    resetDevDatabase,
+    createDemoEvent,
+    testSendWhatsapp,
+} from "../controllers/devTools.controller.js";
 import { requireRole } from "../middlewares/requireRole.js";
 
 const router = Router();
@@ -16,5 +21,10 @@ const router = Router();
 router.get("/stats", requireRole("DEVELOPER"), getDevDatabaseStats);
 router.post("/reset", requireRole("DEVELOPER"), resetDevDatabase);
 router.post("/demo-event", requireRole("DEVELOPER"), createDemoEvent);
+// Fase 2C — envío manual de UN mensaje de WhatsApp de prueba. Mismo
+// mecanismo de protección que el resto de esta ruta (requireRole
+// "DEVELOPER"), no un endpoint público nuevo: reutiliza exactamente el
+// router/protección ya existente de "Base de Datos".
+router.post("/whatsapp/test-send", requireRole("DEVELOPER"), testSendWhatsapp);
 
 export default router;

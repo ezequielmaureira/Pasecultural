@@ -3,6 +3,7 @@ import {
     getDevDatabaseStatsService,
     resetDevDatabaseService,
     createDemoEventService,
+    testSendWhatsappService,
 } from "../services/devTools.service.js";
 
 export const getDevDatabaseStats = async (req, res, next) => {
@@ -27,6 +28,20 @@ export const createDemoEvent = async (req, res, next) => {
     try {
         const event = await createDemoEventService();
         res.status(201).json({ event });
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
+
+// POST /api/dev/whatsapp/test-send — Fase 2C, envío manual de un único
+// mensaje de prueba. Nunca se loguea el body de la request (teléfono/texto)
+// acá; testSendWhatsappService ya se encarga de no loguear nada sensible
+// del lado del service tampoco.
+export const testSendWhatsapp = async (req, res, next) => {
+    try {
+        const { to, text } = req.body ?? {};
+        const result = await testSendWhatsappService({ to, text });
+        res.status(200).json({ success: true, messageId: result.messageId });
     } catch (error) {
         next(AppError.from(error));
     }

@@ -330,4 +330,16 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Courtesy issuance with deliveryMethod=EMAIL attempted without a recipientEmail.",
         userMessage: "Ingresá el correo electrónico del destinatario.",
     },
+
+    // --- WhatsApp (Fase 2C — envío de prueba desde Developer → Base de Datos) ---
+    WHATSAPP_RECIPIENT_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "WhatsApp test-send attempted without a recipient phone number.",
+        userMessage: "Ingresá el número de teléfono destino.",
+    },
+    WHATSAPP_SEND_FAILED: {
+        httpStatus: 502,
+        logMessage: "Meta Graph API rejected or failed to deliver the WhatsApp message.",
+        userMessage: "No pudimos enviar el mensaje de WhatsApp. Revisá el error de Meta en los logs.",
+    },
 });
