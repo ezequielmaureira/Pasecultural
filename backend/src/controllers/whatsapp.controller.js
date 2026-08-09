@@ -3,6 +3,9 @@ import {
     evaluateWebhookVerification,
     getWhatsappVerifyToken,
     parseInboundWhatsappMessages,
+    sendWhatsappTextMessage,
+    shouldAutoReply,
+    AUTO_REPLY_TEXT,
 } from "../services/whatsapp.service.js";
 
 // GET /api/whatsapp/webhook — mecanismo oficial de verificación de Meta
@@ -36,13 +39,56 @@ export const verifyWhatsappWebhook = (req, res) => {
     res.status(200).send(result.challenge);
 };
 
-// POST /api/whatsapp/webhook — Fase 2B: reconoce mensajes entrantes de
-// forma segura. A propósito NO llama a EventCreationEngine/EventServicePort,
-// NO escribe en la base, NO llama APIs externas y NO le responde nada a
-// WhatsApp — eso sigue siendo de una fase posterior. Los webhooks de status
-// (sent/delivered/read/failed) no tienen `value.messages`, así que
-// parseInboundWhatsappMessages ya los ignora limpiamente (devuelve []) sin
-// necesidad de distinguirlos acá.
+// Responde UNA vez, con el mismo texto fijo, a un único mensaje ya
+// normalizado — Fase 2D. `sendText` es inyectable únicamente para tests
+// (nunca se le pasa nada distinto desde receiveWhatsappWebhook/Express, que
+// llama esta función sin segundo argumento): permite probar la lógica de
+// "a quién y con qué contestamos" sin mockear fetch/red.
+// Nunca deja escapar una excepción — ni un rechazo de Meta (success:false)
+// ni un error de red/timeout pueden convertir el webhook en 500, porque
+// Meta reintentaría el mismo mensaje entrante y empeoraría el problema.
+export async function processInboundMessage(message, { sendText = sendWhatsappTextMessage } = {}) {
+    if (!shouldAutoReply(message)) return;
+
+    try {
+        const result = await sendText({ to: message.from, text: AUTO_REPLY_TEXT });
+        if (!result.success) {
+            // Nunca el texto/teléfono completo/token — sólo lo necesario
+            // para diagnosticar en desarrollo.
+            logger.warn("WhatsApp auto-reply: Meta rechazó el envío", {
+                inboundMessageId: message.messageId,
+                success: false,
+                error: result.error,
+            });
+            return;
+        }
+        logger.info("WhatsApp auto-reply sent", {
+            inboundMessageId: message.messageId,
+            success: true,
+            outboundMessageId: result.messageId,
+        });
+    } catch (error) {
+        logger.error(error, { context: "whatsapp auto-reply", inboundMessageId: message.messageId });
+    }
+}
+
+// Orquesta el reply de TODOS los mensajes de un mismo POST — separada de
+// receiveWhatsappWebhook para poder testearla con un `sendText` mockeado
+// sin pasar por Express (que ya inyecta su propio tercer argumento, `next`,
+// así que receiveWhatsappWebhook no puede tener un parámetro de DI propio).
+// Promise.allSettled: un mensaje cuyo intento de respuesta falle nunca
+// bloquea ni afecta a los demás.
+export async function processInboundMessages(messages, deps) {
+    await Promise.allSettled(messages.map((message) => processInboundMessage(message, deps)));
+}
+
+// POST /api/whatsapp/webhook — Fase 2B reconoce mensajes entrantes de forma
+// segura; Fase 2D agrega la respuesta automática mínima. A propósito sigue
+// sin llamar a EventCreationEngine/EventServicePort ni escribir en la base.
+// Los webhooks de status (sent/delivered/read/failed) no tienen
+// `value.messages`, así que parseInboundWhatsappMessages ya los ignora
+// limpiamente (devuelve []) sin necesidad de distinguirlos acá — nunca se
+// les responde nada.
 export const receiveWhatsappWebhook = (req, res) => {
     const messages = parseInboundWhatsappMessages(req.body);
 
@@ -56,6 +102,13 @@ export const receiveWhatsappWebhook = (req, res) => {
             phoneNumberId: message.phoneNumberId,
         });
     }
+
+    // Fire-and-forget A PROPÓSITO: Meta necesita el 200 YA, no recién
+    // después de esperar hasta GRAPH_API_TIMEOUT_MS a que termine (o
+    // falle) el intento de responder. processInboundMessage ya nunca
+    // lanza (ver su propio comentario), así que no hace falta un .catch()
+    // adicional acá — sólo se dispara, nunca se espera.
+    void processInboundMessages(messages);
 
     res.sendStatus(200);
 };

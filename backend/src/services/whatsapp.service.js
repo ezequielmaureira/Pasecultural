@@ -197,6 +197,31 @@ export async function sendWhatsappHelloWorldTemplate({ to }) {
     });
 }
 
+// ==================================================================
+// Respuesta automática mínima — Fase 2D. Sigue sin EventCreationEngine/
+// EventServicePort/Prisma: sólo decide "¿a este mensaje le corresponde
+// nuestra única respuesta fija?", nunca envía nada por sí misma (eso lo
+// hace whatsapp.controller.js, con sendWhatsappTextMessage de más arriba).
+// ==================================================================
+
+export const AUTO_REPLY_TEXT = "¡Hola! 👋 Soy el asistente de PaseCultural. ¿Querés publicar un evento?";
+
+// Pura, sin I/O — recibe un mensaje YA normalizado por
+// parseInboundWhatsappMessages. Nunca responde a: status updates (no tienen
+// `type`/`text`, quedan filtrados por type!=="text"), mensajes sin `from`,
+// mensajes no-text (image/audio/.../ya vienen con text:null del parser),
+// texto null, o texto vacío/sólo espacios.
+export function shouldAutoReply(message) {
+    return Boolean(
+        message &&
+            message.type === "text" &&
+            typeof message.text === "string" &&
+            message.text.trim().length > 0 &&
+            typeof message.from === "string" &&
+            message.from.length > 0
+    );
+}
+
 // Navega entry[] → changes[] → value → messages[] de forma completamente
 // defensiva: cualquier nivel ausente, vacío o con otra forma (ej. un
 // webhook de status: value.statuses en vez de value.messages) simplemente
