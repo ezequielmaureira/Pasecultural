@@ -21,6 +21,7 @@ import developerEventsRoutes from "./routes/developerEvents.routes.js";
 import developerTicketsRoutes from "./routes/developerTickets.routes.js";
 import developerScannersRoutes from "./routes/developerScanners.routes.js";
 import developerSalesRoutes from "./routes/developerSales.routes.js";
+import whatsappRoutes from "./routes/whatsapp.routes.js";
 import { errorHandler } from "./errors/index.js";
 
 const app = express();
@@ -89,6 +90,11 @@ app.use("/api/developer", developerScannersRoutes);
 // /api/developer/sales/:id. Sólo lectura, platform-wide, exclusivo
 // DEVELOPER. Ver developerSales.service.js.
 app.use("/api/developer", developerSalesRoutes);
+// Webhook de Meta WhatsApp Cloud API — Fase 2A: sólo verificación GET y
+// recepción POST del webhook, público (Meta no manda ningún header de
+// sesión de PaseCultural). No conecta EventCreationEngine/EventServicePort
+// todavía. Ver whatsapp.controller.js.
+app.use("/api/whatsapp", whatsappRoutes);
 
 app.get("/debug/prisma-user", async (req, res) => {
     try {
