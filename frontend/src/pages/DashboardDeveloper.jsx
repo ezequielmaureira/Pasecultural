@@ -1,40 +1,36 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
 import { Link } from "react-router-dom";
-import { Users, Briefcase, Clock3, CalendarDays, Ticket, DollarSign, Circle } from "lucide-react";
+import { Users, Briefcase, Clock3, CalendarDays, Ticket, DollarSign, ScanLine, Circle } from "lucide-react";
 import Card from "../components/ui/Card.jsx";
-import KpiCard from "../components/organizer/KpiCard.jsx";
 import SkeletonBlock from "../components/ui/SkeletonBlock.jsx";
 import InlineErrorNotice from "../components/ui/InlineErrorNotice.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import { getDeveloperDashboard } from "../lib/developerDashboardApi.js";
 import { formatCurrencyARS, formatDateTime, formatRelativeTime } from "../lib/format.js";
 
-// Variante clickeable de KpiCard, sólo para "Organizaciones pendientes" —
-// KpiCard es deliberadamente no interactiva (ver su propio comentario:
-// "sin hover propio a propósito"), así que en vez de forzarle un modo
-// interactivo que afecte también al resto del panel de organizador que ya
-// la usa, esta es una copia visual mínima con `<Link>` como raíz (real,
-// accesible, con foco/hover propios). Local a este archivo, no compartida.
-function ClickablePendingOrganizationsCard({ value, loading }) {
+// Variante clickeable de KpiCard — KpiCard (components/organizer/KpiCard.jsx)
+// es deliberadamente no interactiva ("sin hover propio a propósito"), así
+// que en vez de forzarle un modo interactivo que afecte también al resto
+// del panel de organizador que ya la usa, ésta es una copia visual mínima
+// con `<Link>` como raíz (real, accesible, con foco/hover propios). Local a
+// este archivo, no compartida — generalizada a partir de la que antes sólo
+// servía para "Organizaciones pendientes", ahora reutilizada por las 7 cards.
+function ClickableKpiCard({ to, label, value, icon: Icon, loading }) {
   return (
     <Link
-      to="/developer/organizaciones"
-      aria-label={
-        loading
-          ? "Organizaciones pendientes: cargando"
-          : `Organizaciones pendientes: ${value}. Ver organizaciones`
-      }
+      to={to}
+      aria-label={loading ? `${label}: cargando` : `${label}: ${value}. Ver ${label.toLowerCase()}`}
       className="group block min-w-0 rounded-xl border border-white/10 bg-[#0B1120] p-6 transition-colors duration-150 hover:border-violet-500/40 hover:bg-white/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
     >
       <div className="flex items-center gap-2 text-sm text-slate-400 group-hover:text-slate-300">
-        <Clock3 className="h-4 w-4" aria-hidden="true" />
-        <span className="truncate">Organizaciones pendientes</span>
+        <Icon className="h-4 w-4" aria-hidden="true" />
+        <span className="truncate">{label}</span>
       </div>
       {loading ? (
         <SkeletonBlock className="mt-3 h-7 w-20" />
       ) : (
-        <p className="mt-3 truncate text-2xl font-bold text-white">{value.toLocaleString("es-AR")}</p>
+        <p className="mt-3 truncate text-2xl font-bold text-white">{value}</p>
       )}
     </Link>
   );
@@ -89,26 +85,36 @@ export default function DashboardDeveloper() {
       {error && <InlineErrorNotice message="No pudimos cargar el Dashboard." onRetry={load} />}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <KpiCard
+        <ClickableKpiCard
+          to="/developer/usuarios"
           label="Usuarios"
           value={(kpis?.usersTotal ?? 0).toLocaleString("es-AR")}
           icon={Users}
           loading={loading}
         />
-        <KpiCard
+        <ClickableKpiCard
+          to="/developer/usuarios"
           label="Organizadores"
           value={(kpis?.organizersTotal ?? 0).toLocaleString("es-AR")}
           icon={Briefcase}
           loading={loading}
         />
-        <ClickablePendingOrganizationsCard value={kpis?.pendingOrganizations ?? 0} loading={loading} />
-        <KpiCard
+        <ClickableKpiCard
+          to="/developer/organizaciones"
+          label="Organizaciones pendientes"
+          value={(kpis?.pendingOrganizations ?? 0).toLocaleString("es-AR")}
+          icon={Clock3}
+          loading={loading}
+        />
+        <ClickableKpiCard
+          to="/developer/eventos"
           label="Eventos publicados"
           value={(kpis?.publishedEvents ?? 0).toLocaleString("es-AR")}
           icon={CalendarDays}
           loading={loading}
         />
-        <KpiCard
+        <ClickableKpiCard
+          to="/developer/entradas"
           label="Entradas vendidas"
           value={(kpis?.soldTickets ?? 0).toLocaleString("es-AR")}
           icon={Ticket}
@@ -117,10 +123,18 @@ export default function DashboardDeveloper() {
         {/* "Volumen bruto de ventas" — nunca "Recaudación"/"Ingresos": no
             hay comisión ni cobro real todavía (Mercado Pago no está
             integrado). Ver KPI grossSalesVolume en el backend. */}
-        <KpiCard
+        <ClickableKpiCard
+          to="/developer/ventas"
           label="Volumen bruto de ventas"
           value={formatCurrencyARS(kpis?.grossSalesVolume ?? 0)}
           icon={DollarSign}
+          loading={loading}
+        />
+        <ClickableKpiCard
+          to="/developer/scanners"
+          label="Scanners activos"
+          value={(kpis?.scannersActive ?? 0).toLocaleString("es-AR")}
+          icon={ScanLine}
           loading={loading}
         />
       </div>

@@ -164,13 +164,25 @@ export const deleteMyOrganizationService = async (clerkId) => {
     return true;
 };
 
+// Usado exclusivamente por Developer → Organizaciones (organization.controller.js,
+// las rutas requireRole("DEVELOPER") de organization.routes.js). El owner
+// completo (antes `include: { owner: true }`) traía también clerkId y el
+// resto de la fila de User sin que ningún consumidor lo usara —
+// DeveloperOrganizations.jsx/OrganizationDetailModal.jsx sólo leen
+// owner.firstName/lastName/email (verificado contra el código real de
+// ambos). `organization.owner.firstName/lastName/email` sigue funcionando
+// exactamente igual.
+const DEVELOPER_ORGANIZATION_OWNER_SELECT = {
+    owner: { select: { id: true, firstName: true, lastName: true, email: true } },
+};
+
 export const getOrganizationsService = async (status) => {
     const where =
         status && ORGANIZATION_STATUSES.has(status) ? { status } : {};
 
     return prisma.organization.findMany({
         where,
-        include: { owner: true },
+        include: DEVELOPER_ORGANIZATION_OWNER_SELECT,
         orderBy: { createdAt: "desc" },
     });
 };
@@ -178,7 +190,7 @@ export const getOrganizationsService = async (status) => {
 export const getOrganizationByIdService = async (id) => {
     return prisma.organization.findUnique({
         where: { id },
-        include: { owner: true },
+        include: DEVELOPER_ORGANIZATION_OWNER_SELECT,
     });
 };
 

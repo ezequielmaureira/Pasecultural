@@ -19,7 +19,7 @@ const RECENT_ACTIVITY_LIMIT = 8;
 // filtrar `deletedAt` (inconsistencia heredada, deliberadamente no
 // corregida acá — ver informe).
 async function getKpis(now) {
-    const [usersTotal, organizersTotal, pendingOrganizations, publishedEvents, soldTickets, grossSales] =
+    const [usersTotal, organizersTotal, pendingOrganizations, publishedEvents, soldTickets, grossSales, scannersActive] =
         await Promise.all([
             prisma.user.count(),
             prisma.user.count({ where: { role: "ORGANIZER" } }),
@@ -43,6 +43,10 @@ async function getKpis(now) {
                 where: { origin: "SALE", status: "CONFIRMED", deletedAt: null },
                 _sum: { total: true },
             }),
+            // Mismo criterio exacto que "status=ACTIVE" en Developer →
+            // Scanners (developerScanners.service.js), que ya fija
+            // deletedAt:null siempre — reproducible con un solo filtro.
+            prisma.eventScanner.count({ where: { status: "ACTIVE", deletedAt: null } }),
         ]);
 
     return {
@@ -54,6 +58,7 @@ async function getKpis(now) {
         // "Volumen bruto de ventas" — nunca "recaudación"/"ingresos" (no hay
         // comisión ni cobro real todavía). Decimal -> Number explícito.
         grossSalesVolume: Number(grossSales._sum.total ?? 0),
+        scannersActive,
     };
 }
 
