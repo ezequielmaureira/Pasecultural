@@ -29,6 +29,7 @@ import {
     isCancelCommand,
     extractWhatsappReplyText,
     resolveSingleSelectIndexReply,
+    parseWhatsappFunctionCardText,
     WHATSAPP_DECLINE_TEXT,
     WHATSAPP_CANCEL_TEXT,
     WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT,
@@ -262,19 +263,29 @@ export async function processInboundMessage(
 
             // Primer intento: SIEMPRE el texto crudo, igual que Web — el
             // motor no cambia de contrato. Sólo si ESE intento falla
-            // (prompt.error) Y el step que rechazó la respuesta es
-            // SINGLE_SELECT, se interpreta la respuesta como un índice
-            // 1-based sobre `prompt.options` (la MISMA lista que el motor ya
-            // devolvió) y se reintenta una única vez con el `id` real —
-            // nunca se le pasa al motor un índice ni se inventa un id fuera
-            // de esa lista. Si no es un índice válido, resolveSingleSelectIndexReply
-            // devuelve null y el error original (con sus opciones, ver
-            // extractWhatsappReplyText) es lo único que se manda.
+            // (prompt.error), según el step que rechazó la respuesta, se
+            // reinterpreta el mismo texto y se reintenta UNA única vez:
+            //  - SINGLE_SELECT: el texto es un índice 1-based sobre
+            //    `prompt.options` (la MISMA lista que el motor ya devolvió)
+            //    -> se traduce al `id` real de esa lista.
+            //  - FUNCTION_CARD ("una sola función", fecha+horario): el texto
+            //    es "DD/MM/AAAA HH:MM a HH:MM" -> se traduce a
+            //    {date, startTime, endTime}.
+            // En ambos casos, si la reinterpretación no da un valor válido,
+            // el error original (ya adaptado para WhatsApp, ver
+            // extractWhatsappReplyText) es lo único que se manda — nunca se
+            // le pasa al motor un valor inventado o fuera de lo que
+            // realmente mostró.
             let result = await handleConversationInput(active.id, { value: text });
             if (result?.prompt?.error && result.prompt.inputType === "SINGLE_SELECT") {
                 const resolvedId = resolveSingleSelectIndexReply(result.prompt.options, text);
                 if (resolvedId) {
                     result = await handleConversationInput(active.id, { value: resolvedId });
+                }
+            } else if (result?.prompt?.error && result.prompt.inputType === "FUNCTION_CARD") {
+                const resolvedFunctionCard = parseWhatsappFunctionCardText(text);
+                if (resolvedFunctionCard) {
+                    result = await handleConversationInput(active.id, { value: resolvedFunctionCard });
                 }
             }
             await reply(extractWhatsappReplyText(result), "HANDLE_INPUT");
