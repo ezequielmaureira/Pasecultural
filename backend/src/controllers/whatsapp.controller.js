@@ -11,13 +11,15 @@ import {
 } from "../services/whatsapp.service.js";
 import * as EventCreationEngine from "../conversation/EventCreationEngine.js";
 import { resolveWhatsappOrganizerIdentity } from "../services/whatsappOrganizerIdentity.service.js";
+import { createOrReuseWhatsappLinkChallenge } from "../services/whatsappOrganizerLink.service.js";
 import {
     classifyInitialIntent,
     isCancelCommand,
     extractWhatsappReplyText,
+    buildWhatsappLinkChallengeText,
     WHATSAPP_DECLINE_TEXT,
     WHATSAPP_CANCEL_TEXT,
-    WHATSAPP_IDENTITY_NOT_LINKED_TEXT,
+    WHATSAPP_LINK_CHALLENGE_PENDING_TEXT,
 } from "../services/whatsappOrganizerBot.service.js";
 
 // El valor real de ConversationChannel para este canal (ver
@@ -94,11 +96,13 @@ async function sendBotReply({ sendText, to, from, messageId, text, engineAction 
 // (mismo criterio que `sendText` desde Fase 2D) para poder testear la
 // orquestación sin tocar Prisma/red.
 //
-// IMPORTANTE — identidad: resolveOrganizerIdentity es, hoy, siempre-null
-// (ver whatsappOrganizerIdentity.service.js): no existe todavía una forma
-// segura de vincular un número de WhatsApp a un organizer/User real, así
-// que EventCreationEngine.start NUNCA se llama con una identidad inventada
-// — ver el informe de entrega de Fase 2E para el detalle de qué falta.
+// IMPORTANTE — identidad: resolveOrganizerIdentity sólo resuelve contra un
+// WhatsappOrganizerLink YA VERIFICADO (Fase 2F) — nunca contra
+// Organization.phone ni ninguna otra fuente sin verificar. Mientras un
+// wa_id no tenga vínculo, EventCreationEngine.start NUNCA se llama con una
+// identidad inventada: en su lugar se dispara un challenge de vinculación
+// (createOrReuseWhatsappLinkChallenge) para que el organizador lo confirme
+// desde su panel autenticado con Clerk.
 //
 // Nunca deja escapar una excepción — ni un rechazo de Meta ni un error del
 // motor pueden convertir el webhook en 500 (Meta reintentaría el mismo
@@ -112,6 +116,7 @@ export async function processInboundMessage(
         cancelConversation = EventCreationEngine.cancel,
         findActiveConversation = EventCreationEngine.findActiveConversation,
         resolveOrganizerIdentity = resolveWhatsappOrganizerIdentity,
+        createLinkChallenge = createOrReuseWhatsappLinkChallenge,
     } = {}
 ) {
     if (!shouldAutoReply(message)) return;
@@ -156,11 +161,20 @@ export async function processInboundMessage(
 
         const identity = await resolveOrganizerIdentity(channelRef);
         if (!identity) {
-            logger.warn("WhatsApp organizer bot: identidad no resuelta, no se inicia el motor", {
+            // Sin vínculo verificado todavía (Fase 2F) — se dispara/reusa un
+            // challenge en vez de inventar una identidad. challengeCreated
+            // es el único dato del challenge que se loguea (nunca el
+            // código, ni el hash, ni el wa_id completo).
+            const challengeResult = await createLinkChallenge(channelRef);
+            logger.info("WhatsApp organizer bot: sin vínculo verificado", {
                 inboundMessageId: message.messageId,
-                engineAction: "IDENTITY_UNRESOLVED",
+                engineAction: "LINK_CHALLENGE",
+                challengeCreated: Boolean(challengeResult?.code),
             });
-            await reply(WHATSAPP_IDENTITY_NOT_LINKED_TEXT, "IDENTITY_UNRESOLVED");
+            await reply(
+                challengeResult?.code ? buildWhatsappLinkChallengeText(challengeResult.code) : WHATSAPP_LINK_CHALLENGE_PENDING_TEXT,
+                "LINK_CHALLENGE"
+            );
             return;
         }
 

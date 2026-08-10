@@ -342,4 +342,41 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Meta Graph API rejected or failed to deliver the WhatsApp message.",
         userMessage: "No pudimos enviar el mensaje de WhatsApp. Revisá el error de Meta en los logs.",
     },
+
+    // --- WhatsApp Organizer Link (Fase 2F — vinculación wa_id ↔ organizer) ---
+    WHATSAPP_LINK_CODE_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "WhatsApp organizer link attempted without a code.",
+        userMessage: "Ingresá el código que te mandamos por WhatsApp.",
+    },
+    WHATSAPP_LINK_CODE_INVALID: {
+        httpStatus: 400,
+        logMessage: "WhatsApp organizer link attempted with a code that matches no live challenge (deliberately indistinguishable from a code that never existed).",
+        userMessage: "El código ingresado es incorrecto.",
+    },
+    WHATSAPP_LINK_CODE_EXPIRED: {
+        httpStatus: 410,
+        logMessage: "WhatsApp organizer link attempted after the challenge's expiration.",
+        userMessage: "Ese código venció. Volvé a escribirle al bot de WhatsApp para pedir uno nuevo.",
+    },
+    WHATSAPP_LINK_TOO_MANY_ATTEMPTS: {
+        httpStatus: 429,
+        logMessage: "WhatsApp organizer link attempted after the organization exceeded the max allowed failed attempts within the current window.",
+        userMessage: "Superaste el máximo de intentos. Esperá unos minutos y volvé a intentarlo.",
+    },
+    WHATSAPP_LINK_NO_ORGANIZATION: {
+        httpStatus: 409,
+        logMessage: "WhatsApp organizer link attempted by a Clerk user with no Organization row.",
+        userMessage: "Todavía no tenés una organización creada.",
+    },
+    WHATSAPP_ALREADY_LINKED: {
+        httpStatus: 409,
+        logMessage: "WhatsApp organizer link attempted but this organization already has a verified WhatsApp link.",
+        userMessage: "Tu organización ya tiene un WhatsApp vinculado.",
+    },
+    WHATSAPP_LINK_WAID_ALREADY_LINKED: {
+        httpStatus: 409,
+        logMessage: "WhatsApp organizer link attempted for a wa_id that got linked to a different organization between the challenge lookup and the commit (unique constraint race).",
+        userMessage: "Ese WhatsApp ya está vinculado a otra organización.",
+    },
 });

@@ -5,11 +5,11 @@ import {
     classifyInitialIntent,
     isCancelCommand,
     extractWhatsappReplyText,
+    buildWhatsappLinkChallengeText,
     WHATSAPP_DECLINE_TEXT,
     WHATSAPP_CANCEL_TEXT,
-    WHATSAPP_IDENTITY_NOT_LINKED_TEXT,
+    WHATSAPP_LINK_CHALLENGE_PENDING_TEXT,
 } from "../src/services/whatsappOrganizerBot.service.js";
-import { resolveWhatsappOrganizerIdentity } from "../src/services/whatsappOrganizerIdentity.service.js";
 import { processInboundMessage, processInboundMessages } from "../src/controllers/whatsapp.controller.js";
 
 function textMessage(overrides = {}) {
@@ -47,10 +47,9 @@ function spy(returnValue) {
 }
 
 // deps base: sin conversación activa, identidad SIEMPRE resuelta (mock) —
-// cada test override lo que necesite. resolveOrganizerIdentity acá es un
-// mock deliberado (no el real, siempre-null) para poder probar el cableo
-// "si la identidad resolviera, ¿se llama a start correctamente?" — el test
-// L) usa el resolver REAL a propósito.
+// cada test override lo que necesite. resolveOrganizerIdentity/
+// createLinkChallenge son mocks deliberados (nunca los reales, que tocan
+// Prisma) para poder probar el cableo sin base de datos.
 function baseDeps(overrides = {}) {
     const { sendText, calls: sendCalls } = fakeSender();
     return {
@@ -61,6 +60,7 @@ function baseDeps(overrides = {}) {
             handleConversationInput: spy({ conversationId: "conv1", prompt: { stepId: "DESCRIPTION", type: "QUESTION", text: "¿De qué trata tu evento?" }, canGoBack: true, sections: [] }),
             cancelConversation: spy(undefined),
             resolveOrganizerIdentity: spy({ clerkId: "user_123" }),
+            createLinkChallenge: spy({ code: "482731" }),
             ...overrides,
         },
         sendCalls,
@@ -297,24 +297,30 @@ test("J) a non-text message never reaches the engine", async () => {
     assert.equal(sendCalls.length, 0);
 });
 
-// L) identidad no resuelta -> nunca inicia el motor con una identidad
-// inventada. Usa el resolver REAL (siempre-null hoy, ver
-// whatsappOrganizerIdentity.service.js), no un mock.
-test("L) with no safe phone-to-organizer resolution, the engine is never started with a fabricated identity", async () => {
-    const { sendText, calls: sendCalls } = fakeSender();
-    const deps = {
-        sendText,
-        findActiveConversation: spy(null),
-        startConversation: spy({ conversationId: "conv1", prompt: { stepId: "NAME", type: "QUESTION", text: "no debería llegar acá" } }),
-        handleConversationInput: spy(null),
-        cancelConversation: spy(undefined),
-        resolveOrganizerIdentity: resolveWhatsappOrganizerIdentity,
-    };
+// L) Fase 2F, test A del pedido: waId no vinculado + "Sí" -> genera
+// challenge, NUNCA inicia el motor con una identidad inventada.
+test("L) with no verified wa_id link, the bot creates a link challenge instead of starting the engine", async () => {
+    const { deps, sendCalls } = baseDeps({ resolveOrganizerIdentity: spy(null) });
 
-    await processInboundMessage(textMessage({ text: "Sí" }), deps);
+    await processInboundMessage(textMessage({ text: "Sí", from: "5491100002222" }), deps);
 
     assert.equal(deps.startConversation.calls.length, 0);
-    assert.equal(sendCalls[0].text, WHATSAPP_IDENTITY_NOT_LINKED_TEXT);
+    assert.equal(deps.createLinkChallenge.calls.length, 1);
+    assert.deepEqual(deps.createLinkChallenge.calls[0], ["5491100002222"]);
+    assert.equal(sendCalls[0].text, buildWhatsappLinkChallengeText("482731"));
+});
+
+// Fase 2F, test B/complemento: si ya hay un challenge vigente en cooldown
+// (createLinkChallenge devuelve {pending:true}, ver
+// shouldCreateNewChallenge), el bot avisa que ya se mandó un código en vez
+// de generar uno nuevo — y sigue sin iniciar el motor.
+test("when a link challenge is already pending, the bot asks the user to check their messages instead of generating a new code", async () => {
+    const { deps, sendCalls } = baseDeps({ resolveOrganizerIdentity: spy(null), createLinkChallenge: spy({ pending: true }) });
+
+    await processInboundMessage(textMessage({ text: "dale" }), deps);
+
+    assert.equal(deps.startConversation.calls.length, 0);
+    assert.equal(sendCalls[0].text, WHATSAPP_LINK_CHALLENGE_PENDING_TEXT);
 });
 
 // Cobertura adicional de Fase 2D.1 que sigue vigente: el destinatario de

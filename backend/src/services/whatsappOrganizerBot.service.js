@@ -8,12 +8,21 @@ export const WHATSAPP_DECLINE_TEXT = "Perfecto 👍 Cuando quieras publicar un e
 
 export const WHATSAPP_CANCEL_TEXT = "❌ Cancelamos la creación de tu evento. Cuando quieras, escribime para empezar de nuevo.";
 
-// Sólo se usa cuando la intención es AFFIRMATIVE pero
-// resolveWhatsappOrganizerIdentity no pudo vincular el número a un
-// organizer real (ver whatsappOrganizerIdentity.service.js) — nunca se
-// llega a EventCreationEngine.start en ese caso.
-export const WHATSAPP_IDENTITY_NOT_LINKED_TEXT =
-    "Por ahora no podemos verificar tu cuenta de organizador desde WhatsApp. Iniciá sesión en la web de PaseCultural para publicar tu evento.";
+// Fase 2F — se usan cuando la intención es AFFIRMATIVE pero
+// resolveWhatsappOrganizerIdentity todavía no encuentra un vínculo
+// verificado para este wa_id (ver whatsappOrganizerIdentity.service.js):
+// nunca se llega a EventCreationEngine.start en ese caso, se dispara el
+// challenge de vinculación (whatsappOrganizerLink.service.js) en su lugar.
+export function buildWhatsappLinkChallengeText(code) {
+    return `Para vincular este WhatsApp con tu cuenta de PaseCultural, ingresá este código en tu panel de organizador:\n\n${code}\n\nEl código vence en 10 minutos.`;
+}
+
+// Ya había un challenge vigente para este wa_id y todavía no pasó el
+// cooldown de reemplazo (ver shouldCreateNewChallenge) — no se genera un
+// código nuevo ni se puede reenviar el anterior (nunca se guarda en texto
+// plano), así que sólo se avisa que ya hay uno esperando.
+export const WHATSAPP_LINK_CHALLENGE_PENDING_TEXT =
+    "Ya te enviamos un código para vincular este WhatsApp. Revisá los mensajes anteriores; si no te llegó, esperá un minuto y volvé a escribir.";
 
 // ==================================================================
 // classifyInitialIntent — SOLO para el mensaje previo a iniciar el motor

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
-import { Check, Landmark } from "lucide-react";
+import { Check, Landmark, MessageCircle } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
 import ImageUploader from "../../components/ui/ImageUploader.jsx";
@@ -14,6 +14,123 @@ function FieldSkeleton({ className = "" }) {
       <div className="h-3 w-20 animate-pulse rounded bg-white/10" />
       <div className="h-10 w-full animate-pulse rounded-lg bg-white/5" />
     </div>
+  );
+}
+
+// Fase 2F — sección "Vincular WhatsApp". Estado propio (no vive en el
+// formulario de la organización de arriba): la vinculación no se guarda
+// con "Guardar cambios", se confirma sola apenas el código es válido. El
+// backend deriva la organización EXCLUSIVAMENTE de la sesión Clerk — este
+// componente nunca manda organizationId/userId/clerkId/waId, sólo el
+// código de 6 dígitos que el organizador tipea (ver
+// whatsappOrganizerLink.service.js#linkWhatsappOrganizerService).
+function WhatsappLinkSection() {
+  const { getToken } = useAuth();
+  const toast = useToast();
+  const [status, setStatus] = useState(null); // null = cargando
+  const [code, setCode] = useState("");
+  const [linking, setLinking] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const token = await getToken();
+        const result = await apiFetch("/api/organizations/me/whatsapp-link", { token });
+        if (!cancelled) setStatus(result);
+      } catch (err) {
+        console.error("No se pudo consultar el estado de WhatsApp", err);
+        if (!cancelled) setStatus({ linked: false });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken]);
+
+  async function handleLink(event) {
+    event.preventDefault();
+    if (!code.trim()) return;
+
+    setLinking(true);
+    setError("");
+
+    try {
+      const token = await getToken();
+      await apiFetch("/api/organizations/me/whatsapp-link", {
+        token,
+        method: "POST",
+        body: JSON.stringify({ code: code.trim() }),
+      });
+      setStatus({ linked: true, verifiedAt: new Date().toISOString() });
+      setCode("");
+      toast.success("WhatsApp vinculado correctamente.");
+    } catch (err) {
+      // err.code viene de ErrorCatalog (ver errorHandler.js) — cada caso
+      // esperado tiene su propio texto; cualquier otro cae al mensaje
+      // genérico que ya trae err.message.
+      const messagesByCode = {
+        WHATSAPP_LINK_CODE_INVALID: "El código ingresado es incorrecto.",
+        WHATSAPP_LINK_CODE_EXPIRED: "Ese código venció. Volvé a escribirle al bot de WhatsApp para pedir uno nuevo.",
+        WHATSAPP_LINK_TOO_MANY_ATTEMPTS: "Superaste el máximo de intentos. Esperá unos minutos y volvé a intentarlo.",
+        WHATSAPP_ALREADY_LINKED: "Tu organización ya tiene un WhatsApp vinculado.",
+      };
+      setError(messagesByCode[err.code] || err.message || "No pudimos vincular el WhatsApp. Probá de nuevo.");
+      if (err.code === "WHATSAPP_ALREADY_LINKED") {
+        setStatus({ linked: true, verifiedAt: null });
+      }
+    } finally {
+      setLinking(false);
+    }
+  }
+
+  return (
+    <Card title="WhatsApp">
+      <p className="mb-4 text-xs text-slate-400">
+        Vinculá tu WhatsApp para crear y gestionar eventos desde el chat.
+      </p>
+
+      {status === null ? (
+        <div className="flex items-center gap-3 rounded-lg border border-dashed border-white/10 p-4">
+          <div className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-white/5" />
+          <div className="h-3 w-40 animate-pulse rounded bg-white/10" />
+        </div>
+      ) : status.linked ? (
+        <div className="flex items-center gap-4 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/15">
+            <Check className="h-5 w-5 text-emerald-400" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-emerald-300">WhatsApp vinculado correctamente.</p>
+            <p className="text-xs text-slate-500">Ya podés crear eventos escribiéndole al bot de PaseCultural.</p>
+          </div>
+        </div>
+      ) : (
+        <form onSubmit={handleLink} className="flex flex-col gap-3 sm:max-w-xs">
+          <Field label="Código de 6 dígitos">
+            <input
+              className={inputClass}
+              value={code}
+              onChange={(e) => {
+                setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                setError("");
+              }}
+              placeholder="000000"
+              inputMode="numeric"
+              maxLength={6}
+            />
+          </Field>
+          {error && <span className="text-xs text-rose-400">{error}</span>}
+          <Button type="submit" loading={linking} loadingText="Vinculando..." disabled={code.trim().length !== 6}>
+            <MessageCircle className="h-4 w-4" />
+            Vincular WhatsApp
+          </Button>
+        </form>
+      )}
+    </Card>
   );
 }
 
@@ -207,6 +324,8 @@ export default function OrganizerSettings() {
           </div>
         )}
       </Card>
+
+      <WhatsappLinkSection />
 
       <Card title="Datos bancarios">
         {/* Todavía no hay integración real de cobro (ni Mercado Pago ni

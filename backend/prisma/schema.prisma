@@ -178,6 +178,61 @@ model Organization {
   owner   User   @relation(fields: [ownerId], references: [id])
 
   events Event[]
+
+  // Fase 2F — vínculo WhatsApp ↔ organizer. La verificación del código de
+  // vinculación llega SOLO como {code} (nunca waId/organizationId, ver
+  // whatsappOrganizerLink.service.js), así que no hay una fila de
+  // challenge a la que poder atribuirle intentos fallidos de un código
+  // que no matchea ningún hash existente — por eso el contador de
+  // intentos vive acá, en la organización autenticada que está
+  // verificando, no en WhatsappLinkChallenge. Se resetea a (0, null)
+  // apenas la organización vincula con éxito, y también "se resetea
+  // solo" por ventana de tiempo (ver evaluateOrganizationLinkAttempts):
+  // no hay bloqueo permanente.
+  whatsappLinkAttempts   Int       @default(0)
+  whatsappLinkAttemptsAt DateTime?
+
+  whatsappOrganizerLink WhatsappOrganizerLink?
+}
+
+// Fase 2F — challenge efímero para vincular un wa_id a una organización.
+// Vive independiente de cualquier organización/usuario porque se crea
+// DESDE WhatsApp, antes de que exista ninguna sesión Clerk involucrada: en
+// ese momento sólo se conoce el wa_id. codeHash es SHA-256 del código de 6
+// dígitos (ver utils/verificationCode.js) — el código en texto plano nunca
+// se persiste, sólo se devuelve una vez para poder mandarlo por WhatsApp.
+// Una fila por wa_id (@unique): un código nuevo reemplaza al anterior bajo
+// cooldown (ver shouldCreateNewChallenge), nunca conviven dos códigos
+// vivos para el mismo número.
+model WhatsappLinkChallenge {
+  id         String   @id @default(cuid())
+  waId       String   @unique
+  codeHash   String
+  expiresAt  DateTime
+  lastSentAt DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("whatsapp_link_challenges")
+}
+
+// Fase 2F — vínculo YA VERIFICADO (nunca se crea una fila acá sin haber
+// pasado por WhatsappLinkChallenge primero). organizationId es @unique:
+// una organización tiene, por ahora, un único WhatsApp vinculado (ver
+// justificación de producto en el informe de entrega — Organization.phone
+// ya es un campo singular, no una lista, y no hay pedido de múltiples
+// números). waId es @unique por la razón inversa: un mismo WhatsApp nunca
+// puede quedar vinculado a dos organizaciones a la vez.
+model WhatsappOrganizerLink {
+  id             String       @id @default(cuid())
+  waId           String       @unique
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  verifiedAt     DateTime     @default(now())
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@map("whatsapp_organizer_links")
 }
 
 model Event {
