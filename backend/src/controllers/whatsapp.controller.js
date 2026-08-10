@@ -33,11 +33,14 @@ import {
     WHATSAPP_CANCEL_TEXT,
     WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT,
     WHATSAPP_SELECTION_INVALID_TEXT,
+    WHATSAPP_IMAGE_NOT_EXPECTED_TEXT,
     buildKnownOrganizationGreetingText,
     buildOrganizationSelectorText,
     buildOrganizationSelectedConfirmationText,
     buildOrganizationSelectionConfirmationRetryText,
+    buildWhatsappImageUploadErrorText,
 } from "../services/whatsappOrganizerBot.service.js";
+import { uploadWhatsappImageMessage } from "../services/whatsappMediaUpload.service.js";
 
 // El valor real de ConversationChannel para este canal (ver
 // prisma/schema.prisma `enum ConversationChannel { WEB WHATSAPP }`, ya usado
@@ -135,15 +138,26 @@ export async function processInboundMessage(
         handleConversationInput = EventCreationEngine.handleInput,
         cancelConversation = EventCreationEngine.cancel,
         findActiveConversation = EventCreationEngine.findActiveConversation,
+        resumeConversation = EventCreationEngine.resume,
         discoverCandidates = discoverWhatsappOrganizationCandidates,
         getPendingSelection = getPendingOrganizationSelection,
         createPendingSelection = createPendingOrganizationSelection,
         confirmSelection = confirmOrganizationSelection,
         clearPendingSelection = clearPendingOrganizationSelection,
         resolveOwner = resolveOrganizationOwner,
+        uploadImage = uploadWhatsappImageMessage,
     } = {}
 ) {
-    if (!shouldAutoReply(message)) return;
+    // Bug fix (carga de imagen del evento): antes shouldAutoReply por sí
+    // sola decidía si CUALQUIER mensaje seguía procesándose — como sólo
+    // reconoce type==="text", un mensaje de imagen se descartaba acá mismo,
+    // ANTES incluso de mirar si había una conversación activa esperando
+    // justamente una imagen (paso COVER_IMAGE). shouldAutoReply no se toca
+    // (sigue significando exactamente lo mismo, con los mismos tests); esta
+    // es la única condición adicional, explícita, para dejar pasar un
+    // mensaje de imagen con un media id real.
+    const isProcessableImage = message?.type === "image" && Boolean(message.image?.id);
+    if (!shouldAutoReply(message) && !isProcessableImage) return;
 
     // channelRef identifica la conversación de forma estable por el wa_id
     // de origen — SIEMPRE el número tal cual lo manda Meta (message.from),
@@ -152,12 +166,46 @@ export async function processInboundMessage(
     // 2D.1), no para identificar quién es quién.
     const channelRef = message.from;
     const to = normalizeWhatsappOutboundRecipient(message.from, isWhatsappTestModeEnabled());
-    const text = message.text.trim();
+    // Un mensaje de imagen no trae `text` (normalizeMessage lo deja null,
+    // ver whatsapp.service.js) — nunca se le llama `.trim()` a null.
+    const text = typeof message.text === "string" ? message.text.trim() : "";
     const reply = (replyText, engineAction) =>
         sendBotReply({ sendText, to, from: message.from, messageId: message.messageId, text: replyText, engineAction });
 
     try {
         const active = await findActiveConversation({ channel: WHATSAPP_CHANNEL, channelRef });
+
+        // Bug fix (carga de imagen del evento): sólo tiene sentido procesar
+        // una imagen si hay una conversación activa Y el paso en el que
+        // está parada es justo IMAGE_URL (COVER_IMAGE). resume() es una
+        // lectura pura (prisma.conversationState.findUnique + cálculo en
+        // memoria, ver EventCreationEngine.js) — NUNCA avanza ni muta la
+        // conversación, así que "espiar" el step actual acá no tiene ningún
+        // costo de estado, sólo una consulta de más. Si el mensaje llega
+        // sin conversación activa, se ignora igual que cualquier otro tipo
+        // no reconocido (mismo comportamiento que antes de este fix).
+        if (isProcessableImage) {
+            if (!active) return;
+
+            const currentState = await resumeConversation(active.id);
+            if (currentState?.prompt?.inputType !== "IMAGE_URL") {
+                await reply(`${WHATSAPP_IMAGE_NOT_EXPECTED_TEXT}\n\n${extractWhatsappReplyText(currentState)}`, "IMAGE_NOT_EXPECTED");
+                return;
+            }
+
+            const uploadResult = await uploadImage(message.image.id);
+            if (!uploadResult.success) {
+                // NUNCA se llama a handleConversationInput acá: el motor
+                // queda exactamente donde estaba, el organizador puede
+                // volver a mandar otra imagen sin perder nada.
+                await reply(buildWhatsappImageUploadErrorText(uploadResult.reason), "IMAGE_UPLOAD_ERROR");
+                return;
+            }
+
+            const result = await handleConversationInput(active.id, { value: uploadResult.url });
+            await reply(extractWhatsappReplyText(result), "IMAGE_UPLOADED");
+            return;
+        }
 
         if (active) {
             if (isCancelCommand(text)) {

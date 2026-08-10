@@ -8,6 +8,34 @@ export const WHATSAPP_DECLINE_TEXT = "Perfecto 👍 Cuando quieras publicar un e
 
 export const WHATSAPP_CANCEL_TEXT = "❌ Cancelamos la creación de tu evento. Cuando quieras, escribime para empezar de nuevo.";
 
+// ==================================================================
+// Bug fix (carga de imagen del evento) — textos del adaptador de imágenes.
+// La lógica real (Meta Media API + Cloudinary) vive en
+// whatsappMediaUpload.service.js; acá sólo se traduce cada resultado a un
+// mensaje claro que le permita al organizador volver a intentar.
+// ==================================================================
+
+// El step actual del motor no es IMAGE_URL (ver EventCreationEngine.resume
+// en whatsapp.controller.js) — la imagen no se procesa ni se le pasa al
+// motor, se re-muestra la pregunta real vigente.
+export const WHATSAPP_IMAGE_NOT_EXPECTED_TEXT = "En este paso no necesito una imagen.";
+
+const IMAGE_UPLOAD_ERROR_TEXTS = {
+    MISSING_MEDIA_ID: "No pudimos leer esa imagen. Probá enviarla de nuevo.",
+    INVALID_MIME_TYPE: "Ese formato de imagen no es compatible. Mandame una imagen JPG, PNG o WEBP.",
+    FILE_TOO_LARGE: "La imagen es muy pesada (máximo 5 MB). Probá con otra.",
+    META_METADATA_ERROR: "No pudimos leer esa imagen desde WhatsApp. Probá enviarla de nuevo.",
+    META_DOWNLOAD_ERROR: "No pudimos descargar esa imagen desde WhatsApp. Probá enviarla de nuevo.",
+    CLOUDINARY_ERROR: "No pudimos guardar esa imagen. Probá enviarla de nuevo en un momento.",
+};
+
+// `reason` viene siempre de uploadWhatsappImageMessage (whatsappMediaUpload.service.js)
+// — un motivo desconocido cae al mensaje genérico, nunca revienta ni expone
+// el `reason` crudo al usuario.
+export function buildWhatsappImageUploadErrorText(reason) {
+    return IMAGE_UPLOAD_ERROR_TEXTS[reason] ?? "No pudimos procesar esa imagen. Probá enviarla de nuevo.";
+}
+
 // Fase 2F — LEGACY, sin uso desde Fase 2G (ver informe de entrega: el
 // flujo de código de 6 dígitos deja de ofrecerse desde WhatsApp Organizer).
 // Se conservan intactas junto con whatsappOrganizerLink.service.js/

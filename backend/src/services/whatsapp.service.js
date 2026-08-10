@@ -51,6 +51,26 @@ function findProfileName(contacts, from) {
 // `value` es el mismo `changes[].value` que contiene tanto `messages` como
 // `contacts`/`metadata` — se pasa completo para poder resolver profileName/
 // phoneNumberId sin que el caller tenga que desarmarlo dos veces.
+// Bug fix (carga de imagen del evento) — hasta acá, un mensaje type==="image"
+// perdía TODOS sus datos propios (id de media, mime_type, sha256, caption):
+// normalizeMessage sólo sabía leer `text.body`. `image.id` es lo único
+// imprescindible para el paso siguiente (Meta Media API); mime_type/sha256/
+// caption se conservan también porque Meta ya los manda gratis en el mismo
+// webhook y sirven de primera validación barata antes de gastar una llamada
+// a la Media API (ver whatsappMediaUpload.service.js) — nunca se usan como
+// única fuente de verdad, el mime_type/tamaño reales siempre se revalidan
+// contra lo que Meta devuelve en la Media API y contra los bytes descargados.
+function normalizeImage(message) {
+    const image = message?.image;
+    if (!image?.id) return null;
+    return {
+        id: toNullableString(image.id),
+        mimeType: toNullableString(image.mime_type),
+        sha256: toNullableString(image.sha256),
+        caption: toNullableString(image.caption),
+    };
+}
+
 function normalizeMessage(message, value) {
     const from = toNullableString(message?.from);
     const type = toNullableString(message?.type);
@@ -61,11 +81,14 @@ function normalizeMessage(message, value) {
         type,
         timestamp: toNullableString(message?.timestamp),
         // Sólo se lee text.body cuando type==="text" — cualquier otro tipo
-        // (image/audio/video/document/location/contacts/interactive/button/
+        // (audio/video/document/location/contacts/interactive/button/
         // reaction/sticker/lo que Meta agregue después) queda en null acá a
         // propósito: reconocer esos tipos es de una fase posterior, pero no
         // deben romper el parseo ni perderse del array resultante.
         text: type === "text" ? toNullableString(message?.text?.body) : null,
+        // Sólo se lee/arma cuando type==="image" — cualquier otro tipo queda
+        // en null, mismo criterio que `text` de arriba.
+        image: type === "image" ? normalizeImage(message) : null,
         profileName: findProfileName(value?.contacts, from),
         phoneNumberId: toNullableString(value?.metadata?.phone_number_id),
     };
@@ -167,6 +190,96 @@ async function postToGraphApi(body) {
     }
 
     return { success: true, messageId: payload?.messages?.[0]?.id ?? null, error: null };
+}
+
+// ==================================================================
+// Meta Media API — bug fix (carga de imagen del evento). Reusa EXACTAMENTE
+// la misma configuración Meta que el resto de este archivo
+// (getWhatsappGraphApiVersion/getWhatsappAccessToken, ya lazy-cacheadas más
+// arriba) — no se agrega ninguna variable de entorno nueva ni se hardcodea
+// una versión de Graph API distinta a WHATSAPP_GRAPH_API_VERSION.
+// ==================================================================
+
+// GET /{version}/{mediaId} — primer paso obligatorio de Meta para leer un
+// media entrante: NUNCA se puede descargar directo con sólo el id, hay que
+// pedirle antes esta URL temporal autorizada (que además exige el mismo
+// Bearer token para poder usarse, ver downloadWhatsappMedia). mime_type/
+// file_size acá son los que Meta confirma del lado servidor — más
+// confiables que los que ya vinieron en el webhook (ver normalizeImage).
+export async function fetchWhatsappMediaMetadata(mediaId) {
+    const url = `https://graph.facebook.com/${getWhatsappGraphApiVersion()}/${mediaId}`;
+    const accessToken = getWhatsappAccessToken();
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), GRAPH_API_TIMEOUT_MS);
+
+    let response;
+    try {
+        response = await fetch(url, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            signal: controller.signal,
+        });
+    } catch (error) {
+        return { success: false, url: null, mimeType: null, fileSize: null, error: error.name === "AbortError" ? "TIMEOUT" : "NETWORK_ERROR" };
+    } finally {
+        clearTimeout(timeoutId);
+    }
+
+    let payload = null;
+    try {
+        payload = await response.json();
+    } catch {
+        payload = null;
+    }
+
+    if (!response.ok) {
+        return { success: false, url: null, mimeType: null, fileSize: null, error: payload?.error?.message ?? `HTTP_${response.status}` };
+    }
+
+    return {
+        success: true,
+        url: toNullableString(payload?.url),
+        mimeType: toNullableString(payload?.mime_type),
+        fileSize: typeof payload?.file_size === "number" ? payload.file_size : null,
+        error: null,
+    };
+}
+
+// Descarga los bytes reales desde la URL temporal que devolvió
+// fetchWhatsappMediaMetadata. Esa URL, aunque tiene forma de link normal,
+// NO es pública — Meta exige el mismo Bearer token para poder bajarla (así
+// lo documenta la Cloud API). El token viaja únicamente en este header, de
+// este único fetch: nunca se persiste ni se devuelve en el resultado.
+export async function downloadWhatsappMedia(mediaUrl) {
+    const accessToken = getWhatsappAccessToken();
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), GRAPH_API_TIMEOUT_MS);
+
+    let response;
+    try {
+        response = await fetch(mediaUrl, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            signal: controller.signal,
+        });
+    } catch (error) {
+        return { success: false, buffer: null, contentType: null, error: error.name === "AbortError" ? "TIMEOUT" : "NETWORK_ERROR" };
+    } finally {
+        clearTimeout(timeoutId);
+    }
+
+    if (!response.ok) {
+        return { success: false, buffer: null, contentType: null, error: `HTTP_${response.status}` };
+    }
+
+    let buffer;
+    try {
+        buffer = Buffer.from(await response.arrayBuffer());
+    } catch {
+        return { success: false, buffer: null, contentType: null, error: "INVALID_BODY" };
+    }
+
+    return { success: true, buffer, contentType: response.headers.get("content-type"), error: null };
 }
 
 // Mensaje de texto libre — sujeto a la ventana de 24hs de WhatsApp (sólo se

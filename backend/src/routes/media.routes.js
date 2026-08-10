@@ -2,15 +2,13 @@ import { Router } from "express";
 import multer from "multer";
 import { uploadImage, deleteImage } from "../controllers/media.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
-
-const ALLOWED_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
-const MAX_FILE_SIZE = 5 * 1024 * 1024;
+import { ALLOWED_IMAGE_MIME_TYPES, MAX_IMAGE_FILE_SIZE } from "../services/media.service.js";
 
 const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: MAX_FILE_SIZE },
+    limits: { fileSize: MAX_IMAGE_FILE_SIZE },
     fileFilter: (req, file, cb) => {
-        if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
+        if (!ALLOWED_IMAGE_MIME_TYPES.has(file.mimetype)) {
             return cb(new Error("INVALID_FILE_TYPE"));
         }
         cb(null, true);

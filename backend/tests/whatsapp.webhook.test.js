@@ -88,6 +88,7 @@ test("parseInboundWhatsappMessages normalizes a valid text message", () => {
         type: "text",
         timestamp: "1700000000",
         text: "Hola",
+        image: null,
         profileName: "Elvis Bar",
         phoneNumberId: "PHONE_ID_1",
     });
@@ -173,6 +174,52 @@ test("parseInboundWhatsappMessages tolerates an image message without extracting
     assert.equal(message.type, "image");
     assert.equal(message.text, null);
     assert.equal(message.messageId, "wamid.B");
+});
+
+// G.1) bug fix (carga de imagen del evento) — un mensaje image conserva
+// media id, mime_type, sha256 y caption tal cual los manda Meta.
+test("parseInboundWhatsappMessages preserves the real WhatsApp media id, mime_type, sha256 and caption for an image message", () => {
+    const payload = buildTextMessagePayload({ from: "5491122334455" });
+    payload.entry[0].changes[0].value.messages = [
+        {
+            id: "wamid.B",
+            from: "5491122334455",
+            timestamp: "1700000002",
+            type: "image",
+            image: { id: "media-1", mime_type: "image/jpeg", sha256: "abc123", caption: "portada del evento" },
+        },
+    ];
+
+    const [message] = parseInboundWhatsappMessages(payload);
+
+    assert.deepEqual(message.image, {
+        id: "media-1",
+        mimeType: "image/jpeg",
+        sha256: "abc123",
+        caption: "portada del evento",
+    });
+});
+
+// G.2) un mensaje type="image" sin `image.id` (payload malformado/inesperado)
+// nunca rompe el parseo — queda con image=null.
+test("parseInboundWhatsappMessages returns image=null for a malformed image message without an id", () => {
+    const payload = buildTextMessagePayload({ from: "5491122334455" });
+    payload.entry[0].changes[0].value.messages = [
+        { id: "wamid.B", from: "5491122334455", timestamp: "1700000002", type: "image" },
+    ];
+
+    const [message] = parseInboundWhatsappMessages(payload);
+
+    assert.equal(message.image, null);
+});
+
+// G.3) un mensaje de texto nunca trae `image` (queda null, no undefined ni el objeto de otro mensaje).
+test("parseInboundWhatsappMessages keeps image=null for a text message", () => {
+    const payload = buildTextMessagePayload({ from: "5491122334455" });
+
+    const [message] = parseInboundWhatsappMessages(payload);
+
+    assert.equal(message.image, null);
 });
 
 // H) tipo desconocido -> conserva type, text=null, no rompe.
