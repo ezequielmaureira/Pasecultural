@@ -36,6 +36,78 @@ export function buildWhatsappImageUploadErrorText(reason) {
     return IMAGE_UPLOAD_ERROR_TEXTS[reason] ?? "No pudimos procesar esa imagen. Probá enviarla de nuevo.";
 }
 
+// ==================================================================
+// Bug fix (ubicación exclusivamente por WhatsApp Location) — textos y
+// transformación del adaptador de ubicación. La única regla de negocio real
+// (qué es válido para avanzar) vive en inputHandlers/location.js, que ahora
+// también acepta coordenadas solas (sin dirección escrita) — acá sólo se
+// decide CÓMO pedirlo/reintentarlo por WhatsApp y cómo traducir el
+// `location` real que manda Meta al shape que ese input handler espera.
+// ==================================================================
+
+// Reemplaza el prompt genérico del step LOCATION (pensado para Web, con
+// picker de Google Maps) cuando el canal es WhatsApp — ver
+// extractWhatsappReplyText más abajo. No se toca steps/definitions.js: el
+// texto Web original sigue intacto, esto es sólo cómo lo renderiza el
+// adaptador de WhatsApp.
+export const WHATSAPP_LOCATION_PROMPT_TEXT =
+    "📍 ¿Dónde se realiza el evento?\n\nCompartime la ubicación del lugar desde WhatsApp.\n\nTocá 📎 → Ubicación y buscá/seleccioná el lugar donde se realiza el evento.";
+
+// El usuario escribió texto (o mandó cualquier otra cosa que no sea una
+// ubicación real) mientras el motor esperaba justo este step — nunca se
+// interpreta ese texto como dirección ni se geocodifica, se vuelve a pedir
+// la ubicación nativa.
+export const WHATSAPP_LOCATION_RETRY_TEXT =
+    "📍 Para continuar, compartime la ubicación del lugar desde WhatsApp.\n\nTocá 📎 → Ubicación y buscá/seleccioná el lugar del evento.";
+
+// El step actual del motor no es LOCATION (ver EventCreationEngine.resume
+// en whatsapp.controller.js, mismo criterio que WHATSAPP_IMAGE_NOT_EXPECTED_TEXT)
+// — la ubicación compartida no se procesa ni se le pasa al motor, se
+// re-muestra la pregunta real vigente.
+export const WHATSAPP_LOCATION_NOT_EXPECTED_TEXT = "No necesito una ubicación en este paso.";
+
+// Traduce el `location` que ya normalizó whatsapp.service.js
+// ({latitude, longitude, name, address}) al shape que espera
+// inputHandlers/location.js ({address, city, province, venueName,
+// latitude, longitude, googlePlaceId}). WhatsApp NUNCA entrega
+// ciudad/provincia por separado — se dejan sin definir a propósito (nunca
+// se inventa un valor), el input handler ya sabe aceptar coordenadas sin
+// ellas. `name`, cuando el usuario compartió un lugar buscado (no una
+// ubicación en vivo), se usa como venueName; `address`, si Meta la dio, se
+// usa tal cual.
+export function buildLocationInputFromWhatsapp(location) {
+    return {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        venueName: location.name ?? null,
+        address: location.address ?? null,
+    };
+}
+
+// El organizador termina el chatbot entero sólo para descubrir, recién al
+// publicar, que la ubicación que compartió no alcanza — assertPublishable
+// (event.service.js) exige EXACTAMENTE: venueName no vacío Y (formattedAddress
+// O addressLine) no vacío. EventServicePort#buildLocationInput deriva
+// venueName = location.venueName || location.address (si falta el nombre,
+// cae a la dirección) y formattedAddress/addressLine = location.address
+// directo — con esa fórmula, el ÚNICO campo verdaderamente indispensable
+// para que la ubicación pueda publicarse después es `address`: si está,
+// venueName también queda cubierto por el fallback aunque WhatsApp no haya
+// mandado `name`. Un pin de "ubicación actual" (sin name NI address) nunca
+// lo satisface. Se valida ACÁ, antes de guardar nada en el draft, para que
+// el organizador se entere en el momento — no al final del flujo. Nunca
+// exige city/province (assertPublishable no las pide) ni inventa ninguno de
+// esos dos valores.
+export function isPublishableWhatsappLocation(location) {
+    return Boolean(location && typeof location.address === "string" && location.address.trim());
+}
+
+// El pin/ubicación actual no alcanza (ver isPublishableWhatsappLocation) —
+// se le pide puntualmente buscar y seleccionar el establecimiento, no
+// compartir dónde está parado.
+export const WHATSAPP_LOCATION_INSUFFICIENT_TEXT =
+    "📍 Necesito la ubicación del lugar del evento.\n\nTocá 📎 → Ubicación, buscá el nombre del lugar y seleccioná el establecimiento.\n\nNo envíes solamente tu ubicación actual.";
+
 // Fase 2F — LEGACY, sin uso desde Fase 2G (ver informe de entrega: el
 // flujo de código de 6 dígitos deja de ofrecerse desde WhatsApp Organizer).
 // Se conservan intactas junto con whatsappOrganizerLink.service.js/
@@ -203,6 +275,16 @@ export function extractWhatsappReplyText(engineResult) {
         return prompt.error
             ? `⚠️ ${prompt.error}`
             : "Llegaste al resumen final de tu evento. Por ahora, terminá de revisarlo y publicarlo desde la web de PaseCultural.";
+    }
+
+    // type === "QUESTION", step LOCATION — reemplaza el prompt genérico
+    // (pensado para el picker de Google Maps de la Web) por las
+    // instrucciones de ubicación nativa de WhatsApp; nunca se muestra
+    // `prompt.text` ni `prompt.error` del motor para este step (el error
+    // real siempre es "faltó dirección/ciudad/provincia", que no aplica al
+    // canal WhatsApp y confundiría más de lo que ayuda).
+    if (prompt.inputType === "LOCATION") {
+        return prompt.error ? WHATSAPP_LOCATION_RETRY_TEXT : WHATSAPP_LOCATION_PROMPT_TEXT;
     }
 
     // type === "QUESTION" — si el motor marcó un error de validación sobre

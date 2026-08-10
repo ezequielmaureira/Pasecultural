@@ -64,9 +64,14 @@ function baseDeps(overrides = {}) {
             sendText,
             findActiveConversation: spy({ id: "conv1", userId: "user_123" }),
             resumeConversation: spy(IMAGE_URL_PROMPT_RESULT),
+            // El step real después de COVER_IMAGE es LOCATION, pero acá se
+            // simula un step neutro a propósito: el renderizado específico
+            // de LOCATION para WhatsApp tiene su propia cobertura dedicada
+            // (ver tests/whatsapp.location.controller.test.js) — este
+            // archivo sólo prueba el flujo de IMAGEN, sin acoplarse a eso.
             handleConversationInput: spy({
                 conversationId: "conv1",
-                prompt: { stepId: "LOCATION", type: "QUESTION", inputType: "LOCATION", text: "¿Dónde es el evento? Necesito dirección, ciudad y provincia." },
+                prompt: { stepId: "SOME_NEXT_STEP", type: "QUESTION", inputType: "SHORT_TEXT", text: "Siguiente pregunta del motor." },
                 canGoBack: true,
                 sections: [],
             }),
@@ -87,7 +92,7 @@ test("a valid image on the IMAGE_URL step uploads it and advances the engine wit
     assert.deepEqual(deps.uploadImage.calls[0], ["media-1"]);
     assert.equal(deps.handleConversationInput.calls.length, 1);
     assert.deepEqual(deps.handleConversationInput.calls[0], ["conv1", { value: "https://res.cloudinary.com/pasecultural/image/upload/v1/pasecultural/abc123.jpg" }]);
-    assert.equal(sendCalls[0].text, "¿Dónde es el evento? Necesito dirección, ciudad y provincia.");
+    assert.equal(sendCalls[0].text, "Siguiente pregunta del motor.");
 });
 
 test("an image on a step that is not IMAGE_URL is never uploaded and never sent to the engine", async () => {

@@ -71,6 +71,25 @@ function normalizeImage(message) {
     };
 }
 
+// Bug fix (ubicación por WhatsApp Location) — contrato ESTABLE y documentado
+// de la WhatsApp Business Cloud API para un mensaje entrante type==="location":
+// siempre `latitude`/`longitude` (número); `name`/`address` sólo cuando el
+// usuario compartió un LUGAR buscado (no una ubicación en vivo) — Meta nunca
+// entrega ciudad/provincia por separado, ni acá ni en ningún otro campo del
+// mensaje. Se validan explícitamente como `number` (nunca se asume el tipo
+// del payload) y se descarta el mensaje (`null`) si falta cualquiera de las
+// dos coordenadas — sin lat/lng no hay "ubicación" posible.
+function normalizeLocation(message) {
+    const location = message?.location;
+    if (typeof location?.latitude !== "number" || typeof location?.longitude !== "number") return null;
+    return {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        name: toNullableString(location.name),
+        address: toNullableString(location.address),
+    };
+}
+
 function normalizeMessage(message, value) {
     const from = toNullableString(message?.from);
     const type = toNullableString(message?.type);
@@ -81,14 +100,16 @@ function normalizeMessage(message, value) {
         type,
         timestamp: toNullableString(message?.timestamp),
         // Sólo se lee text.body cuando type==="text" — cualquier otro tipo
-        // (audio/video/document/location/contacts/interactive/button/
-        // reaction/sticker/lo que Meta agregue después) queda en null acá a
+        // (audio/video/document/contacts/interactive/button/reaction/
+        // sticker/lo que Meta agregue después) queda en null acá a
         // propósito: reconocer esos tipos es de una fase posterior, pero no
         // deben romper el parseo ni perderse del array resultante.
         text: type === "text" ? toNullableString(message?.text?.body) : null,
         // Sólo se lee/arma cuando type==="image" — cualquier otro tipo queda
         // en null, mismo criterio que `text` de arriba.
         image: type === "image" ? normalizeImage(message) : null,
+        // Idem para type==="location".
+        location: type === "location" ? normalizeLocation(message) : null,
         profileName: findProfileName(value?.contacts, from),
         phoneNumberId: toNullableString(value?.metadata?.phone_number_id),
     };

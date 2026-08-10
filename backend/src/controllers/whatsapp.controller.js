@@ -34,11 +34,15 @@ import {
     WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT,
     WHATSAPP_SELECTION_INVALID_TEXT,
     WHATSAPP_IMAGE_NOT_EXPECTED_TEXT,
+    WHATSAPP_LOCATION_NOT_EXPECTED_TEXT,
+    WHATSAPP_LOCATION_INSUFFICIENT_TEXT,
     buildKnownOrganizationGreetingText,
     buildOrganizationSelectorText,
     buildOrganizationSelectedConfirmationText,
     buildOrganizationSelectionConfirmationRetryText,
     buildWhatsappImageUploadErrorText,
+    buildLocationInputFromWhatsapp,
+    isPublishableWhatsappLocation,
 } from "../services/whatsappOrganizerBot.service.js";
 import { uploadWhatsappImageMessage } from "../services/whatsappMediaUpload.service.js";
 
@@ -157,7 +161,11 @@ export async function processInboundMessage(
     // es la única condición adicional, explícita, para dejar pasar un
     // mensaje de imagen con un media id real.
     const isProcessableImage = message?.type === "image" && Boolean(message.image?.id);
-    if (!shouldAutoReply(message) && !isProcessableImage) return;
+    // Bug fix (ubicación por WhatsApp Location): mismo criterio aditivo que
+    // isProcessableImage — un mensaje type==="location" también queda
+    // descartado por shouldAutoReply si no se lo deja pasar explícito acá.
+    const isProcessableLocation = message?.type === "location" && Boolean(message.location);
+    if (!shouldAutoReply(message) && !isProcessableImage && !isProcessableLocation) return;
 
     // channelRef identifica la conversación de forma estable por el wa_id
     // de origen — SIEMPRE el número tal cual lo manda Meta (message.from),
@@ -204,6 +212,44 @@ export async function processInboundMessage(
 
             const result = await handleConversationInput(active.id, { value: uploadResult.url });
             await reply(extractWhatsappReplyText(result), "IMAGE_UPLOADED");
+            return;
+        }
+
+        // Bug fix (ubicación por WhatsApp Location): mismo patrón que la
+        // imagen — sólo tiene sentido procesar una ubicación compartida si
+        // hay conversación activa Y el step vigente es justo LOCATION.
+        // resume() vuelve a usarse acá por la misma razón: espiar el step
+        // actual sin mutar nada (ver comentario de la rama de imagen).
+        // NUNCA se interpreta texto libre como dirección — esto SÓLO
+        // dispara con message.type==="location" real; un mensaje de texto
+        // durante este mismo step sigue el camino normal más abajo
+        // (`if (active) {...}`), donde el motor lo rechaza solo (una
+        // ubicación es siempre un objeto, nunca un string, ver
+        // inputHandlers/location.js) y extractWhatsappReplyText ya traduce
+        // ese rechazo al reintento específico de ubicación.
+        if (isProcessableLocation) {
+            if (!active) return;
+
+            const currentState = await resumeConversation(active.id);
+            if (currentState?.prompt?.inputType !== "LOCATION") {
+                await reply(`${WHATSAPP_LOCATION_NOT_EXPECTED_TEXT}\n\n${extractWhatsappReplyText(currentState)}`, "LOCATION_NOT_EXPECTED");
+                return;
+            }
+
+            // Pre-validación: un pin/ubicación actual (sin address) nunca
+            // va a poder publicarse después (assertPublishable exige
+            // venueName + dirección, ver isPublishableWhatsappLocation) —
+            // se rechaza ACÁ, antes de guardar nada en el draft ni de
+            // llamar al motor, para que el organizador se entere en el
+            // momento en vez de recién al intentar publicar el evento
+            // entero. ConversationState queda exactamente donde estaba.
+            if (!isPublishableWhatsappLocation(message.location)) {
+                await reply(WHATSAPP_LOCATION_INSUFFICIENT_TEXT, "LOCATION_INSUFFICIENT");
+                return;
+            }
+
+            const result = await handleConversationInput(active.id, { value: buildLocationInputFromWhatsapp(message.location) });
+            await reply(extractWhatsappReplyText(result), "LOCATION_SHARED");
             return;
         }
 

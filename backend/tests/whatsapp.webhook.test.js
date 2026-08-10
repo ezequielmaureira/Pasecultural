@@ -89,6 +89,7 @@ test("parseInboundWhatsappMessages normalizes a valid text message", () => {
         timestamp: "1700000000",
         text: "Hola",
         image: null,
+        location: null,
         profileName: "Elvis Bar",
         phoneNumberId: "PHONE_ID_1",
     });
@@ -220,6 +221,73 @@ test("parseInboundWhatsappMessages keeps image=null for a text message", () => {
     const [message] = parseInboundWhatsappMessages(payload);
 
     assert.equal(message.image, null);
+});
+
+// ==================================================
+// Bug fix (ubicación por WhatsApp Location) — mensaje type="location".
+// Contrato real de la Cloud API: latitude/longitude siempre; name/address
+// sólo cuando el usuario compartió un LUGAR buscado, no una ubicación en
+// vivo. Nunca ciudad/provincia — Meta no las entrega.
+// ==================================================
+
+// M.1) ubicación EN VIVO (sin lugar buscado): sólo latitude/longitude, sin
+// name ni address — igual conserva latitude/longitude correctamente.
+test("parseInboundWhatsappMessages preserves latitude and longitude for a live location message", () => {
+    const payload = buildTextMessagePayload({ from: "5491122334455" });
+    payload.entry[0].changes[0].value.messages = [
+        { id: "wamid.L1", from: "5491122334455", timestamp: "1700000004", type: "location", location: { latitude: -34.603722, longitude: -58.381592 } },
+    ];
+
+    const [message] = parseInboundWhatsappMessages(payload);
+
+    assert.equal(message.type, "location");
+    assert.deepEqual(message.location, { latitude: -34.603722, longitude: -58.381592, name: null, address: null });
+});
+
+// M.2) LUGAR buscado y seleccionado (el caso deseado por el producto):
+// conserva name y address además de latitude/longitude.
+test("parseInboundWhatsappMessages preserves name and address when the user shared a searched place", () => {
+    const payload = buildTextMessagePayload({ from: "5491122334455" });
+    payload.entry[0].changes[0].value.messages = [
+        {
+            id: "wamid.L2",
+            from: "5491122334455",
+            timestamp: "1700000005",
+            type: "location",
+            location: { latitude: -31.4201, longitude: -64.1888, name: "Teatro del Libertador", address: "Av. Vélez Sarsfield 365, Córdoba" },
+        },
+    ];
+
+    const [message] = parseInboundWhatsappMessages(payload);
+
+    assert.deepEqual(message.location, {
+        latitude: -31.4201,
+        longitude: -64.1888,
+        name: "Teatro del Libertador",
+        address: "Av. Vélez Sarsfield 365, Córdoba",
+    });
+});
+
+// M.3) sin latitude/longitude numéricos reales (payload malformado/inesperado)
+// nunca rompe el parseo — queda con location=null, nunca inventa coordenadas.
+test("parseInboundWhatsappMessages returns location=null for a malformed location message without real coordinates", () => {
+    const payload = buildTextMessagePayload({ from: "5491122334455" });
+    payload.entry[0].changes[0].value.messages = [
+        { id: "wamid.L3", from: "5491122334455", timestamp: "1700000006", type: "location", location: { name: "Sin coordenadas" } },
+    ];
+
+    const [message] = parseInboundWhatsappMessages(payload);
+
+    assert.equal(message.location, null);
+});
+
+// M.4) un mensaje de texto/imagen nunca trae `location` (queda null).
+test("parseInboundWhatsappMessages keeps location=null for a text message", () => {
+    const payload = buildTextMessagePayload({ from: "5491122334455" });
+
+    const [message] = parseInboundWhatsappMessages(payload);
+
+    assert.equal(message.location, null);
 });
 
 // H) tipo desconocido -> conserva type, text=null, no rompe.
