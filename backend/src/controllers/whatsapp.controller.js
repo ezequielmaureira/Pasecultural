@@ -2,6 +2,8 @@ import { logger } from "../logging/logger.js";
 import {
     evaluateWebhookVerification,
     getWhatsappVerifyToken,
+    isWhatsappTestModeEnabled,
+    normalizeWhatsappOutboundRecipient,
     parseInboundWhatsappMessages,
     sendWhatsappTextMessage,
     shouldAutoReply,
@@ -50,8 +52,13 @@ export const verifyWhatsappWebhook = (req, res) => {
 export async function processInboundMessage(message, { sendText = sendWhatsappTextMessage } = {}) {
     if (!shouldAutoReply(message)) return;
 
+    // Sólo transforma el destinatario cuando WHATSAPP_TEST_MODE=true (ver
+    // normalizeWhatsappOutboundRecipient) — en producción normal, sin esa
+    // variable configurada, `to` sigue siendo exactamente message.from.
+    const to = normalizeWhatsappOutboundRecipient(message.from, isWhatsappTestModeEnabled());
+
     try {
-        const result = await sendText({ to: message.from, text: AUTO_REPLY_TEXT });
+        const result = await sendText({ to, text: AUTO_REPLY_TEXT });
         if (!result.success) {
             // Nunca el texto/teléfono completo/token — sólo lo necesario
             // para diagnosticar en desarrollo.
@@ -59,6 +66,7 @@ export async function processInboundMessage(message, { sendText = sendWhatsappTe
                 inboundMessageId: message.messageId,
                 success: false,
                 error: result.error,
+                recipientNormalized: to !== message.from,
             });
             return;
         }
@@ -66,6 +74,7 @@ export async function processInboundMessage(message, { sendText = sendWhatsappTe
             inboundMessageId: message.messageId,
             success: true,
             outboundMessageId: result.messageId,
+            recipientNormalized: to !== message.from,
         });
     } catch (error) {
         logger.error(error, { context: "whatsapp auto-reply", inboundMessageId: message.messageId });

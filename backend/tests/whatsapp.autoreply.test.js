@@ -90,6 +90,26 @@ test("processInboundMessage sends exactly the fixed greeting text", async () => 
     assert.equal(calls[0].text, AUTO_REPLY_TEXT);
 });
 
+// E) Fase 2D.1 — con WHATSAPP_TEST_MODE=true, un inbound argentino con el
+// "9" de móvil se normaliza antes de llamar a sendText. Restaura la
+// variable de entorno al terminar para no afectar los tests B/J de más
+// arriba/abajo, que asumen `to === message.from` sin normalizar.
+test("processInboundMessage sends to the normalized Argentine recipient when WHATSAPP_TEST_MODE is enabled", async () => {
+    const previousTestMode = process.env.WHATSAPP_TEST_MODE;
+    process.env.WHATSAPP_TEST_MODE = "true";
+
+    const { sendText, calls } = fakeSender({ success: true, messageId: "wamid.OUT1", error: null });
+
+    try {
+        await processInboundMessage(textMessage({ from: "5492984405532" }), { sendText });
+    } finally {
+        if (previousTestMode === undefined) delete process.env.WHATSAPP_TEST_MODE;
+        else process.env.WHATSAPP_TEST_MODE = previousTestMode;
+    }
+
+    assert.equal(calls[0].to, "542984405532");
+});
+
 // F/G a nivel de orquestación: no se llama a sendText en absoluto.
 test("processInboundMessage never calls sendText when text is null/blank", async () => {
     const nullText = fakeSender({ success: true, messageId: "x", error: null });

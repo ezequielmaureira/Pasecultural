@@ -206,6 +206,40 @@ export async function sendWhatsappHelloWorldTemplate({ to }) {
 
 export const AUTO_REPLY_TEXT = "¡Hola! 👋 Soy el asistente de PaseCultural. ¿Querés publicar un evento?";
 
+// ==================================================================
+// Normalización de destinatario de salida — Fase 2D.1. SOLO para el
+// auto-reply: nunca toca sendWhatsappTextMessage/postToGraphApi de más
+// arriba, que se usan igual en producción real. El número entrante
+// siempre trae el "9" de móvil argentino (549XXXXXXXXXX), pero el
+// destinatario autorizado en el entorno de prueba de Meta lo expone SIN
+// ese "9" (54XXXXXXXXXX) — confirmado enviando desde el propio panel de
+// Meta. Fuera de WHATSAPP_TEST_MODE=true esta función es un no-op:
+// processInboundMessage sigue mandando exactamente a message.from, igual
+// que antes de esta fase.
+// ==================================================================
+
+const ARGENTINA_MOBILE_WITH_NINE_REGEX = /^549(\d{10})$/;
+
+// Pura — nunca lee process.env, así se puede testear sin mockear nada.
+// testModeEnabled es un booleano explícito (no un string ni un objeto de
+// config) para que el caller decida de dónde sale, sin acoplar esta
+// función a ninguna variable de entorno en particular. Sólo convierte el
+// patrón específico 549+10 dígitos (móvil argentino con el "9" del
+// formato de la Cloud API); cualquier otro país o forma queda sin tocar.
+export function normalizeWhatsappOutboundRecipient(phone, testModeEnabled) {
+    if (!testModeEnabled || typeof phone !== "string") return phone;
+    const match = phone.match(ARGENTINA_MOBILE_WITH_NINE_REGEX);
+    return match ? `54${match[1]}` : phone;
+}
+
+// Único punto que lee la variable de entorno — LAZY como el resto del
+// archivo, pero sin cachear: a diferencia del token/phone-number-id, este
+// flag puede cambiar entre tests dentro del mismo proceso, y leer
+// process.env.WHATSAPP_TEST_MODE es prácticamente gratis.
+export function isWhatsappTestModeEnabled() {
+    return process.env.WHATSAPP_TEST_MODE === "true";
+}
+
 // Pura, sin I/O — recibe un mensaje YA normalizado por
 // parseInboundWhatsappMessages. Nunca responde a: status updates (no tienen
 // `type`/`text`, quedan filtrados por type!=="text"), mensajes sin `from`,
