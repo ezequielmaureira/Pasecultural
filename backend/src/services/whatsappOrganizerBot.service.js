@@ -107,11 +107,50 @@ export function isCancelCommand(text) {
 }
 
 // ==================================================================
+// Bug fix (post Fase 2G) — un step SINGLE_SELECT (CATEGORY, FUNCTIONS_MODE,
+// EVENT_PRICING_TYPE, TICKET_NAME, ADD_ANOTHER_TICKET, SOCIAL_NETWORK, ver
+// steps/definitions.js) manda su prompt como {text, options}. El motor SÍ
+// entrega `options` (EventCreationEngine.buildPrompt hace spread de todo lo
+// que devuelve step.buildPrompt) — el bug estaba acá: extractWhatsappReplyText
+// sólo devolvía `prompt.text` y descartaba `prompt.options` por completo, así
+// que en WhatsApp el organizador se quedaba sin ver ninguna opción para
+// responder. formatOptionsList es el ÚNICO renderer, genérico para
+// cualquier SINGLE_SELECT (no hardcodea categorías ni ningún otro step) — las
+// opciones vienen SIEMPRE de prompt.options, la misma fuente que ya usa Web.
+// ==================================================================
+
+function formatOptionsList(options) {
+    return options.map((option, index) => `${index + 1}. ${option.label}`).join("\n");
+}
+
+// El motor (singleSelect.js#parse) espera SIEMPRE el `id` real de una
+// opción, nunca un índice — ese contrato es compartido con Web y no se toca.
+// Este helper es exclusivo del adaptador de WhatsApp: convierte una
+// respuesta numérica ("1".."N") al `id` real de esa posición en la MISMA
+// lista `options` que se le mostró al usuario — nunca recalculada, nunca
+// otra fuente. Sólo un índice 1-based dentro de rango es válido; cualquier
+// otra cosa (0, negativo, fuera de rango, texto libre) devuelve `null` y
+// dejar que el motor rechace la respuesta con su propio mensaje de error
+// (que, gracias al fix de arriba, vuelve a mostrar las opciones).
+export function resolveSingleSelectIndexReply(options, rawText) {
+    if (!Array.isArray(options) || options.length === 0) return null;
+    const trimmed = typeof rawText === "string" ? rawText.trim() : "";
+    if (!/^\d+$/.test(trimmed)) return null;
+
+    const index = Number(trimmed);
+    if (!Number.isInteger(index) || index < 1 || index > options.length) return null;
+
+    return options[index - 1].id;
+}
+
+// ==================================================================
 // extractWhatsappReplyText — toma la respuesta REAL de
 // EventCreationEngine.start/handleInput (ver toConversationResult/
 // handlePreviewInput en EventCreationEngine.js) y devuelve el texto plano
 // a mandar por WhatsApp. Nunca manda el objeto crudo ni metadata interna
-// (sections, canGoBack, currentValue, draft completo, etc.).
+// (sections, canGoBack, currentValue, draft completo, etc.) — salvo
+// `options`, que si está presente SÍ se traduce a texto (ver arriba): es
+// justamente lo que el organizador necesita para poder responder.
 // ==================================================================
 
 export function extractWhatsappReplyText(engineResult) {
@@ -141,6 +180,12 @@ export function extractWhatsappReplyText(engineResult) {
     // type === "QUESTION" — si el motor marcó un error de validación sobre
     // la respuesta anterior, va primero, seguido de la pregunta reenviada
     // (mismo prompt, ver buildPrompt): respeta el orden "primero el error,
-    // después qué hacer".
-    return prompt.error ? `⚠️ ${prompt.error}\n\n${prompt.text}` : prompt.text;
+    // después qué hacer". Si el step trae `options` (SINGLE_SELECT), se
+    // listan numeradas EN EL MISMO ORDEN que las entrega el motor, con una
+    // instrucción explícita de cómo responder.
+    const baseText = prompt.error ? `⚠️ ${prompt.error}\n\n${prompt.text}` : prompt.text;
+    if (Array.isArray(prompt.options) && prompt.options.length > 0) {
+        return `${baseText}\n\n${formatOptionsList(prompt.options)}\n\nRespondé con el número de la opción.`;
+    }
+    return baseText;
 }

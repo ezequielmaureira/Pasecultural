@@ -28,6 +28,7 @@ import {
     classifyInitialIntent,
     isCancelCommand,
     extractWhatsappReplyText,
+    resolveSingleSelectIndexReply,
     WHATSAPP_DECLINE_TEXT,
     WHATSAPP_CANCEL_TEXT,
     WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT,
@@ -165,7 +166,23 @@ export async function processInboundMessage(
                 return;
             }
 
-            const result = await handleConversationInput(active.id, { value: text });
+            // Primer intento: SIEMPRE el texto crudo, igual que Web — el
+            // motor no cambia de contrato. Sólo si ESE intento falla
+            // (prompt.error) Y el step que rechazó la respuesta es
+            // SINGLE_SELECT, se interpreta la respuesta como un índice
+            // 1-based sobre `prompt.options` (la MISMA lista que el motor ya
+            // devolvió) y se reintenta una única vez con el `id` real —
+            // nunca se le pasa al motor un índice ni se inventa un id fuera
+            // de esa lista. Si no es un índice válido, resolveSingleSelectIndexReply
+            // devuelve null y el error original (con sus opciones, ver
+            // extractWhatsappReplyText) es lo único que se manda.
+            let result = await handleConversationInput(active.id, { value: text });
+            if (result?.prompt?.error && result.prompt.inputType === "SINGLE_SELECT") {
+                const resolvedId = resolveSingleSelectIndexReply(result.prompt.options, text);
+                if (resolvedId) {
+                    result = await handleConversationInput(active.id, { value: resolvedId });
+                }
+            }
             await reply(extractWhatsappReplyText(result), "HANDLE_INPUT");
             return;
         }

@@ -5,6 +5,7 @@ import {
     classifyInitialIntent,
     isCancelCommand,
     extractWhatsappReplyText,
+    resolveSingleSelectIndexReply,
     WHATSAPP_DECLINE_TEXT,
     WHATSAPP_CANCEL_TEXT,
     WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT,
@@ -176,6 +177,134 @@ test("extractWhatsappReplyText builds a finalization message when the engine rep
 test("extractWhatsappReplyText returns null when there is nothing to send", () => {
     assert.equal(extractWhatsappReplyText(null), null);
     assert.equal(extractWhatsappReplyText({ conversationId: "conv1" }), null);
+});
+
+// ==================================================
+// Bug fix: un step SINGLE_SELECT (CATEGORY y cualquier otro, ver
+// steps/definitions.js) manda su prompt con `options` — antes
+// extractWhatsappReplyText las descartaba silenciosamente y WhatsApp se
+// quedaba sin mostrar nada para elegir. El renderer es genérico: nunca
+// hardcodea categorías ni ningún otro step, sólo lee prompt.options.
+// ==================================================
+
+const CATEGORY_OPTIONS = [
+    { id: "MUSICA", label: "Música" },
+    { id: "TEATRO", label: "Teatro" },
+    { id: "GASTRONOMIA", label: "Gastronomía" },
+    { id: "DEPORTES", label: "Deportes" },
+];
+
+test("extractWhatsappReplyText lists every option of a SINGLE_SELECT step, numbered", () => {
+    const result = {
+        prompt: { stepId: "CATEGORY", type: "QUESTION", inputType: "SINGLE_SELECT", text: "Elegí la categoría de tu evento.", options: CATEGORY_OPTIONS },
+    };
+    const text = extractWhatsappReplyText(result);
+    assert.ok(text.includes("Elegí la categoría de tu evento."));
+    for (const option of CATEGORY_OPTIONS) {
+        assert.ok(text.includes(option.label), `esperaba ver "${option.label}" en el mensaje`);
+    }
+    assert.ok(/respond[eé]/i.test(text));
+});
+
+test("extractWhatsappReplyText numbers the options in the exact order the engine returned them", () => {
+    const result = {
+        prompt: { stepId: "CATEGORY", type: "QUESTION", inputType: "SINGLE_SELECT", text: "Elegí la categoría de tu evento.", options: CATEGORY_OPTIONS },
+    };
+    const text = extractWhatsappReplyText(result);
+    assert.ok(text.includes("1. Música"));
+    assert.ok(text.includes("2. Teatro"));
+    assert.ok(text.includes("3. Gastronomía"));
+    assert.ok(text.includes("4. Deportes"));
+    assert.ok(text.indexOf("1. Música") < text.indexOf("2. Teatro"));
+    assert.ok(text.indexOf("2. Teatro") < text.indexOf("3. Gastronomía"));
+    assert.ok(text.indexOf("3. Gastronomía") < text.indexOf("4. Deportes"));
+});
+
+test("extractWhatsappReplyText re-shows the options together with a validation error", () => {
+    const result = {
+        prompt: {
+            stepId: "CATEGORY",
+            type: "QUESTION",
+            inputType: "SINGLE_SELECT",
+            text: "Elegí la categoría de tu evento.",
+            options: CATEGORY_OPTIONS,
+            error: "Elegí una de las opciones que te muestro.",
+        },
+    };
+    const text = extractWhatsappReplyText(result);
+    assert.ok(text.includes("Elegí una de las opciones que te muestro."));
+    assert.ok(text.includes("1. Música"));
+    assert.ok(text.indexOf("Elegí una de las opciones que te muestro.") < text.indexOf("1. Música"));
+});
+
+test("extractWhatsappReplyText never lists options for a step that doesn't have any", () => {
+    const result = { prompt: { stepId: "NAME", type: "QUESTION", text: "¿Cómo se llama tu evento?" } };
+    assert.equal(extractWhatsappReplyText(result), "¿Cómo se llama tu evento?");
+});
+
+test("extractWhatsappReplyText works generically for a different SINGLE_SELECT step, not just CATEGORY", () => {
+    const pricingOptions = [
+        { id: "FREE", label: "Gratuito" },
+        { id: "PAID", label: "De pago" },
+    ];
+    const result = {
+        prompt: { stepId: "EVENT_PRICING_TYPE", type: "QUESTION", inputType: "SINGLE_SELECT", text: "¿Este evento es gratuito o de pago?", options: pricingOptions },
+    };
+    const text = extractWhatsappReplyText(result);
+    assert.ok(text.includes("1. Gratuito"));
+    assert.ok(text.includes("2. De pago"));
+});
+
+// ==================================================
+// resolveSingleSelectIndexReply — adaptador WhatsApp: índice 1-based ->
+// id real de la lista EXACTA que se mostró. Nunca acepta 0, negativos,
+// fuera de rango, ni texto libre; nunca inventa un id fuera de `options`.
+// ==================================================
+
+test("resolveSingleSelectIndexReply: a valid 1-based index resolves the matching option id", () => {
+    assert.equal(resolveSingleSelectIndexReply(CATEGORY_OPTIONS, "1"), "MUSICA");
+    assert.equal(resolveSingleSelectIndexReply(CATEGORY_OPTIONS, "4"), "DEPORTES");
+});
+
+test("resolveSingleSelectIndexReply: the first index selects the first real option, the last index selects the last", () => {
+    assert.equal(resolveSingleSelectIndexReply(CATEGORY_OPTIONS, "1"), CATEGORY_OPTIONS[0].id);
+    assert.equal(resolveSingleSelectIndexReply(CATEGORY_OPTIONS, String(CATEGORY_OPTIONS.length)), CATEGORY_OPTIONS[CATEGORY_OPTIONS.length - 1].id);
+});
+
+test("resolveSingleSelectIndexReply: rejects index 0", () => {
+    assert.equal(resolveSingleSelectIndexReply(CATEGORY_OPTIONS, "0"), null);
+});
+
+test("resolveSingleSelectIndexReply: rejects an out-of-range index", () => {
+    assert.equal(resolveSingleSelectIndexReply(CATEGORY_OPTIONS, "5"), null);
+    assert.equal(resolveSingleSelectIndexReply(CATEGORY_OPTIONS, "999"), null);
+    assert.equal(resolveSingleSelectIndexReply(CATEGORY_OPTIONS, "-1"), null);
+});
+
+test("resolveSingleSelectIndexReply: invalid/free text never silently selects another option", () => {
+    for (const rawText of ["hola", "MUSICA", "1.5", "uno", "", null, undefined]) {
+        assert.equal(resolveSingleSelectIndexReply(CATEGORY_OPTIONS, rawText), null, `esperaba null para "${rawText}"`);
+    }
+});
+
+test("resolveSingleSelectIndexReply: tolerates surrounding whitespace around a valid index", () => {
+    assert.equal(resolveSingleSelectIndexReply(CATEGORY_OPTIONS, "  1  "), "MUSICA");
+});
+
+test("resolveSingleSelectIndexReply: works generically with any other options list, not just category", () => {
+    const pricingOptions = [
+        { id: "FREE", label: "Gratuito" },
+        { id: "PAID", label: "De pago" },
+    ];
+    assert.equal(resolveSingleSelectIndexReply(pricingOptions, "1"), "FREE");
+    assert.equal(resolveSingleSelectIndexReply(pricingOptions, "2"), "PAID");
+    assert.equal(resolveSingleSelectIndexReply(pricingOptions, "3"), null);
+});
+
+test("resolveSingleSelectIndexReply: null/empty options list never resolves anything", () => {
+    assert.equal(resolveSingleSelectIndexReply([], "1"), null);
+    assert.equal(resolveSingleSelectIndexReply(null, "1"), null);
+    assert.equal(resolveSingleSelectIndexReply(undefined, "1"), null);
 });
 
 // ==================================================
@@ -386,6 +515,134 @@ test("an active conversation skips discovery entirely and routes straight into h
     assert.equal(deps.handleConversationInput.calls.length, 1);
     assert.deepEqual(deps.handleConversationInput.calls[0], ["conv1", { value: "Mi evento genial" }]);
     assert.equal(sendCalls[0].text, "¿De qué trata tu evento?");
+});
+
+// ==================================================
+// Bug fix: reintento de índice numérico contra un step SINGLE_SELECT en
+// curso. Simula el motor real: cualquier `value` que no sea el id real de
+// una opción devuelve el mismo error de singleSelect.js ("Elegí una de las
+// opciones que te muestro.") con las mismas `options`; sólo el id real
+// avanza al siguiente step. No se modificó singleSelect.js ni
+// definitions.js — el motor sigue exigiendo el id real, el adaptador de
+// WhatsApp es el único que traduce el índice.
+// ==================================================
+
+function categorySingleSelectEngine() {
+    return spy((_conversationId, { value }) => {
+        const matched = CATEGORY_OPTIONS.find((option) => option.id === value);
+        if (matched) {
+            return { conversationId: "conv1", prompt: { stepId: "COVER_IMAGE", type: "QUESTION", text: "Mandame la imagen principal de tu evento." } };
+        }
+        return {
+            conversationId: "conv1",
+            prompt: {
+                stepId: "CATEGORY",
+                type: "QUESTION",
+                inputType: "SINGLE_SELECT",
+                text: "Elegí la categoría de tu evento.",
+                options: CATEGORY_OPTIONS,
+                error: "Elegí una de las opciones que te muestro.",
+            },
+        };
+    });
+}
+
+test("replying '1' on an active SINGLE_SELECT step resolves to the first real option and advances the engine", async () => {
+    const handleConversationInput = categorySingleSelectEngine();
+    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }), handleConversationInput });
+
+    await processInboundMessage(textMessage({ text: "1" }), deps);
+
+    assert.equal(handleConversationInput.calls.length, 2);
+    assert.deepEqual(handleConversationInput.calls[0], ["conv1", { value: "1" }]);
+    assert.deepEqual(handleConversationInput.calls[1], ["conv1", { value: "MUSICA" }]);
+    assert.equal(sendCalls[0].text, "Mandame la imagen principal de tu evento.");
+});
+
+test("replying the last index on an active SINGLE_SELECT step resolves to the last real option", async () => {
+    const handleConversationInput = categorySingleSelectEngine();
+    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }), handleConversationInput });
+
+    await processInboundMessage(textMessage({ text: String(CATEGORY_OPTIONS.length) }), deps);
+
+    assert.equal(handleConversationInput.calls.length, 2);
+    assert.deepEqual(handleConversationInput.calls[1], ["conv1", { value: "DEPORTES" }]);
+    assert.equal(sendCalls[0].text, "Mandame la imagen principal de tu evento.");
+});
+
+test("replying index 0 on an active SINGLE_SELECT step is rejected without a retry", async () => {
+    const handleConversationInput = categorySingleSelectEngine();
+    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }), handleConversationInput });
+
+    await processInboundMessage(textMessage({ text: "0" }), deps);
+
+    assert.equal(handleConversationInput.calls.length, 1, "no debería reintentar con un índice 0");
+    assert.ok(sendCalls[0].text.includes("Elegí una de las opciones que te muestro."));
+    assert.ok(sendCalls[0].text.includes("1. Música"));
+});
+
+test("replying an out-of-range index on an active SINGLE_SELECT step is rejected without a retry", async () => {
+    const handleConversationInput = categorySingleSelectEngine();
+    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }), handleConversationInput });
+
+    await processInboundMessage(textMessage({ text: "99" }), deps);
+
+    assert.equal(handleConversationInput.calls.length, 1, "no debería reintentar con un índice fuera de rango");
+    assert.ok(sendCalls[0].text.includes("Elegí una de las opciones que te muestro."));
+});
+
+test("invalid free text on an active SINGLE_SELECT step never silently selects another option", async () => {
+    const handleConversationInput = categorySingleSelectEngine();
+    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }), handleConversationInput });
+
+    await processInboundMessage(textMessage({ text: "asdkjh" }), deps);
+
+    assert.equal(handleConversationInput.calls.length, 1);
+    assert.deepEqual(handleConversationInput.calls[0], ["conv1", { value: "asdkjh" }]);
+    assert.ok(sendCalls[0].text.includes("Elegí una de las opciones que te muestro."));
+});
+
+test("the numeric-index retry works generically on a different SINGLE_SELECT step, not just CATEGORY", async () => {
+    const pricingOptions = [
+        { id: "FREE", label: "Gratuito" },
+        { id: "PAID", label: "De pago" },
+    ];
+    const handleConversationInput = spy((_conversationId, { value }) => {
+        if (value === "PAID") {
+            return { conversationId: "conv1", prompt: { stepId: "TICKET_NAME", type: "QUESTION", text: "¿Qué tipo de entrada querés agregar primero?" } };
+        }
+        return {
+            conversationId: "conv1",
+            prompt: {
+                stepId: "EVENT_PRICING_TYPE",
+                type: "QUESTION",
+                inputType: "SINGLE_SELECT",
+                text: "¿Este evento es gratuito o de pago?",
+                options: pricingOptions,
+                error: "Elegí una de las opciones que te muestro.",
+            },
+        };
+    });
+    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }), handleConversationInput });
+
+    await processInboundMessage(textMessage({ text: "2" }), deps);
+
+    assert.equal(handleConversationInput.calls.length, 2);
+    assert.deepEqual(handleConversationInput.calls[1], ["conv1", { value: "PAID" }]);
+    assert.equal(sendCalls[0].text, "¿Qué tipo de entrada querés agregar primero?");
+});
+
+test("a plain non-SINGLE_SELECT validation error (ej. SHORT_TEXT) never triggers the index-retry mechanism", async () => {
+    const handleConversationInput = spy({
+        conversationId: "conv1",
+        prompt: { stepId: "NAME", type: "QUESTION", text: "¿Cómo se llama tu evento?", error: "Contame un poco más, no puede quedar vacío." },
+    });
+    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }), handleConversationInput });
+
+    await processInboundMessage(textMessage({ text: "1" }), deps);
+
+    assert.equal(handleConversationInput.calls.length, 1);
+    assert.ok(sendCalls[0].text.includes("Contame un poco más"));
 });
 
 test("'Sí' with an active conversation is treated as plain input, never re-triggers start", async () => {
