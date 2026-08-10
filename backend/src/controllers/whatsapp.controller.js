@@ -9,6 +9,22 @@ import {
     shouldAutoReply,
     AUTO_REPLY_TEXT,
 } from "../services/whatsapp.service.js";
+import * as EventCreationEngine from "../conversation/EventCreationEngine.js";
+import { resolveWhatsappOrganizerIdentity } from "../services/whatsappOrganizerIdentity.service.js";
+import {
+    classifyInitialIntent,
+    isCancelCommand,
+    extractWhatsappReplyText,
+    WHATSAPP_DECLINE_TEXT,
+    WHATSAPP_CANCEL_TEXT,
+    WHATSAPP_IDENTITY_NOT_LINKED_TEXT,
+} from "../services/whatsappOrganizerBot.service.js";
+
+// El valor real de ConversationChannel para este canal (ver
+// prisma/schema.prisma `enum ConversationChannel { WEB WHATSAPP }`, ya usado
+// tal cual por conversation.controller.js para "WEB") — no se inventa un
+// literal nuevo.
+const WHATSAPP_CHANNEL = "WHATSAPP";
 
 // GET /api/whatsapp/webhook — mecanismo oficial de verificación de Meta
 // ("Paso 2. Configuración de producción" del panel de WhatsApp Cloud API).
@@ -41,43 +57,117 @@ export const verifyWhatsappWebhook = (req, res) => {
     res.status(200).send(result.challenge);
 };
 
-// Responde UNA vez, con el mismo texto fijo, a un único mensaje ya
-// normalizado — Fase 2D. `sendText` es inyectable únicamente para tests
-// (nunca se le pasa nada distinto desde receiveWhatsappWebhook/Express, que
-// llama esta función sin segundo argumento): permite probar la lógica de
-// "a quién y con qué contestamos" sin mockear fetch/red.
-// Nunca deja escapar una excepción — ni un rechazo de Meta (success:false)
-// ni un error de red/timeout pueden convertir el webhook en 500, porque
-// Meta reintentaría el mismo mensaje entrante y empeoraría el problema.
-export async function processInboundMessage(message, { sendText = sendWhatsappTextMessage } = {}) {
+// Centraliza el envío + log de éxito/fracaso de CUALQUIER respuesta del bot
+// (saludo, negativa, pregunta del motor, cancelación, etc.) — antes había un
+// único punto de envío (Fase 2D); ahora hay varias ramas y todas necesitan
+// exactamente el mismo chequeo de result.success, así que vive acá una sola
+// vez en vez de repetirse en cada rama de processInboundMessage.
+async function sendBotReply({ sendText, to, from, messageId, text, engineAction }) {
+    if (!text) return;
+    const result = await sendText({ to, text });
+    const recipientNormalized = to !== from;
+    if (!result.success) {
+        // Nunca el texto/teléfono completo/token — sólo lo necesario para
+        // diagnosticar en desarrollo (ver sección 12 del pedido de Fase 2E).
+        logger.warn("WhatsApp organizer bot: Meta rechazó el envío", {
+            inboundMessageId: messageId,
+            engineAction,
+            success: false,
+            error: result.error,
+            recipientNormalized,
+        });
+        return;
+    }
+    logger.info("WhatsApp organizer bot reply sent", {
+        inboundMessageId: messageId,
+        engineAction,
+        success: true,
+        outboundMessageId: result.messageId,
+        recipientNormalized,
+    });
+}
+
+// Único punto que conecta WhatsApp con EventCreationEngine — Fase 2E.
+// WhatsApp es sólo OTRO CANAL: nunca reimplementa pasos/preguntas propias,
+// sólo decide (a) si hay que iniciar el motor o no, y (b) reenvía lo que el
+// motor ya haya decidido. Todas las dependencias reales son inyectables
+// (mismo criterio que `sendText` desde Fase 2D) para poder testear la
+// orquestación sin tocar Prisma/red.
+//
+// IMPORTANTE — identidad: resolveOrganizerIdentity es, hoy, siempre-null
+// (ver whatsappOrganizerIdentity.service.js): no existe todavía una forma
+// segura de vincular un número de WhatsApp a un organizer/User real, así
+// que EventCreationEngine.start NUNCA se llama con una identidad inventada
+// — ver el informe de entrega de Fase 2E para el detalle de qué falta.
+//
+// Nunca deja escapar una excepción — ni un rechazo de Meta ni un error del
+// motor pueden convertir el webhook en 500 (Meta reintentaría el mismo
+// mensaje entrante y empeoraría el problema).
+export async function processInboundMessage(
+    message,
+    {
+        sendText = sendWhatsappTextMessage,
+        startConversation = EventCreationEngine.start,
+        handleConversationInput = EventCreationEngine.handleInput,
+        cancelConversation = EventCreationEngine.cancel,
+        findActiveConversation = EventCreationEngine.findActiveConversation,
+        resolveOrganizerIdentity = resolveWhatsappOrganizerIdentity,
+    } = {}
+) {
     if (!shouldAutoReply(message)) return;
 
-    // Sólo transforma el destinatario cuando WHATSAPP_TEST_MODE=true (ver
-    // normalizeWhatsappOutboundRecipient) — en producción normal, sin esa
-    // variable configurada, `to` sigue siendo exactamente message.from.
+    // channelRef identifica la conversación de forma estable por el wa_id
+    // de origen — SIEMPRE el número tal cual lo manda Meta (message.from),
+    // nunca el normalizado de WHATSAPP_TEST_MODE: esa normalización es sólo
+    // para el campo `to` del envío saliente (ver whatsapp.service.js Fase
+    // 2D.1), no para identificar quién es quién.
+    const channelRef = message.from;
     const to = normalizeWhatsappOutboundRecipient(message.from, isWhatsappTestModeEnabled());
+    const text = message.text.trim();
+    const reply = (replyText, engineAction) =>
+        sendBotReply({ sendText, to, from: message.from, messageId: message.messageId, text: replyText, engineAction });
 
     try {
-        const result = await sendText({ to, text: AUTO_REPLY_TEXT });
-        if (!result.success) {
-            // Nunca el texto/teléfono completo/token — sólo lo necesario
-            // para diagnosticar en desarrollo.
-            logger.warn("WhatsApp auto-reply: Meta rechazó el envío", {
-                inboundMessageId: message.messageId,
-                success: false,
-                error: result.error,
-                recipientNormalized: to !== message.from,
-            });
+        const active = await findActiveConversation({ channel: WHATSAPP_CHANNEL, channelRef });
+
+        if (active) {
+            if (isCancelCommand(text)) {
+                await cancelConversation(active.id, active.userId);
+                await reply(WHATSAPP_CANCEL_TEXT, "CANCEL");
+                return;
+            }
+
+            const result = await handleConversationInput(active.id, { value: text });
+            await reply(extractWhatsappReplyText(result), "HANDLE_INPUT");
             return;
         }
-        logger.info("WhatsApp auto-reply sent", {
-            inboundMessageId: message.messageId,
-            success: true,
-            outboundMessageId: result.messageId,
-            recipientNormalized: to !== message.from,
-        });
+
+        const intent = classifyInitialIntent(text);
+
+        if (intent === "NEGATIVE") {
+            await reply(WHATSAPP_DECLINE_TEXT, "DECLINE");
+            return;
+        }
+
+        if (intent !== "AFFIRMATIVE") {
+            await reply(AUTO_REPLY_TEXT, "PROMPT");
+            return;
+        }
+
+        const identity = await resolveOrganizerIdentity(channelRef);
+        if (!identity) {
+            logger.warn("WhatsApp organizer bot: identidad no resuelta, no se inicia el motor", {
+                inboundMessageId: message.messageId,
+                engineAction: "IDENTITY_UNRESOLVED",
+            });
+            await reply(WHATSAPP_IDENTITY_NOT_LINKED_TEXT, "IDENTITY_UNRESOLVED");
+            return;
+        }
+
+        const startResult = await startConversation({ clerkId: identity.clerkId, channel: WHATSAPP_CHANNEL, channelRef });
+        await reply(extractWhatsappReplyText(startResult), "START");
     } catch (error) {
-        logger.error(error, { context: "whatsapp auto-reply", inboundMessageId: message.messageId });
+        logger.error(error, { context: "whatsapp organizer bot", inboundMessageId: message.messageId });
     }
 }
 
@@ -92,8 +182,10 @@ export async function processInboundMessages(messages, deps) {
 }
 
 // POST /api/whatsapp/webhook — Fase 2B reconoce mensajes entrantes de forma
-// segura; Fase 2D agrega la respuesta automática mínima. A propósito sigue
-// sin llamar a EventCreationEngine/EventServicePort ni escribir en la base.
+// segura; Fase 2D agrega la respuesta automática mínima; Fase 2E conecta
+// processInboundMessage con EventCreationEngine (ver más arriba) — este
+// controller sigue sin conocer Prisma ni los pasos del motor directamente,
+// eso vive en processInboundMessage/EventCreationEngine.
 // Los webhooks de status (sent/delivered/read/failed) no tienen
 // `value.messages`, así que parseInboundWhatsappMessages ya los ignora
 // limpiamente (devuelve []) sin necesidad de distinguirlos acá — nunca se

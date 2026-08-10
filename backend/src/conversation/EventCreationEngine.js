@@ -136,6 +136,21 @@ export async function start({ clerkId, channel, channelRef }) {
     return toConversationResult(state);
 }
 
+// Único lookup adicional que necesita un canal sin conversationId
+// persistido del lado del cliente — Web siempre tiene el conversationId que
+// le devolvió start() (lo guarda el frontend); WhatsApp es stateless entre
+// mensajes, así que no hay otro identificador estable más que channel +
+// channelRef (Fase 2E). Reutiliza exactamente las mismas columnas que ya
+// escribe start(), no agrega ningún estado ni modelo nuevo.
+export async function findActiveConversation({ channel, channelRef }) {
+    const state = await prisma.conversationState.findFirst({
+        where: { channel, channelRef, status: "ACTIVE" },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, userId: true },
+    });
+    return state ? { id: state.id, userId: state.userId } : null;
+}
+
 async function loadActiveConversation(conversationId) {
     const state = await prisma.conversationState.findUnique({ where: { id: conversationId } });
     if (!state) {
