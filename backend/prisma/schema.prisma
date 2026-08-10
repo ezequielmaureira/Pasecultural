@@ -216,23 +216,64 @@ model WhatsappLinkChallenge {
   @@map("whatsapp_link_challenges")
 }
 
-// Fase 2F — vínculo YA VERIFICADO (nunca se crea una fila acá sin haber
-// pasado por WhatsappLinkChallenge primero). organizationId es @unique:
-// una organización tiene, por ahora, un único WhatsApp vinculado (ver
-// justificación de producto en el informe de entrega — Organization.phone
-// ya es un campo singular, no una lista, y no hay pedido de múltiples
-// números). waId es @unique por la razón inversa: un mismo WhatsApp nunca
-// puede quedar vinculado a dos organizaciones a la vez.
+// Fase 2F: vínculo verificado por código — infraestructura legacy, ya no la
+// alimenta ningún flujo normal (ver Fase 2G). Fase 2G: pasa a ser la fila
+// que representa "esta Organization quedó asociada a este wa_id", creada
+// automáticamente al descubrirla por Organization.phone (ver
+// whatsappOrganizerDiscovery.service.js), nunca más por código.
+// organizationId sigue @unique: una Organization tiene, como máximo, un
+// WhatsApp asociado — una vez que existe una fila para una Organization,
+// esa Organization deja de ser candidata de descubrimiento para cualquier
+// otro wa_id (nunca se reasigna/pisa). waId YA NO es @unique: el mismo
+// número puede operar sobre varias Organizations (una fila por cada una),
+// que es exactamente el caso que antes esta constraint impedía. @@index
+// reemplaza al índice único implícito para que buscar "los vínculos de
+// este wa_id" (ahora potencialmente varios) siga siendo barato.
 model WhatsappOrganizerLink {
   id             String       @id @default(cuid())
-  waId           String       @unique
+  waId           String
   organizationId String       @unique
   organization   Organization @relation(fields: [organizationId], references: [id])
   verifiedAt     DateTime     @default(now())
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
+  @@index([waId])
   @@map("whatsapp_organizer_links")
+}
+
+enum WhatsappPendingSelectionStatus {
+  AWAITING_SELECTION
+  AWAITING_CONFIRMATION
+}
+
+// Fase 2G — estado ínfimo y explícito de "este wa_id todavía no terminó de
+// elegir con qué Organization va a trabajar". La fila EXISTE mientras dura
+// la espera y se borra apenas se resuelve (elección confirmada, "No", o un
+// mensaje cancela el flujo) — nunca se infiere nada a partir de cuánto
+// tiempo pasó desde createdAt/updatedAt (ver informe de entrega, sección
+// "esperando selección de organización").
+//
+// candidateOrganizationIds es la lista EXACTA, en el mismo orden en que se
+// le mostró al usuario en el mensaje numerado (JSON array de organizationId)
+// — nunca se vuelve a calcular desde Organization.phone al validar una
+// elección, para que un cambio de estado de alguna Organization entre el
+// mensaje numerado y la respuesta no le corra el número a nadie.
+//
+// AWAITING_SELECTION: se mostró la lista, se espera un número válido.
+// AWAITING_CONFIRMATION: ya se resolvió selectedOrganizationId (por
+// selección explícita entre N candidatas), se espera el "Sí"/"No" final
+// antes de recién ahí llamar a EventCreationEngine.start.
+model WhatsappPendingOrganizationSelection {
+  id                       String                         @id @default(cuid())
+  waId                     String                         @unique
+  status                   WhatsappPendingSelectionStatus
+  candidateOrganizationIds Json
+  selectedOrganizationId   String?
+  createdAt                DateTime                       @default(now())
+  updatedAt                DateTime                       @updatedAt
+
+  @@map("whatsapp_pending_organization_selections")
 }
 
 model Event {
@@ -421,18 +462,27 @@ model FunctionTicketType {
 // El Event real recién se crea en EventService cuando el usuario confirma
 // "Publicar" o "Guardar borrador" (ver EventCreationEngine/EventServicePort).
 model ConversationState {
-  id            String              @id @default(cuid())
-  userId        String?
-  channel       ConversationChannel
-  channelRef    String
-  currentStepId String
-  loopStack     Json                @default("[]")
-  draftEvent    Json                @default("{}")
-  history       Json                @default("[]")
-  status        ConversationStatus  @default(ACTIVE)
-  eventId       String?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  id             String              @id @default(cuid())
+  userId         String?
+  channel        ConversationChannel
+  channelRef     String
+  // Fase 2G — sólo WhatsApp la completa hoy (resuelta antes de llamar
+  // EventCreationEngine.start, ver whatsapp.controller.js); Web la deja
+  // null y conserva el comportamiento legacy de getMyOrganization(clerkId)
+  // (findFirst) en toda la cadena de event.service.js. Persistida acá para
+  // que, aunque el organizador tenga varias Organizations, la elegida al
+  // empezar la conversación sea la MISMA en cada paso siguiente hasta
+  // EventServicePort.commit — nunca se vuelve a resolver "de nuevo" a mitad
+  // de camino.
+  organizationId String?
+  currentStepId  String
+  loopStack      Json                @default("[]")
+  draftEvent     Json                @default("{}")
+  history        Json                @default("[]")
+  status         ConversationStatus  @default(ACTIVE)
+  eventId        String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
 
   @@map("conversation_states")
 }

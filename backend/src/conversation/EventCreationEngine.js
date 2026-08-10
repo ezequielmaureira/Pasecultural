@@ -120,12 +120,20 @@ function appendHistory(history, stepId) {
     return [...history, stepId];
 }
 
-export async function start({ clerkId, channel, channelRef }) {
+// organizationId (Fase 2G): la Organization ya resuelta por el canal (hoy
+// sólo WhatsApp la resuelve antes de llamar acá, ver
+// whatsapp.controller.js) queda persistida en la conversación desde su
+// primer paso — handleInput NUNCA vuelve a recibirla, sólo se re-lee del
+// state al hacer commit (ver handlePreviewInput más abajo). `null` (default)
+// reproduce exactamente el comportamiento legacy que ya usa Web
+// (conversation.controller.js no manda este campo).
+export async function start({ clerkId, channel, channelRef, organizationId = null }) {
     const state = await prisma.conversationState.create({
         data: {
             userId: clerkId ?? null,
             channel,
             channelRef,
+            organizationId,
             currentStepId: FIRST_STEP_ID,
             draftEvent: {},
             history: [FIRST_STEP_ID],
@@ -292,7 +300,7 @@ async function handlePreviewInput(state, rawInput) {
     }
 
     try {
-        const event = await EventServicePort.commit(state.userId, state.draftEvent, action);
+        const event = await EventServicePort.commit(state.userId, state.draftEvent, action, state.organizationId);
         const updated = await prisma.conversationState.update({
             where: { id: state.id },
             data: {

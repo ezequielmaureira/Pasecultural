@@ -10,16 +10,32 @@ import {
     AUTO_REPLY_TEXT,
 } from "../services/whatsapp.service.js";
 import * as EventCreationEngine from "../conversation/EventCreationEngine.js";
-import { resolveWhatsappOrganizerIdentity } from "../services/whatsappOrganizerIdentity.service.js";
-import { createOrReuseWhatsappLinkChallenge } from "../services/whatsappOrganizerLink.service.js";
+// Fase 2F, legacy — whatsappOrganizerIdentity.service.js/
+// createOrReuseWhatsappLinkChallenge ya no se importan acá: el flujo de
+// código de 6 dígitos dejó de ofrecerse desde WhatsApp Organizer (ver
+// informe de entrega Fase 2G). Los archivos siguen existiendo tal cual,
+// sin uso.
+import {
+    discoverWhatsappOrganizationCandidates,
+    getPendingOrganizationSelection,
+    createPendingOrganizationSelection,
+    resolveOrganizationSelectionChoice,
+    confirmOrganizationSelection,
+    clearPendingOrganizationSelection,
+    resolveOrganizationOwner,
+} from "../services/whatsappOrganizerDiscovery.service.js";
 import {
     classifyInitialIntent,
     isCancelCommand,
     extractWhatsappReplyText,
-    buildWhatsappLinkChallengeText,
     WHATSAPP_DECLINE_TEXT,
     WHATSAPP_CANCEL_TEXT,
-    WHATSAPP_LINK_CHALLENGE_PENDING_TEXT,
+    WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT,
+    WHATSAPP_SELECTION_INVALID_TEXT,
+    buildKnownOrganizationGreetingText,
+    buildOrganizationSelectorText,
+    buildOrganizationSelectedConfirmationText,
+    buildOrganizationSelectionConfirmationRetryText,
 } from "../services/whatsappOrganizerBot.service.js";
 
 // El valor real de ConversationChannel para este canal (ver
@@ -96,13 +112,16 @@ async function sendBotReply({ sendText, to, from, messageId, text, engineAction 
 // (mismo criterio que `sendText` desde Fase 2D) para poder testear la
 // orquestación sin tocar Prisma/red.
 //
-// IMPORTANTE — identidad: resolveOrganizerIdentity sólo resuelve contra un
-// WhatsappOrganizerLink YA VERIFICADO (Fase 2F) — nunca contra
-// Organization.phone ni ninguna otra fuente sin verificar. Mientras un
-// wa_id no tenga vínculo, EventCreationEngine.start NUNCA se llama con una
-// identidad inventada: en su lugar se dispara un challenge de vinculación
-// (createOrReuseWhatsappLinkChallenge) para que el organizador lo confirme
-// desde su panel autenticado con Clerk.
+// IMPORTANTE — identidad (Fase 2G): la identificación ya NO depende de un
+// código de 6 dígitos (Fase 2F, legacy). Se resuelve por coincidencia
+// EXACTA de teléfono contra Organization.phone
+// (discoverWhatsappOrganizationCandidates, que a su vez reusa vínculos
+// WhatsappOrganizerLink ya existentes antes de volver a mirar teléfonos —
+// ver ese archivo). 0 candidatos -> mensaje "no encontrado", nunca se
+// inventa una identidad ni se dispara un challenge. 1 candidato -> saludo
+// automático. Varios candidatos -> selector numerado explícito, con estado
+// persistido en WhatsappPendingOrganizationSelection (nunca inferido de
+// timestamps) hasta que el organizador elige y confirma.
 //
 // Nunca deja escapar una excepción — ni un rechazo de Meta ni un error del
 // motor pueden convertir el webhook en 500 (Meta reintentaría el mismo
@@ -115,8 +134,12 @@ export async function processInboundMessage(
         handleConversationInput = EventCreationEngine.handleInput,
         cancelConversation = EventCreationEngine.cancel,
         findActiveConversation = EventCreationEngine.findActiveConversation,
-        resolveOrganizerIdentity = resolveWhatsappOrganizerIdentity,
-        createLinkChallenge = createOrReuseWhatsappLinkChallenge,
+        discoverCandidates = discoverWhatsappOrganizationCandidates,
+        getPendingSelection = getPendingOrganizationSelection,
+        createPendingSelection = createPendingOrganizationSelection,
+        confirmSelection = confirmOrganizationSelection,
+        clearPendingSelection = clearPendingOrganizationSelection,
+        resolveOwner = resolveOrganizationOwner,
     } = {}
 ) {
     if (!shouldAutoReply(message)) return;
@@ -147,39 +170,109 @@ export async function processInboundMessage(
             return;
         }
 
-        const intent = classifyInitialIntent(text);
+        const pendingSelection = await getPendingSelection(channelRef);
 
+        if (pendingSelection) {
+            if (isCancelCommand(text)) {
+                await clearPendingSelection(channelRef);
+                await reply(WHATSAPP_CANCEL_TEXT, "CANCEL");
+                return;
+            }
+
+            if (pendingSelection.status === "AWAITING_SELECTION") {
+                const choice = resolveOrganizationSelectionChoice(pendingSelection.candidateOrganizationIds, text);
+                if (!choice.valid) {
+                    await reply(WHATSAPP_SELECTION_INVALID_TEXT, "SELECTION_INVALID");
+                    return;
+                }
+
+                const owner = await resolveOwner(choice.organizationId);
+                if (!owner) {
+                    // La Organization elegida dejó de estar APPROVED entre el
+                    // descubrimiento y la elección — nunca se sigue con una
+                    // Organization inválida.
+                    await clearPendingSelection(channelRef);
+                    await reply(WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT, "SELECTION_ORG_UNAVAILABLE");
+                    return;
+                }
+
+                await confirmSelection(channelRef, choice.organizationId);
+                await reply(buildOrganizationSelectedConfirmationText(owner.name), "SELECTION_CONFIRMED");
+                return;
+            }
+
+            // pendingSelection.status === "AWAITING_CONFIRMATION"
+            const owner = await resolveOwner(pendingSelection.selectedOrganizationId);
+            if (!owner) {
+                await clearPendingSelection(channelRef);
+                await reply(WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT, "SELECTION_ORG_UNAVAILABLE");
+                return;
+            }
+
+            const confirmationIntent = classifyInitialIntent(text);
+            if (confirmationIntent === "AFFIRMATIVE") {
+                await clearPendingSelection(channelRef);
+                const startResult = await startConversation({
+                    clerkId: owner.clerkId,
+                    channel: WHATSAPP_CHANNEL,
+                    channelRef,
+                    organizationId: pendingSelection.selectedOrganizationId,
+                });
+                await reply(extractWhatsappReplyText(startResult), "START");
+                return;
+            }
+            if (confirmationIntent === "NEGATIVE") {
+                await clearPendingSelection(channelRef);
+                await reply(WHATSAPP_DECLINE_TEXT, "DECLINE");
+                return;
+            }
+
+            await reply(buildOrganizationSelectionConfirmationRetryText(owner.name), "SELECTION_CONFIRMATION_RETRY");
+            return;
+        }
+
+        const intent = classifyInitialIntent(text);
+        const candidates = await discoverCandidates(channelRef);
+
+        if (candidates.length === 0) {
+            await reply(WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT, "ORGANIZATION_NOT_FOUND");
+            return;
+        }
+
+        if (candidates.length === 1) {
+            const [organization] = candidates;
+
+            if (intent === "AFFIRMATIVE") {
+                const startResult = await startConversation({
+                    clerkId: organization.clerkId,
+                    channel: WHATSAPP_CHANNEL,
+                    channelRef,
+                    organizationId: organization.organizationId,
+                });
+                await reply(extractWhatsappReplyText(startResult), "START");
+                return;
+            }
+
+            if (intent === "NEGATIVE") {
+                await reply(WHATSAPP_DECLINE_TEXT, "DECLINE");
+                return;
+            }
+
+            await reply(buildKnownOrganizationGreetingText(organization.name), "GREETING");
+            return;
+        }
+
+        // candidates.length > 1 — Caso B: selector numerado explícito.
         if (intent === "NEGATIVE") {
             await reply(WHATSAPP_DECLINE_TEXT, "DECLINE");
             return;
         }
 
-        if (intent !== "AFFIRMATIVE") {
-            await reply(AUTO_REPLY_TEXT, "PROMPT");
-            return;
-        }
-
-        const identity = await resolveOrganizerIdentity(channelRef);
-        if (!identity) {
-            // Sin vínculo verificado todavía (Fase 2F) — se dispara/reusa un
-            // challenge en vez de inventar una identidad. challengeCreated
-            // es el único dato del challenge que se loguea (nunca el
-            // código, ni el hash, ni el wa_id completo).
-            const challengeResult = await createLinkChallenge(channelRef);
-            logger.info("WhatsApp organizer bot: sin vínculo verificado", {
-                inboundMessageId: message.messageId,
-                engineAction: "LINK_CHALLENGE",
-                challengeCreated: Boolean(challengeResult?.code),
-            });
-            await reply(
-                challengeResult?.code ? buildWhatsappLinkChallengeText(challengeResult.code) : WHATSAPP_LINK_CHALLENGE_PENDING_TEXT,
-                "LINK_CHALLENGE"
-            );
-            return;
-        }
-
-        const startResult = await startConversation({ clerkId: identity.clerkId, channel: WHATSAPP_CHANNEL, channelRef });
-        await reply(extractWhatsappReplyText(startResult), "START");
+        await createPendingSelection(
+            channelRef,
+            candidates.map((candidate) => candidate.organizationId)
+        );
+        await reply(buildOrganizationSelectorText(candidates), "SELECTOR");
     } catch (error) {
         logger.error(error, { context: "whatsapp organizer bot", inboundMessageId: message.messageId });
     }

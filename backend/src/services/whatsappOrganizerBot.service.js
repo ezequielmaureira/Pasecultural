@@ -8,21 +8,61 @@ export const WHATSAPP_DECLINE_TEXT = "Perfecto 👍 Cuando quieras publicar un e
 
 export const WHATSAPP_CANCEL_TEXT = "❌ Cancelamos la creación de tu evento. Cuando quieras, escribime para empezar de nuevo.";
 
-// Fase 2F — se usan cuando la intención es AFFIRMATIVE pero
-// resolveWhatsappOrganizerIdentity todavía no encuentra un vínculo
-// verificado para este wa_id (ver whatsappOrganizerIdentity.service.js):
-// nunca se llega a EventCreationEngine.start en ese caso, se dispara el
-// challenge de vinculación (whatsappOrganizerLink.service.js) en su lugar.
+// Fase 2F — LEGACY, sin uso desde Fase 2G (ver informe de entrega: el
+// flujo de código de 6 dígitos deja de ofrecerse desde WhatsApp Organizer).
+// Se conservan intactas junto con whatsappOrganizerLink.service.js/
+// WhatsappLinkChallenge por pedido explícito de no hacer una limpieza
+// destructiva — simplemente ya nadie las importa desde
+// whatsapp.controller.js.
 export function buildWhatsappLinkChallengeText(code) {
     return `Para vincular este WhatsApp con tu cuenta de PaseCultural, ingresá este código en tu panel de organizador:\n\n${code}\n\nEl código vence en 10 minutos.`;
 }
 
-// Ya había un challenge vigente para este wa_id y todavía no pasó el
-// cooldown de reemplazo (ver shouldCreateNewChallenge) — no se genera un
-// código nuevo ni se puede reenviar el anterior (nunca se guarda en texto
-// plano), así que sólo se avisa que ya hay uno esperando.
 export const WHATSAPP_LINK_CHALLENGE_PENDING_TEXT =
     "Ya te enviamos un código para vincular este WhatsApp. Revisá los mensajes anteriores; si no te llegó, esperá un minuto y volvé a escribir.";
+
+// ==================================================================
+// Fase 2G — identificación automática por teléfono + múltiples
+// Organizations. Mismo criterio que el resto del archivo: sólo texto,
+// nunca reglas de negocio (esas viven en whatsappOrganizerDiscovery.service.js).
+// ==================================================================
+
+// Caso A (auditoría Fase 2G): exactamente una Organization APPROVED con el
+// teléfono de este wa_id — saludo personalizado en vez del genérico
+// AUTO_REPLY_TEXT.
+export function buildKnownOrganizationGreetingText(organizationName) {
+    return `Hola ${organizationName} 👋 Soy el asistente de PaseCultural. ¿Querés publicar un evento?`;
+}
+
+// Caso C: el teléfono no coincide con ninguna Organization APPROVED. Nunca
+// dispara un challenge/código — sólo indica cómo corregirlo desde la web.
+export const WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT =
+    "No encontré una organización habilitada asociada a este número de WhatsApp.\n\nIngresá a PaseCultural y verificá que el teléfono registrado en tu organización sea el mismo número desde el que estás escribiendo.";
+
+// Caso B: varias Organizations APPROVED comparten el mismo teléfono —
+// selector numerado, en el MISMO orden que candidateOrganizationIds (nunca
+// se reordena entre el mensaje y la validación de la respuesta).
+export function buildOrganizationSelectorText(candidates) {
+    const options = candidates.map((candidate, index) => `${index + 1}. ${candidate.name}`).join("\n");
+    return `Encontré varias organizaciones asociadas a este número.\n\n¿Con cuál querés trabajar?\n\n${options}`;
+}
+
+// La respuesta no fue un número válido de la lista mostrada — nunca se
+// acepta un organizationId/nombre/clerkId escrito a mano (ver sección
+// "selección" del informe de entrega).
+export const WHATSAPP_SELECTION_INVALID_TEXT = "No entendí esa opción. Respondé con el número de la organización de la lista.";
+
+export function buildOrganizationSelectedConfirmationText(organizationName) {
+    return `Perfecto. Estás trabajando con ${organizationName}.\n¿Querés publicar un evento?`;
+}
+
+// Mientras se espera la confirmación final ("Sí"/"No") tras elegir una
+// Organization entre varias, cualquier respuesta que no sea afirmativa ni
+// negativa vuelve a preguntar sin repetir el selector numerado (la
+// Organization ya está resuelta, sólo falta confirmar la intención).
+export function buildOrganizationSelectionConfirmationRetryText(organizationName) {
+    return `¿Querés publicar un evento con ${organizationName}? Respondé "Sí" o "No".`;
+}
 
 // ==================================================================
 // classifyInitialIntent — SOLO para el mensaje previo a iniciar el motor

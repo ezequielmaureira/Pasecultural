@@ -29,9 +29,28 @@ async function getUserByClerkId(clerkId) {
     return prisma.user.findUnique({ where: { clerkId } });
 }
 
-async function getMyOrganization(clerkId) {
+// Fase 2G (WhatsApp Organizer): un mismo Clerk account puede ser owner de
+// varias Organizations, así que "cuál Organization" dejó de poder inferirse
+// siempre con findFirst — eso sólo alcanza mientras hay una sola. Cuando el
+// caller YA SABE para cuál Organization está operando (ej. WhatsApp, que
+// resuelve organizationId antes de arrancar el motor), lo pasa explícito acá
+// y se exige pertenencia real (organization.ownerId === user.id); si no
+// pertenece, esto es SIEMPRE un fallo duro — nunca se degrada de vuelta a
+// findFirst con otra Organization del mismo usuario, eso sería operar sobre
+// algo que el caller no pidió. findFirst queda reservado exclusivamente para
+// organizationId === null (comportamiento legacy, todavía el único que usa
+// la Web).
+async function getMyOrganization(clerkId, organizationId = null) {
     const user = await getUserByClerkId(clerkId);
     if (!user) return null;
+
+    if (organizationId) {
+        const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
+        if (!organization || organization.ownerId !== user.id) {
+            throw new Error("ORGANIZATION_FORBIDDEN");
+        }
+        return { user, organization };
+    }
 
     const organization = await prisma.organization.findFirst({
         where: { ownerId: user.id },
@@ -125,8 +144,8 @@ function buildEventData(input) {
     return data;
 }
 
-export const createEventService = async (clerkId, input) => {
-    const context = await getMyOrganization(clerkId);
+export const createEventService = async (clerkId, input, organizationId = null) => {
+    const context = await getMyOrganization(clerkId, organizationId);
     if (!context) {
         throw new Error("NO_ORGANIZATION");
     }
@@ -193,8 +212,8 @@ const EVENT_DETAIL_INCLUDE = {
 // qué mostrar es el caller, no este service. Sí corre el self-heal (acotado
 // a este único evento) para que `archivedAt` esté al día si justo se
 // cumplió la regla ahora.
-export const getMyEventByIdService = async (clerkId, id) => {
-    const context = await getMyOrganization(clerkId);
+export const getMyEventByIdService = async (clerkId, id, organizationId = null) => {
+    const context = await getMyOrganization(clerkId, organizationId);
     if (!context) return null;
 
     await runArchiveSelfHeal(prisma, { eventId: id });
@@ -238,8 +257,8 @@ function assertPublishable(event) {
     }
 }
 
-export const updateMyEventService = async (clerkId, id, input) => {
-    const context = await getMyOrganization(clerkId);
+export const updateMyEventService = async (clerkId, id, input, organizationId = null) => {
+    const context = await getMyOrganization(clerkId, organizationId);
     if (!context) return null;
 
     const event = await prisma.event.findUnique({ where: { id }, include: EVENT_DETAIL_INCLUDE });
@@ -330,8 +349,8 @@ function recomputeEventSummary(functionsInput, ticketTypesInput) {
     };
 }
 
-export const syncEventScheduleService = async (clerkId, eventId, input) => {
-    const context = await getMyOrganization(clerkId);
+export const syncEventScheduleService = async (clerkId, eventId, input, organizationId = null) => {
+    const context = await getMyOrganization(clerkId, organizationId);
     if (!context) return null;
 
     const event = await prisma.event.findUnique({ where: { id: eventId } });
@@ -457,8 +476,8 @@ function analyzeLink(link) {
     };
 }
 
-export const syncEventLinksService = async (clerkId, eventId, linksInput) => {
-    const context = await getMyOrganization(clerkId);
+export const syncEventLinksService = async (clerkId, eventId, linksInput, organizationId = null) => {
+    const context = await getMyOrganization(clerkId, organizationId);
     if (!context) return null;
 
     const event = await prisma.event.findUnique({ where: { id: eventId } });

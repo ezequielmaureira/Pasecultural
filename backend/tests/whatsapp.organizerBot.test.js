@@ -5,10 +5,14 @@ import {
     classifyInitialIntent,
     isCancelCommand,
     extractWhatsappReplyText,
-    buildWhatsappLinkChallengeText,
     WHATSAPP_DECLINE_TEXT,
     WHATSAPP_CANCEL_TEXT,
-    WHATSAPP_LINK_CHALLENGE_PENDING_TEXT,
+    WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT,
+    WHATSAPP_SELECTION_INVALID_TEXT,
+    buildKnownOrganizationGreetingText,
+    buildOrganizationSelectorText,
+    buildOrganizationSelectedConfirmationText,
+    buildOrganizationSelectionConfirmationRetryText,
 } from "../src/services/whatsappOrganizerBot.service.js";
 import { processInboundMessage, processInboundMessages } from "../src/controllers/whatsapp.controller.js";
 
@@ -46,10 +50,11 @@ function spy(returnValue) {
     return fn;
 }
 
-// deps base: sin conversación activa, identidad SIEMPRE resuelta (mock) —
-// cada test override lo que necesite. resolveOrganizerIdentity/
-// createLinkChallenge son mocks deliberados (nunca los reales, que tocan
-// Prisma) para poder probar el cableo sin base de datos.
+// deps base (Fase 2G): sin conversación activa, sin selección pendiente, y
+// discoverCandidates resuelve por default a UNA sola Organization APPROVED
+// (Caso A) — cada test override lo que necesite. Ninguna de estas funciones
+// es la real (todas tocarían Prisma): son mocks para poder probar el
+// cableo del controller sin base de datos.
 function baseDeps(overrides = {}) {
     const { sendText, calls: sendCalls } = fakeSender();
     return {
@@ -59,8 +64,12 @@ function baseDeps(overrides = {}) {
             startConversation: spy({ conversationId: "conv1", prompt: { stepId: "NAME", type: "QUESTION", text: "¿Cómo se llama tu evento?" }, canGoBack: false, sections: [] }),
             handleConversationInput: spy({ conversationId: "conv1", prompt: { stepId: "DESCRIPTION", type: "QUESTION", text: "¿De qué trata tu evento?" }, canGoBack: true, sections: [] }),
             cancelConversation: spy(undefined),
-            resolveOrganizerIdentity: spy({ clerkId: "user_123" }),
-            createLinkChallenge: spy({ code: "482731" }),
+            discoverCandidates: spy([{ organizationId: "org_1", name: "Elvis Bar", clerkId: "user_123" }]),
+            getPendingSelection: spy(null),
+            createPendingSelection: spy(undefined),
+            confirmSelection: spy(undefined),
+            clearPendingSelection: spy(undefined),
+            resolveOwner: spy({ name: "Elvis Bar", clerkId: "user_123" }),
             ...overrides,
         },
         sendCalls,
@@ -170,34 +179,39 @@ test("extractWhatsappReplyText returns null when there is nothing to send", () =
 });
 
 // ==================================================
-// processInboundMessage — flujo A-L (sección 3/14 del pedido)
+// processInboundMessage — árbol de decisión Fase 2G (identificación por
+// teléfono + selección entre varias Organizations). El viejo flujo de
+// challenge/código de 6 dígitos (Fase 2F) ya no es parte de este árbol —
+// ver el test dedicado más abajo que confirma que nunca se dispara.
 // ==================================================
 
-// A) sin conversación + "Hola" -> pregunta si quiere publicar, NO inicia el motor.
-test("A) no active conversation + 'Hola' asks whether to publish and never starts the engine", async () => {
+// Caso A: exactamente una Organization APPROVED coincide con el teléfono.
+test("Caso A) single matching organization + 'Hola' sends the personalized greeting and never starts the engine", async () => {
     const { deps, sendCalls } = baseDeps();
 
     await processInboundMessage(textMessage({ text: "Hola" }), deps);
 
     assert.equal(deps.startConversation.calls.length, 0);
-    assert.equal(sendCalls.length, 1);
-    assert.equal(sendCalls[0].text, AUTO_REPLY_TEXT);
+    assert.equal(deps.createPendingSelection.calls.length, 0);
+    assert.equal(sendCalls[0].text, buildKnownOrganizationGreetingText("Elvis Bar"));
 });
 
-// B) sin conversación + "Sí" -> llama start exactamente una vez y responde
-// con la primera pregunta REAL devuelta por el motor (mockeado).
-test("B) no active conversation + 'Sí' calls EventCreationEngine.start exactly once and relays its real first question", async () => {
+test("Caso A) single matching organization + 'Sí' calls EventCreationEngine.start exactly once with that organizationId", async () => {
     const { deps, sendCalls } = baseDeps();
 
     await processInboundMessage(textMessage({ text: "Sí", from: "5491100001111" }), deps);
 
     assert.equal(deps.startConversation.calls.length, 1);
-    assert.deepEqual(deps.startConversation.calls[0][0], { clerkId: "user_123", channel: "WHATSAPP", channelRef: "5491100001111" });
+    assert.deepEqual(deps.startConversation.calls[0][0], {
+        clerkId: "user_123",
+        channel: "WHATSAPP",
+        channelRef: "5491100001111",
+        organizationId: "org_1",
+    });
     assert.equal(sendCalls[0].text, "¿Cómo se llama tu evento?");
 });
 
-// C) sin conversación + "No" -> NO llama start, responde el mensaje de cierre.
-test("C) no active conversation + 'No' never starts the engine and sends the closing message", async () => {
+test("Caso A) single matching organization + 'No' never starts the engine and sends the closing message", async () => {
     const { deps, sendCalls } = baseDeps();
 
     await processInboundMessage(textMessage({ text: "No gracias" }), deps);
@@ -206,30 +220,175 @@ test("C) no active conversation + 'No' never starts the engine and sends the clo
     assert.equal(sendCalls[0].text, WHATSAPP_DECLINE_TEXT);
 });
 
-// D) sin conversación + intención desconocida -> pide Sí/No, no inicia el motor.
-test("D) no active conversation + unknown intent re-asks instead of starting the engine", async () => {
-    const { deps, sendCalls } = baseDeps();
+// Caso C: ningún candidato — nunca se genera código/challenge, sólo se
+// explica cómo corregirlo desde la web.
+test("Caso C) zero matching organizations replies with the not-found message and never creates a pending selection or a challenge", async () => {
+    const { deps, sendCalls } = baseDeps({ discoverCandidates: spy([]) });
 
-    await processInboundMessage(textMessage({ text: "asdkjh" }), deps);
+    await processInboundMessage(textMessage({ text: "Sí" }), deps);
 
     assert.equal(deps.startConversation.calls.length, 0);
-    assert.equal(sendCalls[0].text, AUTO_REPLY_TEXT);
+    assert.equal(deps.createPendingSelection.calls.length, 0);
+    assert.equal(sendCalls[0].text, WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT);
 });
 
-// E) con conversación activa + texto -> NO muestra el saludo, llama handleInput.
-test("E) an active conversation skips the greeting entirely and routes straight into handleInput", async () => {
+// Caso B: varias Organizations APPROVED comparten el teléfono — selector
+// numerado explícito, en el mismo orden que discoverCandidates devolvió.
+const MULTI_CANDIDATES = [
+    { organizationId: "org_1", name: "Elvis Bar", clerkId: "user_123" },
+    { organizationId: "org_2", name: "Elvis Multiespacio", clerkId: "user_123" },
+    { organizationId: "org_3", name: "Club Central", clerkId: "user_123" },
+];
+
+test("Caso B) multiple matching organizations shows the numbered selector and never starts the engine yet", async () => {
+    const { deps, sendCalls } = baseDeps({ discoverCandidates: spy(MULTI_CANDIDATES) });
+
+    await processInboundMessage(textMessage({ text: "Sí", from: "5491100003333" }), deps);
+
+    assert.equal(deps.startConversation.calls.length, 0);
+    assert.equal(deps.createPendingSelection.calls.length, 1);
+    assert.deepEqual(deps.createPendingSelection.calls[0], ["5491100003333", ["org_1", "org_2", "org_3"]]);
+    assert.equal(sendCalls[0].text, buildOrganizationSelectorText(MULTI_CANDIDATES));
+});
+
+test("Caso B) multiple matching organizations + 'No' declines without ever offering the selector", async () => {
+    const { deps, sendCalls } = baseDeps({ discoverCandidates: spy(MULTI_CANDIDATES) });
+
+    await processInboundMessage(textMessage({ text: "No" }), deps);
+
+    assert.equal(deps.createPendingSelection.calls.length, 0);
+    assert.equal(sendCalls[0].text, WHATSAPP_DECLINE_TEXT);
+});
+
+// Selección pendiente — AWAITING_SELECTION: sólo un índice válido de la
+// lista EXACTA que ya se mostró es aceptado; nunca un organizationId/nombre
+// escrito a mano.
+function pendingAwaitingSelection(overrides = {}) {
+    return spy({
+        status: "AWAITING_SELECTION",
+        candidateOrganizationIds: ["org_1", "org_2", "org_3"],
+        ...overrides,
+    });
+}
+
+test("pending AWAITING_SELECTION + a valid index resolves the correct organizationId and asks for confirmation", async () => {
+    const { deps, sendCalls } = baseDeps({
+        getPendingSelection: pendingAwaitingSelection(),
+        resolveOwner: spy({ name: "Elvis Multiespacio", clerkId: "user_123" }),
+    });
+
+    await processInboundMessage(textMessage({ text: "2", from: "5491100003333" }), deps);
+
+    assert.equal(deps.resolveOwner.calls.length, 1);
+    assert.deepEqual(deps.resolveOwner.calls[0], ["org_2"]);
+    assert.equal(deps.confirmSelection.calls.length, 1);
+    assert.deepEqual(deps.confirmSelection.calls[0], ["5491100003333", "org_2"]);
+    assert.equal(deps.startConversation.calls.length, 0);
+    assert.equal(sendCalls[0].text, buildOrganizationSelectedConfirmationText("Elvis Multiespacio"));
+});
+
+test("pending AWAITING_SELECTION + an out-of-range or non-numeric reply never resolves an organization nor confirms one", async () => {
+    // "" queda afuera: shouldAutoReply ya descarta un mensaje de texto vacío
+    // antes de llegar a la rama de selección pendiente (ver tests de
+    // shouldAutoReply más arriba) — no es un caso de "índice inválido".
+    for (const invalidReply of ["0", "4", "org_2", "hola"]) {
+        const { deps, sendCalls } = baseDeps({ getPendingSelection: pendingAwaitingSelection() });
+
+        await processInboundMessage(textMessage({ text: invalidReply }), deps);
+
+        assert.equal(deps.resolveOwner.calls.length, 0, `no debería resolver owner para "${invalidReply}"`);
+        assert.equal(deps.confirmSelection.calls.length, 0);
+        assert.equal(deps.startConversation.calls.length, 0);
+        assert.equal(sendCalls[0].text, WHATSAPP_SELECTION_INVALID_TEXT);
+    }
+});
+
+test("pending AWAITING_SELECTION + 'cancelar' clears the pending selection instead of treating it as an index", async () => {
+    const { deps, sendCalls } = baseDeps({ getPendingSelection: pendingAwaitingSelection() });
+
+    await processInboundMessage(textMessage({ text: "cancelar", from: "5491100003333" }), deps);
+
+    assert.equal(deps.clearPendingSelection.calls.length, 1);
+    assert.deepEqual(deps.clearPendingSelection.calls[0], ["5491100003333"]);
+    assert.equal(sendCalls[0].text, WHATSAPP_CANCEL_TEXT);
+});
+
+// Selección pendiente — AWAITING_CONFIRMATION: la Organization ya está
+// resuelta, sólo falta la confirmación final "Sí"/"No" — recién ACÁ se
+// llama a EventCreationEngine.start, nunca antes.
+function pendingAwaitingConfirmation(overrides = {}) {
+    return spy({ status: "AWAITING_CONFIRMATION", selectedOrganizationId: "org_2", ...overrides });
+}
+
+test("pending AWAITING_CONFIRMATION + 'Sí' clears the pending selection and starts the engine with the confirmed organizationId", async () => {
+    const { deps, sendCalls } = baseDeps({
+        getPendingSelection: pendingAwaitingConfirmation(),
+        resolveOwner: spy({ name: "Elvis Multiespacio", clerkId: "user_123" }),
+    });
+
+    await processInboundMessage(textMessage({ text: "Sí", from: "5491100003333" }), deps);
+
+    assert.equal(deps.clearPendingSelection.calls.length, 1);
+    assert.equal(deps.startConversation.calls.length, 1);
+    assert.deepEqual(deps.startConversation.calls[0][0], {
+        clerkId: "user_123",
+        channel: "WHATSAPP",
+        channelRef: "5491100003333",
+        organizationId: "org_2",
+    });
+    assert.equal(sendCalls[0].text, "¿Cómo se llama tu evento?");
+});
+
+test("pending AWAITING_CONFIRMATION + 'No' clears the pending selection and declines without starting the engine", async () => {
+    const { deps, sendCalls } = baseDeps({ getPendingSelection: pendingAwaitingConfirmation() });
+
+    await processInboundMessage(textMessage({ text: "No" }), deps);
+
+    assert.equal(deps.clearPendingSelection.calls.length, 1);
+    assert.equal(deps.startConversation.calls.length, 0);
+    assert.equal(sendCalls[0].text, WHATSAPP_DECLINE_TEXT);
+});
+
+test("pending AWAITING_CONFIRMATION + an unrelated reply re-asks for confirmation without repeating the numbered selector", async () => {
+    const { deps, sendCalls } = baseDeps({
+        getPendingSelection: pendingAwaitingConfirmation(),
+        resolveOwner: spy({ name: "Elvis Multiespacio", clerkId: "user_123" }),
+    });
+
+    await processInboundMessage(textMessage({ text: "no entendí" }), deps);
+
+    assert.equal(deps.clearPendingSelection.calls.length, 0);
+    assert.equal(deps.startConversation.calls.length, 0);
+    assert.equal(sendCalls[0].text, buildOrganizationSelectionConfirmationRetryText("Elvis Multiespacio"));
+});
+
+test("pending AWAITING_CONFIRMATION whose organization stopped being APPROVED meanwhile is treated as not-found and cleared", async () => {
+    const { deps, sendCalls } = baseDeps({ getPendingSelection: pendingAwaitingConfirmation(), resolveOwner: spy(null) });
+
+    await processInboundMessage(textMessage({ text: "Sí" }), deps);
+
+    assert.equal(deps.clearPendingSelection.calls.length, 1);
+    assert.equal(deps.startConversation.calls.length, 0);
+    assert.equal(sendCalls[0].text, WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT);
+});
+
+// Conversación activa — sin cambios de comportamiento respecto a Fase 2E,
+// salvo que ya no depende de ninguna resolución de identidad por mensaje
+// (el organizationId ya viaja adentro del ConversationState, ver
+// EventCreationEngine).
+test("an active conversation skips discovery entirely and routes straight into handleInput", async () => {
     const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }) });
 
     await processInboundMessage(textMessage({ text: "Mi evento genial" }), deps);
 
+    assert.equal(deps.discoverCandidates.calls.length, 0);
     assert.equal(deps.startConversation.calls.length, 0);
     assert.equal(deps.handleConversationInput.calls.length, 1);
     assert.deepEqual(deps.handleConversationInput.calls[0], ["conv1", { value: "Mi evento genial" }]);
     assert.equal(sendCalls[0].text, "¿De qué trata tu evento?");
 });
 
-// F) conversación activa + "Sí" -> se trata como input del motor, nunca vuelve a llamar start.
-test("F) 'Sí' with an active conversation is treated as plain input, never re-triggers start", async () => {
+test("'Sí' with an active conversation is treated as plain input, never re-triggers start", async () => {
     const { deps } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }) });
 
     await processInboundMessage(textMessage({ text: "Sí" }), deps);
@@ -239,8 +398,7 @@ test("F) 'Sí' with an active conversation is treated as plain input, never re-t
     assert.deepEqual(deps.handleConversationInput.calls[0][1], { value: "Sí" });
 });
 
-// G) cancelar con conversación activa -> llama a EventCreationEngine.cancel.
-test("G) 'cancelar' with an active conversation calls EventCreationEngine.cancel and confirms it", async () => {
+test("'cancelar' with an active conversation calls EventCreationEngine.cancel and confirms it", async () => {
     const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }) });
 
     await processInboundMessage(textMessage({ text: "cancelar" }), deps);
@@ -251,17 +409,22 @@ test("G) 'cancelar' with an active conversation calls EventCreationEngine.cancel
     assert.equal(sendCalls[0].text, WHATSAPP_CANCEL_TEXT);
 });
 
-// H) un error del motor nunca escapa de processInboundMessage (el webhook sigue en 200).
-test("H) an EventCreationEngine failure never throws out of processInboundMessage", async () => {
+// Ningún error (motor, discovery, lookup) escapa de processInboundMessage —
+// el webhook debe seguir devolviendo 200 siempre.
+test("an EventCreationEngine or discovery failure never throws out of processInboundMessage", async () => {
     const { deps: depsStartThrows } = baseDeps({ startConversation: spy(new Error("engine boom")) });
     await assert.doesNotReject(() => processInboundMessage(textMessage({ text: "Sí" }), depsStartThrows));
 
     const { deps: depsLookupThrows } = baseDeps({ findActiveConversation: spy(new Error("db unavailable")) });
     await assert.doesNotReject(() => processInboundMessage(textMessage({ text: "hola" }), depsLookupThrows));
+
+    const { deps: depsDiscoveryThrows } = baseDeps({ discoverCandidates: spy(new Error("db unavailable")) });
+    await assert.doesNotReject(() => processInboundMessage(textMessage({ text: "hola" }), depsDiscoveryThrows));
 });
 
-// I) dos mensajes de WhatsApp en el mismo payload se procesan de forma controlada.
-test("I) two inbound messages in the same payload are processed independently, each starting its own conversation", async () => {
+// Dos mensajes de WhatsApp en el mismo payload se procesan de forma
+// independiente y controlada.
+test("two inbound messages in the same payload are processed independently, each starting its own conversation", async () => {
     const { sendText, calls: sendCalls } = fakeSender();
     const deps = {
         sendText,
@@ -269,7 +432,8 @@ test("I) two inbound messages in the same payload are processed independently, e
         startConversation: spy({ conversationId: "conv1", prompt: { stepId: "NAME", type: "QUESTION", text: "¿Cómo se llama tu evento?" } }),
         handleConversationInput: spy(null),
         cancelConversation: spy(undefined),
-        resolveOrganizerIdentity: spy({ clerkId: "user_123" }),
+        discoverCandidates: spy([{ organizationId: "org_1", name: "Elvis Bar", clerkId: "user_123" }]),
+        getPendingSelection: spy(null),
     };
     const messages = [
         textMessage({ messageId: "wamid.IN1", from: "5491100000001", text: "Sí" }),
@@ -286,47 +450,40 @@ test("I) two inbound messages in the same payload are processed independently, e
     assert.equal(sendCalls.length, 2);
 });
 
-// J) mensajes no-text no entran al motor todavía.
-test("J) a non-text message never reaches the engine", async () => {
+// Mensajes no-text no entran al motor.
+test("a non-text message never reaches the engine", async () => {
     const { deps, sendCalls } = baseDeps();
 
     await processInboundMessage(textMessage({ type: "image", text: null }), deps);
 
     assert.equal(deps.findActiveConversation.calls.length, 0);
+    assert.equal(deps.discoverCandidates.calls.length, 0);
     assert.equal(deps.startConversation.calls.length, 0);
     assert.equal(sendCalls.length, 0);
 });
 
-// L) Fase 2F, test A del pedido: waId no vinculado + "Sí" -> genera
-// challenge, NUNCA inicia el motor con una identidad inventada.
-test("L) with no verified wa_id link, the bot creates a link challenge instead of starting the engine", async () => {
-    const { deps, sendCalls } = baseDeps({ resolveOrganizerIdentity: spy(null) });
+// Fase 2F, legacy: confirma explícitamente que ya no forma parte del árbol
+// de decisión — pasar esos mocks (que tirarían si se llamaran) no rompe
+// nada porque processInboundMessage ya ni siquiera los desestructura.
+test("Fase 2F's link-challenge flow is never triggered from the new WhatsApp Organizer decision tree", async () => {
+    const throwIfCalled = async () => {
+        throw new Error("no debería llamarse: el flujo de challenge/código de 6 dígitos es legacy desde Fase 2G");
+    };
+    const { deps, sendCalls } = baseDeps({
+        resolveOrganizerIdentity: throwIfCalled,
+        createLinkChallenge: throwIfCalled,
+    });
 
-    await processInboundMessage(textMessage({ text: "Sí", from: "5491100002222" }), deps);
+    await processInboundMessage(textMessage({ text: "Sí" }), deps);
 
-    assert.equal(deps.startConversation.calls.length, 0);
-    assert.equal(deps.createLinkChallenge.calls.length, 1);
-    assert.deepEqual(deps.createLinkChallenge.calls[0], ["5491100002222"]);
-    assert.equal(sendCalls[0].text, buildWhatsappLinkChallengeText("482731"));
-});
-
-// Fase 2F, test B/complemento: si ya hay un challenge vigente en cooldown
-// (createLinkChallenge devuelve {pending:true}, ver
-// shouldCreateNewChallenge), el bot avisa que ya se mandó un código en vez
-// de generar uno nuevo — y sigue sin iniciar el motor.
-test("when a link challenge is already pending, the bot asks the user to check their messages instead of generating a new code", async () => {
-    const { deps, sendCalls } = baseDeps({ resolveOrganizerIdentity: spy(null), createLinkChallenge: spy({ pending: true }) });
-
-    await processInboundMessage(textMessage({ text: "dale" }), deps);
-
-    assert.equal(deps.startConversation.calls.length, 0);
-    assert.equal(sendCalls[0].text, WHATSAPP_LINK_CHALLENGE_PENDING_TEXT);
+    assert.equal(deps.startConversation.calls.length, 1);
+    assert.equal(sendCalls[0].text, "¿Cómo se llama tu evento?");
 });
 
 // Cobertura adicional de Fase 2D.1 que sigue vigente: el destinatario de
 // salida (`to`) se normaliza sólo con WHATSAPP_TEST_MODE=true, pero
-// channelRef (con qué conversación arranca/sigue el motor) usa siempre el
-// wa_id crudo, nunca el normalizado.
+// channelRef (con qué conversación arranca/sigue el motor, y con qué wa_id
+// se busca la Organization) usa siempre el wa_id crudo, nunca el normalizado.
 test("outbound recipient normalization (WHATSAPP_TEST_MODE) never affects which conversation/channelRef is used", async () => {
     const previousTestMode = process.env.WHATSAPP_TEST_MODE;
     process.env.WHATSAPP_TEST_MODE = "true";
@@ -341,5 +498,6 @@ test("outbound recipient normalization (WHATSAPP_TEST_MODE) never affects which 
     }
 
     assert.equal(deps.startConversation.calls[0][0].channelRef, "5492984405532");
+    assert.equal(deps.discoverCandidates.calls[0][0], "5492984405532");
     assert.equal(sendCalls[0].to, "542984405532");
 });

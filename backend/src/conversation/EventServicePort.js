@@ -80,31 +80,47 @@ function buildLinksInput(draft) {
 // mismo orden: create -> links -> schedule -> (opcional) publish. No se
 // persiste nada hasta que el organizador confirma "Publicar" o "Guardar
 // borrador" en el paso PREVIEW.
-export async function commit(clerkId, draftEvent, action) {
+//
+// organizationId (Fase 2G): la Organization ya resuelta al arrancar la
+// conversación (ver EventCreationEngine.start/ConversationState.organizationId)
+// viaja EXACTA a las 5 llamadas de abajo — nunca se vuelve a inferir acá.
+// `null` reproduce el comportamiento legacy (Web, findFirst por clerkId);
+// un valor no-null exige pertenencia real dentro de cada service, ver
+// getMyOrganization en event.service.js.
+export async function commit(clerkId, draftEvent, action, organizationId = null) {
     try {
-        let event = await createEventService(clerkId, {
-            title: draftEvent.title,
-            description: draftEvent.description,
-            category: draftEvent.category,
-            customCategory: draftEvent.customCategory,
-            coverImage: draftEvent.coverImage,
-            location: buildLocationInput(draftEvent.location),
-        });
+        let event = await createEventService(
+            clerkId,
+            {
+                title: draftEvent.title,
+                description: draftEvent.description,
+                category: draftEvent.category,
+                customCategory: draftEvent.customCategory,
+                coverImage: draftEvent.coverImage,
+                location: buildLocationInput(draftEvent.location),
+            },
+            organizationId
+        );
 
         const links = buildLinksInput(draftEvent);
         if (links.length > 0) {
-            await syncEventLinksService(clerkId, event.id, links);
+            await syncEventLinksService(clerkId, event.id, links, organizationId);
         }
 
-        await syncEventScheduleService(clerkId, event.id, {
-            functions: buildFunctionsInput(draftEvent),
-            ticketTypes: buildTicketTypesInput(draftEvent),
-        });
+        await syncEventScheduleService(
+            clerkId,
+            event.id,
+            {
+                functions: buildFunctionsInput(draftEvent),
+                ticketTypes: buildTicketTypesInput(draftEvent),
+            },
+            organizationId
+        );
 
         if (action === "PUBLISH") {
-            event = await updateMyEventService(clerkId, event.id, { status: "PUBLISHED" });
+            event = await updateMyEventService(clerkId, event.id, { status: "PUBLISHED" }, organizationId);
         } else {
-            event = await getMyEventByIdService(clerkId, event.id);
+            event = await getMyEventByIdService(clerkId, event.id, organizationId);
         }
 
         return event;
