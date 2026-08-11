@@ -484,7 +484,60 @@ model ConversationState {
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
 
+  // Fase 3B — estado temporal EXCLUSIVO del adaptador WhatsApp para
+  // construir, de a un mensaje por vez, un input compuesto que el motor
+  // sólo acepta completo (ej. FUNCTION_CARD: fecha+hora inicio+hora fin).
+  // Sólo el campo de relación va acá (no agrega ninguna columna física a
+  // esta tabla) — la FK real vive del lado de WhatsappPendingStepInput,
+  // mismo patrón que Organization.whatsappOrganizerLink más abajo.
+  whatsappPendingStepInput WhatsappPendingStepInput?
+
   @@map("conversation_states")
+}
+
+// Fase 3B — infraestructura pura, todavía sin consumir desde
+// whatsapp.controller.js (ver informe de entrega): un "borrador de
+// respuesta" para un step del motor que WhatsApp decide partir en varias
+// preguntas de texto (fecha, después hora de inicio, después hora de fin;
+// más adelante dirección manual, entradas, etc.) — NUNCA se escribe nada de
+// esto en ConversationState.draftEvent mientras está incompleto, porque el
+// motor asume que todo lo que hay en draftEvent ya fue confirmado por un
+// step real. Recién cuando el sub-flujo completo arma el objeto exacto que
+// exige el inputHandler correspondiente, el adaptador llama a
+// EventCreationEngine.handleInput UNA vez — este modelo no existe para el
+// motor, sólo para el canal.
+//
+// conversationId es @unique (1:1 real con ConversationState, nunca varios
+// pendientes por conversación) y tiene onDelete: Cascade — cancelar la
+// conversación (EventCreationEngine.cancel -> prisma.conversationState.delete)
+// borra este registro solo, sin necesidad de limpieza manual en el
+// controller.
+//
+// stepId es la fuente de verdad de "para qué pregunta del motor es este
+// borrador": si la conversación ya avanzó a otro currentStepId, un pending
+// con un stepId viejo NUNCA se reutiliza silenciosamente (ver
+// whatsappPendingStepInput.service.js#getValidPendingStepInput) — se
+// descarta y se arranca uno nuevo. No se infiere nada por antigüedad
+// (createdAt/updatedAt): sólo se usan para trazabilidad, nunca como
+// mecanismo de invalidación.
+//
+// status es String (no enum) A PROPÓSITO: todavía no sabemos cuántos
+// sub-pasos van a existir (AWAITING_DATE, AWAITING_START_TIME,
+// AWAITING_STREET, AWAITING_CITY...) y un enum de Postgres exige una
+// migración nueva por cada valor que se agregue a futuro. Un String no
+// tiene ese costo — las fases siguientes agregan sub-pasos como simples
+// constantes en el código del adaptador, nunca tocando este modelo.
+model WhatsappPendingStepInput {
+  id                String            @id @default(cuid())
+  conversationId    String            @unique
+  conversationState ConversationState @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  stepId            String
+  status            String
+  partialData       Json              @default("{}")
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@map("whatsapp_pending_step_inputs")
 }
 
 // Una venta. Nace en PENDING (reserva) y pasa a CONFIRMED cuando se
