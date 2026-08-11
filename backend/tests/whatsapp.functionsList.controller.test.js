@@ -874,7 +874,7 @@ test("landing on FUNCTIONS_LIST for the first time shows the new first-function 
     await processInboundMessage(textMessage({ text: "2" }), deps);
 
     assert.equal(sendCalls[0].text, WHATSAPP_FUNCTIONS_LIST_DATE_PROMPT_TEXT);
-    assert.equal(sendCalls[0].text, "📅 ¿Qué día es la primera función?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n25/08/2026");
+    assert.ok(sendCalls[0].text.startsWith("📅 ¿Qué día es la primera función?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n25/08/2026"));
     assert.ok(!sendCalls[0].text.includes("Administrador de Agenda"));
     assert.equal(store.calls.reset.length, 0, "el sub-flujo todavía no arrancó, arranca con la PRÓXIMA respuesta");
 });

@@ -86,6 +86,10 @@ import {
     buildWhatsappScheduleAddedSummaryText,
     WHATSAPP_RECURRING_SCHEDULES_COMMIT_ERROR_TEXT,
     WHATSAPP_RECURRING_NO_OCCURRENCES_TEXT,
+    resolveWhatsappYesNoReply,
+    resolveWhatsappPreviewChoice,
+    WHATSAPP_PREVIEW_INVALID_TEXT,
+    buildWhatsappLocationConfirmationText,
 } from "../services/whatsappOrganizerBot.service.js";
 import { uploadWhatsappImageMessage } from "../services/whatsappMediaUpload.service.js";
 import { isValidTimeString } from "../conversation/inputHandlers/time.js";
@@ -161,6 +165,35 @@ async function sendBotReply({ sendText, to, from, messageId, text, engineAction 
         outboundMessageId: result.messageId,
         recipientNormalized,
     });
+}
+
+// Fase 3G, sección 1 — CAUSA RAÍZ del bug "SINGLE termina y pide 'la primera
+// función'": FUNCTIONS_SINGLE_CARD.next() y FUNCTIONS_RECURRING_SCHEDULES.next()
+// (steps/definitions.js) apuntan AMBOS al mismo step terminal FUNCTIONS_LIST
+// — el "Administrador de Agenda" único al que llegan las tres ramas de
+// FUNCTIONS_MODE (SINGLE/MULTIPLE/RECURRING). Para SINGLE,
+// FUNCTIONS_SINGLE_CARD.setValue ya deja `_functionsDraft.slots = [value]`
+// (una función); para RECURRING, generateRecurringSlots ya la puebla con
+// las funciones generadas (ver comentario de tryHandleRecurringSchedulesSubflow,
+// Fase 3F). En AMBOS casos, `result.prompt.slots` llega a FUNCTIONS_LIST ya
+// completo — a diferencia de MULTIPLE, que llega ahí con la lista vacía y
+// SÍ necesita el ciclo manual de tryHandleFunctionsListSubflow (Fase 3E).
+// Antes de esta fase, nada distinguía un caso del otro: cualquier llegada a
+// FUNCTIONS_LIST mostraba el prompt de "primera función" y esperaba carga
+// manual — incluso cuando ya había una función (o N) completa esperando
+// confirmación. La corrección es exclusivamente de adaptador: confirmar
+// automáticamente esos slots ya generados, sin pedirle nada al organizador
+// ni reimplementar ninguna lógica de negocio (nunca se recalcula nada,
+// sólo se reenvía `prompt.slots` tal cual). Se usa EXCLUSIVAMENTE desde los
+// dos puntos donde se sabe con certeza que el step recién confirmado fue
+// FUNCTIONS_SINGLE_CARD o FUNCTIONS_RECURRING_SCHEDULES — nunca de forma
+// genérica — así que MULTIPLE (que llega con slots=[] la primera vez) nunca
+// se ve afectado.
+async function commitPrefilledFunctionsListIfNeeded(conversationId, result, handleConversationInput) {
+    if (result?.prompt?.stepId !== "FUNCTIONS_LIST") return result;
+    const slots = result.prompt.slots ?? [];
+    if (slots.length === 0) return result;
+    return handleConversationInput(conversationId, { value: slots });
 }
 
 // Fase 3C — único consumidor real de WhatsappPendingStepInput hasta ahora.
@@ -317,8 +350,22 @@ async function tryHandleFunctionCardSubflow({
         return { handled: true };
     }
 
+    // Fase 3G, sección 1 — el motor avanzó a FUNCTIONS_LIST con esta única
+    // función ya en `prompt.slots` (ver comentario de
+    // commitPrefilledFunctionsListIfNeeded): se confirma automáticamente,
+    // nunca se le pide al organizador que la vuelva a cargar a mano.
+    const finalResult = await commitPrefilledFunctionsListIfNeeded(conversationId, result, handleConversationInput);
+    if (finalResult?.prompt?.error) {
+        // Defensivo — no debería pasar nunca (la función ya es válida por
+        // construcción). Mismo texto/estado que el rechazo de arriba: el
+        // pending sigue en AWAITING_END_TIME, recuperable reintentando la
+        // hora de fin.
+        await reply(WHATSAPP_FUNCTION_CARD_COMMIT_ERROR_TEXT, "FUNCTION_CARD_COMMIT_ERROR");
+        return { handled: true };
+    }
+
     await deletePendingStepInputDep(conversationId);
-    await reply(extractWhatsappReplyText(result), "FUNCTION_CARD_COMPLETED");
+    await reply(extractWhatsappReplyText(finalResult), "FUNCTION_CARD_COMPLETED");
     return { handled: true };
 }
 
@@ -434,13 +481,12 @@ async function tryHandleLocationSubflow({
             return { handled: true };
         }
 
-        const result = await handleConversationInput(conversationId, { value: buildLocationInputFromWhatsapp(message.location) });
-        if (result?.prompt?.error) {
-            await reply(WHATSAPP_LOCATION_COMMIT_ERROR_TEXT, "LOCATION_COMMIT_ERROR");
-            return { handled: true };
-        }
-        await deletePendingStepInputDep(conversationId);
-        await reply(extractWhatsappReplyText(result), "LOCATION_SHARED");
+        // Fase 3G, sección 4 — ya no se manda al motor acá: se guarda el
+        // objeto ya construido y se pide confirmación explícita primero
+        // (mismo criterio para las dos modalidades, ver AWAITING_LOCATION_CONFIRMATION).
+        const location = buildLocationInputFromWhatsapp(message.location);
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_LOCATION_CONFIRMATION", { location });
+        await reply(buildWhatsappLocationConfirmationText(location), "LOCATION_CONFIRMATION_PROMPT");
         return { handled: true };
     }
 
@@ -495,47 +541,86 @@ async function tryHandleLocationSubflow({
         return { handled: true };
     }
 
-    // pending.status === "AWAITING_PROVINCE"
+    if (pending.status === "AWAITING_PROVINCE") {
+        if (wantsBack) {
+            // Vuelve a AWAITING_CITY: mantiene street/streetNumber, elimina `city`.
+            await updatePendingStepInputStatusDep(conversationId, "AWAITING_CITY", {
+                street: pending.partialData.street,
+                streetNumber: pending.partialData.streetNumber,
+            });
+            await reply(WHATSAPP_LOCATION_CITY_PROMPT_TEXT, "LOCATION_BACK_TO_CITY");
+            return { handled: true };
+        }
+
+        const province = message.type === "text" ? resolveArgentinaProvinceIndexReply(text) : null;
+        if (!province) {
+            await reply(buildLocationProvinceInvalidText(), "LOCATION_PROVINCE_INVALID");
+            return { handled: true };
+        }
+
+        // assertPublishable (event.service.js) exige venueName + dirección —
+        // EventServicePort#buildLocationInput ya deriva venueName = address
+        // cuando no hay nombre de lugar (misma convención que el modo manual
+        // sin mapa de la Web, ver LocationAnswer.jsx#ManualLocationForm): no
+        // se inventa ningún venueName acá, queda null y cae en ese fallback
+        // ya existente. latitude/longitude/googlePlaceId null a propósito —
+        // nunca se geocodifica.
+        const { street, streetNumber, city } = pending.partialData;
+        const location = {
+            address: `${street} ${streetNumber}`,
+            city,
+            province,
+            venueName: null,
+            latitude: null,
+            longitude: null,
+            googlePlaceId: null,
+        };
+        // Fase 3G, sección 4 — mismo criterio que el camino "compartir":
+        // se pide confirmación ANTES de tocar el motor.
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_LOCATION_CONFIRMATION", { location });
+        await reply(buildWhatsappLocationConfirmationText(location), "LOCATION_CONFIRMATION_PROMPT");
+        return { handled: true };
+    }
+
+    // pending.status === "AWAITING_LOCATION_CONFIRMATION"
     if (wantsBack) {
-        // Vuelve a AWAITING_CITY: mantiene street/streetNumber, elimina `city`.
-        await updatePendingStepInputStatusDep(conversationId, "AWAITING_CITY", {
-            street: pending.partialData.street,
-            streetNumber: pending.partialData.streetNumber,
-        });
-        await reply(WHATSAPP_LOCATION_CITY_PROMPT_TEXT, "LOCATION_BACK_TO_CITY");
+        // Sección 4 del pedido — "preferentemente volver a selección del
+        // método" (cambio mínimo coherente, sin reconstruir los sub-campos
+        // ya descartados de la dirección manual).
+        await resetPendingStepInputDep(conversationId, "LOCATION", "AWAITING_LOCATION_METHOD", {});
+        await reply(WHATSAPP_LOCATION_METHOD_PROMPT_TEXT, "LOCATION_METHOD_PROMPT");
         return { handled: true };
     }
 
-    const province = message.type === "text" ? resolveArgentinaProvinceIndexReply(text) : null;
-    if (!province) {
-        await reply(buildLocationProvinceInvalidText(), "LOCATION_PROVINCE_INVALID");
+    if (message.type !== "text") {
+        await reply(buildWhatsappLocationConfirmationText(pending.partialData.location), "LOCATION_CONFIRMATION_INVALID");
         return { handled: true };
     }
 
-    // assertPublishable (event.service.js) exige venueName + dirección —
-    // EventServicePort#buildLocationInput ya deriva venueName = address
-    // cuando no hay nombre de lugar (misma convención que el modo manual
-    // sin mapa de la Web, ver LocationAnswer.jsx#ManualLocationForm): no se
-    // inventa ningún venueName acá, queda null y cae en ese fallback ya
-    // existente. latitude/longitude/googlePlaceId null a propósito — nunca
-    // se geocodifica.
-    const { street, streetNumber, city } = pending.partialData;
-    const finalValue = {
-        address: `${street} ${streetNumber}`,
-        city,
-        province,
-        venueName: null,
-        latitude: null,
-        longitude: null,
-        googlePlaceId: null,
-    };
-    const result = await handleConversationInput(conversationId, { value: finalValue });
-    if (result?.prompt?.error) {
-        await reply(WHATSAPP_LOCATION_COMMIT_ERROR_TEXT, "LOCATION_COMMIT_ERROR");
+    // Reutiliza classifyInitialIntent (ya acepta "1"/"2"/"sí"/"no"), igual
+    // que el resto de las decisiones Sí/No de fases anteriores.
+    const confirmIntent = classifyInitialIntent(text);
+    if (confirmIntent === "AFFIRMATIVE") {
+        // Se manda EXACTAMENTE el objeto ya construido — nunca se vuelve a
+        // armar ni se toca acá.
+        const result = await handleConversationInput(conversationId, { value: pending.partialData.location });
+        if (result?.prompt?.error) {
+            await reply(WHATSAPP_LOCATION_COMMIT_ERROR_TEXT, "LOCATION_COMMIT_ERROR");
+            return { handled: true };
+        }
+        await deletePendingStepInputDep(conversationId);
+        await reply(extractWhatsappReplyText(result), "LOCATION_CONFIRMED");
         return { handled: true };
     }
-    await deletePendingStepInputDep(conversationId);
-    await reply(extractWhatsappReplyText(result), "LOCATION_MANUAL_COMPLETED");
+    if (confirmIntent === "NEGATIVE") {
+        // Descarta los datos temporales de ubicación y vuelve a preguntar
+        // el método desde cero — nunca se le pasa nada al motor.
+        await resetPendingStepInputDep(conversationId, "LOCATION", "AWAITING_LOCATION_METHOD", {});
+        await reply(WHATSAPP_LOCATION_METHOD_PROMPT_TEXT, "LOCATION_METHOD_PROMPT");
+        return { handled: true };
+    }
+
+    await reply(buildWhatsappLocationConfirmationText(pending.partialData.location), "LOCATION_CONFIRMATION_INVALID");
     return { handled: true };
 }
 
@@ -1042,7 +1127,10 @@ async function tryHandleRecurringSchedulesSubflow({
             return { handled: true };
         }
 
-        const finalResult = await handleConversationInput(conversationId, { value: slots });
+        // Fase 3G — mismo helper compartido que SINGLE (ver
+        // commitPrefilledFunctionsListIfNeeded): confirma `slots` tal cual
+        // en FUNCTIONS_LIST, sin recalcular nada.
+        const finalResult = await commitPrefilledFunctionsListIfNeeded(conversationId, result, handleConversationInput);
         if (finalResult?.prompt?.error) {
             // No debería pasar nunca en la práctica (los slots ya vienen
             // validados por el propio motor) — mensaje mínimo seguro, sin
@@ -1056,6 +1144,78 @@ async function tryHandleRecurringSchedulesSubflow({
     }
 
     await reply(WHATSAPP_FUNCTIONS_LIST_ADD_ANOTHER_INVALID_TEXT, "RECURRING_SCHEDULES_ADD_ANOTHER_INVALID");
+    return { handled: true };
+}
+
+// Fase 3G, secciones 2/3/5 — steps YES_NO genéricos (WANTS_FREE_TICKETS,
+// PROMO_VIDEO_ASK "YouTube", SOCIAL_LINKS_ASK "redes sociales",
+// ADD_ANOTHER_SOCIAL, ver steps/definitions.js): intercambio ÚNICO, igual
+// que tryHandleRecurringWeekdaysSubflow — no necesita WhatsappPendingStepInput.
+// Traduce "1"/"2" a `true`/`false` (resolveWhatsappYesNoReply) ANTES de
+// llamar al motor; si la respuesta no es "1" ni "2", se deja pasar el texto
+// crudo tal cual (inputHandlers/yesNo.js ya entiende "sí"/"no"/etc. — nunca
+// se reimplementa esa validación acá).
+async function tryHandleYesNoSubflow({ conversationId, text, reply, handleConversationInput, resumeConversation }) {
+    const currentState = await resumeConversation(conversationId);
+    if (currentState?.prompt?.inputType !== "YES_NO") {
+        return { handled: false, currentState };
+    }
+
+    if (isBackCommand(text)) {
+        // Mismo BACK real del motor ya auditado y usado en los demás
+        // sub-flujos — ningún YES_NO tiene sub-estado propio al cual volver.
+        const backResult = await handleConversationInput(conversationId, { action: "BACK" });
+        if (backResult?.prompt?.error) {
+            await reply(extractWhatsappReplyText(backResult), "YES_NO_BACK_REJECTED");
+            return { handled: true };
+        }
+        await reply(extractWhatsappReplyText(backResult), "YES_NO_BACK_TO_PREVIOUS_STEP");
+        return { handled: true };
+    }
+
+    const mapped = resolveWhatsappYesNoReply(text);
+    const result = await handleConversationInput(conversationId, { value: mapped === null ? text : mapped });
+    await reply(extractWhatsappReplyText(result), "YES_NO_ANSWERED");
+    return { handled: true };
+}
+
+// Fase 3G, sección 7 — step PREVIEW: reemplaza el error "Elegí PUBLISH,
+// DRAFT o EDIT" (nunca debe llegar texto crudo al motor acá) por un menú
+// numerado 1/2/3, mapeado a las acciones REALES que ya entiende
+// EventCreationEngine.handlePreviewInput/handleBack — nunca se inventa
+// semántica nueva. Sin WhatsappPendingStepInput: es una decisión de una
+// sola respuesta, igual que YES_NO/WEEKDAYS.
+async function tryHandlePreviewSubflow({ conversationId, text, reply, handleConversationInput, resumeConversation }) {
+    const currentState = await resumeConversation(conversationId);
+    if (currentState?.prompt?.stepId !== "PREVIEW") {
+        return { handled: false, currentState };
+    }
+
+    // "volver"/"3" son equivalentes: ambos usan el BACK real del motor
+    // (nunca EDIT con un stepId inventado — no hay editor de secciones por
+    // WhatsApp en esta fase).
+    if (isBackCommand(text) || resolveWhatsappPreviewChoice(text) === "BACK") {
+        const result = await handleConversationInput(conversationId, { action: "BACK" });
+        await reply(extractWhatsappReplyText(result), "PREVIEW_BACK");
+        return { handled: true };
+    }
+
+    const choice = resolveWhatsappPreviewChoice(text);
+    if (!choice) {
+        await reply(WHATSAPP_PREVIEW_INVALID_TEXT, "PREVIEW_INVALID");
+        return { handled: true };
+    }
+
+    // choice === "PUBLISH" | "DRAFT" — EventServicePort.commit ya hace todo
+    // lo real (crear el evento, links, agenda, entradas y, si PUBLISH,
+    // marcarlo PUBLISHED); acá sólo se traduce la elección numerada del
+    // organizador a la acción que el motor ya entiende. Un rechazo
+    // conversacional (translateEventServiceError) nunca se pierde: vuelve
+    // como prompt.error sobre el mismo PREVIEW, con el resumen completo de
+    // nuevo (ver extractWhatsappReplyText#prompt.type==="PREVIEW") — la
+    // conversación sigue intacta, nunca se borra nada acá.
+    const result = await handleConversationInput(conversationId, { action: choice });
+    await reply(extractWhatsappReplyText(result), choice === "PUBLISH" ? "PREVIEW_PUBLISH" : "PREVIEW_DRAFT");
     return { handled: true };
 }
 
@@ -1293,6 +1453,28 @@ export async function processInboundMessage(
                 deletePendingStepInput: deletePendingStepInputDep,
             });
             if (recurringSchedulesResult.handled) return;
+
+            // Fase 3G — steps YES_NO (WANTS_FREE_TICKETS/PROMO_VIDEO_ASK/
+            // SOCIAL_LINKS_ASK/ADD_ANOTHER_SOCIAL) y PREVIEW (resumen final +
+            // PUBLICAR/BORRADOR/VOLVER), mismo criterio que los sub-flujos
+            // anteriores: se interceptan ANTES del motor.
+            const yesNoResult = await tryHandleYesNoSubflow({
+                conversationId: active.id,
+                text,
+                reply,
+                handleConversationInput,
+                resumeConversation,
+            });
+            if (yesNoResult.handled) return;
+
+            const previewResult = await tryHandlePreviewSubflow({
+                conversationId: active.id,
+                text,
+                reply,
+                handleConversationInput,
+                resumeConversation,
+            });
+            if (previewResult.handled) return;
 
             // Primer intento: SIEMPRE el texto crudo, igual que Web — el
             // motor no cambia de contrato. Sólo si ESE intento falla

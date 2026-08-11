@@ -15,6 +15,9 @@ import {
     isPublishableWhatsappLocation,
     buildLocationProvincePromptText,
     buildLocationProvinceInvalidText,
+    buildWhatsappLocationConfirmationText,
+    buildWhatsappGoogleMapsLink,
+    WHATSAPP_LOCATION_COMMIT_ERROR_TEXT,
 } from "../src/services/whatsappOrganizerBot.service.js";
 
 // ==================================================
@@ -185,7 +188,7 @@ test("landing on LOCATION for the first time shows the method selector (1. Compa
     await processInboundMessage(textMessage({ text: "https://res.cloudinary.com/x.jpg" }), deps);
 
     assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_METHOD_PROMPT_TEXT);
-    assert.equal(sendCalls[0].text, "📍 ¿Cómo querés cargar la ubicación del evento?\n\n1. Compartir ubicación\n2. Completar dirección manualmente\n\nRespondé con 1 o 2.");
+    assert.ok(sendCalls[0].text.startsWith("📍 ¿Cómo querés cargar la ubicación del evento?\n\n1. Compartir ubicación\n2. Completar dirección manualmente\n\nRespondé con 1 o 2."));
     assert.equal(store.calls.reset.length, 0);
 });
 
@@ -309,7 +312,9 @@ test("a valid city advances to AWAITING_PROVINCE and shows the numbered province
 // 13) provincia fuera de rango → no avanza
 // ==================================================
 
-test("a valid province completes the manual flow and calls the engine exactly once with the exact shape", async () => {
+// Fase 3G, sección 4 — una provincia válida ya NO llama al motor
+// directamente: arma el objeto y pide confirmación primero.
+test("a valid province builds the location and asks for confirmation, WITHOUT calling the engine yet", async () => {
     const store = createFakePendingStore({
         conversationId: "conv1",
         stepId: "LOCATION",
@@ -320,37 +325,19 @@ test("a valid province completes the manual flow and calls the engine exactly on
 
     await processInboundMessage(textMessage({ text: "5" }), deps); // 5 = Córdoba
 
-    assert.equal(deps.handleConversationInput.calls.length, 1);
-    assert.deepEqual(deps.handleConversationInput.calls[0], [
-        "conv1",
-        {
-            value: {
-                address: "San Martín 850",
-                city: "Río Cuarto",
-                province: "Córdoba",
-                venueName: null,
-                latitude: null,
-                longitude: null,
-                googlePlaceId: null,
-            },
-        },
-    ]);
-    assert.equal(sendCalls[0].text, "¿Cómo se realizarán las funciones de este evento?");
-});
-
-test("the pending is deleted after the manual flow is accepted by the engine", async () => {
-    const store = createFakePendingStore({
-        conversationId: "conv1",
-        stepId: "LOCATION",
-        status: "AWAITING_PROVINCE",
-        partialData: { street: "San Martín", streetNumber: "850", city: "Río Cuarto" },
-    });
-    const { deps } = baseDeps({ pendingStore: store });
-
-    await processInboundMessage(textMessage({ text: "5" }), deps);
-
-    assert.equal(store.calls.delete.length, 1);
-    assert.equal(await store.getPendingStepInput("conv1"), null);
+    const expectedLocation = {
+        address: "San Martín 850",
+        city: "Río Cuarto",
+        province: "Córdoba",
+        venueName: null,
+        latitude: null,
+        longitude: null,
+        googlePlaceId: null,
+    };
+    assert.equal(deps.handleConversationInput.calls.length, 0, "el motor no se llama todavía, falta confirmar");
+    assert.equal(store.calls.update[0].status, "AWAITING_LOCATION_CONFIRMATION");
+    assert.deepEqual(store.calls.update[0].partialData, { location: expectedLocation });
+    assert.equal(sendCalls[0].text, buildWhatsappLocationConfirmationText(expectedLocation));
 });
 
 test("an out-of-range province index never advances", async () => {
@@ -373,19 +360,19 @@ test("an out-of-range province index never advances", async () => {
 // 10) ubicación insuficiente → no motor
 // ==================================================
 
-test("a valid shared location (AWAITING_LOCATION_SHARE) calls the engine exactly once", async () => {
+// Fase 3G, sección 4 — una ubicación compartida válida ya NO llama al motor
+// directamente: arma el objeto y pide confirmación primero.
+test("a valid shared location (AWAITING_LOCATION_SHARE) builds the location and asks for confirmation, WITHOUT calling the engine yet", async () => {
     const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_LOCATION_SHARE", partialData: {} });
     const { deps, sendCalls } = baseDeps({ pendingStore: store });
 
     await processInboundMessage(locationMessage(), deps);
 
-    assert.equal(deps.handleConversationInput.calls.length, 1);
-    assert.deepEqual(deps.handleConversationInput.calls[0], [
-        "conv1",
-        { value: { latitude: -31.4201, longitude: -64.1888, venueName: "Teatro del Libertador", address: "Av. Vélez Sarsfield 365" } },
-    ]);
-    assert.equal(store.calls.delete.length, 1);
-    assert.equal(sendCalls[0].text, "¿Cómo se realizarán las funciones de este evento?");
+    const expectedLocation = { latitude: -31.4201, longitude: -64.1888, venueName: "Teatro del Libertador", address: "Av. Vélez Sarsfield 365" };
+    assert.equal(deps.handleConversationInput.calls.length, 0, "el motor no se llama todavía, falta confirmar");
+    assert.equal(store.calls.update[0].status, "AWAITING_LOCATION_CONFIRMATION");
+    assert.deepEqual(store.calls.update[0].partialData, { location: expectedLocation });
+    assert.equal(sendCalls[0].text, buildWhatsappLocationConfirmationText(expectedLocation));
 });
 
 test("an insufficient shared location (pin, no address) never reaches the engine and stays AWAITING_LOCATION_SHARE", async () => {
@@ -577,10 +564,7 @@ test("26) the manual sub-flow survives independent processInboundMessage calls, 
     await processInboundMessage(textMessage({ text: "Río Cuarto" }), deps4);
     assert.equal(sendCalls4[0].text, buildLocationProvincePromptText());
 
-    const { deps: deps5, sendCalls: sendCalls5 } = baseDeps({ pendingStore: store });
-    await processInboundMessage(textMessage({ text: "5" }), deps5);
-    assert.equal(deps5.handleConversationInput.calls.length, 1);
-    assert.deepEqual(deps5.handleConversationInput.calls[0][1].value, {
+    const expectedLocation = {
         address: "San Martín 850",
         city: "Río Cuarto",
         province: "Córdoba",
@@ -588,8 +572,132 @@ test("26) the manual sub-flow survives independent processInboundMessage calls, 
         latitude: null,
         longitude: null,
         googlePlaceId: null,
-    });
+    };
+
+    const { deps: deps5, sendCalls: sendCalls5 } = baseDeps({ pendingStore: store });
+    await processInboundMessage(textMessage({ text: "5" }), deps5);
+    assert.equal(deps5.handleConversationInput.calls.length, 0, "todavía falta confirmar");
+    assert.equal(sendCalls5[0].text, buildWhatsappLocationConfirmationText(expectedLocation));
+
+    const { deps: deps6, sendCalls: sendCalls6 } = baseDeps({ pendingStore: store });
+    await processInboundMessage(textMessage({ text: "1" }), deps6);
+    assert.equal(deps6.handleConversationInput.calls.length, 1);
+    assert.deepEqual(deps6.handleConversationInput.calls[0][1].value, expectedLocation);
+    assert.equal(sendCalls6[0].text, "¿Cómo se realizarán las funciones de este evento?");
     assert.equal(await store.getPendingStepInput("conv1"), null);
+});
+
+// ==================================================
+// Fase 3G, sección 4 — confirmación de ubicación (AWAITING_LOCATION_CONFIRMATION).
+// ==================================================
+
+test("AWAITING_LOCATION_CONFIRMATION: '1' (share path) calls the engine exactly once with the exact object already built, then deletes the pending", async () => {
+    const location = { latitude: -31.4201, longitude: -64.1888, venueName: "Teatro del Libertador", address: "Av. Vélez Sarsfield 365" };
+    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_LOCATION_CONFIRMATION", partialData: { location } });
+    const { deps, sendCalls } = baseDeps({ pendingStore: store });
+
+    await processInboundMessage(textMessage({ text: "1" }), deps);
+
+    assert.equal(deps.handleConversationInput.calls.length, 1);
+    assert.deepEqual(deps.handleConversationInput.calls[0], ["conv1", { value: location }]);
+    assert.equal(store.calls.delete.length, 1);
+    assert.equal(sendCalls[0].text, "¿Cómo se realizarán las funciones de este evento?");
+});
+
+test("AWAITING_LOCATION_CONFIRMATION: 'Sí' (manual path) calls the engine exactly once with the exact object already built", async () => {
+    const location = { address: "San Martín 850", city: "Río Cuarto", province: "Córdoba", venueName: null, latitude: null, longitude: null, googlePlaceId: null };
+    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_LOCATION_CONFIRMATION", partialData: { location } });
+    const { deps, sendCalls } = baseDeps({ pendingStore: store });
+
+    await processInboundMessage(textMessage({ text: "sí" }), deps);
+
+    assert.equal(deps.handleConversationInput.calls.length, 1);
+    assert.deepEqual(deps.handleConversationInput.calls[0], ["conv1", { value: location }]);
+    assert.equal(sendCalls[0].text, "¿Cómo se realizarán las funciones de este evento?");
+});
+
+test("AWAITING_LOCATION_CONFIRMATION: '2'/'No' discards the temporary location and returns to the method selector, never calling the engine", async () => {
+    const location = { latitude: -31.4201, longitude: -64.1888, venueName: "Teatro del Libertador", address: "Av. Vélez Sarsfield 365" };
+    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_LOCATION_CONFIRMATION", partialData: { location } });
+    const { deps, sendCalls } = baseDeps({ pendingStore: store });
+
+    await processInboundMessage(textMessage({ text: "2" }), deps);
+
+    assert.equal(deps.handleConversationInput.calls.length, 0);
+    assert.equal(store.calls.reset.length, 1);
+    assert.deepEqual(store.calls.reset[0], { conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_LOCATION_METHOD", partialData: {} });
+    assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_METHOD_PROMPT_TEXT);
+});
+
+test("AWAITING_LOCATION_CONFIRMATION: 'volver' also discards the temporary location and returns to the method selector", async () => {
+    const location = { address: "San Martín 850", city: "Río Cuarto", province: "Córdoba", venueName: null, latitude: null, longitude: null, googlePlaceId: null };
+    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_LOCATION_CONFIRMATION", partialData: { location } });
+    const { deps, sendCalls } = baseDeps({ pendingStore: store });
+
+    await processInboundMessage(textMessage({ text: "VOLVER" }), deps);
+
+    assert.equal(deps.handleConversationInput.calls.length, 0);
+    assert.equal(store.calls.reset[0].status, "AWAITING_LOCATION_METHOD");
+    assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_METHOD_PROMPT_TEXT);
+});
+
+test("AWAITING_LOCATION_CONFIRMATION: an invalid reply never advances and re-shows the same confirmation", async () => {
+    const location = { latitude: -31.4201, longitude: -64.1888, venueName: "Teatro del Libertador", address: "Av. Vélez Sarsfield 365" };
+    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_LOCATION_CONFIRMATION", partialData: { location } });
+    const { deps, sendCalls } = baseDeps({ pendingStore: store });
+
+    await processInboundMessage(textMessage({ text: "tal vez" }), deps);
+
+    assert.equal(deps.handleConversationInput.calls.length, 0);
+    assert.equal(store.calls.update.length, 0);
+    assert.equal(store.calls.reset.length, 0);
+    assert.equal(sendCalls[0].text, buildWhatsappLocationConfirmationText(location));
+});
+
+test("AWAITING_LOCATION_CONFIRMATION: if the engine rejects the confirmed location, the pending is NOT deleted and stays recoverable", async () => {
+    const location = { latitude: -31.4201, longitude: -64.1888, venueName: "Teatro del Libertador", address: "Av. Vélez Sarsfield 365" };
+    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_LOCATION_CONFIRMATION", partialData: { location } });
+    const { deps, sendCalls } = baseDeps({
+        pendingStore: store,
+        handleConversationInput: spy({ conversationId: "conv1", prompt: { stepId: "LOCATION", type: "QUESTION", inputType: "LOCATION", text: "x", error: "algo inesperado" } }),
+    });
+
+    await processInboundMessage(textMessage({ text: "1" }), deps);
+
+    assert.equal(store.calls.delete.length, 0);
+    const stillPending = await store.getPendingStepInput("conv1");
+    assert.equal(stillPending.status, "AWAITING_LOCATION_CONFIRMATION");
+    assert.deepEqual(stillPending.partialData, { location });
+    assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_COMMIT_ERROR_TEXT);
+});
+
+// ==================================================
+// Fase 3G, sección 4 — link de Google Maps: coordenadas vs. dirección.
+// ==================================================
+
+test("buildWhatsappGoogleMapsLink: coordinates produce a standard maps link by lat/lng, never geocoding", () => {
+    const link = buildWhatsappGoogleMapsLink({ latitude: -31.4201, longitude: -64.1888 });
+    assert.equal(link, "https://www.google.com/maps/search/?api=1&query=-31.4201,-64.1888");
+});
+
+test("buildWhatsappGoogleMapsLink: no coordinates but an address produces a URL-encoded search link", () => {
+    const link = buildWhatsappGoogleMapsLink({ address: "San Martín 850", city: "Río Cuarto", province: "Córdoba" });
+    assert.equal(link, `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent("San Martín 850, Río Cuarto, Córdoba")}`);
+});
+
+test("buildWhatsappGoogleMapsLink: neither coordinates nor address returns null, never a broken link", () => {
+    assert.equal(buildWhatsappGoogleMapsLink({}), null);
+    assert.equal(buildWhatsappGoogleMapsLink(null), null);
+});
+
+test("buildWhatsappLocationConfirmationText includes the maps link and the 1/2 + VOLVER instructions", () => {
+    const text = buildWhatsappLocationConfirmationText({ latitude: -31.4201, longitude: -64.1888, venueName: "Teatro del Libertador", address: "Av. Vélez Sarsfield 365" });
+    assert.ok(text.startsWith("📍 Esta es la ubicación que tengo:"));
+    assert.ok(text.includes("Teatro del Libertador"));
+    assert.ok(text.includes("🗺️ Ver en Google Maps:"));
+    assert.ok(text.includes("https://www.google.com/maps/search/?api=1&query=-31.4201,-64.1888"));
+    assert.ok(text.includes("1. Sí\n2. No"));
+    assert.ok(text.includes("VOLVER"));
 });
 
 // ==================================================

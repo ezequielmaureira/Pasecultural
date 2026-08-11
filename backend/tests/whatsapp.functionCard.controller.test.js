@@ -173,7 +173,7 @@ test("landing on FUNCTIONS_SINGLE_CARD for the first time shows the new date-onl
     await processInboundMessage(textMessage({ text: "1" }), deps);
 
     assert.equal(sendCalls[0].text, WHATSAPP_FUNCTION_CARD_DATE_PROMPT_TEXT);
-    assert.equal(sendCalls[0].text, "📅 ¿Qué día es la función?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n25/08/2026");
+    assert.ok(sendCalls[0].text.startsWith("📅 ¿Qué día es la función?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n25/08/2026"));
     assert.ok(sendCalls[0].text.includes("DD/MM/AAAA"));
     assert.ok(!sendCalls[0].text.includes("HH:MM a HH:MM"), "el formato compuesto viejo no debe aparecer nunca más");
     // Todavía no se creó ningún pending: recién se ACABA de mostrar la

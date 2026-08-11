@@ -12,6 +12,16 @@ export const WHATSAPP_DECLINE_TEXT = "Perfecto 👍 Cuando quieras publicar un e
 
 export const WHATSAPP_CANCEL_TEXT = "❌ Cancelamos la creación de tu evento. Cuando quieras, escribime para empezar de nuevo.";
 
+// Fase 3G, sección 5 — "volver" ya existía (Fase 3D) pero nunca se le
+// avisaba al organizador que existía. Se agrega, de forma consistente, a
+// las preguntas principales de cada sub-flujo conversacional adaptado a
+// WhatsApp — nunca a los steps SINGLE_SELECT genéricos (CATEGORY,
+// FUNCTIONS_MODE, EVENT_PRICING_TYPE, TICKET_NAME, ADD_ANOTHER_TICKET,
+// SOCIAL_NETWORK) porque esos NO tienen ningún manejo de "volver" propio
+// todavía (ver informe de entrega) — anunciar ahí un comando que no
+// funciona sería peor que no decir nada.
+export const WHATSAPP_BACK_HINT_TEXT = "\n\n↩️ Escribí VOLVER para regresar al paso anterior.";
+
 // ==================================================================
 // Bug fix (carga de imagen del evento) — textos del adaptador de imágenes.
 // La lógica real (Meta Media API + Cloudinary) vive en
@@ -55,7 +65,7 @@ export function buildWhatsappImageUploadErrorText(reason) {
 // ==================================================================
 
 export const WHATSAPP_LOCATION_METHOD_PROMPT_TEXT =
-    "📍 ¿Cómo querés cargar la ubicación del evento?\n\n1. Compartir ubicación\n2. Completar dirección manualmente\n\nRespondé con 1 o 2.";
+    `📍 ¿Cómo querés cargar la ubicación del evento?\n\n1. Compartir ubicación\n2. Completar dirección manualmente\n\nRespondé con 1 o 2.${WHATSAPP_BACK_HINT_TEXT}`;
 
 export const WHATSAPP_LOCATION_METHOD_INVALID_TEXT =
     "❌ Esa opción no existe.\n\n1. Compartir ubicación\n2. Completar dirección manualmente\n\nRespondé con 1 o 2.";
@@ -64,7 +74,7 @@ export const WHATSAPP_LOCATION_METHOD_INVALID_TEXT =
 // vivo): isPublishableWhatsappLocation, más abajo, es quien realmente
 // exige que haya `address` — este texto sólo orienta la búsqueda.
 export const WHATSAPP_LOCATION_SHARE_PROMPT_TEXT =
-    "📍 Compartime la ubicación del lugar desde WhatsApp.\n\nTocá 📎 → Ubicación y buscá/seleccioná el establecimiento donde se realiza el evento.\n\nPreferentemente seleccioná el lugar buscándolo por nombre.";
+    `📍 Compartime la ubicación del lugar desde WhatsApp.\n\nTocá 📎 → Ubicación y buscá/seleccioná el establecimiento donde se realiza el evento.\n\nPreferentemente seleccioná el lugar buscándolo por nombre.${WHATSAPP_BACK_HINT_TEXT}`;
 
 // El usuario escribió texto (o mandó cualquier otra cosa que no sea una
 // ubicación real) mientras se esperaba justo una ubicación compartida —
@@ -73,14 +83,14 @@ export const WHATSAPP_LOCATION_SHARE_RETRY_TEXT =
     "📍 Para continuar, compartime la ubicación del lugar desde WhatsApp.\n\nTocá 📎 → Ubicación y buscá/seleccioná el establecimiento.";
 
 // Opción 2 — dirección manual, paso a paso (una pregunta = un dato).
-export const WHATSAPP_LOCATION_STREET_PROMPT_TEXT = "🛣️ ¿Cuál es la calle?\n\nEjemplo:\nSan Martín";
+export const WHATSAPP_LOCATION_STREET_PROMPT_TEXT = `🛣️ ¿Cuál es la calle?\n\nEjemplo:\nSan Martín${WHATSAPP_BACK_HINT_TEXT}`;
 export const WHATSAPP_LOCATION_STREET_INVALID_TEXT = "❌ Necesito el nombre de la calle.\n\nEjemplo:\nSan Martín";
 
-export const WHATSAPP_LOCATION_STREET_NUMBER_PROMPT_TEXT = "🔢 ¿Cuál es la altura?\n\nEjemplo:\n850";
+export const WHATSAPP_LOCATION_STREET_NUMBER_PROMPT_TEXT = `🔢 ¿Cuál es la altura?\n\nEjemplo:\n850${WHATSAPP_BACK_HINT_TEXT}`;
 export const WHATSAPP_LOCATION_STREET_NUMBER_INVALID_TEXT =
     "❌ No pude reconocer esa altura.\n\nEscribila en números.\n\nEjemplo:\n850";
 
-export const WHATSAPP_LOCATION_CITY_PROMPT_TEXT = "🏙️ ¿En qué ciudad se realiza?\n\nEjemplo:\nRío Cuarto";
+export const WHATSAPP_LOCATION_CITY_PROMPT_TEXT = `🏙️ ¿En qué ciudad se realiza?\n\nEjemplo:\nRío Cuarto${WHATSAPP_BACK_HINT_TEXT}`;
 export const WHATSAPP_LOCATION_CITY_INVALID_TEXT = "❌ Necesito el nombre de la ciudad.\n\nEjemplo:\nRío Cuarto";
 
 function buildProvinceOptionsList() {
@@ -88,7 +98,7 @@ function buildProvinceOptionsList() {
 }
 
 export function buildLocationProvincePromptText() {
-    return `🗺️ ¿En qué provincia?\n\n${buildProvinceOptionsList()}\n\nRespondé con el número.`;
+    return `🗺️ ¿En qué provincia?\n\n${buildProvinceOptionsList()}\n\nRespondé con el número.${WHATSAPP_BACK_HINT_TEXT}`;
 }
 
 export function buildLocationProvinceInvalidText() {
@@ -180,6 +190,59 @@ export const WHATSAPP_LOCATION_INSUFFICIENT_TEXT =
     "📍 Necesito la ubicación del lugar del evento.\n\nTocá 📎 → Ubicación, buscá el nombre del lugar y seleccioná el establecimiento.\n\nNo envíes solamente tu ubicación actual.";
 
 // ==================================================================
+// Fase 3G, sección 4 — confirmación de ubicación + link de Google Maps.
+// Aplica IGUAL para las dos modalidades (compartida y manual): antes de
+// mandarle el objeto LOCATION al motor, se arma un resumen legible + un
+// link de Maps y se pide confirmación explícita (AWAITING_LOCATION_CONFIRMATION,
+// whatsapp.controller.js#tryHandleLocationSubflow). Nunca se geocodifica ni
+// se llama a ninguna API de Google — el link es una URL de búsqueda
+// ESTÁNDAR (google.com/maps/search), navegable sin API key, construida sólo
+// con los datos que YA tenemos (coordenadas si vinieron de "compartir
+// ubicación", o dirección/ciudad/provincia si vino del camino manual).
+// ==================================================================
+
+// Sólo las líneas de texto legible (sin el link) — reutilizado tal cual por
+// el resumen final del evento (sección 6, buildWhatsappEventSummaryText),
+// para no mantener dos formatos de "cómo se ve una ubicación" en paralelo.
+export function buildWhatsappLocationSummaryLines(location) {
+    if (!location) return [];
+    const lines = [];
+    if (location.venueName) lines.push(location.venueName);
+    const cityProvince = [location.city, location.province].filter(Boolean).join(", ");
+    if (location.address) {
+        lines.push(cityProvince ? `${location.address}, ${cityProvince}` : location.address);
+    } else if (cityProvince) {
+        lines.push(cityProvince);
+    }
+    return lines;
+}
+
+// Coordenadas -> link estándar por lat/lng. Sin coordenadas pero con
+// dirección -> link de búsqueda por texto (URL-encoded). Ninguna de las dos
+// formas llama a una API ni requiere credenciales — es el mismo esquema de
+// URL que usa cualquier botón "Ver en Google Maps" de la web pública.
+export function buildWhatsappGoogleMapsLink(location) {
+    if (!location) return null;
+    if (typeof location.latitude === "number" && typeof location.longitude === "number") {
+        return `https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}`;
+    }
+    const parts = [location.address, location.city, location.province].filter(Boolean);
+    if (parts.length === 0) return null;
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(parts.join(", "))}`;
+}
+
+// `location` es el objeto YA construido (buildLocationInputFromWhatsapp
+// para "compartir", o el objeto manual ya armado con calle+altura+ciudad+
+// provincia) — nunca se inventa ningún campo que no esté ahí.
+export function buildWhatsappLocationConfirmationText(location) {
+    const summaryLines = buildWhatsappLocationSummaryLines(location);
+    const mapsLink = buildWhatsappGoogleMapsLink(location);
+    const summaryBlock = summaryLines.length ? summaryLines.join("\n") : "Ubicación cargada";
+    const mapsBlock = mapsLink ? `\n\n🗺️ Ver en Google Maps:\n${mapsLink}` : "";
+    return `📍 Esta es la ubicación que tengo:\n\n${summaryBlock}${mapsBlock}\n\n¿Es correcta?\n\n1. Sí\n2. No\n\nRespondé con el número de la opción.\n\n↩️ Escribí VOLVER para corregir.`;
+}
+
+// ==================================================================
 // Fase 3C — step FUNCTIONS_SINGLE_CARD (inputType FUNCTION_CARD, "una sola
 // función") conversacional en 3 mensajes: fecha, hora de inicio, hora de
 // fin. Reemplaza el formato compuesto de un solo mensaje
@@ -196,7 +259,7 @@ export const WHATSAPP_LOCATION_INSUFFICIENT_TEXT =
 // ==================================================================
 
 export const WHATSAPP_FUNCTION_CARD_DATE_PROMPT_TEXT =
-    "📅 ¿Qué día es la función?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n25/08/2026";
+    `📅 ¿Qué día es la función?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n25/08/2026${WHATSAPP_BACK_HINT_TEXT}`;
 
 export const WHATSAPP_FUNCTION_CARD_DATE_INVALID_TEXT =
     "❌ No pude reconocer esa fecha.\n\nEscribila así:\nDD/MM/AAAA\n\nEjemplo:\n25/08/2026";
@@ -208,10 +271,10 @@ export const WHATSAPP_FUNCTION_CARD_DATE_PAST_TEXT =
     "❌ Esa fecha ya pasó.\n\nIngresá una fecha desde hoy en adelante.\n\nFormato:\nDD/MM/AAAA\n\nEjemplo:\n25/08/2026";
 
 export const WHATSAPP_FUNCTION_CARD_START_TIME_PROMPT_TEXT =
-    "🕐 ¿A qué hora comienza?\n\nEscribila así:\nHH:MM\n\nEjemplo:\n20:00";
+    `🕐 ¿A qué hora comienza?\n\nEscribila así:\nHH:MM\n\nEjemplo:\n20:00${WHATSAPP_BACK_HINT_TEXT}`;
 
 export const WHATSAPP_FUNCTION_CARD_END_TIME_PROMPT_TEXT =
-    "🕐 ¿A qué hora termina?\n\nEscribila así:\nHH:MM\n\nEjemplo:\n23:00";
+    `🕐 ¿A qué hora termina?\n\nEscribila así:\nHH:MM\n\nEjemplo:\n23:00${WHATSAPP_BACK_HINT_TEXT}`;
 
 // Mismo texto para hora de inicio Y hora de fin inválidas — el pedido dio
 // un único texto de error para "horario" (sección 8), sin variantes.
@@ -294,13 +357,13 @@ export function isArgentineDateInThePast(normalizedDate, now = new Date()) {
 // ==================================================================
 
 export const WHATSAPP_FUNCTIONS_LIST_DATE_PROMPT_TEXT =
-    "📅 ¿Qué día es la primera función?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n25/08/2026";
+    `📅 ¿Qué día es la primera función?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n25/08/2026${WHATSAPP_BACK_HINT_TEXT}`;
 
 // Se muestra al arrancar cada función siguiente (después de responder "1"
 // en AWAITING_MULTIPLE_ADD_ANOTHER) — misma validación, sólo cambia el
 // enunciado para dejar claro que la anterior ya quedó guardada.
 export const WHATSAPP_FUNCTIONS_LIST_DATE_PROMPT_NEXT_TEXT =
-    "📅 ¿Qué día es la siguiente función?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n26/08/2026";
+    `📅 ¿Qué día es la siguiente función?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n26/08/2026${WHATSAPP_BACK_HINT_TEXT}`;
 
 export function buildWhatsappFunctionsListDatePromptText(isFirstFunction) {
     return isFirstFunction ? WHATSAPP_FUNCTIONS_LIST_DATE_PROMPT_TEXT : WHATSAPP_FUNCTIONS_LIST_DATE_PROMPT_NEXT_TEXT;
@@ -319,15 +382,16 @@ export const WHATSAPP_FUNCTIONS_LIST_COMMIT_ERROR_TEXT =
 
 // `date` ya viene normalizada ("YYYY-MM-DD", garantizado por
 // parseWhatsappFunctionCardDateText) — presentación pura, exclusiva de este
-// mensaje de confirmación, nunca movida a calendarDate.js (ese módulo no
-// tiene ningún formateador de exhibición, sólo parseo/aritmética).
-function formatCalendarDateForDisplay(normalizedDate) {
+// adaptador, nunca movida a calendarDate.js (ese módulo no tiene ningún
+// formateador de exhibición, sólo parseo/aritmética). Exportada porque
+// también la reutiliza el resumen final del evento (Fase 3G, sección 6).
+export function formatCalendarDateForDisplay(normalizedDate) {
     const [year, month, day] = normalizedDate.split("-");
     return `${day}/${month}/${year}`;
 }
 
 export function buildWhatsappFunctionAddedSummaryText(fn) {
-    return `✅ Función agregada\n\n${formatCalendarDateForDisplay(fn.date)}\n${fn.startTime} a ${fn.endTime}\n\n¿Querés agregar otra función?\n\n1. Sí\n2. No\n\nRespondé con el número de la opción.`;
+    return `✅ Función agregada\n\n${formatCalendarDateForDisplay(fn.date)}\n${fn.startTime} a ${fn.endTime}\n\n¿Querés agregar otra función?\n\n1. Sí\n2. No\n\nRespondé con el número de la opción.${WHATSAPP_BACK_HINT_TEXT}`;
 }
 
 // ==================================================================
@@ -346,10 +410,10 @@ export function buildWhatsappFunctionAddedSummaryText(fn) {
 // ==================================================================
 
 export const WHATSAPP_RECURRING_FROM_DATE_PROMPT_TEXT =
-    "🔁 Vamos a configurar las funciones recurrentes.\n\n📅 ¿Desde qué fecha se repite el evento?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n20/08/2026";
+    `🔁 Vamos a configurar las funciones recurrentes.\n\n📅 ¿Desde qué fecha se repite el evento?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n20/08/2026${WHATSAPP_BACK_HINT_TEXT}`;
 
 export const WHATSAPP_RECURRING_TO_DATE_PROMPT_TEXT =
-    "📅 ¿Hasta qué fecha se repite?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n30/09/2026";
+    `📅 ¿Hasta qué fecha se repite?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n30/09/2026${WHATSAPP_BACK_HINT_TEXT}`;
 
 // La misma regla "hasta >= desde" que ya exige inputHandlers/dateRange.js —
 // se valida ACÁ, ANTES de llamar al motor (nunca se llama con un rango
@@ -378,7 +442,7 @@ function buildWeekdayOptionsList() {
     return WHATSAPP_WEEKDAY_LABELS.map((name, index) => `${index + 1}. ${name}`).join("\n");
 }
 
-export const WHATSAPP_RECURRING_WEEKDAYS_PROMPT_TEXT = `📆 ¿Qué días se repite el evento?\n\n${buildWeekdayOptionsList()}\n\nPodés elegir uno o varios separados por coma.\n\nEjemplo:\n1,3,5`;
+export const WHATSAPP_RECURRING_WEEKDAYS_PROMPT_TEXT = `📆 ¿Qué días se repite el evento?\n\n${buildWeekdayOptionsList()}\n\nPodés elegir uno o varios separados por coma.\n\nEjemplo:\n1,3,5${WHATSAPP_BACK_HINT_TEXT}`;
 
 export const WHATSAPP_RECURRING_WEEKDAYS_INVALID_TEXT = `❌ No pude reconocer esos días.\n\n${buildWeekdayOptionsList()}\n\nPodés elegir uno o varios separados por coma.\n\nEjemplo:\n1,3,5`;
 
@@ -436,14 +500,14 @@ export function buildWhatsappWeekdaysConfirmationText(internalDays) {
 // primer horario. Sólo el prompt de inicio de un horario SIGUIENTE necesita
 // texto propio (distingue "el siguiente horario" del primero).
 export const WHATSAPP_RECURRING_START_TIME_NEXT_PROMPT_TEXT =
-    "🕐 ¿A qué hora comienza el siguiente horario?\n\nEscribí la hora así:\nHH:MM\n\nEjemplo:\n23:00";
+    `🕐 ¿A qué hora comienza el siguiente horario?\n\nEscribí la hora así:\nHH:MM\n\nEjemplo:\n23:00${WHATSAPP_BACK_HINT_TEXT}`;
 
 export function buildWhatsappRecurringStartTimePromptText(isFirstSchedule) {
     return isFirstSchedule ? WHATSAPP_FUNCTION_CARD_START_TIME_PROMPT_TEXT : WHATSAPP_RECURRING_START_TIME_NEXT_PROMPT_TEXT;
 }
 
 export function buildWhatsappScheduleAddedSummaryText(schedule) {
-    return `✅ Horario agregado\n\n${schedule.startTime} a ${schedule.endTime}\n\n¿Querés agregar otro horario?\n\n1. Sí\n2. No\n\nRespondé con el número de la opción.`;
+    return `✅ Horario agregado\n\n${schedule.startTime} a ${schedule.endTime}\n\n¿Querés agregar otro horario?\n\n1. Sí\n2. No\n\nRespondé con el número de la opción.${WHATSAPP_BACK_HINT_TEXT}`;
 }
 
 // El motor rechazó el array de horarios ya completo (no debería pasar
@@ -464,6 +528,118 @@ export const WHATSAPP_RECURRING_SCHEDULES_COMMIT_ERROR_TEXT =
 // FUNCTIONS_LIST de Fase 3E, sin pending propio en este punto.
 export const WHATSAPP_RECURRING_NO_OCCURRENCES_TEXT =
     '❌ No se generó ninguna función con esas fechas y esos días.\n\nEscribí "volver" para ajustar los horarios, los días o el rango de fechas.';
+
+// ==================================================================
+// Fase 3G, secciones 2/3 — steps YES_NO (inputType YES_NO: WANTS_FREE_TICKETS,
+// PROMO_VIDEO_ASK "YouTube", SOCIAL_LINKS_ASK "redes sociales",
+// ADD_ANOTHER_SOCIAL) genéricos, no específicos de YouTube/redes: los
+// CUATRO comparten el mismo inputType y el mismo handler real
+// (inputHandlers/yesNo.js), que YA acepta booleans directos además de
+// "sí"/"si"/"no"/"yes"/"true"/"false" — nunca se duplica esa validación acá,
+// sólo se traduce "1"/"2" (la UX que pide el pedido) a `true`/`false` ANTES
+// de llamar al motor. Si la respuesta no es "1" ni "2", se deja pasar el
+// texto crudo tal cual (compatibilidad con las frases que el handler real
+// ya entiende, sin reimplementarlas).
+export function resolveWhatsappYesNoReply(rawText) {
+    const trimmed = typeof rawText === "string" ? rawText.trim() : "";
+    if (trimmed === "1") return true;
+    if (trimmed === "2") return false;
+    return null;
+}
+
+// ==================================================================
+// Fase 3G, sección 7 — decisión final PUBLICAR/BORRADOR/VOLVER. El motor
+// (EventCreationEngine.handlePreviewInput) exige literalmente las acciones
+// "PUBLISH"/"DRAFT"/"EDIT"/"BACK" — nunca se le expone ese vocabulario al
+// organizador de WhatsApp (ver bug reportado: "Ok"/"Publish" rechazados).
+// ==================================================================
+
+const PREVIEW_CHOICE_TO_ACTION = { "1": "PUBLISH", "2": "DRAFT", "3": "BACK" };
+
+export function resolveWhatsappPreviewChoice(rawText) {
+    const trimmed = typeof rawText === "string" ? rawText.trim() : "";
+    return PREVIEW_CHOICE_TO_ACTION[trimmed] ?? null;
+}
+
+export function buildWhatsappPreviewMenuText() {
+    return "¿Qué querés hacer?\n\n1. Publicar evento\n2. Guardar como borrador\n3. Volver y corregir\n\nRespondé con el número de la opción.";
+}
+
+export const WHATSAPP_PREVIEW_INVALID_TEXT =
+    "❌ Elegí una opción válida.\n\n1. Publicar evento\n2. Guardar como borrador\n3. Volver y corregir\n\nRespondé con el número de la opción.";
+
+// FRONTEND_URL es la misma variable de entorno ya usada (obligatoria) por
+// config/resend.js para armar links de recuperación de compra — se lee acá
+// directo (sin pasar por getEmailConfig(), que además exige EMAIL_FROM sin
+// que haga falta para esto) y de forma tolerante: si no está configurada o
+// el evento todavía no tiene `slug`, se omite el link en vez de inventar
+// una URL o hacer fallar el mensaje de confirmación.
+export function buildWhatsappPublicEventUrl(event) {
+    const base = process.env.FRONTEND_URL?.trim()?.replace(/\/+$/, "");
+    if (!base || !event?.slug) return null;
+    return `${base}/evento/${event.slug}`;
+}
+
+// ==================================================================
+// Fase 3G, sección 6 — resumen real del evento antes de PREVIEW. Se arma
+// EXCLUSIVAMENTE a partir de `prompt.draft` (toPreviewDraft en
+// EventCreationEngine.js — el mismo draft real que ya usa Web, nunca un
+// segundo modelo de evento). Nada de JSON crudo ni campos técnicos: sólo
+// texto legible, con los opcionales ausentes mostrados como "No" o
+// simplemente omitidos.
+// ==================================================================
+
+function formatWhatsappPriceARS(price) {
+    const n = Number(price);
+    if (!Number.isFinite(n)) return `$${price}`;
+    return `$${n.toLocaleString("es-AR")}`;
+}
+
+const SUMMARY_MAX_FUNCTIONS = 10;
+const SUMMARY_MAX_TICKET_TYPES = 10;
+
+export function buildWhatsappEventSummaryText(draft) {
+    const lines = ["📋 RESUMEN DEL EVENTO", "", `🎭 Nombre: ${draft.title || "Sin nombre"}`];
+
+    if (draft.description) lines.push(`📝 Descripción: ${draft.description}`);
+    lines.push(`🖼️ Imagen: ${draft.coverImage ? "Cargada ✅" : "No cargada"}`);
+
+    const locationLines = buildWhatsappLocationSummaryLines(draft.location);
+    lines.push(`📍 Lugar: ${locationLines.length ? locationLines.join(", ") : "No cargada"}`);
+    const mapsLink = buildWhatsappGoogleMapsLink(draft.location);
+    if (mapsLink) lines.push(`🗺️ ${mapsLink}`);
+
+    lines.push("", "📅 Funciones:");
+    const functions = draft.functions ?? [];
+    if (functions.length === 0) {
+        lines.push("Sin funciones cargadas");
+    } else {
+        for (const fn of functions.slice(0, SUMMARY_MAX_FUNCTIONS)) {
+            lines.push(`• ${formatCalendarDateForDisplay(fn.date)} · ${fn.startTime} a ${fn.endTime}`);
+        }
+        if (functions.length > SUMMARY_MAX_FUNCTIONS) {
+            lines.push(`…y ${functions.length - SUMMARY_MAX_FUNCTIONS} función(es) más`);
+        }
+    }
+
+    lines.push("", "🎟️ Entradas:");
+    const ticketTypes = draft.ticketTypes ?? [];
+    if (ticketTypes.length === 0) {
+        lines.push("Evento gratuito, sin control de acceso");
+    } else {
+        for (const tt of ticketTypes.slice(0, SUMMARY_MAX_TICKET_TYPES)) {
+            lines.push(`• ${tt.name} · ${formatWhatsappPriceARS(tt.price)} · ${tt.quantity} disponibles`);
+        }
+        if (ticketTypes.length > SUMMARY_MAX_TICKET_TYPES) {
+            lines.push(`…y ${ticketTypes.length - SUMMARY_MAX_TICKET_TYPES} tipo(s) más`);
+        }
+    }
+
+    lines.push("", `🎬 YouTube: ${draft.promoVideoUrl ? "Sí" : "No"}`);
+    lines.push(`📱 Redes sociales: ${draft.socialLinks?.length ? "Sí" : "No"}`);
+
+    return lines.join("\n");
+}
 
 // Fase 2F — LEGACY, sin uso desde Fase 2G (ver informe de entrega: el
 // flujo de código de 6 dígitos deja de ofrecerse desde WhatsApp Organizer).
@@ -637,24 +813,43 @@ export function extractWhatsappReplyText(engineResult) {
     if (!engineResult) return null;
 
     // handlePreviewInput terminó el flujo con PUBLISH/DRAFT: {conversationId, done:true, status, event}.
+    // Fase 3G, sección 7 — la URL pública (si es derivable, ver
+    // buildWhatsappPublicEventUrl) reemplaza el mensaje genérico de antes;
+    // nunca se inventa un link si no hay FRONTEND_URL o slug.
     if (engineResult.done) {
-        return engineResult.status === "PUBLISHED"
-            ? "🎉 ¡Listo! Tu evento ya está publicado."
-            : "📝 Guardamos tu evento como borrador.";
+        if (engineResult.status === "PUBLISHED") {
+            const url = buildWhatsappPublicEventUrl(engineResult.event);
+            return url ? `✅ Evento publicado correctamente.\n\n${url}` : "✅ Evento publicado correctamente.";
+        }
+        return "✅ Evento guardado como borrador.\n\nPara editarlo o publicarlo más adelante, ingresá a la web de PaseCultural.";
     }
 
     const prompt = engineResult.prompt;
     if (!prompt) return null;
 
-    // El paso PREVIEW no tiene `text` (trae `draft` completo, ver
-    // buildPrompt) — publicar/guardar borrador por comando de texto libre
-    // queda fuera del alcance de esta fase (sección 8: sólo se mapea
-    // cancelar). Se informa sin filtrar el draft ni pedir un comando que
-    // todavía no existe.
+    // Fase 3G, sección 6/7 — resumen real del evento (a partir del MISMO
+    // draft que ya usa Web, `prompt.draft`, ver toPreviewDraft en
+    // EventCreationEngine.js) + menú 1/2/3, en reemplazo del texto genérico
+    // ("terminá de revisarlo desde la web") que no servía para este
+    // objetivo. tryHandlePreviewSubflow (whatsapp.controller.js) es quien
+    // INTERCEPTA la respuesta del organizador y la traduce a la acción real
+    // del motor — acá sólo se arma el texto, se re-muestra igual la primera
+    // vez que en cualquier reintento (con o sin `prompt.error`).
     if (prompt.type === "PREVIEW") {
-        return prompt.error
-            ? `⚠️ ${prompt.error}`
-            : "Llegaste al resumen final de tu evento. Por ahora, terminá de revisarlo y publicarlo desde la web de PaseCultural.";
+        const summary = buildWhatsappEventSummaryText(prompt.draft);
+        const menu = buildWhatsappPreviewMenuText();
+        return prompt.error ? `⚠️ ${prompt.error}\n\n${summary}\n\n${menu}` : `${summary}\n\n${menu}`;
+    }
+
+    // type === "QUESTION", inputType YES_NO — Fase 3G, secciones 2/3/5:
+    // WANTS_FREE_TICKETS/PROMO_VIDEO_ASK/SOCIAL_LINKS_ASK/ADD_ANOTHER_SOCIAL
+    // comparten el mismo inputType. El motor sigue devolviendo únicamente
+    // `text` (nunca `options`, a diferencia de SINGLE_SELECT) — acá se
+    // agrega la numeración 1/2 y el recordatorio de VOLVER de forma
+    // genérica para los cuatro, no sólo para YouTube/redes.
+    if (prompt.inputType === "YES_NO") {
+        const yesNoText = prompt.error ? `⚠️ ${prompt.error}\n\n${prompt.text}` : prompt.text;
+        return `${yesNoText}\n\n1. Sí\n2. No\n\nRespondé con el número de la opción.${WHATSAPP_BACK_HINT_TEXT}`;
     }
 
     // type === "QUESTION", step LOCATION — Fase 3D: esto SÓLO se alcanza la
