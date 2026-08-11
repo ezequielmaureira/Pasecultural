@@ -27,10 +27,13 @@ import {
 import {
     classifyInitialIntent,
     isCancelCommand,
+    isBackCommand,
     extractWhatsappReplyText,
     resolveSingleSelectIndexReply,
     parseWhatsappFunctionCardDateText,
     isArgentineDateInThePast,
+    parseWhatsappStreetNumberText,
+    resolveArgentinaProvinceIndexReply,
     WHATSAPP_DECLINE_TEXT,
     WHATSAPP_CANCEL_TEXT,
     WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT,
@@ -38,12 +41,24 @@ import {
     WHATSAPP_IMAGE_NOT_EXPECTED_TEXT,
     WHATSAPP_LOCATION_NOT_EXPECTED_TEXT,
     WHATSAPP_LOCATION_INSUFFICIENT_TEXT,
+    WHATSAPP_LOCATION_METHOD_PROMPT_TEXT,
+    WHATSAPP_LOCATION_METHOD_INVALID_TEXT,
+    WHATSAPP_LOCATION_SHARE_PROMPT_TEXT,
+    WHATSAPP_LOCATION_SHARE_RETRY_TEXT,
+    WHATSAPP_LOCATION_STREET_PROMPT_TEXT,
+    WHATSAPP_LOCATION_STREET_INVALID_TEXT,
+    WHATSAPP_LOCATION_STREET_NUMBER_PROMPT_TEXT,
+    WHATSAPP_LOCATION_STREET_NUMBER_INVALID_TEXT,
+    WHATSAPP_LOCATION_CITY_PROMPT_TEXT,
+    WHATSAPP_LOCATION_CITY_INVALID_TEXT,
+    WHATSAPP_LOCATION_COMMIT_ERROR_TEXT,
     WHATSAPP_FUNCTION_CARD_DATE_INVALID_TEXT,
     WHATSAPP_FUNCTION_CARD_DATE_PAST_TEXT,
     WHATSAPP_FUNCTION_CARD_START_TIME_PROMPT_TEXT,
     WHATSAPP_FUNCTION_CARD_END_TIME_PROMPT_TEXT,
     WHATSAPP_FUNCTION_CARD_TIME_INVALID_TEXT,
     WHATSAPP_FUNCTION_CARD_COMMIT_ERROR_TEXT,
+    WHATSAPP_FUNCTION_CARD_DATE_PROMPT_TEXT,
     buildKnownOrganizationGreetingText,
     buildOrganizationSelectorText,
     buildOrganizationSelectedConfirmationText,
@@ -51,6 +66,8 @@ import {
     buildWhatsappImageUploadErrorText,
     buildLocationInputFromWhatsapp,
     isPublishableWhatsappLocation,
+    buildLocationProvincePromptText,
+    buildLocationProvinceInvalidText,
 } from "../services/whatsappOrganizerBot.service.js";
 import { uploadWhatsappImageMessage } from "../services/whatsappMediaUpload.service.js";
 import { isValidTimeString } from "../conversation/inputHandlers/time.js";
@@ -156,16 +173,28 @@ async function tryHandleFunctionCardSubflow({
     updatePendingStepInputStatus: updatePendingStepInputStatusDep,
     deletePendingStepInput: deletePendingStepInputDep,
 }) {
+    // Fase 3D — con DOS steps consumiendo WhatsappPendingStepInput
+    // (FUNCTIONS_SINGLE_CARD y LOCATION), un pending que matchea el stepId
+    // propio YA NO alcanza como prueba de validez por sí solo: hay que
+    // confirmar TAMBIÉN que el step REAL vigente (resumeConversation, nunca
+    // el pending) sigue siendo éste. Sin este chequeo, un pending viejo de
+    // FUNCTIONS_SINGLE_CARD que por algún motivo sobrevivió mientras la
+    // conversación ya avanzó a otro step (ej. LOCATION) sería reutilizado
+    // en silencio — exactamente lo que la sección 5 del pedido de Fase 3B
+    // prohíbe ("el stepId real es la fuente de verdad").
+    const currentState = await resumeConversation(conversationId);
+    const isCurrentStepFunctionCard = currentState?.prompt?.stepId === "FUNCTIONS_SINGLE_CARD";
+
     let pending = await getPendingStepInputDep(conversationId);
-    if (pending && pending.stepId !== "FUNCTIONS_SINGLE_CARD") {
+    if (pending && (pending.stepId !== "FUNCTIONS_SINGLE_CARD" || !isCurrentStepFunctionCard)) {
         pending = null;
     }
 
+    if (!isCurrentStepFunctionCard) {
+        return { handled: false, currentState };
+    }
+
     if (!pending) {
-        const currentState = await resumeConversation(conversationId);
-        if (currentState?.prompt?.stepId !== "FUNCTIONS_SINGLE_CARD") {
-            return { handled: false };
-        }
         // Recién acá se confirma que el step real es FUNCTIONS_SINGLE_CARD:
         // se arranca (o se resetea uno viejo de otro step) un pending
         // nuevo. El prompt de fecha ya se mostró al llegar a este step (ver
@@ -175,7 +204,32 @@ async function tryHandleFunctionCardSubflow({
         pending = await resetPendingStepInputDep(conversationId, "FUNCTIONS_SINGLE_CARD", "AWAITING_DATE");
     }
 
+    const wantsBack = isBackCommand(text);
+
     if (pending.status === "AWAITING_DATE") {
+        if (wantsBack) {
+            // Fase 3D, sección 9 — primer sub-paso: NO hay otro sub-estado
+            // anterior dentro de este pending al cual volver. Auditado: el
+            // motor SÍ expone un BACK real y seguro (handleInput con
+            // {action:"BACK"} sólo mueve currentStepId/history, agnóstico
+            // al inputType del step actual — ver EventCreationEngine.js) y
+            // es exactamente lo que ya usa la Web. currentStepId sigue
+            // siendo FUNCTIONS_SINGLE_CARD en todo momento durante este
+            // sub-flujo (nunca se llamó a handleInput todavía), así que
+            // llamarlo acá retrocede correctamente a FUNCTIONS_MODE.
+            const backResult = await handleConversationInput(conversationId, { action: "BACK" });
+            if (backResult?.prompt?.error) {
+                // No debería pasar en la práctica (FUNCTIONS_SINGLE_CARD
+                // siempre tiene varios steps antes) — si pasara, el pending
+                // queda intacto en este mismo sub-paso.
+                await reply(extractWhatsappReplyText(backResult), "FUNCTION_CARD_BACK_REJECTED");
+                return { handled: true };
+            }
+            await deletePendingStepInputDep(conversationId);
+            await reply(extractWhatsappReplyText(backResult), "FUNCTION_CARD_BACK_TO_PREVIOUS_STEP");
+            return { handled: true };
+        }
+
         const normalizedDate = parseWhatsappFunctionCardDateText(text);
         if (!normalizedDate) {
             await reply(WHATSAPP_FUNCTION_CARD_DATE_INVALID_TEXT, "FUNCTION_CARD_DATE_INVALID");
@@ -191,6 +245,14 @@ async function tryHandleFunctionCardSubflow({
     }
 
     if (pending.status === "AWAITING_START_TIME") {
+        if (wantsBack) {
+            // Vuelve a AWAITING_DATE: elimina `date` (el único campo
+            // confirmado hasta acá) — se vuelve a pedir desde cero.
+            await updatePendingStepInputStatusDep(conversationId, "AWAITING_DATE", {});
+            await reply(WHATSAPP_FUNCTION_CARD_DATE_PROMPT_TEXT, "FUNCTION_CARD_BACK_TO_DATE");
+            return { handled: true };
+        }
+
         const trimmed = typeof text === "string" ? text.trim() : "";
         if (!isValidTimeString(trimmed)) {
             await reply(WHATSAPP_FUNCTION_CARD_TIME_INVALID_TEXT, "FUNCTION_CARD_TIME_INVALID");
@@ -205,6 +267,14 @@ async function tryHandleFunctionCardSubflow({
     }
 
     // pending.status === "AWAITING_END_TIME"
+    if (wantsBack) {
+        // Vuelve a AWAITING_START_TIME: mantiene `date`, elimina `startTime`
+        // (el campo que se recolectó para llegar a AWAITING_END_TIME).
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_START_TIME", { date: pending.partialData.date });
+        await reply(WHATSAPP_FUNCTION_CARD_START_TIME_PROMPT_TEXT, "FUNCTION_CARD_BACK_TO_START_TIME");
+        return { handled: true };
+    }
+
     const trimmedEndTime = typeof text === "string" ? text.trim() : "";
     if (!isValidTimeString(trimmedEndTime)) {
         await reply(WHATSAPP_FUNCTION_CARD_TIME_INVALID_TEXT, "FUNCTION_CARD_TIME_INVALID");
@@ -231,6 +301,223 @@ async function tryHandleFunctionCardSubflow({
 
     await deletePendingStepInputDep(conversationId);
     await reply(extractWhatsappReplyText(result), "FUNCTION_CARD_COMPLETED");
+    return { handled: true };
+}
+
+// Fase 3D — segundo consumidor de WhatsappPendingStepInput: divide el step
+// LOCATION en una conversación de verdad (una pregunta = un dato) con dos
+// caminos:
+//   A) compartir ubicación nativa (reutiliza TAL CUAL
+//      buildLocationInputFromWhatsapp/isPublishableWhatsappLocation, sin
+//      duplicar nada de la lógica ya aprobada);
+//   B) dirección manual paso a paso (calle → altura → ciudad → provincia
+//      numerada), sin geocodificar ni tocar Google Maps — arma exactamente
+//      el shape que ya acepta inputHandlers/location.js.
+// El motor recibe LOCATION una única vez, recién al completar cualquiera
+// de los dos caminos. Se invoca desde DOS lugares de processInboundMessage:
+// cuando llega un mensaje type==="location" (antes sólo se procesaba
+// directo) y cuando llega texto con conversación activa (selección de
+// método, campos manuales, "volver").
+//
+// Mismo contrato de retorno que tryHandleFunctionCardSubflow:
+// {handled:false} sólo cuando no hay pending de LOCATION y el step real
+// vigente tampoco lo es — el caller decide qué hacer en ese caso (hoy:
+// avisar "no necesito ubicación acá" para un mensaje de tipo location, o
+// seguir el árbol normal para texto).
+async function tryHandleLocationSubflow({
+    conversationId,
+    message,
+    text,
+    reply,
+    handleConversationInput,
+    resumeConversation,
+    getPendingStepInput: getPendingStepInputDep,
+    resetPendingStepInput: resetPendingStepInputDep,
+    updatePendingStepInputStatus: updatePendingStepInputStatusDep,
+    deletePendingStepInput: deletePendingStepInputDep,
+}) {
+    // Fase 3D — mismo chequeo reforzado que tryHandleFunctionCardSubflow:
+    // el step REAL vigente (nunca el stepId grabado en el pending) es la
+    // única fuente de verdad de si este pending sigue siendo válido —
+    // necesario ahora que hay DOS steps distintos consumiendo
+    // WhatsappPendingStepInput.
+    const currentState = await resumeConversation(conversationId);
+    const isCurrentStepLocation = currentState?.prompt?.stepId === "LOCATION";
+
+    let pending = await getPendingStepInputDep(conversationId);
+    if (pending && (pending.stepId !== "LOCATION" || !isCurrentStepLocation)) {
+        pending = null;
+    }
+
+    if (!isCurrentStepLocation) {
+        // Se devuelve el `currentState` ya resuelto para que el caller
+        // (processInboundMessage) no tenga que volver a llamar
+        // resumeConversation (misma lectura, evitar la consulta doble).
+        return { handled: false, currentState };
+    }
+
+    if (!pending) {
+        // El prompt de método ya se mostró al llegar a este step (ver
+        // extractWhatsappReplyText#inputType==="LOCATION") — el mensaje que
+        // acaba de llegar ES la respuesta a esa pregunta.
+        pending = await resetPendingStepInputDep(conversationId, "LOCATION", "AWAITING_LOCATION_METHOD");
+    }
+
+    const wantsBack = message.type === "text" && isBackCommand(text);
+
+    if (pending.status === "AWAITING_LOCATION_METHOD") {
+        if (wantsBack) {
+            // Fase 3D, sección 9 — mismo mecanismo auditado y ya usado para
+            // FUNCTIONS_SINGLE_CARD: BACK real del motor (agnóstico al
+            // inputType del step actual), currentStepId sigue siendo
+            // LOCATION durante todo este sub-flujo.
+            const backResult = await handleConversationInput(conversationId, { action: "BACK" });
+            if (backResult?.prompt?.error) {
+                await reply(extractWhatsappReplyText(backResult), "LOCATION_BACK_REJECTED");
+                return { handled: true };
+            }
+            await deletePendingStepInputDep(conversationId);
+            await reply(extractWhatsappReplyText(backResult), "LOCATION_BACK_TO_PREVIOUS_STEP");
+            return { handled: true };
+        }
+
+        if (message.type === "text") {
+            const choice = text.trim();
+            if (choice === "1") {
+                await updatePendingStepInputStatusDep(conversationId, "AWAITING_LOCATION_SHARE", {});
+                await reply(WHATSAPP_LOCATION_SHARE_PROMPT_TEXT, "LOCATION_SHARE_PROMPT");
+                return { handled: true };
+            }
+            if (choice === "2") {
+                await updatePendingStepInputStatusDep(conversationId, "AWAITING_STREET", {});
+                await reply(WHATSAPP_LOCATION_STREET_PROMPT_TEXT, "LOCATION_STREET_PROMPT");
+                return { handled: true };
+            }
+        }
+        await reply(WHATSAPP_LOCATION_METHOD_INVALID_TEXT, "LOCATION_METHOD_INVALID");
+        return { handled: true };
+    }
+
+    if (pending.status === "AWAITING_LOCATION_SHARE") {
+        if (wantsBack) {
+            await resetPendingStepInputDep(conversationId, "LOCATION", "AWAITING_LOCATION_METHOD");
+            await reply(WHATSAPP_LOCATION_METHOD_PROMPT_TEXT, "LOCATION_METHOD_PROMPT");
+            return { handled: true };
+        }
+        if (message.type !== "location") {
+            await reply(WHATSAPP_LOCATION_SHARE_RETRY_TEXT, "LOCATION_SHARE_RETRY");
+            return { handled: true };
+        }
+        // Pre-validación (idéntica a la ya aprobada): un pin sin `address`
+        // nunca va a poder publicarse después — se rechaza antes de tocar
+        // el motor, sin avanzar el sub-estado.
+        if (!isPublishableWhatsappLocation(message.location)) {
+            await reply(WHATSAPP_LOCATION_INSUFFICIENT_TEXT, "LOCATION_INSUFFICIENT");
+            return { handled: true };
+        }
+
+        const result = await handleConversationInput(conversationId, { value: buildLocationInputFromWhatsapp(message.location) });
+        if (result?.prompt?.error) {
+            await reply(WHATSAPP_LOCATION_COMMIT_ERROR_TEXT, "LOCATION_COMMIT_ERROR");
+            return { handled: true };
+        }
+        await deletePendingStepInputDep(conversationId);
+        await reply(extractWhatsappReplyText(result), "LOCATION_SHARED");
+        return { handled: true };
+    }
+
+    // A partir de acá (dirección manual) sólo el texto tiene sentido.
+    if (pending.status === "AWAITING_STREET") {
+        if (wantsBack) {
+            await resetPendingStepInputDep(conversationId, "LOCATION", "AWAITING_LOCATION_METHOD");
+            await reply(WHATSAPP_LOCATION_METHOD_PROMPT_TEXT, "LOCATION_METHOD_PROMPT");
+            return { handled: true };
+        }
+        const street = message.type === "text" ? text.trim() : "";
+        if (!street) {
+            await reply(WHATSAPP_LOCATION_STREET_INVALID_TEXT, "LOCATION_STREET_INVALID");
+            return { handled: true };
+        }
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_STREET_NUMBER", { street });
+        await reply(WHATSAPP_LOCATION_STREET_NUMBER_PROMPT_TEXT, "LOCATION_STREET_NUMBER_PROMPT");
+        return { handled: true };
+    }
+
+    if (pending.status === "AWAITING_STREET_NUMBER") {
+        if (wantsBack) {
+            // Vuelve a AWAITING_STREET: elimina `street` (se re-pregunta desde cero).
+            await updatePendingStepInputStatusDep(conversationId, "AWAITING_STREET", {});
+            await reply(WHATSAPP_LOCATION_STREET_PROMPT_TEXT, "LOCATION_BACK_TO_STREET");
+            return { handled: true };
+        }
+        const streetNumber = message.type === "text" ? parseWhatsappStreetNumberText(text) : null;
+        if (!streetNumber) {
+            await reply(WHATSAPP_LOCATION_STREET_NUMBER_INVALID_TEXT, "LOCATION_STREET_NUMBER_INVALID");
+            return { handled: true };
+        }
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_CITY", { ...pending.partialData, streetNumber });
+        await reply(WHATSAPP_LOCATION_CITY_PROMPT_TEXT, "LOCATION_CITY_PROMPT");
+        return { handled: true };
+    }
+
+    if (pending.status === "AWAITING_CITY") {
+        if (wantsBack) {
+            // Vuelve a AWAITING_STREET_NUMBER: mantiene `street`, elimina `streetNumber`.
+            await updatePendingStepInputStatusDep(conversationId, "AWAITING_STREET_NUMBER", { street: pending.partialData.street });
+            await reply(WHATSAPP_LOCATION_STREET_NUMBER_PROMPT_TEXT, "LOCATION_BACK_TO_STREET_NUMBER");
+            return { handled: true };
+        }
+        const city = message.type === "text" ? text.trim() : "";
+        if (!city) {
+            await reply(WHATSAPP_LOCATION_CITY_INVALID_TEXT, "LOCATION_CITY_INVALID");
+            return { handled: true };
+        }
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_PROVINCE", { ...pending.partialData, city });
+        await reply(buildLocationProvincePromptText(), "LOCATION_PROVINCE_PROMPT");
+        return { handled: true };
+    }
+
+    // pending.status === "AWAITING_PROVINCE"
+    if (wantsBack) {
+        // Vuelve a AWAITING_CITY: mantiene street/streetNumber, elimina `city`.
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_CITY", {
+            street: pending.partialData.street,
+            streetNumber: pending.partialData.streetNumber,
+        });
+        await reply(WHATSAPP_LOCATION_CITY_PROMPT_TEXT, "LOCATION_BACK_TO_CITY");
+        return { handled: true };
+    }
+
+    const province = message.type === "text" ? resolveArgentinaProvinceIndexReply(text) : null;
+    if (!province) {
+        await reply(buildLocationProvinceInvalidText(), "LOCATION_PROVINCE_INVALID");
+        return { handled: true };
+    }
+
+    // assertPublishable (event.service.js) exige venueName + dirección —
+    // EventServicePort#buildLocationInput ya deriva venueName = address
+    // cuando no hay nombre de lugar (misma convención que el modo manual
+    // sin mapa de la Web, ver LocationAnswer.jsx#ManualLocationForm): no se
+    // inventa ningún venueName acá, queda null y cae en ese fallback ya
+    // existente. latitude/longitude/googlePlaceId null a propósito — nunca
+    // se geocodifica.
+    const { street, streetNumber, city } = pending.partialData;
+    const finalValue = {
+        address: `${street} ${streetNumber}`,
+        city,
+        province,
+        venueName: null,
+        latitude: null,
+        longitude: null,
+        googlePlaceId: null,
+    };
+    const result = await handleConversationInput(conversationId, { value: finalValue });
+    if (result?.prompt?.error) {
+        await reply(WHATSAPP_LOCATION_COMMIT_ERROR_TEXT, "LOCATION_COMMIT_ERROR");
+        return { handled: true };
+    }
+    await deletePendingStepInputDep(conversationId);
+    await reply(extractWhatsappReplyText(result), "LOCATION_MANUAL_COMPLETED");
     return { handled: true };
 }
 
@@ -340,41 +627,32 @@ export async function processInboundMessage(
             return;
         }
 
-        // Bug fix (ubicación por WhatsApp Location): mismo patrón que la
-        // imagen — sólo tiene sentido procesar una ubicación compartida si
-        // hay conversación activa Y el step vigente es justo LOCATION.
-        // resume() vuelve a usarse acá por la misma razón: espiar el step
-        // actual sin mutar nada (ver comentario de la rama de imagen).
-        // NUNCA se interpreta texto libre como dirección — esto SÓLO
-        // dispara con message.type==="location" real; un mensaje de texto
-        // durante este mismo step sigue el camino normal más abajo
-        // (`if (active) {...}`), donde el motor lo rechaza solo (una
-        // ubicación es siempre un objeto, nunca un string, ver
-        // inputHandlers/location.js) y extractWhatsappReplyText ya traduce
-        // ese rechazo al reintento específico de ubicación.
+        // Fase 3D — mensaje type==="location": sólo tiene sentido procesarlo
+        // si hay conversación activa. tryHandleLocationSubflow decide todo
+        // lo demás (incluido si el step real es LOCATION o no); si no lo
+        // es, devuelve {handled:false} y se avisa "no necesito ubicación
+        // acá" con el prompt vigente, igual que antes.
         if (isProcessableLocation) {
             if (!active) return;
 
-            const currentState = await resumeConversation(active.id);
-            if (currentState?.prompt?.inputType !== "LOCATION") {
-                await reply(`${WHATSAPP_LOCATION_NOT_EXPECTED_TEXT}\n\n${extractWhatsappReplyText(currentState)}`, "LOCATION_NOT_EXPECTED");
-                return;
-            }
+            const locationResult = await tryHandleLocationSubflow({
+                conversationId: active.id,
+                message,
+                text,
+                reply,
+                handleConversationInput,
+                resumeConversation,
+                getPendingStepInput: getPendingStepInputDep,
+                resetPendingStepInput: resetPendingStepInputDep,
+                updatePendingStepInputStatus: updatePendingStepInputStatusDep,
+                deletePendingStepInput: deletePendingStepInputDep,
+            });
+            if (locationResult.handled) return;
 
-            // Pre-validación: un pin/ubicación actual (sin address) nunca
-            // va a poder publicarse después (assertPublishable exige
-            // venueName + dirección, ver isPublishableWhatsappLocation) —
-            // se rechaza ACÁ, antes de guardar nada en el draft ni de
-            // llamar al motor, para que el organizador se entere en el
-            // momento en vez de recién al intentar publicar el evento
-            // entero. ConversationState queda exactamente donde estaba.
-            if (!isPublishableWhatsappLocation(message.location)) {
-                await reply(WHATSAPP_LOCATION_INSUFFICIENT_TEXT, "LOCATION_INSUFFICIENT");
-                return;
-            }
-
-            const result = await handleConversationInput(active.id, { value: buildLocationInputFromWhatsapp(message.location) });
-            await reply(extractWhatsappReplyText(result), "LOCATION_SHARED");
+            await reply(
+                `${WHATSAPP_LOCATION_NOT_EXPECTED_TEXT}\n\n${extractWhatsappReplyText(locationResult.currentState)}`,
+                "LOCATION_NOT_EXPECTED"
+            );
             return;
         }
 
@@ -384,6 +662,25 @@ export async function processInboundMessage(
                 await reply(WHATSAPP_CANCEL_TEXT, "CANCEL");
                 return;
             }
+
+            // Fase 3D — LOCATION ("cómo cargar la ubicación") se intercepta
+            // ACÁ, ANTES de tocar el motor, igual que FUNCTIONS_SINGLE_CARD:
+            // un mensaje de texto (elección de método 1/2, calle, altura,
+            // ciudad, provincia, "volver") nunca debe llegar crudo a
+            // handleConversationInput. Ver tryHandleLocationSubflow.
+            const locationResult = await tryHandleLocationSubflow({
+                conversationId: active.id,
+                message,
+                text,
+                reply,
+                handleConversationInput,
+                resumeConversation,
+                getPendingStepInput: getPendingStepInputDep,
+                resetPendingStepInput: resetPendingStepInputDep,
+                updatePendingStepInputStatus: updatePendingStepInputStatusDep,
+                deletePendingStepInput: deletePendingStepInputDep,
+            });
+            if (locationResult.handled) return;
 
             // Fase 3C — FUNCTIONS_SINGLE_CARD ("una sola función") se
             // intercepta ACÁ, ANTES de tocar el motor: a diferencia de

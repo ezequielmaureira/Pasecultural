@@ -518,3 +518,136 @@ test("a text message while the engine is not on FUNCTIONS_SINGLE_CARD is never i
     assert.equal(deps.handleConversationInput.calls.length, 1);
     assert.deepEqual(deps.handleConversationInput.calls[0], ["conv1", { value: "Fiesta Aniversario" }]);
 });
+
+// ==================================================
+// Fase 3D — VOLVER dentro de FUNCTIONS_SINGLE_CARD (sección 8/9 del pedido).
+// ==================================================
+
+// 19) hora fin → volver → hora inicio
+test("19) AWAITING_END_TIME + 'volver' -> AWAITING_START_TIME, keeps date, removes startTime", async () => {
+    const store = createFakePendingStore({
+        conversationId: "conv1",
+        stepId: "FUNCTIONS_SINGLE_CARD",
+        status: "AWAITING_END_TIME",
+        partialData: { date: FUTURE_DATE_NORMALIZED, startTime: "20:00" },
+    });
+    const { deps, sendCalls } = baseDeps({ pendingStore: store });
+
+    await processInboundMessage(textMessage({ text: "volver" }), deps);
+
+    assert.equal(store.calls.update[0].status, "AWAITING_START_TIME");
+    assert.deepEqual(store.calls.update[0].partialData, { date: FUTURE_DATE_NORMALIZED });
+    assert.equal(sendCalls[0].text, WHATSAPP_FUNCTION_CARD_START_TIME_PROMPT_TEXT);
+    assert.equal(deps.handleConversationInput.calls.length, 0);
+});
+
+// 20) hora inicio → volver → fecha
+test("20) AWAITING_START_TIME + 'volver' -> AWAITING_DATE, removes date", async () => {
+    const store = createFakePendingStore({
+        conversationId: "conv1",
+        stepId: "FUNCTIONS_SINGLE_CARD",
+        status: "AWAITING_START_TIME",
+        partialData: { date: FUTURE_DATE_NORMALIZED },
+    });
+    const { deps, sendCalls } = baseDeps({ pendingStore: store });
+
+    await processInboundMessage(textMessage({ text: "VOLVER" }), deps);
+
+    assert.equal(store.calls.update[0].status, "AWAITING_DATE");
+    assert.deepEqual(store.calls.update[0].partialData, {});
+    assert.equal(sendCalls[0].text, WHATSAPP_FUNCTION_CARD_DATE_PROMPT_TEXT);
+    assert.equal(deps.handleConversationInput.calls.length, 0);
+});
+
+// 21) partialData se limpia correctamente en ambos casos (ya verificado
+// arriba con deepEqual exacto); test adicional confirmando que "volver"
+// nunca toca el motor en ningún sub-paso intermedio.
+test("21) 'volver' from any intermediate sub-step never calls the engine", async () => {
+    for (const [status, partialData] of [
+        ["AWAITING_START_TIME", { date: FUTURE_DATE_NORMALIZED }],
+        ["AWAITING_END_TIME", { date: FUTURE_DATE_NORMALIZED, startTime: "20:00" }],
+    ]) {
+        const store = createFakePendingStore({ conversationId: "conv1", stepId: "FUNCTIONS_SINGLE_CARD", status, partialData });
+        const { deps } = baseDeps({ pendingStore: store });
+
+        await processInboundMessage(textMessage({ text: " volver " }), deps);
+
+        assert.equal(deps.handleConversationInput.calls.length, 0, `no debe llamar al motor desde ${status}`);
+    }
+});
+
+// 22) fecha + volver → comportamiento auditado/documentado: NO es "no
+// implementado" — se audité que el motor expone un BACK real y seguro
+// (handleInput con {action:"BACK"}, agnóstico al inputType del step
+// actual) y se usa acá. currentStepId sigue siendo FUNCTIONS_SINGLE_CARD
+// durante todo el sub-flujo (nunca se llamó a handleInput todavía), así
+// que retrocede correctamente a FUNCTIONS_MODE.
+test("22) AWAITING_DATE (primer sub-paso) + 'volver' uses the engine's real BACK and deletes the pending", async () => {
+    const store = createFakePendingStore({ conversationId: "conv1", stepId: "FUNCTIONS_SINGLE_CARD", status: "AWAITING_DATE", partialData: {} });
+    const { deps, sendCalls } = baseDeps({
+        pendingStore: store,
+        handleConversationInput: spy({
+            conversationId: "conv1",
+            prompt: { stepId: "FUNCTIONS_MODE", type: "QUESTION", inputType: "SINGLE_SELECT", text: "¿Cómo se realizarán las funciones de este evento?", options: [{ id: "SINGLE", label: "Una sola función" }] },
+            canGoBack: true,
+            sections: [],
+        }),
+    });
+
+    await processInboundMessage(textMessage({ text: "volver" }), deps);
+
+    assert.equal(deps.handleConversationInput.calls.length, 1);
+    assert.deepEqual(deps.handleConversationInput.calls[0], ["conv1", { action: "BACK" }]);
+    assert.equal(store.calls.delete.length, 1);
+    assert.ok(sendCalls[0].text.includes("Una sola función"));
+});
+
+test("if the engine rejects BACK from AWAITING_DATE (no previous step to go back to), the pending is not deleted", async () => {
+    const store = createFakePendingStore({ conversationId: "conv1", stepId: "FUNCTIONS_SINGLE_CARD", status: "AWAITING_DATE", partialData: {} });
+    const { deps } = baseDeps({
+        pendingStore: store,
+        handleConversationInput: spy({
+            conversationId: "conv1",
+            prompt: { stepId: "FUNCTIONS_SINGLE_CARD", type: "QUESTION", text: "x", error: "Ya estás en la primera pregunta." },
+            canGoBack: false,
+            sections: [],
+        }),
+    });
+
+    await processInboundMessage(textMessage({ text: "volver" }), deps);
+
+    assert.equal(store.calls.delete.length, 0);
+});
+
+// Cross-subflow: un pending viejo de FUNCTIONS_SINGLE_CARD nunca se
+// reutiliza si el step real vigente ya no es FUNCTIONS_SINGLE_CARD (ej. la
+// conversación avanzó a LOCATION).
+test("a stale FUNCTIONS_SINGLE_CARD pending is never reused when the real current step has moved on to something else", async () => {
+    // stepId real = CATEGORY (no LOCATION) a propósito: LOCATION tiene su
+    // propio subflow que corre primero en el controller — usar un step sin
+    // ningún subflow propio aísla específicamente el chequeo de
+    // tryHandleFunctionCardSubflow (ver la contraparte de este mismo test,
+    // con LOCATION como step real, en whatsapp.location.controller.test.js).
+    const store = createFakePendingStore({
+        conversationId: "conv1",
+        stepId: "FUNCTIONS_SINGLE_CARD",
+        status: "AWAITING_START_TIME",
+        partialData: { date: FUTURE_DATE_NORMALIZED },
+    });
+    const { deps } = baseDeps({
+        pendingStore: store,
+        resumeConversation: spy({
+            conversationId: "conv1",
+            prompt: { stepId: "CATEGORY", type: "QUESTION", inputType: "SINGLE_SELECT", text: "Elegí la categoría de tu evento.", options: [{ id: "MUSICA", label: "Música" }] },
+            canGoBack: true,
+            sections: [],
+        }),
+    });
+
+    await processInboundMessage(textMessage({ text: "20:00" }), deps);
+
+    // No se interpretó "20:00" como respuesta a la hora de inicio del
+    // sub-flujo FUNCTIONS_SINGLE_CARD — cae al camino normal (SINGLE_SELECT
+    // / texto libre), nunca actualiza el pending viejo.
+    assert.equal(store.calls.update.length, 0);
+});

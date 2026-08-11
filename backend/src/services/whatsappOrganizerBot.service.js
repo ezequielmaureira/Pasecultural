@@ -6,6 +6,7 @@
 
 import { isValidCalendarDateString, normalizeCalendarDateString, compareCalendarDateStrings } from "../utils/calendarDate.js";
 import { isValidTimeString } from "../conversation/inputHandlers/time.js";
+import { ARGENTINA_PROVINCES } from "../utils/argentinaProvinces.js";
 
 export const WHATSAPP_DECLINE_TEXT = "Perfecto 👍 Cuando quieras publicar un evento, escribime.";
 
@@ -40,28 +41,95 @@ export function buildWhatsappImageUploadErrorText(reason) {
 }
 
 // ==================================================================
-// Bug fix (ubicación exclusivamente por WhatsApp Location) — textos y
-// transformación del adaptador de ubicación. La única regla de negocio real
-// (qué es válido para avanzar) vive en inputHandlers/location.js, que ahora
-// también acepta coordenadas solas (sin dirección escrita) — acá sólo se
-// decide CÓMO pedirlo/reintentarlo por WhatsApp y cómo traducir el
-// `location` real que manda Meta al shape que ese input handler espera.
+// Fase 3D — ubicación conversacional: al llegar al step LOCATION, WhatsApp
+// pregunta PRIMERO cómo cargarla (compartir vs dirección manual paso a
+// paso) — reemplaza el prompt directo de "compartime tu ubicación" de la
+// fase anterior (WHATSAPP_LOCATION_PROMPT_TEXT/WHATSAPP_LOCATION_RETRY_TEXT,
+// eliminados). La orquestación completa (WhatsappPendingStepInput,
+// sub-estados AWAITING_LOCATION_METHOD/AWAITING_LOCATION_SHARE/
+// AWAITING_STREET/AWAITING_STREET_NUMBER/AWAITING_CITY/AWAITING_PROVINCE)
+// vive en whatsapp.controller.js#tryHandleLocationSubflow — acá sólo
+// textos y transformaciones puras, igual que el resto del archivo. La
+// única regla de negocio real (qué es válido para avanzar el motor) sigue
+// viviendo en inputHandlers/location.js, sin cambios.
 // ==================================================================
 
-// Reemplaza el prompt genérico del step LOCATION (pensado para Web, con
-// picker de Google Maps) cuando el canal es WhatsApp — ver
-// extractWhatsappReplyText más abajo. No se toca steps/definitions.js: el
-// texto Web original sigue intacto, esto es sólo cómo lo renderiza el
-// adaptador de WhatsApp.
-export const WHATSAPP_LOCATION_PROMPT_TEXT =
-    "📍 ¿Dónde se realiza el evento?\n\nCompartime la ubicación del lugar desde WhatsApp.\n\nTocá 📎 → Ubicación y buscá/seleccioná el lugar donde se realiza el evento.";
+export const WHATSAPP_LOCATION_METHOD_PROMPT_TEXT =
+    "📍 ¿Cómo querés cargar la ubicación del evento?\n\n1. Compartir ubicación\n2. Completar dirección manualmente\n\nRespondé con 1 o 2.";
+
+export const WHATSAPP_LOCATION_METHOD_INVALID_TEXT =
+    "❌ Esa opción no existe.\n\n1. Compartir ubicación\n2. Completar dirección manualmente\n\nRespondé con 1 o 2.";
+
+// Opción 1 — compartir. Preferí buscar el lugar por nombre (no un pin en
+// vivo): isPublishableWhatsappLocation, más abajo, es quien realmente
+// exige que haya `address` — este texto sólo orienta la búsqueda.
+export const WHATSAPP_LOCATION_SHARE_PROMPT_TEXT =
+    "📍 Compartime la ubicación del lugar desde WhatsApp.\n\nTocá 📎 → Ubicación y buscá/seleccioná el establecimiento donde se realiza el evento.\n\nPreferentemente seleccioná el lugar buscándolo por nombre.";
 
 // El usuario escribió texto (o mandó cualquier otra cosa que no sea una
-// ubicación real) mientras el motor esperaba justo este step — nunca se
-// interpreta ese texto como dirección ni se geocodifica, se vuelve a pedir
-// la ubicación nativa.
-export const WHATSAPP_LOCATION_RETRY_TEXT =
-    "📍 Para continuar, compartime la ubicación del lugar desde WhatsApp.\n\nTocá 📎 → Ubicación y buscá/seleccioná el lugar del evento.";
+// ubicación real) mientras se esperaba justo una ubicación compartida —
+// nunca se interpreta ese texto como dirección ni se geocodifica.
+export const WHATSAPP_LOCATION_SHARE_RETRY_TEXT =
+    "📍 Para continuar, compartime la ubicación del lugar desde WhatsApp.\n\nTocá 📎 → Ubicación y buscá/seleccioná el establecimiento.";
+
+// Opción 2 — dirección manual, paso a paso (una pregunta = un dato).
+export const WHATSAPP_LOCATION_STREET_PROMPT_TEXT = "🛣️ ¿Cuál es la calle?\n\nEjemplo:\nSan Martín";
+export const WHATSAPP_LOCATION_STREET_INVALID_TEXT = "❌ Necesito el nombre de la calle.\n\nEjemplo:\nSan Martín";
+
+export const WHATSAPP_LOCATION_STREET_NUMBER_PROMPT_TEXT = "🔢 ¿Cuál es la altura?\n\nEjemplo:\n850";
+export const WHATSAPP_LOCATION_STREET_NUMBER_INVALID_TEXT =
+    "❌ No pude reconocer esa altura.\n\nEscribila en números.\n\nEjemplo:\n850";
+
+export const WHATSAPP_LOCATION_CITY_PROMPT_TEXT = "🏙️ ¿En qué ciudad se realiza?\n\nEjemplo:\nRío Cuarto";
+export const WHATSAPP_LOCATION_CITY_INVALID_TEXT = "❌ Necesito el nombre de la ciudad.\n\nEjemplo:\nRío Cuarto";
+
+function buildProvinceOptionsList() {
+    return ARGENTINA_PROVINCES.map((name, index) => `${index + 1}. ${name}`).join("\n");
+}
+
+export function buildLocationProvincePromptText() {
+    return `🗺️ ¿En qué provincia?\n\n${buildProvinceOptionsList()}\n\nRespondé con el número.`;
+}
+
+export function buildLocationProvinceInvalidText() {
+    return `❌ Esa opción no existe.\n\n${buildProvinceOptionsList()}\n\nRespondé con el número.`;
+}
+
+// Índice 1-based EXACTO contra ARGENTINA_PROVINCES — nunca coincidencia
+// parcial/fuzzy (sección 12 del pedido: "No usar coincidencia parcial
+// peligrosa... no hace falta fuzzy matching"). Devuelve el nombre real de
+// la provincia (el shape que espera inputHandlers/location.js#parse en
+// `province`), nunca el índice.
+export function resolveArgentinaProvinceIndexReply(rawText) {
+    const trimmed = typeof rawText === "string" ? rawText.trim() : "";
+    if (!/^\d+$/.test(trimmed)) return null;
+
+    const index = Number(trimmed);
+    if (!Number.isInteger(index) || index < 1 || index > ARGENTINA_PROVINCES.length) return null;
+
+    return ARGENTINA_PROVINCES[index - 1];
+}
+
+// La altura se guarda como STRING (no Number) para concatenarla tal cual en
+// `address` ("San Martín 850") sin riesgo de formateo (ej. ceros a la
+// izquierda) — sólo se exige que sea un entero positivo real.
+export function parseWhatsappStreetNumberText(rawText) {
+    const trimmed = typeof rawText === "string" ? rawText.trim() : "";
+    if (!/^\d+$/.test(trimmed)) return null;
+
+    const n = Number(trimmed);
+    if (!Number.isInteger(n) || n <= 0) return null;
+
+    return trimmed;
+}
+
+// El motor rechazó el objeto LOCATION ya completo (no debería pasar nunca
+// en la práctica: cada sub-campo ya se validó antes de llegar acá) — mismo
+// criterio mínimo seguro que WHATSAPP_FUNCTION_CARD_COMMIT_ERROR_TEXT: se
+// documenta acá, la decisión de qué hacer con el pending vive en el
+// controller.
+export const WHATSAPP_LOCATION_COMMIT_ERROR_TEXT =
+    "❌ No pudimos guardar esa ubicación.\n\nProbá completar la dirección de nuevo.";
 
 // El step actual del motor no es LOCATION (ver EventCreationEngine.resume
 // en whatsapp.controller.js, mismo criterio que WHATSAPP_IMAGE_NOT_EXPECTED_TEXT)
@@ -234,7 +302,7 @@ export const WHATSAPP_LINK_CHALLENGE_PENDING_TEXT =
 // teléfono de este wa_id — saludo personalizado en vez del genérico
 // AUTO_REPLY_TEXT.
 export function buildKnownOrganizationGreetingText(organizationName) {
-    return `Hola ${organizationName} 👋 Soy el asistente de PaseCultural. ¿Querés publicar un evento?`;
+    return `Hola ${organizationName} 👋 Soy el asistente de PaseCultural. ¿Querés publicar un evento?\n\n1. Sí\n2. No\n\nRespondé con 1 o 2.`;
 }
 
 // Caso C: el teléfono no coincide con ninguna Organization APPROVED. Nunca
@@ -256,15 +324,15 @@ export function buildOrganizationSelectorText(candidates) {
 export const WHATSAPP_SELECTION_INVALID_TEXT = "No entendí esa opción. Respondé con el número de la organización de la lista.";
 
 export function buildOrganizationSelectedConfirmationText(organizationName) {
-    return `Perfecto. Estás trabajando con ${organizationName}.\n¿Querés publicar un evento?`;
+    return `Perfecto. Estás trabajando con ${organizationName}.\n¿Querés publicar un evento?\n\n1. Sí\n2. No\n\nRespondé con 1 o 2.`;
 }
 
-// Mientras se espera la confirmación final ("Sí"/"No") tras elegir una
-// Organization entre varias, cualquier respuesta que no sea afirmativa ni
-// negativa vuelve a preguntar sin repetir el selector numerado (la
-// Organization ya está resuelta, sólo falta confirmar la intención).
+// Mientras se espera la confirmación final ("Sí"/"No"/"1"/"2") tras elegir
+// una Organization entre varias, cualquier respuesta que no sea afirmativa
+// ni negativa vuelve a preguntar sin repetir el selector numerado de
+// Organizations (esa ya está resuelta, sólo falta confirmar la intención).
 export function buildOrganizationSelectionConfirmationRetryText(organizationName) {
-    return `¿Querés publicar un evento con ${organizationName}? Respondé "Sí" o "No".`;
+    return `¿Querés publicar un evento con ${organizationName}?\n\n1. Sí\n2. No\n\nRespondé con 1 o 2.`;
 }
 
 // ==================================================================
@@ -288,10 +356,18 @@ const AFFIRMATIVE_PHRASES = new Set(["si", "s", "dale", "ok", "quiero", "quiero 
 
 const NEGATIVE_PHRASES = new Set(["no", "no gracias", "ahora no", "despues"]);
 
+// Fase 3D, sección 2 — además de las frases textuales de siempre (nunca se
+// rompen), el saludo inicial y la confirmación de Organization ahora
+// también muestran "1. Sí / 2. No": "1" y "2" se aceptan como equivalentes
+// exactos, nunca como índice de ninguna otra lista (este clasificador sólo
+// se usa en los dos puntos de decisión Sí/No reales del flujo, nunca donde
+// haya un selector numerado de opciones distintas).
 export function classifyInitialIntent(text) {
     if (typeof text !== "string") return "UNKNOWN";
     const normalized = normalizeIntentText(text);
     if (!normalized) return "UNKNOWN";
+    if (normalized === "1") return "AFFIRMATIVE";
+    if (normalized === "2") return "NEGATIVE";
     if (AFFIRMATIVE_PHRASES.has(normalized)) return "AFFIRMATIVE";
     if (NEGATIVE_PHRASES.has(normalized)) return "NEGATIVE";
     return "UNKNOWN";
@@ -307,6 +383,21 @@ const CANCEL_COMMANDS = new Set(["cancelar", "cancel", "salir"]);
 export function isCancelCommand(text) {
     if (typeof text !== "string") return false;
     return CANCEL_COMMANDS.has(normalizeIntentText(text));
+}
+
+// ==================================================================
+// isBackCommand — Fase 3D, sección 7: "volver" retrocede UN sub-paso
+// dentro de un WhatsappPendingStepInput (LOCATION/FUNCTIONS_SINGLE_CARD).
+// Case-insensitive y tolera espacios externos gracias a normalizeIntentText
+// (mismo criterio que isCancelCommand). NUNCA cancela el evento ni borra
+// ConversationState — eso sigue siendo exclusivo de "cancelar".
+// ==================================================================
+
+const BACK_COMMANDS = new Set(["volver"]);
+
+export function isBackCommand(text) {
+    if (typeof text !== "string") return false;
+    return BACK_COMMANDS.has(normalizeIntentText(text));
 }
 
 // ==================================================================
@@ -380,14 +471,16 @@ export function extractWhatsappReplyText(engineResult) {
             : "Llegaste al resumen final de tu evento. Por ahora, terminá de revisarlo y publicarlo desde la web de PaseCultural.";
     }
 
-    // type === "QUESTION", step LOCATION — reemplaza el prompt genérico
-    // (pensado para el picker de Google Maps de la Web) por las
-    // instrucciones de ubicación nativa de WhatsApp; nunca se muestra
-    // `prompt.text` ni `prompt.error` del motor para este step (el error
-    // real siempre es "faltó dirección/ciudad/provincia", que no aplica al
-    // canal WhatsApp y confundiría más de lo que ayuda).
+    // type === "QUESTION", step LOCATION — Fase 3D: esto SÓLO se alcanza la
+    // primera vez que el motor avanza a este step (ej. justo después de
+    // subir la imagen de portada), nunca durante el sub-flujo en sí (método
+    // → compartir/manual → calle/altura/ciudad/provincia) — eso lo maneja
+    // enteramente tryHandleLocationSubflow en whatsapp.controller.js, sin
+    // volver a pasar por acá. Reemplaza el prompt genérico (pensado para el
+    // picker de Google Maps de la Web) por la primera pregunta del
+    // sub-flujo: cómo cargar la ubicación.
     if (prompt.inputType === "LOCATION") {
-        return prompt.error ? WHATSAPP_LOCATION_RETRY_TEXT : WHATSAPP_LOCATION_PROMPT_TEXT;
+        return WHATSAPP_LOCATION_METHOD_PROMPT_TEXT;
     }
 
     // type === "QUESTION", step FUNCTIONS_SINGLE_CARD — Fase 3C: esto SÓLO

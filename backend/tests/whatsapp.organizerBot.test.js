@@ -4,6 +4,7 @@ import { shouldAutoReply, AUTO_REPLY_TEXT } from "../src/services/whatsapp.servi
 import {
     classifyInitialIntent,
     isCancelCommand,
+    isBackCommand,
     extractWhatsappReplyText,
     resolveSingleSelectIndexReply,
     WHATSAPP_DECLINE_TEXT,
@@ -143,6 +144,30 @@ test("classifyInitialIntent returns UNKNOWN for anything else, including empty/n
     assert.equal(classifyInitialIntent(null), "UNKNOWN");
 });
 
+// Fase 3D, sección 2 — el saludo inicial ahora también muestra "1. Sí /
+// 2. No": "1"/"2" se aceptan como equivalentes exactos, SIN romper las
+// frases textuales de siempre (ya probadas arriba).
+test("classifyInitialIntent accepts '1' as AFFIRMATIVE and '2' as NEGATIVE", () => {
+    assert.equal(classifyInitialIntent("1"), "AFFIRMATIVE");
+    assert.equal(classifyInitialIntent("2"), "NEGATIVE");
+});
+
+test("classifyInitialIntent tolerates whitespace around 1/2", () => {
+    assert.equal(classifyInitialIntent("  1  "), "AFFIRMATIVE");
+    assert.equal(classifyInitialIntent(" 2 "), "NEGATIVE");
+});
+
+test("classifyInitialIntent rejects any other number (only 1/2 are meaningful here)", () => {
+    assert.equal(classifyInitialIntent("3"), "UNKNOWN");
+    assert.equal(classifyInitialIntent("0"), "UNKNOWN");
+});
+
+test("classifyInitialIntent still recognizes the textual Sí/No phrases exactly as before, unaffected by the 1/2 addition", () => {
+    assert.equal(classifyInitialIntent("Sí"), "AFFIRMATIVE");
+    assert.equal(classifyInitialIntent("si"), "AFFIRMATIVE");
+    assert.equal(classifyInitialIntent("No"), "NEGATIVE");
+});
+
 // ==================================================
 // isCancelCommand — pura (sección 8)
 // ==================================================
@@ -156,6 +181,29 @@ test("isCancelCommand recognizes cancelar/cancel/salir regardless of case or sim
 test("isCancelCommand is false for anything else", () => {
     assert.equal(isCancelCommand("Hola"), false);
     assert.equal(isCancelCommand(""), false);
+});
+
+// ==================================================
+// isBackCommand — Fase 3D, sección 7. Case-insensitive, tolera espacios
+// externos (mismo criterio que isCancelCommand, vía normalizeIntentText).
+// ==================================================
+
+test("isBackCommand recognizes 'volver' regardless of case", () => {
+    assert.equal(isBackCommand("volver"), true);
+    assert.equal(isBackCommand("Volver"), true);
+    assert.equal(isBackCommand("VOLVER"), true);
+});
+
+test("isBackCommand tolerates surrounding whitespace", () => {
+    assert.equal(isBackCommand("  volver  "), true);
+    assert.equal(isBackCommand(" VOLVER "), true);
+});
+
+test("isBackCommand is false for anything else, including cancel commands", () => {
+    assert.equal(isBackCommand("Hola"), false);
+    assert.equal(isBackCommand("cancelar"), false);
+    assert.equal(isBackCommand(""), false);
+    assert.equal(isBackCommand(null), false);
 });
 
 // ==================================================
@@ -351,6 +399,41 @@ test("Caso A) single matching organization + 'Sí' calls EventCreationEngine.sta
         organizationId: "org_1",
     });
     assert.equal(sendCalls[0].text, "¿Cómo se llama tu evento?");
+});
+
+// Fase 3D, sección 2/27 — el mismo saludo ahora también acepta "1"/"2",
+// sin romper "Sí"/"No" textual (test anterior).
+test("Caso A) single matching organization + '1' (numbered Sí) calls EventCreationEngine.start exactly once", async () => {
+    const { deps, sendCalls } = baseDeps();
+
+    await processInboundMessage(textMessage({ text: "1", from: "5491100001111" }), deps);
+
+    assert.equal(deps.startConversation.calls.length, 1);
+    assert.deepEqual(deps.startConversation.calls[0][0], {
+        clerkId: "user_123",
+        channel: "WHATSAPP",
+        channelRef: "5491100001111",
+        organizationId: "org_1",
+    });
+    assert.equal(sendCalls[0].text, "¿Cómo se llama tu evento?");
+});
+
+test("Caso A) single matching organization + '2' (numbered No) never starts the engine, same as textual 'No'", async () => {
+    const { deps, sendCalls } = baseDeps();
+
+    await processInboundMessage(textMessage({ text: "2" }), deps);
+
+    assert.equal(deps.startConversation.calls.length, 0);
+    assert.equal(sendCalls[0].text, WHATSAPP_DECLINE_TEXT);
+});
+
+test("Caso A) the greeting itself shows the numbered 1/2 format", async () => {
+    const { deps, sendCalls } = baseDeps();
+
+    await processInboundMessage(textMessage({ text: "Hola" }), deps);
+
+    assert.ok(sendCalls[0].text.includes("1. Sí"));
+    assert.ok(sendCalls[0].text.includes("2. No"));
 });
 
 test("Caso A) single matching organization + 'No' never starts the engine and sends the closing message", async () => {
