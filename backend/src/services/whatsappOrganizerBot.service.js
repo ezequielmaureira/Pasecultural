@@ -330,6 +330,141 @@ export function buildWhatsappFunctionAddedSummaryText(fn) {
     return `✅ Función agregada\n\n${formatCalendarDateForDisplay(fn.date)}\n${fn.startTime} a ${fn.endTime}\n\n¿Querés agregar otra función?\n\n1. Sí\n2. No\n\nRespondé con el número de la opción.`;
 }
 
+// ==================================================================
+// Fase 3F — steps reales de FUNCTIONS_MODE = RECURRING (rango de fechas →
+// días de semana → horarios), tres pasos reales distintos del motor
+// (FUNCTIONS_RANGE/inputType DATE_RANGE, FUNCTIONS_WEEKDAYS/inputType
+// WEEKDAYS, FUNCTIONS_RECURRING_SCHEDULES/inputType TIME_RANGE_LIST — ver
+// steps/definitions.js), cada uno conversacional en el adaptador WhatsApp
+// (whatsapp.controller.js#tryHandleRecurring*Subflow). Reutiliza tal cual
+// los mismos validadores de fecha/hora ya aprobados en Fase 3C/3E — nunca
+// se reimplementan. generateRecurringSlots sigue siendo EXCLUSIVO del motor
+// (corre dentro de FUNCTIONS_RECURRING_SCHEDULES.setValue,
+// steps/definitions.js) — WhatsApp nunca calcula fechas concretas, sólo
+// recolecta rango/días/horarios y reenvía lo que el motor ya generó (ver
+// comentario en tryHandleRecurringSchedulesSubflow).
+// ==================================================================
+
+export const WHATSAPP_RECURRING_FROM_DATE_PROMPT_TEXT =
+    "🔁 Vamos a configurar las funciones recurrentes.\n\n📅 ¿Desde qué fecha se repite el evento?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n20/08/2026";
+
+export const WHATSAPP_RECURRING_TO_DATE_PROMPT_TEXT =
+    "📅 ¿Hasta qué fecha se repite?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n30/09/2026";
+
+// La misma regla "hasta >= desde" que ya exige inputHandlers/dateRange.js —
+// se valida ACÁ, ANTES de llamar al motor (nunca se llama con un rango
+// inválido), para poder mostrar el mensaje puntual del pedido y mantener
+// `from` sin pedirlo de nuevo. No es una regla nueva: es la misma regla del
+// handler real, aplicada del lado del adaptador para evitar un viaje al
+// motor que ya sabemos que va a fallar.
+export function isRecurringToBeforeFrom(from, to) {
+    return compareCalendarDateStrings(to, from) < 0;
+}
+
+export const WHATSAPP_RECURRING_TO_BEFORE_FROM_TEXT =
+    "❌ La fecha final no puede ser anterior a la fecha inicial.\n\nIngresá nuevamente la fecha hasta.\n\nFormato:\nDD/MM/AAAA\n\nEjemplo:\n30/09/2026";
+
+export const WHATSAPP_RECURRING_RANGE_COMMIT_ERROR_TEXT =
+    "❌ No pudimos guardar ese rango de fechas.\n\nVolvé a escribir la fecha hasta.\n\nFormato:\nDD/MM/AAAA\n\nEjemplo:\n30/09/2026";
+
+// Días de semana — misma convención interna 0=Lunes..6=Domingo que ya usa
+// el motor (ver comentario de generateRecurringSlots en
+// steps/definitions.js e inputHandlers/weekdays.js). La UX de WhatsApp
+// muestra 1=Lunes..7=Domingo (más natural para escribir) — el mapeo
+// (uxDay - 1) es EXCLUSIVO de este adaptador, nunca se toca el motor.
+const WHATSAPP_WEEKDAY_LABELS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+
+function buildWeekdayOptionsList() {
+    return WHATSAPP_WEEKDAY_LABELS.map((name, index) => `${index + 1}. ${name}`).join("\n");
+}
+
+export const WHATSAPP_RECURRING_WEEKDAYS_PROMPT_TEXT = `📆 ¿Qué días se repite el evento?\n\n${buildWeekdayOptionsList()}\n\nPodés elegir uno o varios separados por coma.\n\nEjemplo:\n1,3,5`;
+
+export const WHATSAPP_RECURRING_WEEKDAYS_INVALID_TEXT = `❌ No pude reconocer esos días.\n\n${buildWeekdayOptionsList()}\n\nPodés elegir uno o varios separados por coma.\n\nEjemplo:\n1,3,5`;
+
+export const WHATSAPP_RECURRING_WEEKDAYS_COMMIT_ERROR_TEXT = `❌ No pudimos guardar esos días.\n\n${buildWeekdayOptionsList()}\n\nPodés elegir uno o varios separados por coma.\n\nEjemplo:\n1,3,5`;
+
+// Acepta "1", "1,3,5", "1, 3, 5" — un índice 1-7 por token, separados por
+// coma, sin importar espacios alrededor. Rechaza cualquier token fuera de
+// 1-7, vacío (ej. "1,,3"), decimal/con puntos (ej. "1.3.5", que al no tener
+// comas queda como un único token que no matchea el patrón de un solo
+// dígito) o texto libre. Duplicados: se eliminan conservando el orden de la
+// PRIMERA aparición (ej. "1,1,3" -> [0,2]) — no es una regla nueva de
+// negocio, sólo la forma más simple y determinística de resolver una
+// entrada repetida sin inventar semántica adicional; el motor
+// (weekdays.js#parse) igualmente dedupea y ordena por su cuenta antes de
+// guardar, así que el orden acá sólo afecta qué se le pasa, nunca lo que
+// termina persistido. Devuelve `null` (nunca un array parcial) ante
+// cualquier entrada inválida.
+const WEEKDAY_UX_TOKEN_PATTERN = /^[1-7]$/;
+
+export function parseWhatsappWeekdaySelection(rawText) {
+    if (typeof rawText !== "string") return null;
+    const trimmed = rawText.trim();
+    if (!trimmed) return null;
+
+    const tokens = trimmed.split(",").map((token) => token.trim());
+    if (tokens.some((token) => !WEEKDAY_UX_TOKEN_PATTERN.test(token))) return null;
+
+    const internalDays = [];
+    for (const token of tokens) {
+        const internalDay = Number(token) - 1; // 1..7 (Lunes..Domingo) -> 0..6
+        if (!internalDays.includes(internalDay)) internalDays.push(internalDay);
+    }
+    return internalDays;
+}
+
+function joinSpanishList(items) {
+    if (items.length === 1) return items[0];
+    if (items.length === 2) return `${items[0]} y ${items[1]}`;
+    return `${items.slice(0, -1).join(", ")} y ${items[items.length - 1]}`;
+}
+
+// Confirmación mostrada tras una selección de días válida (sección 8 del
+// pedido: "NO agregar otra confirmación Sí/No", sólo informar y seguir).
+// Se muestra en orden semanal (Lunes..Domingo) para lectura natural, más
+// allá del orden en que el organizador haya tipeado los números.
+export function buildWhatsappWeekdaysConfirmationText(internalDays) {
+    const sorted = [...internalDays].sort((a, b) => a - b);
+    const labels = sorted.map((day) => WHATSAPP_WEEKDAY_LABELS[day]);
+    return `✅ Días seleccionados:\n${joinSpanishList(labels)}`;
+}
+
+// Horarios recurrentes — mismo prompt/validación de hora ya aprobados en
+// Fase 3C/3E (WHATSAPP_FUNCTION_CARD_START_TIME_PROMPT_TEXT/
+// _END_TIME_PROMPT_TEXT/_TIME_INVALID_TEXT), reutilizados tal cual para el
+// primer horario. Sólo el prompt de inicio de un horario SIGUIENTE necesita
+// texto propio (distingue "el siguiente horario" del primero).
+export const WHATSAPP_RECURRING_START_TIME_NEXT_PROMPT_TEXT =
+    "🕐 ¿A qué hora comienza el siguiente horario?\n\nEscribí la hora así:\nHH:MM\n\nEjemplo:\n23:00";
+
+export function buildWhatsappRecurringStartTimePromptText(isFirstSchedule) {
+    return isFirstSchedule ? WHATSAPP_FUNCTION_CARD_START_TIME_PROMPT_TEXT : WHATSAPP_RECURRING_START_TIME_NEXT_PROMPT_TEXT;
+}
+
+export function buildWhatsappScheduleAddedSummaryText(schedule) {
+    return `✅ Horario agregado\n\n${schedule.startTime} a ${schedule.endTime}\n\n¿Querés agregar otro horario?\n\n1. Sí\n2. No\n\nRespondé con el número de la opción.`;
+}
+
+// El motor rechazó el array de horarios ya completo (no debería pasar
+// nunca: cada horario ya se validó con los mismos validadores reales antes
+// de llegar acá) — nunca se pierden los horarios ya cargados, el pending
+// queda intacto en AWAITING_RECURRING_ADD_ANOTHER.
+export const WHATSAPP_RECURRING_SCHEDULES_COMMIT_ERROR_TEXT =
+    "❌ No pudimos guardar esos horarios.\n\n¿Querés agregar otro horario?\n\n1. Sí\n2. No\n\nRespondé con el número de la opción.";
+
+// Sección 25 del pedido — el rango + días elegidos no generó ninguna fecha
+// concreta (ej. rango de un solo día que no cae en ninguno de los días
+// elegidos). El motor YA lo detecta por su cuenta: FUNCTIONS_LIST rechaza
+// un array vacío (inputHandlers/functionsList.js#parse, "Agregá al menos
+// una función.") — acá sólo se traduce a un mensaje claro y recuperable
+// (nunca se silencia ni se inventa una función). El step real vigente en
+// ese momento ya es FUNCTIONS_LIST (SCHEDULES sí fue aceptado por el
+// motor) — "volver" desde ahí lo maneja tal cual el sub-flujo de
+// FUNCTIONS_LIST de Fase 3E, sin pending propio en este punto.
+export const WHATSAPP_RECURRING_NO_OCCURRENCES_TEXT =
+    '❌ No se generó ninguna función con esas fechas y esos días.\n\nEscribí "volver" para ajustar los horarios, los días o el rango de fechas.';
+
 // Fase 2F — LEGACY, sin uso desde Fase 2G (ver informe de entrega: el
 // flujo de código de 6 dígitos deja de ofrecerse desde WhatsApp Organizer).
 // Se conservan intactas junto con whatsappOrganizerLink.service.js/
@@ -556,6 +691,30 @@ export function extractWhatsappReplyText(engineResult) {
     // función.
     if (prompt.inputType === "FUNCTIONS_LIST") {
         return WHATSAPP_FUNCTIONS_LIST_DATE_PROMPT_TEXT;
+    }
+
+    // type === "QUESTION", step FUNCTIONS_RANGE (RECURRING) — Fase 3F: sólo
+    // se alcanza la primera vez que el motor avanza a este step (después de
+    // "Funciones recurrentes" en FUNCTIONS_MODE, o al volver acá desde
+    // WEEKDAYS) — el sub-flujo de rango en sí (desde/hasta) lo maneja
+    // enteramente tryHandleRecurringRangeSubflow.
+    if (prompt.inputType === "DATE_RANGE") {
+        return WHATSAPP_RECURRING_FROM_DATE_PROMPT_TEXT;
+    }
+
+    // type === "QUESTION", step FUNCTIONS_WEEKDAYS — Fase 3F: sólo la
+    // primera vez que el motor avanza a este step (tras completar el
+    // rango, o al volver acá desde SCHEDULES).
+    if (prompt.inputType === "WEEKDAYS") {
+        return WHATSAPP_RECURRING_WEEKDAYS_PROMPT_TEXT;
+    }
+
+    // type === "QUESTION", step FUNCTIONS_RECURRING_SCHEDULES — Fase 3F:
+    // sólo la primera vez que el motor avanza a este step (tras completar
+    // los días). Reutiliza tal cual el prompt de hora de inicio ya
+    // aprobado en Fase 3C — misma pregunta, mismo validador.
+    if (prompt.inputType === "TIME_RANGE_LIST") {
+        return WHATSAPP_FUNCTION_CARD_START_TIME_PROMPT_TEXT;
     }
 
     // type === "QUESTION" — si el motor marcó un error de validación sobre

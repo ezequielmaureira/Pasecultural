@@ -72,6 +72,20 @@ import {
     buildWhatsappFunctionAddedSummaryText,
     WHATSAPP_FUNCTIONS_LIST_ADD_ANOTHER_INVALID_TEXT,
     WHATSAPP_FUNCTIONS_LIST_COMMIT_ERROR_TEXT,
+    WHATSAPP_RECURRING_FROM_DATE_PROMPT_TEXT,
+    WHATSAPP_RECURRING_TO_DATE_PROMPT_TEXT,
+    isRecurringToBeforeFrom,
+    WHATSAPP_RECURRING_TO_BEFORE_FROM_TEXT,
+    WHATSAPP_RECURRING_RANGE_COMMIT_ERROR_TEXT,
+    WHATSAPP_RECURRING_WEEKDAYS_INVALID_TEXT,
+    WHATSAPP_RECURRING_WEEKDAYS_COMMIT_ERROR_TEXT,
+    parseWhatsappWeekdaySelection,
+    buildWhatsappWeekdaysConfirmationText,
+    buildWhatsappRecurringStartTimePromptText,
+    WHATSAPP_RECURRING_START_TIME_NEXT_PROMPT_TEXT,
+    buildWhatsappScheduleAddedSummaryText,
+    WHATSAPP_RECURRING_SCHEDULES_COMMIT_ERROR_TEXT,
+    WHATSAPP_RECURRING_NO_OCCURRENCES_TEXT,
 } from "../services/whatsappOrganizerBot.service.js";
 import { uploadWhatsappImageMessage } from "../services/whatsappMediaUpload.service.js";
 import { isValidTimeString } from "../conversation/inputHandlers/time.js";
@@ -721,6 +735,330 @@ async function tryHandleFunctionsListSubflow({
     return { handled: true };
 }
 
+// Fase 3F — cuarto consumidor de WhatsappPendingStepInput: divide el step
+// FUNCTIONS_RANGE (inputType DATE_RANGE, primer paso de RECURRING) en dos
+// preguntas — fecha desde, fecha hasta — reutilizando tal cual los mismos
+// validadores de fecha/"hoy Argentina" de Fase 3C. El motor recibe
+// {from,to} UNA sola vez, sólo cuando ambas fechas ya son válidas (incluida
+// "hasta >= desde", la misma regla que ya exige inputHandlers/dateRange.js,
+// validada acá ANTES de llamar al motor para no gastar un viaje que ya
+// sabemos que va a fallar — ver isRecurringToBeforeFrom).
+async function tryHandleRecurringRangeSubflow({
+    conversationId,
+    text,
+    reply,
+    handleConversationInput,
+    resumeConversation,
+    getPendingStepInput: getPendingStepInputDep,
+    resetPendingStepInput: resetPendingStepInputDep,
+    updatePendingStepInputStatus: updatePendingStepInputStatusDep,
+    deletePendingStepInput: deletePendingStepInputDep,
+}) {
+    const currentState = await resumeConversation(conversationId);
+    const isCurrentStepRange = currentState?.prompt?.stepId === "FUNCTIONS_RANGE";
+
+    let pending = await getPendingStepInputDep(conversationId);
+    if (pending && (pending.stepId !== "FUNCTIONS_RANGE" || !isCurrentStepRange)) {
+        pending = null;
+    }
+
+    if (!isCurrentStepRange) {
+        return { handled: false, currentState };
+    }
+
+    if (!pending) {
+        pending = await resetPendingStepInputDep(conversationId, "FUNCTIONS_RANGE", "AWAITING_RECURRING_FROM_DATE", {});
+    }
+
+    const wantsBack = isBackCommand(text);
+
+    if (pending.status === "AWAITING_RECURRING_FROM_DATE") {
+        if (wantsBack) {
+            // Sección 17.B — primer sub-paso, sin nada anterior dentro de
+            // este pending: BACK real del motor (mismo mecanismo auditado y
+            // ya usado en las tres fases anteriores), vuelve a FUNCTIONS_MODE.
+            const backResult = await handleConversationInput(conversationId, { action: "BACK" });
+            if (backResult?.prompt?.error) {
+                await reply(extractWhatsappReplyText(backResult), "RECURRING_RANGE_BACK_REJECTED");
+                return { handled: true };
+            }
+            await deletePendingStepInputDep(conversationId);
+            await reply(extractWhatsappReplyText(backResult), "RECURRING_RANGE_BACK_TO_PREVIOUS_STEP");
+            return { handled: true };
+        }
+
+        const normalizedFrom = parseWhatsappFunctionCardDateText(text);
+        if (!normalizedFrom) {
+            await reply(WHATSAPP_FUNCTION_CARD_DATE_INVALID_TEXT, "RECURRING_RANGE_FROM_INVALID");
+            return { handled: true };
+        }
+        if (isArgentineDateInThePast(normalizedFrom)) {
+            await reply(WHATSAPP_FUNCTION_CARD_DATE_PAST_TEXT, "RECURRING_RANGE_FROM_PAST");
+            return { handled: true };
+        }
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_RECURRING_TO_DATE", { from: normalizedFrom });
+        await reply(WHATSAPP_RECURRING_TO_DATE_PROMPT_TEXT, "RECURRING_RANGE_TO_PROMPT");
+        return { handled: true };
+    }
+
+    // pending.status === "AWAITING_RECURRING_TO_DATE"
+    if (wantsBack) {
+        // Sección 17.A — vuelve a AWAITING_RECURRING_FROM_DATE: se re-pide
+        // "desde" desde cero (el valor viejo, si lo hubiera, se sobreescribe
+        // igual con la próxima respuesta válida, nunca se muestra ni se usa).
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_RECURRING_FROM_DATE", {});
+        await reply(WHATSAPP_RECURRING_FROM_DATE_PROMPT_TEXT, "RECURRING_RANGE_BACK_TO_FROM");
+        return { handled: true };
+    }
+
+    const normalizedTo = parseWhatsappFunctionCardDateText(text);
+    if (!normalizedTo) {
+        await reply(WHATSAPP_FUNCTION_CARD_DATE_INVALID_TEXT, "RECURRING_RANGE_TO_INVALID");
+        return { handled: true };
+    }
+    if (isRecurringToBeforeFrom(pending.partialData.from, normalizedTo)) {
+        await reply(WHATSAPP_RECURRING_TO_BEFORE_FROM_TEXT, "RECURRING_RANGE_TO_BEFORE_FROM");
+        return { handled: true };
+    }
+
+    const result = await handleConversationInput(conversationId, { value: { from: pending.partialData.from, to: normalizedTo } });
+    if (result?.prompt?.error) {
+        // No debería pasar nunca en la práctica (ambas fechas y "hasta >=
+        // desde" ya se validaron con los mismos criterios reales antes de
+        // llegar acá) — el pending queda intacto, recuperable pidiendo de
+        // nuevo sólo la fecha hasta.
+        await reply(WHATSAPP_RECURRING_RANGE_COMMIT_ERROR_TEXT, "RECURRING_RANGE_COMMIT_ERROR");
+        return { handled: true };
+    }
+    await deletePendingStepInputDep(conversationId);
+    await reply(extractWhatsappReplyText(result), "RECURRING_RANGE_COMPLETED");
+    return { handled: true };
+}
+
+// Fase 3F — step FUNCTIONS_WEEKDAYS (inputType WEEKDAYS): a diferencia de
+// RANGE/SCHEDULES, es un intercambio ÚNICO (una selección de días = una
+// respuesta), no necesita WhatsappPendingStepInput — sólo traducir el texto
+// ("1,3,5") al array 0-6 que exige el motor y llamarlo una vez. Se
+// intercepta igual que los demás (nunca se deja pasar el texto crudo:
+// weekdays.js#parse exige un Array, un string como "1,3,5" siempre lo
+// rechaza sin dar ninguna pista útil al organizador).
+async function tryHandleRecurringWeekdaysSubflow({ conversationId, text, reply, handleConversationInput, resumeConversation }) {
+    const currentState = await resumeConversation(conversationId);
+    if (currentState?.prompt?.stepId !== "FUNCTIONS_WEEKDAYS") {
+        return { handled: false, currentState };
+    }
+
+    if (isBackCommand(text)) {
+        // Sección 18 — BACK real del motor, nunca simula un pending propio
+        // (no existe ninguno para este step). Vuelve a FUNCTIONS_RANGE.
+        const backResult = await handleConversationInput(conversationId, { action: "BACK" });
+        if (backResult?.prompt?.error) {
+            await reply(extractWhatsappReplyText(backResult), "RECURRING_WEEKDAYS_BACK_REJECTED");
+            return { handled: true };
+        }
+        await reply(extractWhatsappReplyText(backResult), "RECURRING_WEEKDAYS_BACK_TO_PREVIOUS_STEP");
+        return { handled: true };
+    }
+
+    const days = parseWhatsappWeekdaySelection(text);
+    if (!days) {
+        await reply(WHATSAPP_RECURRING_WEEKDAYS_INVALID_TEXT, "RECURRING_WEEKDAYS_INVALID");
+        return { handled: true };
+    }
+
+    const result = await handleConversationInput(conversationId, { value: days });
+    if (result?.prompt?.error) {
+        await reply(WHATSAPP_RECURRING_WEEKDAYS_COMMIT_ERROR_TEXT, "RECURRING_WEEKDAYS_COMMIT_ERROR");
+        return { handled: true };
+    }
+
+    // Sección 8 — confirmación informativa + la pregunta siguiente en el
+    // mismo mensaje, nunca otra confirmación Sí/No.
+    await reply(`${buildWhatsappWeekdaysConfirmationText(days)}\n\n${extractWhatsappReplyText(result)}`, "RECURRING_WEEKDAYS_COMPLETED");
+    return { handled: true };
+}
+
+// Fase 3F — quinto consumidor de WhatsappPendingStepInput: step
+// FUNCTIONS_RECURRING_SCHEDULES (inputType TIME_RANGE_LIST) — uno o varios
+// horarios, mismo ciclo hora inicio -> hora fin -> ¿agregar otro? que
+// FUNCTIONS_LIST (Fase 3E), reutilizando sin duplicar los mismos
+// validadores/textos de hora.
+//
+// IMPORTANTE (hallazgo de auditoría, sección A del informe de entrega):
+// FUNCTIONS_RECURRING_SCHEDULES.next() apunta al MISMO step terminal
+// FUNCTIONS_LIST que usa MULTIPLE (steps/definitions.js) — y
+// generateRecurringSlots corre DENTRO de
+// FUNCTIONS_RECURRING_SCHEDULES.setValue, así que en el instante en que el
+// motor acepta los horarios, `result.prompt.slots` YA trae las funciones
+// concretas generadas (fecha × horario, para cada día del rango que cae en
+// alguno de los días elegidos). FUNCTIONS_LIST sigue siendo su propio step
+// real con su propio input handler: hace falta confirmarlo con el motor
+// para que las persista en `draft.functions` y avance a EVENT_PRICING_TYPE
+// — si no, quedarían generadas en el borrador pero nunca guardadas. Por
+// eso, al finalizar los horarios, esta función hace DOS llamadas reales al
+// motor en cadena (SCHEDULES, y automáticamente FUNCTIONS_LIST con
+// `result.prompt.slots` tal cual), nunca recalculando nada: nunca se
+// duplica generateRecurringSlots en WhatsApp, sólo se reenvía lo que el
+// motor ya generó. Sin este auto-commit, RECURRING obligaría al organizador
+// a recargar a mano, función por función, exactamente lo que el modo
+// recurrente existe para evitar.
+async function tryHandleRecurringSchedulesSubflow({
+    conversationId,
+    text,
+    reply,
+    handleConversationInput,
+    resumeConversation,
+    getPendingStepInput: getPendingStepInputDep,
+    resetPendingStepInput: resetPendingStepInputDep,
+    updatePendingStepInputStatus: updatePendingStepInputStatusDep,
+    deletePendingStepInput: deletePendingStepInputDep,
+}) {
+    const currentState = await resumeConversation(conversationId);
+    const isCurrentStepSchedules = currentState?.prompt?.stepId === "FUNCTIONS_RECURRING_SCHEDULES";
+
+    let pending = await getPendingStepInputDep(conversationId);
+    if (pending && (pending.stepId !== "FUNCTIONS_RECURRING_SCHEDULES" || !isCurrentStepSchedules)) {
+        pending = null;
+    }
+
+    if (!isCurrentStepSchedules) {
+        return { handled: false, currentState };
+    }
+
+    if (!pending) {
+        pending = await resetPendingStepInputDep(conversationId, "FUNCTIONS_RECURRING_SCHEDULES", "AWAITING_RECURRING_START_TIME", {
+            schedules: [],
+            current: {},
+        });
+    }
+
+    const wantsBack = isBackCommand(text);
+    const schedules = pending.partialData?.schedules ?? [];
+    const current = pending.partialData?.current ?? {};
+
+    if (pending.status === "AWAITING_RECURRING_START_TIME") {
+        if (wantsBack) {
+            if (schedules.length > 0) {
+                // Sección 19.B — todavía no se escribió nada del horario
+                // nuevo: vuelve a la decisión "¿agregar otro?" sin tocar los
+                // horarios ya confirmados.
+                await updatePendingStepInputStatusDep(conversationId, "AWAITING_RECURRING_ADD_ANOTHER", { schedules, current: {} });
+                const lastSchedule = schedules[schedules.length - 1];
+                await reply(buildWhatsappScheduleAddedSummaryText(lastSchedule), "RECURRING_SCHEDULES_BACK_TO_ADD_ANOTHER");
+                return { handled: true };
+            }
+
+            // Sección 19.D — primer horario, ningún sub-paso anterior dentro
+            // de este pending: BACK real del motor, vuelve a FUNCTIONS_WEEKDAYS.
+            const backResult = await handleConversationInput(conversationId, { action: "BACK" });
+            if (backResult?.prompt?.error) {
+                await reply(extractWhatsappReplyText(backResult), "RECURRING_SCHEDULES_BACK_REJECTED");
+                return { handled: true };
+            }
+            await deletePendingStepInputDep(conversationId);
+            await reply(extractWhatsappReplyText(backResult), "RECURRING_SCHEDULES_BACK_TO_PREVIOUS_STEP");
+            return { handled: true };
+        }
+
+        const trimmed = typeof text === "string" ? text.trim() : "";
+        if (!isValidTimeString(trimmed)) {
+            await reply(WHATSAPP_FUNCTION_CARD_TIME_INVALID_TEXT, "RECURRING_SCHEDULES_START_TIME_INVALID");
+            return { handled: true };
+        }
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_RECURRING_END_TIME", { schedules, current: { startTime: trimmed } });
+        await reply(WHATSAPP_FUNCTION_CARD_END_TIME_PROMPT_TEXT, "RECURRING_SCHEDULES_END_TIME_PROMPT");
+        return { handled: true };
+    }
+
+    if (pending.status === "AWAITING_RECURRING_END_TIME") {
+        if (wantsBack) {
+            // Vuelve a AWAITING_RECURRING_START_TIME: elimina todo el
+            // horario en curso (el único campo confirmado hasta acá era
+            // `startTime`) — los horarios anteriores no se tocan.
+            await updatePendingStepInputStatusDep(conversationId, "AWAITING_RECURRING_START_TIME", { schedules, current: {} });
+            await reply(buildWhatsappRecurringStartTimePromptText(schedules.length === 0), "RECURRING_SCHEDULES_BACK_TO_START_TIME");
+            return { handled: true };
+        }
+
+        const trimmedEnd = typeof text === "string" ? text.trim() : "";
+        if (!isValidTimeString(trimmedEnd)) {
+            await reply(WHATSAPP_FUNCTION_CARD_TIME_INVALID_TEXT, "RECURRING_SCHEDULES_END_TIME_INVALID");
+            return { handled: true };
+        }
+
+        const completedSchedule = { startTime: current.startTime, endTime: trimmedEnd };
+        const updatedSchedules = [...schedules, completedSchedule];
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_RECURRING_ADD_ANOTHER", { schedules: updatedSchedules, current: {} });
+        await reply(buildWhatsappScheduleAddedSummaryText(completedSchedule), "RECURRING_SCHEDULES_SCHEDULE_ADDED");
+        return { handled: true };
+    }
+
+    // pending.status === "AWAITING_RECURRING_ADD_ANOTHER"
+    if (wantsBack) {
+        // Sección 19.C — mismo patrón de Fase 3E: corregir el ÚLTIMO
+        // horario confirmado, sacándolo temporalmente de `schedules` y
+        // cargándolo en `current` para volver a preguntar la hora de fin
+        // (de ahí, "volver" sigue encadenando hacia hora de inicio).
+        const lastSchedule = schedules[schedules.length - 1];
+        const remainingSchedules = schedules.slice(0, -1);
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_RECURRING_END_TIME", {
+            schedules: remainingSchedules,
+            current: { startTime: lastSchedule.startTime, endTime: lastSchedule.endTime },
+        });
+        await reply(WHATSAPP_FUNCTION_CARD_END_TIME_PROMPT_TEXT, "RECURRING_SCHEDULES_EDIT_LAST_SCHEDULE");
+        return { handled: true };
+    }
+
+    // Reutiliza classifyInitialIntent, igual que Fase 3E.
+    const intent = classifyInitialIntent(text);
+    if (intent === "AFFIRMATIVE") {
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_RECURRING_START_TIME", { schedules, current: {} });
+        await reply(WHATSAPP_RECURRING_START_TIME_NEXT_PROMPT_TEXT, "RECURRING_SCHEDULES_ADD_ANOTHER");
+        return { handled: true };
+    }
+    if (intent === "NEGATIVE") {
+        const result = await handleConversationInput(conversationId, { value: schedules });
+        if (result?.prompt?.error) {
+            // Sección 23 — nunca se borra el pending antes de saber que el
+            // motor aceptó: todos los horarios cargados siguen ahí.
+            await reply(WHATSAPP_RECURRING_SCHEDULES_COMMIT_ERROR_TEXT, "RECURRING_SCHEDULES_COMMIT_ERROR");
+            return { handled: true };
+        }
+
+        // SCHEDULES aceptado: el pending de este step ya no corresponde a
+        // ningún sub-paso pendiente (el step real vigente ya es
+        // FUNCTIONS_LIST) — se borra ahora, independientemente de lo que
+        // ocurra con el auto-commit de abajo (ver comentario de la función).
+        await deletePendingStepInputDep(conversationId);
+
+        const slots = result?.prompt?.slots ?? [];
+        if (slots.length === 0) {
+            // Sección 25 — el motor lo va a detectar solo (FUNCTIONS_LIST
+            // rechaza un array vacío) apenas se reintente: se evita esa
+            // llamada innecesaria y se da directamente un mensaje claro y
+            // recuperable ("volver" desde acá lo resuelve el sub-flujo de
+            // FUNCTIONS_LIST de Fase 3E, sin pending propio en este punto).
+            await reply(WHATSAPP_RECURRING_NO_OCCURRENCES_TEXT, "RECURRING_NO_OCCURRENCES");
+            return { handled: true };
+        }
+
+        const finalResult = await handleConversationInput(conversationId, { value: slots });
+        if (finalResult?.prompt?.error) {
+            // No debería pasar nunca en la práctica (los slots ya vienen
+            // validados por el propio motor) — mensaje mínimo seguro, sin
+            // loop; el organizador puede seguir desde el step real vigente
+            // (FUNCTIONS_LIST) con el sub-flujo de Fase 3E.
+            await reply(WHATSAPP_RECURRING_SCHEDULES_COMMIT_ERROR_TEXT, "RECURRING_FUNCTIONS_LIST_COMMIT_ERROR");
+            return { handled: true };
+        }
+        await reply(extractWhatsappReplyText(finalResult), "RECURRING_COMPLETED");
+        return { handled: true };
+    }
+
+    await reply(WHATSAPP_FUNCTIONS_LIST_ADD_ANOTHER_INVALID_TEXT, "RECURRING_SCHEDULES_ADD_ANOTHER_INVALID");
+    return { handled: true };
+}
+
 // Único punto que conecta WhatsApp con EventCreationEngine — Fase 2E.
 // WhatsApp es sólo OTRO CANAL: nunca reimplementa pasos/preguntas propias,
 // sólo decide (a) si hay que iniciar el motor o no, y (b) reenvía lo que el
@@ -917,6 +1255,44 @@ export async function processInboundMessage(
                 deletePendingStepInput: deletePendingStepInputDep,
             });
             if (functionsListResult.handled) return;
+
+            // Fase 3F — RECURRING: tres steps reales distintos (rango, días,
+            // horarios), cada uno interceptado ANTES del motor con el mismo
+            // criterio que los sub-flujos anteriores.
+            const recurringRangeResult = await tryHandleRecurringRangeSubflow({
+                conversationId: active.id,
+                text,
+                reply,
+                handleConversationInput,
+                resumeConversation,
+                getPendingStepInput: getPendingStepInputDep,
+                resetPendingStepInput: resetPendingStepInputDep,
+                updatePendingStepInputStatus: updatePendingStepInputStatusDep,
+                deletePendingStepInput: deletePendingStepInputDep,
+            });
+            if (recurringRangeResult.handled) return;
+
+            const recurringWeekdaysResult = await tryHandleRecurringWeekdaysSubflow({
+                conversationId: active.id,
+                text,
+                reply,
+                handleConversationInput,
+                resumeConversation,
+            });
+            if (recurringWeekdaysResult.handled) return;
+
+            const recurringSchedulesResult = await tryHandleRecurringSchedulesSubflow({
+                conversationId: active.id,
+                text,
+                reply,
+                handleConversationInput,
+                resumeConversation,
+                getPendingStepInput: getPendingStepInputDep,
+                resetPendingStepInput: resetPendingStepInputDep,
+                updatePendingStepInputStatus: updatePendingStepInputStatusDep,
+                deletePendingStepInput: deletePendingStepInputDep,
+            });
+            if (recurringSchedulesResult.handled) return;
 
             // Primer intento: SIEMPRE el texto crudo, igual que Web — el
             // motor no cambia de contrato. Sólo si ESE intento falla
