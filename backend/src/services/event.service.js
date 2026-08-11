@@ -5,6 +5,7 @@ import { canPublishEvents } from "../utils/organizationTrust.js";
 import { isValidHttpUrl, parseMediaUrl } from "../utils/mediaParser.js";
 import { runArchiveSelfHeal } from "./eventArchive.service.js";
 import { effectiveCapacity, SOLD_TICKET_STATUSES } from "./functionCapacity.service.js";
+import { geocodeLocationIfNeeded } from "./geocoding.service.js";
 
 const UPDATABLE_FIELDS = [
     "title",
@@ -70,10 +71,31 @@ function assertValidCoordinate(value, min, max, errorCode) {
 }
 
 // Construye los campos de ubicación (Google Maps) a partir del objeto
-// `location` recibido del LocationPicker. Además sincroniza los campos
-// legacy (venue/address/city/province) para no romper el marketplace
-// público, que todavía lee esos campos denormalizados.
-function buildLocationData(location) {
+// `location` recibido del LocationPicker (Web, con coordenadas) o del
+// formulario/flujo manual (Web sin mapa, o WhatsApp — sin coordenadas).
+// Además sincroniza los campos legacy (venue/address/city/province) para no
+// romper el marketplace público, que todavía lee esos campos denormalizados.
+//
+// Fase 3J — si llega sin latitude/longitude pero con address+city+province
+// completos, intenta geocodificarla server-side antes de persistir
+// (geocodeLocationIfNeeded, geocoding.service.js — reutilizable, ajeno a
+// cualquier canal). Es best-effort: nunca lanza, nunca bloquea crear/editar
+// el evento por no poder geocodificar (mismo comportamiento de antes de
+// esta fase si falla: latitude/longitude quedan en null). Si YA hay
+// coordenadas reales (WhatsApp compartido, o picker de Google Maps en la
+// Web), nunca se geocodifica de nuevo — se conservan tal cual.
+//
+// Exportada ÚNICAMENTE para poder testear la cadena real completa
+// (Web/WhatsApp → EventServicePort.buildLocationInput → ACÁ → objeto final
+// que recibiría Prisma) sin depender de una base de datos real ni de mocks
+// frágiles de módulos ES (este runtime de node:test no tiene mock.module()
+// disponible para interceptar la importación de ../config/prisma.js) — es
+// la única I/O real de esta función que SÍ es mockeable limpiamente
+// (geocodeLocationIfNeeded llama a fetch, que los tests interceptan vía
+// globalThis.fetch, mismo patrón que el resto del proyecto). No es parte de
+// la API pública del módulo desde ningún otro caller real: `buildEventData`
+// (el único llamador real) sigue siendo interna.
+export async function buildLocationData(location) {
     if (!location || typeof location !== "object") return {};
 
     assertValidCoordinate(location.latitude, -90, 90, "INVALID_LATITUDE");
@@ -84,6 +106,23 @@ function buildLocationData(location) {
     const addressLine = location.addressLine?.trim() || null;
     const city = location.city?.trim() || null;
     const province = location.province?.trim() || null;
+    const country = location.country?.trim() || null;
+
+    const rawLatitude =
+        location.latitude === null || location.latitude === undefined || location.latitude === "" ? null : Number(location.latitude);
+    const rawLongitude =
+        location.longitude === null || location.longitude === undefined || location.longitude === "" ? null : Number(location.longitude);
+    const rawGooglePlaceId = location.googlePlaceId?.trim() || null;
+
+    const { latitude, longitude, googlePlaceId } = await geocodeLocationIfNeeded({
+        latitude: rawLatitude,
+        longitude: rawLongitude,
+        address: addressLine || formattedAddress,
+        city,
+        province,
+        country,
+        googlePlaceId: rawGooglePlaceId,
+    });
 
     return {
         venueName,
@@ -91,19 +130,11 @@ function buildLocationData(location) {
         addressLine,
         city,
         province,
-        country: location.country?.trim() || null,
+        country,
         postalCode: location.postalCode?.trim() || null,
-        latitude:
-            location.latitude === null || location.latitude === undefined || location.latitude === ""
-                ? null
-                : Number(location.latitude),
-        longitude:
-            location.longitude === null ||
-            location.longitude === undefined ||
-            location.longitude === ""
-                ? null
-                : Number(location.longitude),
-        googlePlaceId: location.googlePlaceId?.trim() || null,
+        latitude,
+        longitude,
+        googlePlaceId,
         // Legacy: mantiene funcionando el marketplace público existente.
         venue: venueName,
         address: addressLine || formattedAddress,
@@ -122,7 +153,12 @@ function assertValidCategory(input) {
     }
 }
 
-function buildEventData(input) {
+// Fase 3J — async porque buildLocationData ahora puede geocodificar
+// (best-effort, con timeout corto, ver geocoding.service.js); ambos
+// call-sites (createEventService/updateMyEventService) ya son async y
+// esperan a `data` antes de tocar Prisma, así que el `await` acá no cambia
+// ningún orden de operaciones existente.
+async function buildEventData(input) {
     const data = {};
     for (const field of UPDATABLE_FIELDS) {
         if (Object.hasOwn(input, field)) {
@@ -138,7 +174,7 @@ function buildEventData(input) {
     }
 
     if (Object.hasOwn(input, "location")) {
-        Object.assign(data, buildLocationData(input.location));
+        Object.assign(data, await buildLocationData(input.location));
     }
 
     return data;
@@ -161,7 +197,7 @@ export const createEventService = async (clerkId, input, organizationId = null) 
         return Boolean(existing);
     });
 
-    const data = buildEventData(input);
+    const data = await buildEventData(input);
 
     return prisma.event.create({
         data: {
@@ -274,7 +310,7 @@ export const updateMyEventService = async (clerkId, id, input, organizationId = 
 
     assertValidCategory(input);
 
-    const data = buildEventData(input);
+    const data = await buildEventData(input);
 
     if (Object.hasOwn(input, "status")) {
         if (input.status === "PUBLISHED") {

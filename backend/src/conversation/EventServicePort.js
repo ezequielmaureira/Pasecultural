@@ -17,7 +17,13 @@ const SOCIAL_NETWORK_LABEL = Object.fromEntries(SOCIAL_NETWORKS.map((s) => [s.id
 // entrada general a precio 0 en vez de duplicar esa regla acá.
 const FREE_TICKET_DEFAULT_QUANTITY = 999999;
 
-function buildLocationInput(location) {
+// Fase 3J — exportada ÚNICAMENTE para poder testear la cadena real
+// Web/WhatsApp → EventServicePort → event.service.js#buildLocationData
+// (ver tests/eventLocation.persistence.test.js) sin pasar por Prisma real:
+// es una función pura (sin I/O), así que exportarla no agrega ningún riesgo
+// ni cambia su comportamiento — sigue siendo exclusivamente interna a este
+// módulo desde el punto de vista de `commit`, el único caller real.
+export function buildLocationInput(location) {
     if (!location) return undefined;
     // El organizador sólo carga dirección/ciudad/provincia en el flujo
     // conversacional (sin picker de Google Maps todavía en este canal), así
