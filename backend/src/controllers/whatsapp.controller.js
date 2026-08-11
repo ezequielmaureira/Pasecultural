@@ -99,6 +99,7 @@ import {
     updatePendingStepInputStatus,
     deletePendingStepInput,
 } from "../services/whatsappPendingStepInput.service.js";
+import { startWhatsappPerfTimer } from "../utils/whatsappPerf.js";
 
 // El valor real de ConversationChannel para este canal (ver
 // prisma/schema.prisma `enum ConversationChannel { WEB WHATSAPP }`, ya usado
@@ -142,9 +143,24 @@ export const verifyWhatsappWebhook = (req, res) => {
 // único punto de envío (Fase 2D); ahora hay varias ramas y todas necesitan
 // exactamente el mismo chequeo de result.success, así que vive acá una sola
 // vez en vez de repetirse en cada rama de processInboundMessage.
-async function sendBotReply({ sendText, to, from, messageId, text, engineAction }) {
-    if (!text) return;
+// Fase 3H — `perf` (opcional, ver utils/whatsappPerf.js) mide acá adentro
+// las dos únicas fases que faltaban: BUILD_REPLY (todo lo que pasó desde la
+// última marca del caller hasta que se llamó a sendBotReply — incluye
+// extractWhatsappReplyText, que es CPU pura) y META_SEND (la llamada HTTP
+// real a Graph API, el único costo EXTERNO de esta función). Es también el
+// único punto que ya centralizaba TODOS los envíos de processInboundMessage
+// (ver comentario original más abajo), así que agregar el timing acá cubre
+// automáticamente las ~15 ramas de retorno de esa función sin tocar cada
+// una — nunca se llama a logger/perf si WHATSAPP_PERF_LOG no está activo
+// (ver isWhatsappPerfLogEnabled).
+async function sendBotReply({ sendText, to, from, messageId, text, engineAction, perf, conversationId }) {
+    perf?.mark("BUILD_REPLY");
+    if (!text) {
+        perf?.finish({ conversationId, engineAction, sent: false });
+        return;
+    }
     const result = await sendText({ to, text });
+    perf?.mark("META_SEND");
     const recipientNormalized = to !== from;
     if (!result.success) {
         // Nunca el texto/teléfono completo/token — sólo lo necesario para
@@ -156,6 +172,7 @@ async function sendBotReply({ sendText, to, from, messageId, text, engineAction 
             error: result.error,
             recipientNormalized,
         });
+        perf?.finish({ conversationId, engineAction, success: false });
         return;
     }
     logger.info("WhatsApp organizer bot reply sent", {
@@ -165,6 +182,22 @@ async function sendBotReply({ sendText, to, from, messageId, text, engineAction 
         outboundMessageId: result.messageId,
         recipientNormalized,
     });
+    perf?.finish({ conversationId, engineAction, success: true });
+}
+
+// Fase 3H — los 5 sub-pasos (LOCATION, FUNCTIONS_SINGLE_CARD, FUNCTIONS_LIST,
+// FUNCTIONS_RANGE, FUNCTIONS_RECURRING_SCHEDULES) son los ÚNICOS steps
+// reales que consumen WhatsappPendingStepInput (ver los 5 tryHandle*Subflow
+// que reciben `pending`) — para cualquier otro step real, ese pending nunca
+// se mira, así que ni vale la pena leerlo. Lista literal (no derivada de
+// otro lugar) para no acoplar esta optimización de performance a ningún
+// detalle interno de definitions.js — si el día de mañana un step nuevo
+// empieza a usar WhatsappPendingStepInput, agregarlo acá es la señal
+// explícita de que también hay que agregarlo.
+const PENDING_STEP_INPUT_STEP_IDS = new Set(["LOCATION", "FUNCTIONS_SINGLE_CARD", "FUNCTIONS_LIST", "FUNCTIONS_RANGE", "FUNCTIONS_RECURRING_SCHEDULES"]);
+
+function isPendingStepInputStep(currentState) {
+    return PENDING_STEP_INPUT_STEP_IDS.has(currentState?.prompt?.stepId);
 }
 
 // Fase 3G, sección 1 — CAUSA RAÍZ del bug "SINGLE termina y pide 'la primera
@@ -218,8 +251,8 @@ async function tryHandleFunctionCardSubflow({
     text,
     reply,
     handleConversationInput,
-    resumeConversation,
-    getPendingStepInput: getPendingStepInputDep,
+    currentState,
+    pending: rawPending,
     resetPendingStepInput: resetPendingStepInputDep,
     updatePendingStepInputStatus: updatePendingStepInputStatusDep,
     deletePendingStepInput: deletePendingStepInputDep,
@@ -233,16 +266,24 @@ async function tryHandleFunctionCardSubflow({
     // conversación ya avanzó a otro step (ej. LOCATION) sería reutilizado
     // en silencio — exactamente lo que la sección 5 del pedido de Fase 3B
     // prohíbe ("el stepId real es la fuente de verdad").
-    const currentState = await resumeConversation(conversationId);
+    //
+    // Fase 3H — `currentState`/`pending` ya vienen resueltos UNA sola vez
+    // por processInboundMessage (antes, cada uno de los 8 sub-flujos volvía
+    // a pedir resumeConversation/getPendingStepInput por su cuenta, aunque
+    // sólo UNO de ellos termina manejando cada mensaje — ver informe de
+    // entrega, "N consultas por mensaje"). Ningún sub-flujo escribe nada
+    // antes de confirmar que el step real es el suyo, así que reusar la
+    // MISMA lectura entre los 8 chequeos es exactamente equivalente a
+    // pedirla 8 veces: nada muta entre medio.
     const isCurrentStepFunctionCard = currentState?.prompt?.stepId === "FUNCTIONS_SINGLE_CARD";
 
-    let pending = await getPendingStepInputDep(conversationId);
+    let pending = rawPending;
     if (pending && (pending.stepId !== "FUNCTIONS_SINGLE_CARD" || !isCurrentStepFunctionCard)) {
         pending = null;
     }
 
     if (!isCurrentStepFunctionCard) {
-        return { handled: false, currentState };
+        return { handled: false };
     }
 
     if (!pending) {
@@ -395,8 +436,8 @@ async function tryHandleLocationSubflow({
     text,
     reply,
     handleConversationInput,
-    resumeConversation,
-    getPendingStepInput: getPendingStepInputDep,
+    currentState,
+    pending: rawPending,
     resetPendingStepInput: resetPendingStepInputDep,
     updatePendingStepInputStatus: updatePendingStepInputStatusDep,
     deletePendingStepInput: deletePendingStepInputDep,
@@ -406,19 +447,18 @@ async function tryHandleLocationSubflow({
     // única fuente de verdad de si este pending sigue siendo válido —
     // necesario ahora que hay DOS steps distintos consumiendo
     // WhatsappPendingStepInput.
-    const currentState = await resumeConversation(conversationId);
+    //
+    // Fase 3H — `currentState`/`pending` resueltos UNA sola vez por el
+    // caller (ver comentario equivalente en tryHandleFunctionCardSubflow).
     const isCurrentStepLocation = currentState?.prompt?.stepId === "LOCATION";
 
-    let pending = await getPendingStepInputDep(conversationId);
+    let pending = rawPending;
     if (pending && (pending.stepId !== "LOCATION" || !isCurrentStepLocation)) {
         pending = null;
     }
 
     if (!isCurrentStepLocation) {
-        // Se devuelve el `currentState` ya resuelto para que el caller
-        // (processInboundMessage) no tenga que volver a llamar
-        // resumeConversation (misma lectura, evitar la consulta doble).
-        return { handled: false, currentState };
+        return { handled: false };
     }
 
     if (!pending) {
@@ -641,8 +681,8 @@ async function tryHandleFunctionsListSubflow({
     text,
     reply,
     handleConversationInput,
-    resumeConversation,
-    getPendingStepInput: getPendingStepInputDep,
+    currentState,
+    pending: rawPending,
     resetPendingStepInput: resetPendingStepInputDep,
     updatePendingStepInputStatus: updatePendingStepInputStatusDep,
     deletePendingStepInput: deletePendingStepInputDep,
@@ -651,16 +691,18 @@ async function tryHandleFunctionsListSubflow({
     // step REAL vigente (nunca el stepId grabado en el pending) es la única
     // fuente de verdad de si este pending sigue siendo válido — ahora con
     // TRES steps distintos consumiendo WhatsappPendingStepInput.
-    const currentState = await resumeConversation(conversationId);
+    //
+    // Fase 3H — `currentState`/`pending` resueltos UNA sola vez por el
+    // caller (ver comentario equivalente en tryHandleFunctionCardSubflow).
     const isCurrentStepFunctionsList = currentState?.prompt?.stepId === "FUNCTIONS_LIST";
 
-    let pending = await getPendingStepInputDep(conversationId);
+    let pending = rawPending;
     if (pending && (pending.stepId !== "FUNCTIONS_LIST" || !isCurrentStepFunctionsList)) {
         pending = null;
     }
 
     if (!isCurrentStepFunctionsList) {
-        return { handled: false, currentState };
+        return { handled: false };
     }
 
     if (!pending) {
@@ -833,22 +875,23 @@ async function tryHandleRecurringRangeSubflow({
     text,
     reply,
     handleConversationInput,
-    resumeConversation,
-    getPendingStepInput: getPendingStepInputDep,
+    currentState,
+    pending: rawPending,
     resetPendingStepInput: resetPendingStepInputDep,
     updatePendingStepInputStatus: updatePendingStepInputStatusDep,
     deletePendingStepInput: deletePendingStepInputDep,
 }) {
-    const currentState = await resumeConversation(conversationId);
+    // Fase 3H — `currentState`/`pending` resueltos UNA sola vez por el
+    // caller (ver comentario equivalente en tryHandleFunctionCardSubflow).
     const isCurrentStepRange = currentState?.prompt?.stepId === "FUNCTIONS_RANGE";
 
-    let pending = await getPendingStepInputDep(conversationId);
+    let pending = rawPending;
     if (pending && (pending.stepId !== "FUNCTIONS_RANGE" || !isCurrentStepRange)) {
         pending = null;
     }
 
     if (!isCurrentStepRange) {
-        return { handled: false, currentState };
+        return { handled: false };
     }
 
     if (!pending) {
@@ -927,10 +970,11 @@ async function tryHandleRecurringRangeSubflow({
 // intercepta igual que los demás (nunca se deja pasar el texto crudo:
 // weekdays.js#parse exige un Array, un string como "1,3,5" siempre lo
 // rechaza sin dar ninguna pista útil al organizador).
-async function tryHandleRecurringWeekdaysSubflow({ conversationId, text, reply, handleConversationInput, resumeConversation }) {
-    const currentState = await resumeConversation(conversationId);
+// Fase 3H — `currentState` resuelto UNA sola vez por el caller (ver
+// comentario equivalente en tryHandleFunctionCardSubflow).
+async function tryHandleRecurringWeekdaysSubflow({ conversationId, text, reply, handleConversationInput, currentState }) {
     if (currentState?.prompt?.stepId !== "FUNCTIONS_WEEKDAYS") {
-        return { handled: false, currentState };
+        return { handled: false };
     }
 
     if (isBackCommand(text)) {
@@ -992,22 +1036,23 @@ async function tryHandleRecurringSchedulesSubflow({
     text,
     reply,
     handleConversationInput,
-    resumeConversation,
-    getPendingStepInput: getPendingStepInputDep,
+    currentState,
+    pending: rawPending,
     resetPendingStepInput: resetPendingStepInputDep,
     updatePendingStepInputStatus: updatePendingStepInputStatusDep,
     deletePendingStepInput: deletePendingStepInputDep,
 }) {
-    const currentState = await resumeConversation(conversationId);
+    // Fase 3H — `currentState`/`pending` resueltos UNA sola vez por el
+    // caller (ver comentario equivalente en tryHandleFunctionCardSubflow).
     const isCurrentStepSchedules = currentState?.prompt?.stepId === "FUNCTIONS_RECURRING_SCHEDULES";
 
-    let pending = await getPendingStepInputDep(conversationId);
+    let pending = rawPending;
     if (pending && (pending.stepId !== "FUNCTIONS_RECURRING_SCHEDULES" || !isCurrentStepSchedules)) {
         pending = null;
     }
 
     if (!isCurrentStepSchedules) {
-        return { handled: false, currentState };
+        return { handled: false };
     }
 
     if (!pending) {
@@ -1155,10 +1200,11 @@ async function tryHandleRecurringSchedulesSubflow({
 // llamar al motor; si la respuesta no es "1" ni "2", se deja pasar el texto
 // crudo tal cual (inputHandlers/yesNo.js ya entiende "sí"/"no"/etc. — nunca
 // se reimplementa esa validación acá).
-async function tryHandleYesNoSubflow({ conversationId, text, reply, handleConversationInput, resumeConversation }) {
-    const currentState = await resumeConversation(conversationId);
+// Fase 3H — `currentState` resuelto UNA sola vez por el caller (ver
+// comentario equivalente en tryHandleFunctionCardSubflow).
+async function tryHandleYesNoSubflow({ conversationId, text, reply, handleConversationInput, currentState }) {
     if (currentState?.prompt?.inputType !== "YES_NO") {
-        return { handled: false, currentState };
+        return { handled: false };
     }
 
     if (isBackCommand(text)) {
@@ -1185,10 +1231,11 @@ async function tryHandleYesNoSubflow({ conversationId, text, reply, handleConver
 // EventCreationEngine.handlePreviewInput/handleBack — nunca se inventa
 // semántica nueva. Sin WhatsappPendingStepInput: es una decisión de una
 // sola respuesta, igual que YES_NO/WEEKDAYS.
-async function tryHandlePreviewSubflow({ conversationId, text, reply, handleConversationInput, resumeConversation }) {
-    const currentState = await resumeConversation(conversationId);
+// Fase 3H — `currentState` resuelto UNA sola vez por el caller (ver
+// comentario equivalente en tryHandleFunctionCardSubflow).
+async function tryHandlePreviewSubflow({ conversationId, text, reply, handleConversationInput, currentState }) {
     if (currentState?.prompt?.stepId !== "PREVIEW") {
-        return { handled: false, currentState };
+        return { handled: false };
     }
 
     // "volver"/"3" son equivalentes: ambos usan el BACK real del motor
@@ -1287,11 +1334,22 @@ export async function processInboundMessage(
     // Un mensaje de imagen no trae `text` (normalizeMessage lo deja null,
     // ver whatsapp.service.js) — nunca se le llama `.trim()` a null.
     const text = typeof message.text === "string" ? message.text.trim() : "";
+
+    // Fase 3H — timer diagnóstico (WHATSAPP_PERF_LOG=true, ver
+    // utils/whatsappPerf.js), no-op por defecto. `activeConversationId` es
+    // una variable capturada por el closure de `reply` en vez de un
+    // parámetro extra: así no hace falta tocar ninguno de los ~30 call
+    // sites de `reply(...)` que ya existen — se completa sola apenas se
+    // resuelve `active` más abajo.
+    const perf = startWhatsappPerfTimer();
+    let activeConversationId = null;
     const reply = (replyText, engineAction) =>
-        sendBotReply({ sendText, to, from: message.from, messageId: message.messageId, text: replyText, engineAction });
+        sendBotReply({ sendText, to, from: message.from, messageId: message.messageId, text: replyText, engineAction, perf, conversationId: activeConversationId });
 
     try {
         const active = await findActiveConversation({ channel: WHATSAPP_CHANNEL, channelRef });
+        activeConversationId = active?.id ?? null;
+        perf.mark("FIND_CONVERSATION");
 
         // Bug fix (carga de imagen del evento): sólo tiene sentido procesar
         // una imagen si hay una conversación activa Y el paso en el que
@@ -1306,6 +1364,7 @@ export async function processInboundMessage(
             if (!active) return;
 
             const currentState = await resumeConversation(active.id);
+            perf.mark("RESUME");
             if (currentState?.prompt?.inputType !== "IMAGE_URL") {
                 await reply(`${WHATSAPP_IMAGE_NOT_EXPECTED_TEXT}\n\n${extractWhatsappReplyText(currentState)}`, "IMAGE_NOT_EXPECTED");
                 return;
@@ -1333,24 +1392,31 @@ export async function processInboundMessage(
         if (isProcessableLocation) {
             if (!active) return;
 
+            // Fase 3H — un único resume acá: es el único sub-flujo invocado
+            // en esta rama (mensaje type==="location"), así que no había
+            // redundancia previa que eliminar, pero se mide igual para tener
+            // el mismo punto de referencia que la rama de texto.
+            const currentState = await resumeConversation(active.id);
+            perf.mark("RESUME");
+            const pending = isPendingStepInputStep(currentState) ? await getPendingStepInputDep(active.id) : null;
+            perf.mark("PENDING_READ");
+
             const locationResult = await tryHandleLocationSubflow({
                 conversationId: active.id,
                 message,
                 text,
                 reply,
                 handleConversationInput,
-                resumeConversation,
-                getPendingStepInput: getPendingStepInputDep,
+                currentState,
+                pending,
                 resetPendingStepInput: resetPendingStepInputDep,
                 updatePendingStepInputStatus: updatePendingStepInputStatusDep,
                 deletePendingStepInput: deletePendingStepInputDep,
             });
+            perf.mark("SUBFLOW");
             if (locationResult.handled) return;
 
-            await reply(
-                `${WHATSAPP_LOCATION_NOT_EXPECTED_TEXT}\n\n${extractWhatsappReplyText(locationResult.currentState)}`,
-                "LOCATION_NOT_EXPECTED"
-            );
+            await reply(`${WHATSAPP_LOCATION_NOT_EXPECTED_TEXT}\n\n${extractWhatsappReplyText(currentState)}`, "LOCATION_NOT_EXPECTED");
             return;
         }
 
@@ -1360,6 +1426,36 @@ export async function processInboundMessage(
                 await reply(WHATSAPP_CANCEL_TEXT, "CANCEL");
                 return;
             }
+
+            // Fase 3H — AUDITORÍA DE PERFORMANCE (ver informe de entrega,
+            // sección "N consultas por mensaje"): antes de esta fase, CADA
+            // uno de los 8 sub-flujos de abajo (LOCATION/FUNCTION_CARD/
+            // FUNCTIONS_LIST/RANGE/WEEKDAYS/SCHEDULES/YES_NO/PREVIEW) volvía
+            // a llamar resumeConversation por su cuenta, y 5 de ellos
+            // también volvían a llamar getPendingStepInput — aunque sólo UNO
+            // de los 8 termina manejando cada mensaje. Para un mensaje en un
+            // step "plano" (NAME, DESCRIPTION, CATEGORY, TICKET_*, etc., que
+            // ningún sub-flujo reclama), eso eran hasta 8 lecturas idénticas
+            // de ConversationState + hasta 5 lecturas idénticas de
+            // WhatsappPendingStepInput para UN SOLO mensaje — la mayor
+            // redundancia encontrada en la auditoría.
+            //
+            // Ninguno de los 8 sub-flujos escribe NADA antes de confirmar
+            // que el step real vigente es el suyo (todos empiezan con "si no
+            // es mi step, handled:false" antes de tocar handleConversationInput/
+            // Prisma) — así que resolver `currentState` UNA sola vez acá y
+            // pasarlo a los 8 es exactamente equivalente: nada puede mutar
+            // el resultado entre una llamada y la siguiente dentro del mismo
+            // mensaje. `pending` sigue el mismo razonamiento, y además sólo
+            // se pide si el step real vigente es alguno de los 5 que
+            // realmente consumen WhatsappPendingStepInput (isPendingStepInputStep)
+            // — para cualquier otro step, ni siquiera esa lectura hace falta,
+            // porque los 5 sub-flujos que la usan igual devuelven
+            // handled:false sin mirar `pending` cuando el step no es el suyo.
+            const currentState = await resumeConversation(active.id);
+            perf.mark("RESUME");
+            const pending = isPendingStepInputStep(currentState) ? await getPendingStepInputDep(active.id) : null;
+            perf.mark("PENDING_READ");
 
             // Fase 3D — LOCATION ("cómo cargar la ubicación") se intercepta
             // ACÁ, ANTES de tocar el motor, igual que FUNCTIONS_SINGLE_CARD:
@@ -1372,13 +1468,16 @@ export async function processInboundMessage(
                 text,
                 reply,
                 handleConversationInput,
-                resumeConversation,
-                getPendingStepInput: getPendingStepInputDep,
+                currentState,
+                pending,
                 resetPendingStepInput: resetPendingStepInputDep,
                 updatePendingStepInputStatus: updatePendingStepInputStatusDep,
                 deletePendingStepInput: deletePendingStepInputDep,
             });
-            if (locationResult.handled) return;
+            if (locationResult.handled) {
+                perf.mark("SUBFLOW");
+                return;
+            }
 
             // Fase 3C — FUNCTIONS_SINGLE_CARD ("una sola función") se
             // intercepta ACÁ, ANTES de tocar el motor: a diferencia de
@@ -1391,13 +1490,16 @@ export async function processInboundMessage(
                 text,
                 reply,
                 handleConversationInput,
-                resumeConversation,
-                getPendingStepInput: getPendingStepInputDep,
+                currentState,
+                pending,
                 resetPendingStepInput: resetPendingStepInputDep,
                 updatePendingStepInputStatus: updatePendingStepInputStatusDep,
                 deletePendingStepInput: deletePendingStepInputDep,
             });
-            if (functionCardResult.handled) return;
+            if (functionCardResult.handled) {
+                perf.mark("SUBFLOW");
+                return;
+            }
 
             // Fase 3E — FUNCTIONS_LIST ("varias funciones") se intercepta
             // ACÁ, mismo criterio que FUNCTIONS_SINGLE_CARD/LOCATION: el
@@ -1408,13 +1510,16 @@ export async function processInboundMessage(
                 text,
                 reply,
                 handleConversationInput,
-                resumeConversation,
-                getPendingStepInput: getPendingStepInputDep,
+                currentState,
+                pending,
                 resetPendingStepInput: resetPendingStepInputDep,
                 updatePendingStepInputStatus: updatePendingStepInputStatusDep,
                 deletePendingStepInput: deletePendingStepInputDep,
             });
-            if (functionsListResult.handled) return;
+            if (functionsListResult.handled) {
+                perf.mark("SUBFLOW");
+                return;
+            }
 
             // Fase 3F — RECURRING: tres steps reales distintos (rango, días,
             // horarios), cada uno interceptado ANTES del motor con el mismo
@@ -1424,35 +1529,44 @@ export async function processInboundMessage(
                 text,
                 reply,
                 handleConversationInput,
-                resumeConversation,
-                getPendingStepInput: getPendingStepInputDep,
+                currentState,
+                pending,
                 resetPendingStepInput: resetPendingStepInputDep,
                 updatePendingStepInputStatus: updatePendingStepInputStatusDep,
                 deletePendingStepInput: deletePendingStepInputDep,
             });
-            if (recurringRangeResult.handled) return;
+            if (recurringRangeResult.handled) {
+                perf.mark("SUBFLOW");
+                return;
+            }
 
             const recurringWeekdaysResult = await tryHandleRecurringWeekdaysSubflow({
                 conversationId: active.id,
                 text,
                 reply,
                 handleConversationInput,
-                resumeConversation,
+                currentState,
             });
-            if (recurringWeekdaysResult.handled) return;
+            if (recurringWeekdaysResult.handled) {
+                perf.mark("SUBFLOW");
+                return;
+            }
 
             const recurringSchedulesResult = await tryHandleRecurringSchedulesSubflow({
                 conversationId: active.id,
                 text,
                 reply,
                 handleConversationInput,
-                resumeConversation,
-                getPendingStepInput: getPendingStepInputDep,
+                currentState,
+                pending,
                 resetPendingStepInput: resetPendingStepInputDep,
                 updatePendingStepInputStatus: updatePendingStepInputStatusDep,
                 deletePendingStepInput: deletePendingStepInputDep,
             });
-            if (recurringSchedulesResult.handled) return;
+            if (recurringSchedulesResult.handled) {
+                perf.mark("SUBFLOW");
+                return;
+            }
 
             // Fase 3G — steps YES_NO (WANTS_FREE_TICKETS/PROMO_VIDEO_ASK/
             // SOCIAL_LINKS_ASK/ADD_ANOTHER_SOCIAL) y PREVIEW (resumen final +
@@ -1463,18 +1577,24 @@ export async function processInboundMessage(
                 text,
                 reply,
                 handleConversationInput,
-                resumeConversation,
+                currentState,
             });
-            if (yesNoResult.handled) return;
+            if (yesNoResult.handled) {
+                perf.mark("SUBFLOW");
+                return;
+            }
 
             const previewResult = await tryHandlePreviewSubflow({
                 conversationId: active.id,
                 text,
                 reply,
                 handleConversationInput,
-                resumeConversation,
+                currentState,
             });
-            if (previewResult.handled) return;
+            if (previewResult.handled) {
+                perf.mark("SUBFLOW");
+                return;
+            }
 
             // Primer intento: SIEMPRE el texto crudo, igual que Web — el
             // motor no cambia de contrato. Sólo si ESE intento falla
@@ -1493,6 +1613,7 @@ export async function processInboundMessage(
                     result = await handleConversationInput(active.id, { value: resolvedId });
                 }
             }
+            perf.mark("SUBFLOW");
             await reply(extractWhatsappReplyText(result), "HANDLE_INPUT");
             return;
         }
