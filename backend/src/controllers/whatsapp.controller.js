@@ -29,7 +29,8 @@ import {
     isCancelCommand,
     extractWhatsappReplyText,
     resolveSingleSelectIndexReply,
-    parseWhatsappFunctionCardText,
+    parseWhatsappFunctionCardDateText,
+    isArgentineDateInThePast,
     WHATSAPP_DECLINE_TEXT,
     WHATSAPP_CANCEL_TEXT,
     WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT,
@@ -37,6 +38,12 @@ import {
     WHATSAPP_IMAGE_NOT_EXPECTED_TEXT,
     WHATSAPP_LOCATION_NOT_EXPECTED_TEXT,
     WHATSAPP_LOCATION_INSUFFICIENT_TEXT,
+    WHATSAPP_FUNCTION_CARD_DATE_INVALID_TEXT,
+    WHATSAPP_FUNCTION_CARD_DATE_PAST_TEXT,
+    WHATSAPP_FUNCTION_CARD_START_TIME_PROMPT_TEXT,
+    WHATSAPP_FUNCTION_CARD_END_TIME_PROMPT_TEXT,
+    WHATSAPP_FUNCTION_CARD_TIME_INVALID_TEXT,
+    WHATSAPP_FUNCTION_CARD_COMMIT_ERROR_TEXT,
     buildKnownOrganizationGreetingText,
     buildOrganizationSelectorText,
     buildOrganizationSelectedConfirmationText,
@@ -46,6 +53,13 @@ import {
     isPublishableWhatsappLocation,
 } from "../services/whatsappOrganizerBot.service.js";
 import { uploadWhatsappImageMessage } from "../services/whatsappMediaUpload.service.js";
+import { isValidTimeString } from "../conversation/inputHandlers/time.js";
+import {
+    getPendingStepInput,
+    resetPendingStepInput,
+    updatePendingStepInputStatus,
+    deletePendingStepInput,
+} from "../services/whatsappPendingStepInput.service.js";
 
 // El valor real de ConversationChannel para este canal (ver
 // prisma/schema.prisma `enum ConversationChannel { WEB WHATSAPP }`, ya usado
@@ -114,6 +128,112 @@ async function sendBotReply({ sendText, to, from, messageId, text, engineAction 
     });
 }
 
+// Fase 3C — único consumidor real de WhatsappPendingStepInput hasta ahora.
+// Divide el step FUNCTIONS_SINGLE_CARD (inputType FUNCTION_CARD — el motor
+// exige {date,startTime,endTime} en UNA sola respuesta, ver
+// inputHandlers/functionCard.js) en 3 mensajes de WhatsApp: fecha, hora de
+// inicio, hora de fin. El motor NUNCA recibe un dato suelto — sólo el
+// objeto completo, y sólo una vez, al final.
+//
+// Devuelve {handled:true} si ya mandó una respuesta y el árbol de decisión
+// normal de processInboundMessage no debe seguir con este mensaje;
+// {handled:false} si el mensaje no pertenece a este sub-flujo (no había un
+// pending para FUNCTIONS_SINGLE_CARD y el step actual tampoco lo es), y
+// debe seguir su camino normal (SINGLE_SELECT, texto libre genérico, etc.).
+//
+// Protección contra estado viejo (Fase 3B, sección 5 del pedido): un
+// pending de OTRO stepId nunca se reutiliza — se descarta explícitamente
+// (resetPendingStepInput) recién cuando se confirma que el step REAL
+// vigente es FUNCTIONS_SINGLE_CARD.
+async function tryHandleFunctionCardSubflow({
+    conversationId,
+    text,
+    reply,
+    handleConversationInput,
+    resumeConversation,
+    getPendingStepInput: getPendingStepInputDep,
+    resetPendingStepInput: resetPendingStepInputDep,
+    updatePendingStepInputStatus: updatePendingStepInputStatusDep,
+    deletePendingStepInput: deletePendingStepInputDep,
+}) {
+    let pending = await getPendingStepInputDep(conversationId);
+    if (pending && pending.stepId !== "FUNCTIONS_SINGLE_CARD") {
+        pending = null;
+    }
+
+    if (!pending) {
+        const currentState = await resumeConversation(conversationId);
+        if (currentState?.prompt?.stepId !== "FUNCTIONS_SINGLE_CARD") {
+            return { handled: false };
+        }
+        // Recién acá se confirma que el step real es FUNCTIONS_SINGLE_CARD:
+        // se arranca (o se resetea uno viejo de otro step) un pending
+        // nuevo. El prompt de fecha ya se mostró al llegar a este step (ver
+        // extractWhatsappReplyText#inputType==="FUNCTION_CARD") — el `text`
+        // que acaba de llegar ES la respuesta a esa pregunta, así que se
+        // sigue evaluando abajo, sin volver a preguntar.
+        pending = await resetPendingStepInputDep(conversationId, "FUNCTIONS_SINGLE_CARD", "AWAITING_DATE");
+    }
+
+    if (pending.status === "AWAITING_DATE") {
+        const normalizedDate = parseWhatsappFunctionCardDateText(text);
+        if (!normalizedDate) {
+            await reply(WHATSAPP_FUNCTION_CARD_DATE_INVALID_TEXT, "FUNCTION_CARD_DATE_INVALID");
+            return { handled: true };
+        }
+        if (isArgentineDateInThePast(normalizedDate)) {
+            await reply(WHATSAPP_FUNCTION_CARD_DATE_PAST_TEXT, "FUNCTION_CARD_DATE_PAST");
+            return { handled: true };
+        }
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_START_TIME", { date: normalizedDate });
+        await reply(WHATSAPP_FUNCTION_CARD_START_TIME_PROMPT_TEXT, "FUNCTION_CARD_START_TIME_PROMPT");
+        return { handled: true };
+    }
+
+    if (pending.status === "AWAITING_START_TIME") {
+        const trimmed = typeof text === "string" ? text.trim() : "";
+        if (!isValidTimeString(trimmed)) {
+            await reply(WHATSAPP_FUNCTION_CARD_TIME_INVALID_TEXT, "FUNCTION_CARD_TIME_INVALID");
+            return { handled: true };
+        }
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_END_TIME", {
+            ...pending.partialData,
+            startTime: trimmed,
+        });
+        await reply(WHATSAPP_FUNCTION_CARD_END_TIME_PROMPT_TEXT, "FUNCTION_CARD_END_TIME_PROMPT");
+        return { handled: true };
+    }
+
+    // pending.status === "AWAITING_END_TIME"
+    const trimmedEndTime = typeof text === "string" ? text.trim() : "";
+    if (!isValidTimeString(trimmedEndTime)) {
+        await reply(WHATSAPP_FUNCTION_CARD_TIME_INVALID_TEXT, "FUNCTION_CARD_TIME_INVALID");
+        return { handled: true };
+    }
+
+    const finalValue = {
+        date: pending.partialData.date,
+        startTime: pending.partialData.startTime,
+        endTime: trimmedEndTime,
+    };
+    const result = await handleConversationInput(conversationId, { value: finalValue });
+
+    if (result?.prompt?.error) {
+        // No debería pasar nunca en la práctica (fecha y horarios ya se
+        // validaron uno por uno con los mismos validadores reales del
+        // motor antes de llegar acá) — pero si pasa, comportamiento mínimo
+        // seguro: NUNCA se pierden fecha/hora de inicio ya confirmadas, el
+        // pending queda intacto (sigue en AWAITING_END_TIME) para que sólo
+        // haga falta reintentar la hora de fin.
+        await reply(WHATSAPP_FUNCTION_CARD_COMMIT_ERROR_TEXT, "FUNCTION_CARD_COMMIT_ERROR");
+        return { handled: true };
+    }
+
+    await deletePendingStepInputDep(conversationId);
+    await reply(extractWhatsappReplyText(result), "FUNCTION_CARD_COMPLETED");
+    return { handled: true };
+}
+
 // Único punto que conecta WhatsApp con EventCreationEngine — Fase 2E.
 // WhatsApp es sólo OTRO CANAL: nunca reimplementa pasos/preguntas propias,
 // sólo decide (a) si hay que iniciar el motor o no, y (b) reenvía lo que el
@@ -151,6 +271,10 @@ export async function processInboundMessage(
         clearPendingSelection = clearPendingOrganizationSelection,
         resolveOwner = resolveOrganizationOwner,
         uploadImage = uploadWhatsappImageMessage,
+        getPendingStepInput: getPendingStepInputDep = getPendingStepInput,
+        resetPendingStepInput: resetPendingStepInputDep = resetPendingStepInput,
+        updatePendingStepInputStatus: updatePendingStepInputStatusDep = updatePendingStepInputStatus,
+        deletePendingStepInput: deletePendingStepInputDep = deletePendingStepInput,
     } = {}
 ) {
     // Bug fix (carga de imagen del evento): antes shouldAutoReply por sí
@@ -261,31 +385,40 @@ export async function processInboundMessage(
                 return;
             }
 
+            // Fase 3C — FUNCTIONS_SINGLE_CARD ("una sola función") se
+            // intercepta ACÁ, ANTES de tocar el motor: a diferencia de
+            // SINGLE_SELECT (donde el primer intento con texto crudo es
+            // inofensivo y útil), un mensaje suelto de fecha/hora nunca debe
+            // llegar a handleConversationInput — el motor sólo puede recibir
+            // los 3 datos juntos, al final. Ver tryHandleFunctionCardSubflow.
+            const functionCardResult = await tryHandleFunctionCardSubflow({
+                conversationId: active.id,
+                text,
+                reply,
+                handleConversationInput,
+                resumeConversation,
+                getPendingStepInput: getPendingStepInputDep,
+                resetPendingStepInput: resetPendingStepInputDep,
+                updatePendingStepInputStatus: updatePendingStepInputStatusDep,
+                deletePendingStepInput: deletePendingStepInputDep,
+            });
+            if (functionCardResult.handled) return;
+
             // Primer intento: SIEMPRE el texto crudo, igual que Web — el
             // motor no cambia de contrato. Sólo si ESE intento falla
-            // (prompt.error), según el step que rechazó la respuesta, se
-            // reinterpreta el mismo texto y se reintenta UNA única vez:
-            //  - SINGLE_SELECT: el texto es un índice 1-based sobre
-            //    `prompt.options` (la MISMA lista que el motor ya devolvió)
-            //    -> se traduce al `id` real de esa lista.
-            //  - FUNCTION_CARD ("una sola función", fecha+horario): el texto
-            //    es "DD/MM/AAAA HH:MM a HH:MM" -> se traduce a
-            //    {date, startTime, endTime}.
-            // En ambos casos, si la reinterpretación no da un valor válido,
-            // el error original (ya adaptado para WhatsApp, ver
-            // extractWhatsappReplyText) es lo único que se manda — nunca se
-            // le pasa al motor un valor inventado o fuera de lo que
-            // realmente mostró.
+            // (prompt.error) Y el step que rechazó la respuesta es
+            // SINGLE_SELECT, se interpreta la respuesta como un índice
+            // 1-based sobre `prompt.options` (la MISMA lista que el motor ya
+            // devolvió) y se reintenta una única vez con el `id` real —
+            // nunca se le pasa al motor un índice ni se inventa un id fuera
+            // de esa lista. Si no es un índice válido, resolveSingleSelectIndexReply
+            // devuelve null y el error original (con sus opciones, ver
+            // extractWhatsappReplyText) es lo único que se manda.
             let result = await handleConversationInput(active.id, { value: text });
             if (result?.prompt?.error && result.prompt.inputType === "SINGLE_SELECT") {
                 const resolvedId = resolveSingleSelectIndexReply(result.prompt.options, text);
                 if (resolvedId) {
                     result = await handleConversationInput(active.id, { value: resolvedId });
-                }
-            } else if (result?.prompt?.error && result.prompt.inputType === "FUNCTION_CARD") {
-                const resolvedFunctionCard = parseWhatsappFunctionCardText(text);
-                if (resolvedFunctionCard) {
-                    result = await handleConversationInput(active.id, { value: resolvedFunctionCard });
                 }
             }
             await reply(extractWhatsappReplyText(result), "HANDLE_INPUT");

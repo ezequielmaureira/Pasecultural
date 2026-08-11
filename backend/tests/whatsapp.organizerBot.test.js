@@ -71,6 +71,19 @@ function baseDeps(overrides = {}) {
             confirmSelection: spy(undefined),
             clearPendingSelection: spy(undefined),
             resolveOwner: spy({ name: "Elvis Bar", clerkId: "user_123" }),
+            // Fase 3C — el sub-flujo de FUNCTIONS_SINGLE_CARD se consulta
+            // SIEMPRE que hay conversación activa (ver
+            // whatsapp.controller.js#tryHandleFunctionCardSubflow). Ninguno
+            // de los tests de este archivo ejercita ese step, así que estos
+            // defaults simplemente confirman "no hay pending, y el step
+            // actual tampoco es FUNCTIONS_SINGLE_CARD" para que el árbol de
+            // decisión caiga siempre al camino SINGLE_SELECT que sí se
+            // está probando acá.
+            resumeConversation: spy({ conversationId: "conv1", prompt: { stepId: "CATEGORY", type: "QUESTION", inputType: "SINGLE_SELECT" }, canGoBack: true, sections: [] }),
+            getPendingStepInput: spy(null),
+            resetPendingStepInput: spy(undefined),
+            updatePendingStepInputStatus: spy(undefined),
+            deletePendingStepInput: spy(undefined),
             ...overrides,
         },
         sendCalls,

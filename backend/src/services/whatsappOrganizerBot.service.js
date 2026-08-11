@@ -4,7 +4,7 @@
 // respuesta REAL del motor a un texto plano. El motor nunca se entera de
 // que este texto va a Meta.
 
-import { isValidCalendarDateString, normalizeCalendarDateString } from "../utils/calendarDate.js";
+import { isValidCalendarDateString, normalizeCalendarDateString, compareCalendarDateStrings } from "../utils/calendarDate.js";
 import { isValidTimeString } from "../conversation/inputHandlers/time.js";
 
 export const WHATSAPP_DECLINE_TEXT = "Perfecto 👍 Cuando quieras publicar un evento, escribime.";
@@ -112,56 +112,103 @@ export const WHATSAPP_LOCATION_INSUFFICIENT_TEXT =
     "📍 Necesito la ubicación del lugar del evento.\n\nTocá 📎 → Ubicación, buscá el nombre del lugar y seleccioná el establecimiento.\n\nNo envíes solamente tu ubicación actual.";
 
 // ==================================================================
-// Bug fix (UX y validación de fecha) — step FUNCTIONS_SINGLE_CARD
-// (inputType FUNCTION_CARD, "una sola función"). El motor exige fecha +
-// hora de inicio + hora de fin JUNTAS en una sola respuesta (así las arma
-// FunctionCardAnswer.jsx, el formulario compuesto de la Web) — no existe
-// ningún step que pida sólo una fecha. WhatsApp, al ser texto libre, pide
-// las tres cosas en UN solo mensaje con un formato fijo y las traduce acá
-// al mismo shape {date, startTime, endTime} que ya espera
-// inputHandlers/functionCard.js — el motor no se entera de que este texto
-// existe, sigue validando exactamente lo mismo que siempre (fecha de
-// calendario real vía isValidCalendarDateString, horario HH:mm vía
-// isValidTimeString — ninguna de las dos se reimplementa, se importan tal
-// cual). No hay reglas de fecha mínima/máxima/pasada en el motor hoy: no se
-// inventa ninguna acá tampoco.
+// Fase 3C — step FUNCTIONS_SINGLE_CARD (inputType FUNCTION_CARD, "una sola
+// función") conversacional en 3 mensajes: fecha, hora de inicio, hora de
+// fin. Reemplaza el formato compuesto de un solo mensaje
+// ("DD/MM/AAAA HH:MM a HH:MM", Fase anterior) — esa UX queda ELIMINADA, no
+// se mantienen las dos en paralelo (ver informe de entrega). El motor
+// (inputHandlers/functionCard.js) sigue exigiendo exactamente lo mismo de
+// siempre, {date, startTime, endTime} en una sola llamada — la división en
+// 3 preguntas es EXCLUSIVA del adaptador WhatsApp, orquestada con
+// WhatsappPendingStepInput (whatsapp.controller.js#tryHandleFunctionCardSubflow).
+// Los validadores reales del motor se reutilizan tal cual, nunca se
+// reimplementan: isValidCalendarDateString/normalizeCalendarDateString
+// (utils/calendarDate.js) para la fecha, isValidTimeString
+// (inputHandlers/time.js) para los horarios.
 // ==================================================================
 
-export const WHATSAPP_FUNCTION_CARD_PROMPT_TEXT =
-    "📅 ¿Cuándo es la función?\n\nEscribime la fecha y el horario así:\nDD/MM/AAAA HH:MM a HH:MM\n\nEjemplo:\n25/08/2026 20:00 a 23:00";
+export const WHATSAPP_FUNCTION_CARD_DATE_PROMPT_TEXT =
+    "📅 ¿Qué día es la función?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n25/08/2026";
 
-export const WHATSAPP_FUNCTION_CARD_RETRY_TEXT =
-    "❌ No pude reconocer esa fecha y horario.\n\nEscribilo así:\nDD/MM/AAAA HH:MM a HH:MM\n\nEjemplo:\n25/08/2026 20:00 a 23:00";
+export const WHATSAPP_FUNCTION_CARD_DATE_INVALID_TEXT =
+    "❌ No pude reconocer esa fecha.\n\nEscribila así:\nDD/MM/AAAA\n\nEjemplo:\n25/08/2026";
 
-// Formato ÚNICO y estricto a propósito (sección 5 del pedido: "no necesito
-// múltiples formatos si eso agrega complejidad") — día y mes SIEMPRE de 2
-// dígitos, año de 4. "25/8/2026", "25-08-2026" o "25.08.2026" no matchean:
-// se rechazan con el mismo mensaje que pide el formato exacto, no se amplía
-// la tolerancia. Espacios extra entre los tres campos se toleran (WhatsApp
-// suele agregar espacios raros al copiar/pegar), la palabra "a" entre
-// horarios no distingue mayúsculas.
-const FUNCTION_CARD_TEXT_PATTERN = /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}:\d{2})\s+a\s+(\d{1,2}:\d{2})$/i;
+// Fase 3C, sección 5/6 — fecha mínima = hoy, SÓLO para WhatsApp (no se
+// mueve al motor compartido en esta fase, ver getArgentinaTodayDateString
+// más abajo).
+export const WHATSAPP_FUNCTION_CARD_DATE_PAST_TEXT =
+    "❌ Esa fecha ya pasó.\n\nIngresá una fecha desde hoy en adelante.\n\nFormato:\nDD/MM/AAAA\n\nEjemplo:\n25/08/2026";
 
-// Devuelve {date, startTime, endTime} (mismo shape que
-// inputHandlers/functionCard.js#parse) sólo si el texto matchea el formato
-// EXACTO y además representa una fecha/horarios REALES — nunca sólo un
-// chequeo de forma. "31/02/2026" matchea el regex pero
-// isValidCalendarDateString la rechaza (Date.UTC roundtrip, ver
-// utils/calendarDate.js) exactamente igual que ya lo hace Web para el mismo
-// campo. Devuelve `null` (nunca inventa un valor parcial) ante cualquier
-// desajuste — el caller decide qué hacer con eso (ver whatsapp.controller.js).
-export function parseWhatsappFunctionCardText(rawText) {
+export const WHATSAPP_FUNCTION_CARD_START_TIME_PROMPT_TEXT =
+    "🕐 ¿A qué hora comienza?\n\nEscribila así:\nHH:MM\n\nEjemplo:\n20:00";
+
+export const WHATSAPP_FUNCTION_CARD_END_TIME_PROMPT_TEXT =
+    "🕐 ¿A qué hora termina?\n\nEscribila así:\nHH:MM\n\nEjemplo:\n23:00";
+
+// Mismo texto para hora de inicio Y hora de fin inválidas — el pedido dio
+// un único texto de error para "horario" (sección 8), sin variantes.
+export const WHATSAPP_FUNCTION_CARD_TIME_INVALID_TEXT =
+    "❌ No pude reconocer ese horario.\n\nEscribilo así:\nHH:MM\n\nEjemplo:\n20:00";
+
+// El motor rechazó el objeto {date,startTime,endTime} ya completo (no
+// debería pasar nunca en la práctica: fecha y horarios ya se validaron uno
+// por uno con los mismos validadores reales antes de llegar acá — ver
+// informe de entrega, sección "comportamiento si el motor rechaza"). Nunca
+// se pierden fecha/hora de inicio ya confirmadas: sólo se vuelve a pedir la
+// hora de fin.
+export const WHATSAPP_FUNCTION_CARD_COMMIT_ERROR_TEXT =
+    "❌ No pudimos guardar la función con esos datos.\n\nVolvé a escribir la hora de finalización.\n\nFormato:\nHH:MM\n\nEjemplo:\n23:00";
+
+// Formato ÚNICO y estricto a propósito (mismo criterio ya aprobado en la
+// fase anterior: "no necesito múltiples formatos si eso agrega
+// complejidad") — día y mes SIEMPRE de 2 dígitos, año de 4. "25/8/2026",
+// "25-08-2026" o "25.08.2026" no matchean.
+const FUNCTION_CARD_DATE_PATTERN = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+
+// Devuelve la fecha normalizada ("YYYY-MM-DD", el shape real que espera
+// functionCard.js#parse) sólo si el texto matchea el formato EXACTO y
+// además representa una fecha REAL — nunca sólo un chequeo de forma.
+// "31/02/2026"/"32/08/2026"/"00/08/2026" matchean el regex pero
+// isValidCalendarDateString los rechaza (Date.UTC roundtrip, ver
+// utils/calendarDate.js), exactamente igual que ya lo hace Web para el
+// mismo campo. Devuelve `null` (nunca inventa un valor parcial) ante
+// cualquier desajuste.
+export function parseWhatsappFunctionCardDateText(rawText) {
     if (typeof rawText !== "string") return null;
-    const normalized = rawText.trim().replace(/\s+/g, " ");
-    const match = FUNCTION_CARD_TEXT_PATTERN.exec(normalized);
+    const trimmed = rawText.trim();
+    const match = FUNCTION_CARD_DATE_PATTERN.exec(trimmed);
     if (!match) return null;
 
-    const [, day, month, year, startTime, endTime] = match;
+    const [, day, month, year] = match;
     const isoDate = `${year}-${month}-${day}`;
     if (!isValidCalendarDateString(isoDate)) return null;
-    if (!isValidTimeString(startTime) || !isValidTimeString(endTime)) return null;
 
-    return { date: normalizeCalendarDateString(isoDate), startTime, endTime };
+    return normalizeCalendarDateString(isoDate);
+}
+
+// Fase 3C, sección 5 — "hoy" para Argentina, SIN depender de la timezone
+// del proceso de Node (que en Render corre en UTC). Mismo offset fijo
+// (-03:00, sin horario de verano) que ya usa PLATFORM_UTC_OFFSET en
+// utils/calendarDate.js — se duplica ACÁ deliberadamente (esa constante es
+// privada de ese módulo, y el pedido pide explícitamente NO promover esta
+// regla al motor compartido todavía, sólo implementarla dentro del
+// adaptador WhatsApp). `now` es inyectable para poder testear el límite
+// "hoy" exacto sin mockear el reloj global.
+const ARGENTINA_UTC_OFFSET_HOURS = 3;
+
+export function getArgentinaTodayDateString(now = new Date()) {
+    const shifted = new Date(now.getTime() - ARGENTINA_UTC_OFFSET_HOURS * 60 * 60 * 1000);
+    const year = shifted.getUTCFullYear();
+    const month = String(shifted.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(shifted.getUTCDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+}
+
+// Compara FECHAS DE CALENDARIO (strings "YYYY-MM-DD", nunca instantes) con
+// compareCalendarDateStrings — el mismo comparador que ya usa el motor para
+// FUNCTIONS_RANGE (dateRange.js), reutilizado tal cual, nunca reimplementado.
+export function isArgentineDateInThePast(normalizedDate, now = new Date()) {
+    return compareCalendarDateStrings(normalizedDate, getArgentinaTodayDateString(now)) < 0;
 }
 
 // Fase 2F — LEGACY, sin uso desde Fase 2G (ver informe de entrega: el
@@ -343,12 +390,17 @@ export function extractWhatsappReplyText(engineResult) {
         return prompt.error ? WHATSAPP_LOCATION_RETRY_TEXT : WHATSAPP_LOCATION_PROMPT_TEXT;
     }
 
-    // type === "QUESTION", step FUNCTIONS_SINGLE_CARD — mismo criterio que
-    // LOCATION: reemplaza el prompt genérico ("Contame cuándo es la
-    // función.", pensado para el formulario compuesto de la Web) por el
-    // formato de texto único que espera parseWhatsappFunctionCardText.
+    // type === "QUESTION", step FUNCTIONS_SINGLE_CARD — Fase 3C: esto SÓLO
+    // se alcanza la primera vez que el motor avanza a este step (ej. justo
+    // después de responder "Una sola función" en FUNCTIONS_MODE), nunca
+    // durante el sub-flujo de 3 preguntas en sí (fecha/hora inicio/hora
+    // fin) — eso lo maneja enteramente tryHandleFunctionCardSubflow en
+    // whatsapp.controller.js, sin volver a pasar por acá. Reemplaza el
+    // prompt genérico ("Contame cuándo es la función.", pensado para el
+    // formulario compuesto de la Web) por la primera pregunta del
+    // sub-flujo: la fecha.
     if (prompt.inputType === "FUNCTION_CARD") {
-        return prompt.error ? WHATSAPP_FUNCTION_CARD_RETRY_TEXT : WHATSAPP_FUNCTION_CARD_PROMPT_TEXT;
+        return WHATSAPP_FUNCTION_CARD_DATE_PROMPT_TEXT;
     }
 
     // type === "QUESTION" — si el motor marcó un error de validación sobre

@@ -133,6 +133,15 @@ function baseDeps(overrides = {}) {
             }),
             cancelConversation: spy(undefined),
             uploadImage: spy(undefined),
+            // Fase 3C — tryHandleFunctionCardSubflow se consulta SIEMPRE
+            // que hay conversación activa; ningún test de este archivo
+            // ejercita FUNCTIONS_SINGLE_CARD, así que alcanza con "no hay
+            // pending" para que el árbol de decisión caiga al camino de
+            // ubicación que sí se está probando acá.
+            getPendingStepInput: spy(null),
+            resetPendingStepInput: spy(undefined),
+            updatePendingStepInputStatus: spy(undefined),
+            deletePendingStepInput: spy(undefined),
             ...overrides,
         },
         sendCalls,
