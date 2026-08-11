@@ -9,6 +9,7 @@ import {
     WHATSAPP_FUNCTION_CARD_END_TIME_PROMPT_TEXT,
     WHATSAPP_FUNCTION_CARD_TIME_INVALID_TEXT,
     WHATSAPP_FUNCTION_CARD_COMMIT_ERROR_TEXT,
+    WHATSAPP_FUNCTIONS_LIST_DATE_PROMPT_TEXT,
 } from "../src/services/whatsappOrganizerBot.service.js";
 
 // Fase 3C — árbol de decisión de processInboundMessage para el sub-flujo
@@ -347,7 +348,10 @@ test("completing all three answers calls the engine exactly once with the exact 
         "conv1",
         { value: { date: FUTURE_DATE_NORMALIZED, startTime: "20:00", endTime: "23:00" } },
     ]);
-    assert.equal(sendCalls[0].text, "Administrador de Agenda");
+    // Fase 3E — el motor avanzó a FUNCTIONS_LIST, que ahora también es
+    // conversacional: el prompt mostrado es su primera pregunta (fecha de
+    // la primera función), nunca el genérico "Administrador de Agenda".
+    assert.equal(sendCalls[0].text, WHATSAPP_FUNCTIONS_LIST_DATE_PROMPT_TEXT);
 });
 
 // 15) pending eliminado tras aceptación
@@ -458,7 +462,9 @@ test("the sub-flow survives being split across independent processInboundMessage
     assert.deepEqual(depsMsg3.handleConversationInput.calls[0][1], {
         value: { date: FUTURE_DATE_NORMALIZED, startTime: "20:00", endTime: "23:00" },
     });
-    assert.equal(sendCalls3[0].text, "Administrador de Agenda");
+    // Fase 3E — mismo motivo que arriba: FUNCTIONS_LIST también es
+    // conversacional ahora.
+    assert.equal(sendCalls3[0].text, WHATSAPP_FUNCTIONS_LIST_DATE_PROMPT_TEXT);
 });
 
 // ==================================================
@@ -494,7 +500,9 @@ test("full sequence (fecha -> hora inicio -> hora fin): 0/0/1 llamadas al motor,
         { value: { date: "2099-08-25", startTime: "20:00", endTime: "23:00" } },
     ]);
     // BOT devuelve inmediatamente el prompt del siguiente step real del motor.
-    assert.equal(sendCallsEnd[0].text, "Administrador de Agenda");
+    // Fase 3E — mismo motivo que arriba: FUNCTIONS_LIST también es
+    // conversacional ahora.
+    assert.equal(sendCallsEnd[0].text, WHATSAPP_FUNCTIONS_LIST_DATE_PROMPT_TEXT);
     // El pending recién ahora, tras la aceptación del motor, desaparece.
     assert.equal(await store.getPendingStepInput("conv1"), null, "el pending se elimina SÓLO después de la aceptación del motor");
 });

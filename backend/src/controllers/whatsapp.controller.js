@@ -68,6 +68,10 @@ import {
     isPublishableWhatsappLocation,
     buildLocationProvincePromptText,
     buildLocationProvinceInvalidText,
+    buildWhatsappFunctionsListDatePromptText,
+    buildWhatsappFunctionAddedSummaryText,
+    WHATSAPP_FUNCTIONS_LIST_ADD_ANOTHER_INVALID_TEXT,
+    WHATSAPP_FUNCTIONS_LIST_COMMIT_ERROR_TEXT,
 } from "../services/whatsappOrganizerBot.service.js";
 import { uploadWhatsappImageMessage } from "../services/whatsappMediaUpload.service.js";
 import { isValidTimeString } from "../conversation/inputHandlers/time.js";
@@ -521,6 +525,202 @@ async function tryHandleLocationSubflow({
     return { handled: true };
 }
 
+// Fase 3E — tercer consumidor de WhatsappPendingStepInput: divide el step
+// FUNCTIONS_LIST (inputType FUNCTIONS_LIST, modo MULTIPLE de FUNCTIONS_MODE,
+// "varias funciones") en un ciclo conversacional — fecha -> hora de inicio
+// -> hora de fin -> ¿agregar otra? -> repetir o finalizar — reutilizando tal
+// cual los mismos validadores/parsers de fecha y hora ya aprobados en Fase
+// 3C para FUNCTIONS_SINGLE_CARD. El motor NUNCA recibe una función suelta:
+// sólo el array completo, y sólo una vez, cuando el organizador responde "2"
+// (no quiere agregar otra).
+//
+// `partialData` guarda la separación conceptual pedida:
+//   { functions: [...ya confirmadas], current: {...en construcción} }
+// Mismo contrato de retorno que los otros dos tryHandle*Subflow.
+async function tryHandleFunctionsListSubflow({
+    conversationId,
+    text,
+    reply,
+    handleConversationInput,
+    resumeConversation,
+    getPendingStepInput: getPendingStepInputDep,
+    resetPendingStepInput: resetPendingStepInputDep,
+    updatePendingStepInputStatus: updatePendingStepInputStatusDep,
+    deletePendingStepInput: deletePendingStepInputDep,
+}) {
+    // Fase 3D/3E — mismo chequeo reforzado que los otros dos sub-flujos: el
+    // step REAL vigente (nunca el stepId grabado en el pending) es la única
+    // fuente de verdad de si este pending sigue siendo válido — ahora con
+    // TRES steps distintos consumiendo WhatsappPendingStepInput.
+    const currentState = await resumeConversation(conversationId);
+    const isCurrentStepFunctionsList = currentState?.prompt?.stepId === "FUNCTIONS_LIST";
+
+    let pending = await getPendingStepInputDep(conversationId);
+    if (pending && (pending.stepId !== "FUNCTIONS_LIST" || !isCurrentStepFunctionsList)) {
+        pending = null;
+    }
+
+    if (!isCurrentStepFunctionsList) {
+        return { handled: false, currentState };
+    }
+
+    if (!pending) {
+        // El prompt de "primera función" ya se mostró al llegar a este step
+        // (ver extractWhatsappReplyText#inputType==="FUNCTIONS_LIST") — el
+        // `text` que acaba de llegar ES la respuesta a esa pregunta.
+        pending = await resetPendingStepInputDep(conversationId, "FUNCTIONS_LIST", "AWAITING_MULTIPLE_DATE", {
+            functions: [],
+            current: {},
+        });
+    }
+
+    const wantsBack = isBackCommand(text);
+    const functions = pending.partialData?.functions ?? [];
+    const current = pending.partialData?.current ?? {};
+
+    if (pending.status === "AWAITING_MULTIPLE_DATE") {
+        if (wantsBack) {
+            if (functions.length > 0) {
+                // Sección 10.C — todavía no se escribió nada de esta función
+                // nueva: volver conceptualmente a la decisión posterior a la
+                // función anterior, sin tocar las ya confirmadas.
+                await updatePendingStepInputStatusDep(conversationId, "AWAITING_MULTIPLE_ADD_ANOTHER", {
+                    functions,
+                    current: {},
+                });
+                const lastFn = functions[functions.length - 1];
+                await reply(buildWhatsappFunctionAddedSummaryText(lastFn), "FUNCTIONS_LIST_BACK_TO_ADD_ANOTHER");
+                return { handled: true };
+            }
+
+            // Sección 10.E — primera función, ningún sub-paso anterior
+            // dentro de este pending al cual volver: mismo BACK real del
+            // motor ya auditado y usado en FUNCTIONS_SINGLE_CARD/LOCATION
+            // (currentStepId sigue siendo FUNCTIONS_LIST en todo momento
+            // durante este sub-flujo, nunca se llamó a handleConversationInput
+            // todavía).
+            const backResult = await handleConversationInput(conversationId, { action: "BACK" });
+            if (backResult?.prompt?.error) {
+                await reply(extractWhatsappReplyText(backResult), "FUNCTIONS_LIST_BACK_REJECTED");
+                return { handled: true };
+            }
+            await deletePendingStepInputDep(conversationId);
+            await reply(extractWhatsappReplyText(backResult), "FUNCTIONS_LIST_BACK_TO_PREVIOUS_STEP");
+            return { handled: true };
+        }
+
+        const normalizedDate = parseWhatsappFunctionCardDateText(text);
+        if (!normalizedDate) {
+            await reply(WHATSAPP_FUNCTION_CARD_DATE_INVALID_TEXT, "FUNCTIONS_LIST_DATE_INVALID");
+            return { handled: true };
+        }
+        if (isArgentineDateInThePast(normalizedDate)) {
+            await reply(WHATSAPP_FUNCTION_CARD_DATE_PAST_TEXT, "FUNCTIONS_LIST_DATE_PAST");
+            return { handled: true };
+        }
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_MULTIPLE_START_TIME", {
+            functions,
+            current: { date: normalizedDate },
+        });
+        await reply(WHATSAPP_FUNCTION_CARD_START_TIME_PROMPT_TEXT, "FUNCTIONS_LIST_START_TIME_PROMPT");
+        return { handled: true };
+    }
+
+    if (pending.status === "AWAITING_MULTIPLE_START_TIME") {
+        if (wantsBack) {
+            // Vuelve a AWAITING_MULTIPLE_DATE: elimina toda la función en
+            // curso (el único campo confirmado hasta acá era `date`) — se
+            // vuelve a pedir desde cero. Las funciones anteriores no se tocan.
+            await updatePendingStepInputStatusDep(conversationId, "AWAITING_MULTIPLE_DATE", { functions, current: {} });
+            await reply(buildWhatsappFunctionsListDatePromptText(functions.length === 0), "FUNCTIONS_LIST_BACK_TO_DATE");
+            return { handled: true };
+        }
+
+        const trimmed = typeof text === "string" ? text.trim() : "";
+        if (!isValidTimeString(trimmed)) {
+            await reply(WHATSAPP_FUNCTION_CARD_TIME_INVALID_TEXT, "FUNCTIONS_LIST_TIME_INVALID");
+            return { handled: true };
+        }
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_MULTIPLE_END_TIME", {
+            functions,
+            current: { ...current, startTime: trimmed },
+        });
+        await reply(WHATSAPP_FUNCTION_CARD_END_TIME_PROMPT_TEXT, "FUNCTIONS_LIST_END_TIME_PROMPT");
+        return { handled: true };
+    }
+
+    if (pending.status === "AWAITING_MULTIPLE_END_TIME") {
+        if (wantsBack) {
+            // Vuelve a AWAITING_MULTIPLE_START_TIME: mantiene `date`,
+            // elimina `startTime` (el campo recolectado para llegar acá).
+            await updatePendingStepInputStatusDep(conversationId, "AWAITING_MULTIPLE_START_TIME", {
+                functions,
+                current: { date: current.date },
+            });
+            await reply(WHATSAPP_FUNCTION_CARD_START_TIME_PROMPT_TEXT, "FUNCTIONS_LIST_BACK_TO_START_TIME");
+            return { handled: true };
+        }
+
+        const trimmedEndTime = typeof text === "string" ? text.trim() : "";
+        if (!isValidTimeString(trimmedEndTime)) {
+            await reply(WHATSAPP_FUNCTION_CARD_TIME_INVALID_TEXT, "FUNCTIONS_LIST_TIME_INVALID");
+            return { handled: true };
+        }
+
+        const completedFunction = { date: current.date, startTime: current.startTime, endTime: trimmedEndTime };
+        const updatedFunctions = [...functions, completedFunction];
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_MULTIPLE_ADD_ANOTHER", {
+            functions: updatedFunctions,
+            current: {},
+        });
+        await reply(buildWhatsappFunctionAddedSummaryText(completedFunction), "FUNCTIONS_LIST_FUNCTION_ADDED");
+        return { handled: true };
+    }
+
+    // pending.status === "AWAITING_MULTIPLE_ADD_ANOTHER"
+    if (wantsBack) {
+        // Sección 10.D — corregir la ÚLTIMA función agregada: se saca
+        // temporalmente de `functions`, se cargan sus valores en `current` y
+        // se vuelve a preguntar la hora de fin (de ahí, "volver" sigue
+        // encadenando hacia hora de inicio y fecha con la semántica normal
+        // de cada sub-paso).
+        const lastFn = functions[functions.length - 1];
+        const remainingFunctions = functions.slice(0, -1);
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_MULTIPLE_END_TIME", {
+            functions: remainingFunctions,
+            current: { date: lastFn.date, startTime: lastFn.startTime, endTime: lastFn.endTime },
+        });
+        await reply(WHATSAPP_FUNCTION_CARD_END_TIME_PROMPT_TEXT, "FUNCTIONS_LIST_EDIT_LAST_FUNCTION");
+        return { handled: true };
+    }
+
+    // Reutiliza classifyInitialIntent (ya acepta "1"/"2" y, adicionalmente,
+    // "sí"/"si"/"no" — sección 9 del pedido) en vez de reimplementar otro
+    // clasificador Sí/No.
+    const intent = classifyInitialIntent(text);
+    if (intent === "AFFIRMATIVE") {
+        await updatePendingStepInputStatusDep(conversationId, "AWAITING_MULTIPLE_DATE", { functions, current: {} });
+        await reply(buildWhatsappFunctionsListDatePromptText(false), "FUNCTIONS_LIST_ADD_ANOTHER");
+        return { handled: true };
+    }
+    if (intent === "NEGATIVE") {
+        const result = await handleConversationInput(conversationId, { value: functions });
+        if (result?.prompt?.error) {
+            // Sección 14 — nunca se borra el pending antes de saber que el
+            // motor aceptó el array: si lo rechaza, todas las funciones
+            // siguen ahí, el organizador puede reintentar "2" o agregar otra.
+            await reply(WHATSAPP_FUNCTIONS_LIST_COMMIT_ERROR_TEXT, "FUNCTIONS_LIST_COMMIT_ERROR");
+            return { handled: true };
+        }
+        await deletePendingStepInputDep(conversationId);
+        await reply(extractWhatsappReplyText(result), "FUNCTIONS_LIST_COMPLETED");
+        return { handled: true };
+    }
+
+    await reply(WHATSAPP_FUNCTIONS_LIST_ADD_ANOTHER_INVALID_TEXT, "FUNCTIONS_LIST_ADD_ANOTHER_INVALID");
+    return { handled: true };
+}
+
 // Único punto que conecta WhatsApp con EventCreationEngine — Fase 2E.
 // WhatsApp es sólo OTRO CANAL: nunca reimplementa pasos/preguntas propias,
 // sólo decide (a) si hay que iniciar el motor o no, y (b) reenvía lo que el
@@ -700,6 +900,23 @@ export async function processInboundMessage(
                 deletePendingStepInput: deletePendingStepInputDep,
             });
             if (functionCardResult.handled) return;
+
+            // Fase 3E — FUNCTIONS_LIST ("varias funciones") se intercepta
+            // ACÁ, mismo criterio que FUNCTIONS_SINGLE_CARD/LOCATION: el
+            // motor sólo puede recibir el array completo de funciones, y
+            // sólo al finalizar el ciclo. Ver tryHandleFunctionsListSubflow.
+            const functionsListResult = await tryHandleFunctionsListSubflow({
+                conversationId: active.id,
+                text,
+                reply,
+                handleConversationInput,
+                resumeConversation,
+                getPendingStepInput: getPendingStepInputDep,
+                resetPendingStepInput: resetPendingStepInputDep,
+                updatePendingStepInputStatus: updatePendingStepInputStatusDep,
+                deletePendingStepInput: deletePendingStepInputDep,
+            });
+            if (functionsListResult.handled) return;
 
             // Primer intento: SIEMPRE el texto crudo, igual que Web — el
             // motor no cambia de contrato. Sólo si ESE intento falla

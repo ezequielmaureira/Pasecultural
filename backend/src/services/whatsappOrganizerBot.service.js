@@ -279,6 +279,57 @@ export function isArgentineDateInThePast(normalizedDate, now = new Date()) {
     return compareCalendarDateStrings(normalizedDate, getArgentinaTodayDateString(now)) < 0;
 }
 
+// ==================================================================
+// Fase 3E — step FUNCTIONS_LIST (inputType FUNCTIONS_LIST, "varias
+// funciones", modo MULTIPLE de FUNCTIONS_MODE) conversacional: fecha ->
+// hora de inicio -> hora de fin -> ¿agregar otra? -> repetir o finalizar.
+// El motor (inputHandlers/functionsList.js) exige el ARRAY completo
+// {date,startTime,endTime}[] en una sola llamada — el ciclo de captura de
+// cada función y la decisión de agregar otra son EXCLUSIVOS del adaptador
+// WhatsApp, orquestados con WhatsappPendingStepInput
+// (whatsapp.controller.js#tryHandleFunctionsListSubflow). Reutiliza tal
+// cual los mismos validadores/textos ya aprobados en Fase 3C para
+// FUNCTIONS_SINGLE_CARD (misma fecha DD/MM/AAAA, mismo HH:MM, misma regla
+// "fecha >= hoy Argentina") — nunca se reimplementan.
+// ==================================================================
+
+export const WHATSAPP_FUNCTIONS_LIST_DATE_PROMPT_TEXT =
+    "📅 ¿Qué día es la primera función?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n25/08/2026";
+
+// Se muestra al arrancar cada función siguiente (después de responder "1"
+// en AWAITING_MULTIPLE_ADD_ANOTHER) — misma validación, sólo cambia el
+// enunciado para dejar claro que la anterior ya quedó guardada.
+export const WHATSAPP_FUNCTIONS_LIST_DATE_PROMPT_NEXT_TEXT =
+    "📅 ¿Qué día es la siguiente función?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n26/08/2026";
+
+export function buildWhatsappFunctionsListDatePromptText(isFirstFunction) {
+    return isFirstFunction ? WHATSAPP_FUNCTIONS_LIST_DATE_PROMPT_TEXT : WHATSAPP_FUNCTIONS_LIST_DATE_PROMPT_NEXT_TEXT;
+}
+
+export const WHATSAPP_FUNCTIONS_LIST_ADD_ANOTHER_INVALID_TEXT =
+    "❌ Elegí una opción válida.\n\n1. Sí\n2. No\n\nRespondé con el número de la opción.";
+
+// El motor rechazó el array completo ya armado (no debería pasar nunca en
+// la práctica: cada función ya se validó campo por campo con los mismos
+// validadores reales antes de llegar acá) — nunca se pierden las funciones
+// ya cargadas: el pending queda intacto en AWAITING_MULTIPLE_ADD_ANOTHER
+// para que el organizador pueda reintentar finalizar o seguir agregando.
+export const WHATSAPP_FUNCTIONS_LIST_COMMIT_ERROR_TEXT =
+    "❌ No pudimos guardar las funciones cargadas.\n\n¿Querés agregar otra función?\n\n1. Sí\n2. No\n\nRespondé con el número de la opción.";
+
+// `date` ya viene normalizada ("YYYY-MM-DD", garantizado por
+// parseWhatsappFunctionCardDateText) — presentación pura, exclusiva de este
+// mensaje de confirmación, nunca movida a calendarDate.js (ese módulo no
+// tiene ningún formateador de exhibición, sólo parseo/aritmética).
+function formatCalendarDateForDisplay(normalizedDate) {
+    const [year, month, day] = normalizedDate.split("-");
+    return `${day}/${month}/${year}`;
+}
+
+export function buildWhatsappFunctionAddedSummaryText(fn) {
+    return `✅ Función agregada\n\n${formatCalendarDateForDisplay(fn.date)}\n${fn.startTime} a ${fn.endTime}\n\n¿Querés agregar otra función?\n\n1. Sí\n2. No\n\nRespondé con el número de la opción.`;
+}
+
 // Fase 2F — LEGACY, sin uso desde Fase 2G (ver informe de entrega: el
 // flujo de código de 6 dígitos deja de ofrecerse desde WhatsApp Organizer).
 // Se conservan intactas junto con whatsappOrganizerLink.service.js/
@@ -494,6 +545,17 @@ export function extractWhatsappReplyText(engineResult) {
     // sub-flujo: la fecha.
     if (prompt.inputType === "FUNCTION_CARD") {
         return WHATSAPP_FUNCTION_CARD_DATE_PROMPT_TEXT;
+    }
+
+    // type === "QUESTION", step FUNCTIONS_LIST — Fase 3E: esto SÓLO se
+    // alcanza la primera vez que el motor avanza a este step viniendo de
+    // FUNCTIONS_MODE con "Varias funciones" (nunca durante el sub-flujo en
+    // sí, que maneja enteramente tryHandleFunctionsListSubflow). Reemplaza
+    // el prompt genérico ("Administrador de Agenda", pensado para la UI
+    // Web) por la primera pregunta del sub-flujo: la fecha de la primera
+    // función.
+    if (prompt.inputType === "FUNCTIONS_LIST") {
+        return WHATSAPP_FUNCTIONS_LIST_DATE_PROMPT_TEXT;
     }
 
     // type === "QUESTION" — si el motor marcó un error de validación sobre
