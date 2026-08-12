@@ -5,22 +5,35 @@
 // mensaje" — NO representa la latencia real de producción (esa depende de
 // la latencia real de Supabase/Render/Meta, que este script no mide).
 //
-// Se simula un costo artificial por lectura (resumeConversation/
-// getPendingStepInput) de MOCK_DB_LATENCY_MS, pensado como una aproximación
-// razonable de un round-trip real a Postgres sobre la red (Supabase) — el
-// número en sí es arbitrario, lo que importa es la PROPORCIÓN entre
-// escenarios, no el valor absoluto.
+// Fase 3L — se agregan los escenarios A-E pedidos explícitamente (saludo,
+// respuesta simple, selección de organización, paso genérico, texto libre),
+// incluyendo por primera vez la rama de identificación (sin conversación
+// activa: saludo/selección pendiente/descubrimiento por teléfono), que
+// hasta esta fase nunca se había medido ni siquiera con mocks.
+//
+// Se simula un costo artificial por lectura/escritura (resumeConversation/
+// getPendingStepInput/getPendingSelection/discoverCandidates/resolveOwner/
+// etc.) de MOCK_DB_LATENCY_MS, pensado como una aproximación razonable de un
+// round-trip real a Postgres sobre la red (Supabase) — el número en sí es
+// arbitrario, lo que importa es la PROPORCIÓN entre escenarios (cuántas
+// operaciones secuenciales hace cada uno), no el valor absoluto en ms.
 //
 // Uso:
 //   node scripts/whatsappPerfBenchmark.js
 //
 // Este script sólo depende de la interfaz pública de processInboundMessage
 // (message, deps) — nunca de sus sub-flujos internos — así que sirve tal
-// cual para medir CUALQUIER versión del controller (se usó exactamente este
-// mismo archivo, sin cambios, contra el código pre-Fase 3H vía `git stash`
-// y contra el código post-Fase 3H, ver informe de entrega).
+// cual para medir CUALQUIER versión del controller.
 
 import { processInboundMessage } from "../src/controllers/whatsapp.controller.js";
+import { logger } from "../src/logging/logger.js";
+
+// Silencia el log real ("WhatsApp organizer bot reply sent") que dispara
+// cada corrida — son cientos de líneas idénticas por escenario, sin ningún
+// valor para leer un benchmark; el resultado que importa es el resumen
+// impreso al final de cada escenario (avg/p50/min/max).
+logger.info = () => {};
+logger.warn = () => {};
 
 const MOCK_DB_LATENCY_MS = 15;
 const RUNS_PER_SCENARIO = 30;
@@ -64,40 +77,69 @@ function stepState(stepId, inputType, extra = {}) {
     };
 }
 
-// Cada escenario representa uno de los tipos de mensaje auditados en la
-// sección 6 del pedido (A-I) — el que más "sub-flujos de más" recorre antes
-// de esta fase es justamente el que más debería beneficiarse.
+// Escenarios A-E — exactamente los pedidos en la sección "PASO 3" del
+// pedido de Fase 3L. Cada uno declara `active:false` (rama de
+// identificación, sin conversación activa todavía) o `active:true` (rama
+// normal, conversación ya en curso).
 const SCENARIOS = [
     {
-        label: "A. SHORT_TEXT (NAME) — ningún sub-flujo lo reclama",
-        resumeConversation: stepState("NAME", "SHORT_TEXT"),
-        pending: null,
-        handleConversationInput: stepState("DESCRIPTION", "SHORT_TEXT"),
-        text: "Fiesta Aniversario",
+        label: "A. Primer mensaje ('Hola', 1 organización, sin selección pendiente)",
+        active: false,
+        pendingSelection: null,
+        candidates: [{ organizationId: "org_1", name: "Bench Org", clerkId: "user_123" }],
+        text: "Hola",
     },
     {
-        label: "D. LOCATION manual (subcampo calle)",
-        resumeConversation: stepState("LOCATION", "LOCATION"),
-        pending: { id: "p1", conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_STREET", partialData: {} },
-        handleConversationInput: stepState("LOCATION", "LOCATION"),
-        text: "San Martín",
-    },
-    {
-        label: "H. YES_NO (PROMO_VIDEO_ASK) — 7° de 8 sub-flujos",
+        label: "B. Respuesta simple ('1' a un YES_NO en curso) — el escenario crítico",
+        active: true,
         resumeConversation: stepState("PROMO_VIDEO_ASK", "YES_NO"),
         pending: null,
         handleConversationInput: stepState("SOCIAL_LINKS_ASK", "YES_NO"),
         text: "1",
     },
     {
+        label: "C. Selección de organización ('2', dos organizaciones, AWAITING_SELECTION)",
+        active: false,
+        pendingSelection: { status: "AWAITING_SELECTION", candidateOrganizationIds: ["org_1", "org_2"] },
+        text: "2",
+    },
+    {
+        label: "D. Paso genérico numérico (categoría, SINGLE_SELECT)",
+        active: true,
+        resumeConversation: stepState("CATEGORY", "SINGLE_SELECT", { options: [{ id: "MUSICA", label: "Música" }] }),
+        pending: null,
+        handleConversationInput: stepState("COVER_IMAGE", "IMAGE_URL"),
+        text: "1",
+    },
+    {
+        label: "E. Input de texto simple (nombre del evento, SHORT_TEXT)",
+        active: true,
+        resumeConversation: stepState("NAME", "SHORT_TEXT"),
+        pending: null,
+        handleConversationInput: stepState("DESCRIPTION", "SHORT_TEXT"),
+        text: "Fiesta Aniversario",
+    },
+    // Escenarios adicionales de Fase 3H, conservados para no perder esa
+    // referencia histórica (el punto de comparación original de esa fase).
+    {
+        label: "F. LOCATION manual (subcampo calle)",
+        active: true,
+        resumeConversation: stepState("LOCATION", "LOCATION"),
+        pending: { id: "p1", conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_STREET", partialData: {} },
+        handleConversationInput: stepState("LOCATION", "LOCATION"),
+        text: "San Martín",
+    },
+    {
         label: "G. RECURRING SCHEDULES — 6° de 8, 5° de los 5 con pending",
+        active: true,
         resumeConversation: stepState("FUNCTIONS_RECURRING_SCHEDULES", "TIME_RANGE_LIST"),
         pending: { id: "p1", conversationId: "conv1", stepId: "FUNCTIONS_RECURRING_SCHEDULES", status: "AWAITING_RECURRING_START_TIME", partialData: { schedules: [], current: {} } },
         handleConversationInput: stepState("FUNCTIONS_LIST", "FUNCTIONS_LIST"),
         text: "20:00",
     },
     {
-        label: "I. PREVIEW — el último de los 8 chequeos",
+        label: "H. PREVIEW — el último de los 8 chequeos",
+        active: true,
         resumeConversation: { conversationId: "conv1", prompt: { stepId: "PREVIEW", type: "PREVIEW", draft: { title: "x", location: null, functions: [], ticketTypes: [] } }, canGoBack: true, sections: [] },
         pending: null,
         handleConversationInput: { conversationId: "conv1", done: true, status: "DRAFT_SAVED", event: { id: "evt1" } },
@@ -108,7 +150,7 @@ const SCENARIOS = [
 function buildDeps(scenario) {
     return {
         sendText: spyInstant({ success: true, messageId: "wamid.OUT", error: null }),
-        findActiveConversation: spyWithDbLatency({ id: "conv1", userId: "user_123" }),
+        findActiveConversation: spyWithDbLatency(scenario.active ? { id: "conv1", userId: "user_123" } : null),
         resumeConversation: spyWithDbLatency(scenario.resumeConversation),
         handleConversationInput: spyWithDbLatency(scenario.handleConversationInput),
         cancelConversation: spyInstant(undefined),
@@ -116,6 +158,14 @@ function buildDeps(scenario) {
         resetPendingStepInput: spyWithDbLatency(scenario.pending),
         updatePendingStepInputStatus: spyWithDbLatency(scenario.pending),
         deletePendingStepInput: spyWithDbLatency(undefined),
+        // Rama de identificación (Escenarios A/C) — sin conversación activa.
+        getPendingSelection: spyWithDbLatency(scenario.pendingSelection ?? null),
+        discoverCandidates: spyWithDbLatency(scenario.candidates ?? []),
+        resolveOwner: spyWithDbLatency({ name: "Bench Org 2", clerkId: "user_123" }),
+        confirmSelection: spyWithDbLatency(undefined),
+        createPendingSelection: spyWithDbLatency(undefined),
+        clearPendingSelection: spyWithDbLatency(undefined),
+        startConversation: spyWithDbLatency({ conversationId: "conv1", prompt: { stepId: "NAME", type: "QUESTION", text: "x" }, canGoBack: false, sections: [] }),
     };
 }
 
@@ -135,7 +185,7 @@ async function runScenario(scenario) {
 }
 
 async function main() {
-    console.log(`Benchmark local (mocks, latencia artificial de ${MOCK_DB_LATENCY_MS}ms por lectura) — NO representa producción.\n`);
+    console.log(`Benchmark local (mocks, latencia artificial de ${MOCK_DB_LATENCY_MS}ms por lectura/escritura) — NO representa producción.\n`);
     for (const scenario of SCENARIOS) {
         const { avg, p50, min, max } = await runScenario(scenario);
         console.log(

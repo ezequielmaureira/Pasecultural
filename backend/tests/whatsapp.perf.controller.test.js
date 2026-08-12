@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { processInboundMessage } from "../src/controllers/whatsapp.controller.js";
+import { logger } from "../src/logging/logger.js";
 
 // Fase 3H — pruebas de ARQUITECTURA (no de milisegundos reales): prueban que
 // la optimización "resumeConversation/getPendingStepInput una sola vez por
@@ -184,4 +185,163 @@ test("cancelling still short-circuits before any resumeConversation/getPendingSt
     assert.equal(deps.resumeConversation.calls.length, 0);
     assert.equal(deps.getPendingStepInput.calls.length, 0);
     assert.equal(deps.cancelConversation.calls.length, 1);
+});
+
+// ==================================================
+// Fase 3L — auditoría de performance: la rama de identificación (sin
+// conversación activa todavía: saludo, selección pendiente, descubrimiento
+// por teléfono) no tenía NINGUNA marca [WA_PERF] — quedaba invisible,
+// exactamente el camino de los escenarios señalados como lentos (saludo
+// inicial, "1" a "¿querés publicar?", elegir organización). Estos tests
+// prenden WHATSAPP_PERF_LOG=true de verdad y capturan logger.info (no hay
+// otra forma de observarlo: el timer se crea internamente, no se inyecta)
+// para confirmar que ahora SÍ quedan marcadas, que activarlo/desactivarlo
+// nunca cambia ningún resultado, y que la línea [WA_PERF] nunca contiene
+// PII (teléfono, texto del usuario, nombre).
+// ==================================================
+
+function withPerfLogCapture(run) {
+    const originalEnv = process.env.WHATSAPP_PERF_LOG;
+    const originalInfo = logger.info;
+    const calls = [];
+    logger.info = (message, context) => {
+        calls.push({ message, context });
+    };
+    process.env.WHATSAPP_PERF_LOG = "true";
+    return run(calls).finally(() => {
+        logger.info = originalInfo;
+        if (originalEnv === undefined) delete process.env.WHATSAPP_PERF_LOG;
+        else process.env.WHATSAPP_PERF_LOG = originalEnv;
+    });
+}
+
+function identityDeps(overrides = {}) {
+    return {
+        sendText: async () => ({ success: true, messageId: "wamid.OUT1", error: null }),
+        findActiveConversation: async () => null,
+        getPendingSelection: async () => null,
+        discoverCandidates: async () => [{ organizationId: "org_1", name: "Elvis Bar", clerkId: "user_123" }],
+        startConversation: async () => ({ conversationId: "conv1", prompt: { stepId: "NAME", type: "QUESTION", text: "¿Cómo se llama tu evento?" }, canGoBack: false, sections: [] }),
+        createPendingSelection: async () => undefined,
+        confirmSelection: async () => undefined,
+        clearPendingSelection: async () => undefined,
+        resolveOwner: async () => ({ name: "Elvis Bar", clerkId: "user_123" }),
+        ...overrides,
+    };
+}
+
+function textMessageFrom(text, from = "5491122334455") {
+    return textMessage({ text, from });
+}
+
+// sendBotReply loguea DOS líneas por respuesta ("WhatsApp organizer bot
+// reply sent" y, si WHATSAPP_PERF_LOG está activo, "[WA_PERF]") — ambas
+// pasan por logger.info, así que hay que filtrar la de perf explícitamente
+// en vez de asumir que es la primera.
+function findPerfLog(calls) {
+    return calls.find((c) => c.message === "[WA_PERF]");
+}
+
+test("with WHATSAPP_PERF_LOG=true, a greeting message (no pending, no active conversation) logs a [WA_PERF] line with PENDING_SELECTION_READ and DISCOVER marks", async () => {
+    await withPerfLogCapture(async (calls) => {
+        await processInboundMessage(textMessageFrom("Hola"), identityDeps());
+
+        const perfLog = findPerfLog(calls);
+        assert.ok(perfLog, "esperaba una línea [WA_PERF]");
+        const markNames = perfLog.context.marks.map((m) => m.name);
+        assert.ok(markNames.includes("PENDING_SELECTION_READ"), `esperaba PENDING_SELECTION_READ en ${JSON.stringify(markNames)}`);
+        assert.ok(markNames.includes("DISCOVER"), `esperaba DISCOVER en ${JSON.stringify(markNames)}`);
+        assert.ok(markNames.includes("BUILD_REPLY"));
+        assert.ok(markNames.includes("META_SEND"));
+    });
+});
+
+test("with WHATSAPP_PERF_LOG=true, selecting an organization (AWAITING_SELECTION) logs RESOLVE_OWNER and CONFIRM_SELECTION marks", async () => {
+    await withPerfLogCapture(async (calls) => {
+        await processInboundMessage(
+            textMessageFrom("2"),
+            identityDeps({ getPendingSelection: async () => ({ status: "AWAITING_SELECTION", candidateOrganizationIds: ["org_1", "org_2"] }) })
+        );
+
+        const markNames = findPerfLog(calls).context.marks.map((m) => m.name);
+        assert.ok(markNames.includes("PENDING_SELECTION_READ"));
+        assert.ok(markNames.includes("RESOLVE_OWNER"));
+        assert.ok(markNames.includes("CONFIRM_SELECTION"));
+    });
+});
+
+test("with WHATSAPP_PERF_LOG=true, confirming the final 'Sí' (AWAITING_CONFIRMATION) logs RESOLVE_OWNER and START marks", async () => {
+    await withPerfLogCapture(async (calls) => {
+        await processInboundMessage(
+            textMessageFrom("1"),
+            identityDeps({ getPendingSelection: async () => ({ status: "AWAITING_CONFIRMATION", selectedOrganizationId: "org_2" }) })
+        );
+
+        const markNames = findPerfLog(calls).context.marks.map((m) => m.name);
+        assert.ok(markNames.includes("RESOLVE_OWNER"));
+        assert.ok(markNames.includes("START"));
+    });
+});
+
+test("perf instrumentation never logs the phone number, the raw message text, or the organization/person name", async () => {
+    await withPerfLogCapture(async (calls) => {
+        await processInboundMessage(
+            textMessageFrom("2", "5491100009999"),
+            identityDeps({ getPendingSelection: async () => ({ status: "AWAITING_SELECTION", candidateOrganizationIds: ["org_1", "org_2"] }) })
+        );
+
+        const serialized = JSON.stringify(calls);
+        assert.ok(!serialized.includes("5491100009999"), "el teléfono nunca debe aparecer en el log de perf");
+        assert.ok(!serialized.includes("Elvis Bar"), "el nombre de la organización nunca debe aparecer en el log de perf");
+    });
+});
+
+test("WHATSAPP_PERF_LOG defaults to disabled: no [WA_PERF] line is logged, and the reply/behavior is unaffected", async () => {
+    const originalEnv = process.env.WHATSAPP_PERF_LOG;
+    delete process.env.WHATSAPP_PERF_LOG;
+    const originalInfo = logger.info;
+    const calls = [];
+    logger.info = (message, context) => calls.push({ message, context });
+
+    const sendCalls = [];
+    try {
+        await processInboundMessage(
+            textMessageFrom("Hola"),
+            identityDeps({ sendText: async (args) => { sendCalls.push(args); return { success: true, messageId: "wamid.OUT1", error: null }; } })
+        );
+    } finally {
+        logger.info = originalInfo;
+        if (originalEnv === undefined) delete process.env.WHATSAPP_PERF_LOG;
+        else process.env.WHATSAPP_PERF_LOG = originalEnv;
+    }
+
+    assert.equal(calls.filter((c) => c.message === "[WA_PERF]").length, 0, "sin la variable de entorno, nunca debe loguearse [WA_PERF]");
+    assert.equal(sendCalls.length, 1, "el comportamiento real (responder) es idéntico esté o no la instrumentación activa");
+});
+
+test("enabling WHATSAPP_PERF_LOG never changes which reply is sent (same text, same engineAction path)", async () => {
+    const runOnce = async (perfEnabled) => {
+        const originalEnv = process.env.WHATSAPP_PERF_LOG;
+        if (perfEnabled) process.env.WHATSAPP_PERF_LOG = "true";
+        else delete process.env.WHATSAPP_PERF_LOG;
+
+        const sendCalls = [];
+        try {
+            await processInboundMessage(
+                textMessageFrom("2"),
+                identityDeps({
+                    getPendingSelection: async () => ({ status: "AWAITING_SELECTION", candidateOrganizationIds: ["org_1", "org_2"] }),
+                    sendText: async (args) => { sendCalls.push(args); return { success: true, messageId: "wamid.OUT1", error: null }; },
+                })
+            );
+        } finally {
+            if (originalEnv === undefined) delete process.env.WHATSAPP_PERF_LOG;
+            else process.env.WHATSAPP_PERF_LOG = originalEnv;
+        }
+        return sendCalls[0]?.text;
+    };
+
+    const withPerfOff = await runOnce(false);
+    const withPerfOn = await runOnce(true);
+    assert.equal(withPerfOff, withPerfOn);
 });

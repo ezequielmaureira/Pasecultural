@@ -1473,11 +1473,25 @@ export async function processInboundMessage(
             return;
         }
 
+        // Fase 3L — auditoría de performance: esta rama entera (sin
+        // conversación activa todavía: saludo, selección pendiente,
+        // descubrimiento por teléfono) no tenía NINGUNA marca de perf —
+        // todo su costo real (hasta 4 consultas/escrituras a Prisma, ver
+        // informe de entrega, sección "queries por mensaje") quedaba
+        // invisible, colapsado en un solo BUILD_REPLY sin desglosar. Es
+        // EXACTAMENTE el camino de los escenarios señalados como lentos
+        // (saludo inicial, "¿querés publicar?" -> "1", elegir organización)
+        // — se agregan las mismas marcas nominales que ya usa la rama de
+        // conversación activa (FIND_CONVERSATION/RESUME/SUBFLOW), sin
+        // cambiar ningún comportamiento: perf.mark es no-op cuando
+        // WHATSAPP_PERF_LOG no está activo (ver utils/whatsappPerf.js).
         const pendingSelection = await getPendingSelection(channelRef);
+        perf.mark("PENDING_SELECTION_READ");
 
         if (pendingSelection) {
             if (isCancelCommand(text)) {
                 await clearPendingSelection(channelRef);
+                perf.mark("CLEAR_SELECTION");
                 await reply(WHATSAPP_CANCEL_TEXT, "CANCEL");
                 return;
             }
@@ -1490,6 +1504,7 @@ export async function processInboundMessage(
                 }
 
                 const owner = await resolveOwner(choice.organizationId);
+                perf.mark("RESOLVE_OWNER");
                 if (!owner) {
                     // La Organization elegida dejó de estar APPROVED entre el
                     // descubrimiento y la elección — nunca se sigue con una
@@ -1500,12 +1515,14 @@ export async function processInboundMessage(
                 }
 
                 await confirmSelection(channelRef, choice.organizationId);
+                perf.mark("CONFIRM_SELECTION");
                 await reply(buildOrganizationSelectedConfirmationText(owner.name), "SELECTION_CONFIRMED");
                 return;
             }
 
             // pendingSelection.status === "AWAITING_CONFIRMATION"
             const owner = await resolveOwner(pendingSelection.selectedOrganizationId);
+            perf.mark("RESOLVE_OWNER");
             if (!owner) {
                 await clearPendingSelection(channelRef);
                 await reply(WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT, "SELECTION_ORG_UNAVAILABLE");
@@ -1521,6 +1538,7 @@ export async function processInboundMessage(
                     channelRef,
                     organizationId: pendingSelection.selectedOrganizationId,
                 });
+                perf.mark("START");
                 await reply(extractWhatsappReplyText(startResult), "START");
                 return;
             }
@@ -1536,6 +1554,7 @@ export async function processInboundMessage(
 
         const intent = classifyInitialIntent(text);
         const candidates = await discoverCandidates(channelRef);
+        perf.mark("DISCOVER");
 
         if (candidates.length === 0) {
             await reply(WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT, "ORGANIZATION_NOT_FOUND");
@@ -1559,6 +1578,7 @@ export async function processInboundMessage(
                     channelRef,
                     organizationId: organization.organizationId,
                 });
+                perf.mark("START");
                 await reply(extractWhatsappReplyText(startResult), "START");
                 return;
             }
@@ -1591,6 +1611,7 @@ export async function processInboundMessage(
             channelRef,
             candidates.map((candidate) => candidate.organizationId)
         );
+        perf.mark("CREATE_SELECTION");
         await reply(buildOrganizationSelectorText(candidates), "SELECTOR");
     } catch (error) {
         logger.error(error, { context: "whatsapp organizer bot", inboundMessageId: message.messageId });
