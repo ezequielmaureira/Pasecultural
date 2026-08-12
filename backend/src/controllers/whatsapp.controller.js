@@ -97,7 +97,7 @@ import {
     updatePendingStepInputStatus,
     deletePendingStepInput,
 } from "../services/whatsappPendingStepInput.service.js";
-import { startWhatsappPerfTimer } from "../utils/whatsappPerf.js";
+import { startWhatsappPerfTimer, enterWithActiveTimer } from "../utils/whatsappPerf.js";
 
 // El valor real de ConversationChannel para este canal (ver
 // prisma/schema.prisma `enum ConversationChannel { WEB WHATSAPP }`, ya usado
@@ -1155,6 +1155,12 @@ export async function processInboundMessage(
     // sites de `reply(...)` que ya existen — se completa sola apenas se
     // resuelve `active` más abajo.
     const perf = startWhatsappPerfTimer();
+    // Fase 3N — desde este punto, CUALQUIER query Prisma real que dispare
+    // este mismo mensaje (motor, discovery, event.service.js, etc., sin
+    // importar cuántas capas de por medio) queda asociada a este `perf`
+    // exacto vía AsyncLocalStorage — ver instrumentPrismaClient,
+    // utils/whatsappPerf.js. No-op si WHATSAPP_PERF_LOG no está activo.
+    enterWithActiveTimer(perf);
     let activeConversationId = null;
     const reply = (replyText, engineAction) =>
         sendBotReply({ sendText, to, from: message.from, messageId: message.messageId, text: replyText, engineAction, perf, conversationId: activeConversationId });
