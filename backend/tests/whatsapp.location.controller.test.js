@@ -6,16 +6,14 @@ import {
     WHATSAPP_LOCATION_METHOD_INVALID_TEXT,
     WHATSAPP_LOCATION_SHARE_PROMPT_TEXT,
     WHATSAPP_LOCATION_SHARE_RETRY_TEXT,
-    WHATSAPP_LOCATION_STREET_PROMPT_TEXT,
-    WHATSAPP_LOCATION_STREET_NUMBER_PROMPT_TEXT,
-    WHATSAPP_LOCATION_STREET_NUMBER_INVALID_TEXT,
-    WHATSAPP_LOCATION_CITY_PROMPT_TEXT,
+    WHATSAPP_LOCATION_MANUAL_ADDRESS_PROMPT_TEXT,
     WHATSAPP_LOCATION_NOT_EXPECTED_TEXT,
     WHATSAPP_LOCATION_INSUFFICIENT_TEXT,
     isPublishableWhatsappLocation,
-    buildLocationProvincePromptText,
-    buildLocationProvinceInvalidText,
+    buildWhatsappCompactAddressInvalidText,
     buildWhatsappLocationConfirmationText,
+    buildWhatsappLocationReusePromptText,
+    buildWhatsappLocationReuseInvalidText,
     buildWhatsappGoogleMapsLink,
     WHATSAPP_LOCATION_COMMIT_ERROR_TEXT,
 } from "../src/services/whatsappOrganizerBot.service.js";
@@ -36,12 +34,11 @@ test("isPublishableWhatsappLocation: a live pin (no name, no address) is NOT pub
     assert.equal(isPublishableWhatsappLocation({ latitude: -31.4, longitude: -64.18 }), false);
 });
 
-// Fase 3D — ubicación conversacional: 1) elegir método (compartir/manual),
-// 2A) compartir ubicación nativa, 2B) calle → altura → ciudad → provincia.
-// Mismo criterio DI que el resto del proyecto: todas las dependencias
-// reales (Prisma/EventCreationEngine) se inyectan como mocks. El estado
-// temporal (WhatsappPendingStepInput) se simula con un store en memoria del
-// propio test, igual que en whatsapp.functionCard.controller.test.js.
+// Fase 3K — ubicación conversacional: 1) elegir método (compartir/manual),
+// 2A) compartir ubicación nativa, 2B) dirección completa en UN mensaje
+// compacto ("San Martín 850, General Roca, Río Negro"). Mismo criterio DI
+// que el resto del proyecto: todas las dependencias reales (Prisma/
+// EventCreationEngine) se inyectan como mocks.
 
 function createFakePendingStore(seed = null) {
     const rows = new Map();
@@ -141,7 +138,7 @@ const CATEGORY_STEP_STATE = {
 
 const NEXT_STEP_RESULT = {
     conversationId: "conv1",
-    prompt: { stepId: "FUNCTIONS_MODE", type: "QUESTION", inputType: "SHORT_TEXT", text: "¿Cómo se realizarán las funciones de este evento?" },
+    prompt: { stepId: "FUNCTIONS_MODE", type: "QUESTION", inputType: "SINGLE_SELECT", text: "¿Este evento ocurre una sola vez o se repite?", options: [] },
     canGoBack: true,
     sections: [],
 };
@@ -152,7 +149,7 @@ function baseDeps({ pendingStore, ...overrides } = {}) {
     return {
         deps: {
             sendText,
-            findActiveConversation: spy({ id: "conv1", userId: "user_123" }),
+            findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }),
             resumeConversation: spy(LOCATION_STEP_STATE),
             handleConversationInput: spy(NEXT_STEP_RESULT),
             cancelConversation: spy(undefined),
@@ -160,6 +157,7 @@ function baseDeps({ pendingStore, ...overrides } = {}) {
             resetPendingStepInput: store.resetPendingStepInput,
             updatePendingStepInputStatus: store.updatePendingStepInputStatus,
             deletePendingStepInput: store.deletePendingStepInput,
+            findReusableLocation: spy(null),
             ...overrides,
         },
         sendCalls,
@@ -211,17 +209,17 @@ test("replying '1' at the method selector moves to AWAITING_LOCATION_SHARE", asy
 });
 
 // ==================================================
-// 3) "2" → espera calle
+// 3) "2" → espera la dirección completa en un solo mensaje
 // ==================================================
 
-test("replying '2' at the method selector moves to AWAITING_STREET", async () => {
+test("replying '2' at the method selector moves to AWAITING_MANUAL_ADDRESS", async () => {
     const store = createFakePendingStore();
     const { deps, sendCalls } = baseDeps({ pendingStore: store });
 
     await processInboundMessage(textMessage({ text: "2" }), deps);
 
-    assert.equal(store.calls.update[0].status, "AWAITING_STREET");
-    assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_STREET_PROMPT_TEXT);
+    assert.equal(store.calls.update[0].status, "AWAITING_MANUAL_ADDRESS");
+    assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_MANUAL_ADDRESS_PROMPT_TEXT);
 });
 
 // 11) opción 3 → no avanza
@@ -236,94 +234,14 @@ test("an invalid method choice (3) never advances, re-shows the selector", async
 });
 
 // ==================================================
-// 4) calle válida → altura
+// Fase 3K — dirección manual compacta, un solo mensaje.
 // ==================================================
 
-test("a valid street advances to AWAITING_STREET_NUMBER", async () => {
-    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_STREET", partialData: {} });
+test("a well-formed compact address builds the location and asks for confirmation, WITHOUT calling the engine yet", async () => {
+    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_MANUAL_ADDRESS", partialData: {} });
     const { deps, sendCalls } = baseDeps({ pendingStore: store });
 
-    await processInboundMessage(textMessage({ text: "San Martín" }), deps);
-
-    assert.equal(store.calls.update[0].status, "AWAITING_STREET_NUMBER");
-    assert.deepEqual(store.calls.update[0].partialData, { street: "San Martín" });
-    assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_STREET_NUMBER_PROMPT_TEXT);
-});
-
-// No hay un test end-to-end para "calle vacía": shouldAutoReply (gate de
-// entrada de processInboundMessage) ya exige `text.trim().length > 0` para
-// CUALQUIER mensaje de texto — así que un mensaje que resulte vacío
-// después de trim() nunca llega a esta rama (queda filtrado antes). La
-// validación de calle no vacía en WHATSAPP_LOCATION_STREET_INVALID_TEXT
-// queda como defensa adicional, coherente con el resto del archivo, pero
-// no es alcanzable a través del pipeline real — no se fuerza un test
-// artificial para eso.
-
-// ==================================================
-// 5) altura válida → ciudad / 12) altura inválida → no avanza
-// ==================================================
-
-test("a valid street number advances to AWAITING_CITY", async () => {
-    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_STREET_NUMBER", partialData: { street: "San Martín" } });
-    const { deps, sendCalls } = baseDeps({ pendingStore: store });
-
-    await processInboundMessage(textMessage({ text: "850" }), deps);
-
-    assert.equal(store.calls.update[0].status, "AWAITING_CITY");
-    assert.deepEqual(store.calls.update[0].partialData, { street: "San Martín", streetNumber: "850" });
-    assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_CITY_PROMPT_TEXT);
-});
-
-test("an invalid street number (abc) never advances", async () => {
-    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_STREET_NUMBER", partialData: { street: "San Martín" } });
-    const { deps, sendCalls } = baseDeps({ pendingStore: store });
-
-    await processInboundMessage(textMessage({ text: "abc" }), deps);
-
-    assert.equal(store.calls.update.length, 0);
-    assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_STREET_NUMBER_INVALID_TEXT);
-});
-
-// ==================================================
-// 6) ciudad válida → provincia
-// ==================================================
-
-test("a valid city advances to AWAITING_PROVINCE and shows the numbered province selector", async () => {
-    const store = createFakePendingStore({
-        conversationId: "conv1",
-        stepId: "LOCATION",
-        status: "AWAITING_CITY",
-        partialData: { street: "San Martín", streetNumber: "850" },
-    });
-    const { deps, sendCalls } = baseDeps({ pendingStore: store });
-
-    await processInboundMessage(textMessage({ text: "Río Cuarto" }), deps);
-
-    assert.equal(store.calls.update[0].status, "AWAITING_PROVINCE");
-    assert.deepEqual(store.calls.update[0].partialData, { street: "San Martín", streetNumber: "850", city: "Río Cuarto" });
-    assert.equal(sendCalls[0].text, buildLocationProvincePromptText());
-});
-
-// Mismo motivo que arriba: "ciudad vacía" nunca llega a esta rama a través
-// del pipeline real (shouldAutoReply ya la filtra).
-
-// ==================================================
-// 7/8) provincia válida → motor llamado exactamente una vez, shape correcto
-// 13) provincia fuera de rango → no avanza
-// ==================================================
-
-// Fase 3G, sección 4 — una provincia válida ya NO llama al motor
-// directamente: arma el objeto y pide confirmación primero.
-test("a valid province builds the location and asks for confirmation, WITHOUT calling the engine yet", async () => {
-    const store = createFakePendingStore({
-        conversationId: "conv1",
-        stepId: "LOCATION",
-        status: "AWAITING_PROVINCE",
-        partialData: { street: "San Martín", streetNumber: "850", city: "Río Cuarto" },
-    });
-    const { deps, sendCalls } = baseDeps({ pendingStore: store });
-
-    await processInboundMessage(textMessage({ text: "5" }), deps); // 5 = Córdoba
+    await processInboundMessage(textMessage({ text: "San Martín 850, Río Cuarto, Córdoba" }), deps);
 
     const expectedLocation = {
         address: "San Martín 850",
@@ -340,19 +258,37 @@ test("a valid province builds the location and asks for confirmation, WITHOUT ca
     assert.equal(sendCalls[0].text, buildWhatsappLocationConfirmationText(expectedLocation));
 });
 
-test("an out-of-range province index never advances", async () => {
-    const store = createFakePendingStore({
-        conversationId: "conv1",
-        stepId: "LOCATION",
-        status: "AWAITING_PROVINCE",
-        partialData: { street: "San Martín", streetNumber: "850", city: "Río Cuarto" },
-    });
+test("a malformed compact address (missing province) never advances, explains the comma-separated format", async () => {
+    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_MANUAL_ADDRESS", partialData: {} });
     const { deps, sendCalls } = baseDeps({ pendingStore: store });
 
-    await processInboundMessage(textMessage({ text: "99" }), deps);
+    await processInboundMessage(textMessage({ text: "San Martín 850, Río Cuarto" }), deps);
 
     assert.equal(deps.handleConversationInput.calls.length, 0);
-    assert.equal(sendCalls[0].text, buildLocationProvinceInvalidText());
+    assert.equal(store.calls.update.length, 0);
+    assert.equal(sendCalls[0].text, buildWhatsappCompactAddressInvalidText());
+});
+
+test("a compact address with an unrecognized province never advances, never invents a province", async () => {
+    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_MANUAL_ADDRESS", partialData: {} });
+    const { deps, sendCalls } = baseDeps({ pendingStore: store });
+
+    await processInboundMessage(textMessage({ text: "San Martín 850, Río Cuarto, Neverland" }), deps);
+
+    assert.equal(deps.handleConversationInput.calls.length, 0);
+    assert.equal(sendCalls[0].text, buildWhatsappCompactAddressInvalidText());
+});
+
+test("'volver' from AWAITING_MANUAL_ADDRESS returns to the method selector (single level, no partial sub-steps)", async () => {
+    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_MANUAL_ADDRESS", partialData: {} });
+    const { deps, sendCalls } = baseDeps({ pendingStore: store });
+
+    await processInboundMessage(textMessage({ text: "volver" }), deps);
+
+    assert.equal(store.calls.reset.length, 1);
+    assert.deepEqual(store.calls.reset[0], { conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_LOCATION_METHOD", partialData: {} });
+    assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_METHOD_PROMPT_TEXT);
+    assert.equal(deps.handleConversationInput.calls.length, 0);
 });
 
 // ==================================================
@@ -360,8 +296,6 @@ test("an out-of-range province index never advances", async () => {
 // 10) ubicación insuficiente → no motor
 // ==================================================
 
-// Fase 3G, sección 4 — una ubicación compartida válida ya NO llama al motor
-// directamente: arma el objeto y pide confirmación primero.
 test("a valid shared location (AWAITING_LOCATION_SHARE) builds the location and asks for confirmation, WITHOUT calling the engine yet", async () => {
     const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_LOCATION_SHARE", partialData: {} });
     const { deps, sendCalls } = baseDeps({ pendingStore: store });
@@ -400,61 +334,10 @@ test("free text while AWAITING_LOCATION_SHARE never advances, asks to share agai
 });
 
 // ==================================================
-// VOLVER — sub-pasos de dirección manual
+// VOLVER
 // ==================================================
 
-test("14) altura → volver → calle (elimina street)", async () => {
-    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_STREET_NUMBER", partialData: { street: "San Martín" } });
-    const { deps, sendCalls } = baseDeps({ pendingStore: store });
-
-    await processInboundMessage(textMessage({ text: "volver" }), deps);
-
-    assert.equal(store.calls.update[0].status, "AWAITING_STREET");
-    assert.deepEqual(store.calls.update[0].partialData, {});
-    assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_STREET_PROMPT_TEXT);
-    assert.equal(deps.handleConversationInput.calls.length, 0);
-});
-
-test("15) ciudad → volver → altura (mantiene street, elimina streetNumber)", async () => {
-    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_CITY", partialData: { street: "San Martín", streetNumber: "850" } });
-    const { deps, sendCalls } = baseDeps({ pendingStore: store });
-
-    await processInboundMessage(textMessage({ text: "VOLVER" }), deps);
-
-    assert.equal(store.calls.update[0].status, "AWAITING_STREET_NUMBER");
-    assert.deepEqual(store.calls.update[0].partialData, { street: "San Martín" });
-    assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_STREET_NUMBER_PROMPT_TEXT);
-});
-
-test("16) provincia → volver → ciudad (mantiene street/streetNumber, elimina city)", async () => {
-    const store = createFakePendingStore({
-        conversationId: "conv1",
-        stepId: "LOCATION",
-        status: "AWAITING_PROVINCE",
-        partialData: { street: "San Martín", streetNumber: "850", city: "Río Cuarto" },
-    });
-    const { deps, sendCalls } = baseDeps({ pendingStore: store });
-
-    await processInboundMessage(textMessage({ text: " volver " }), deps);
-
-    assert.equal(store.calls.update[0].status, "AWAITING_CITY");
-    assert.deepEqual(store.calls.update[0].partialData, { street: "San Martín", streetNumber: "850" });
-    assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_CITY_PROMPT_TEXT);
-});
-
-test("17) calle → volver → selector de método (reset completo)", async () => {
-    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_STREET", partialData: {} });
-    const { deps, sendCalls } = baseDeps({ pendingStore: store });
-
-    await processInboundMessage(textMessage({ text: "volver" }), deps);
-
-    assert.equal(store.calls.reset.length, 1);
-    assert.deepEqual(store.calls.reset[0], { conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_LOCATION_METHOD", partialData: {} });
-    assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_METHOD_PROMPT_TEXT);
-    assert.equal(deps.handleConversationInput.calls.length, 0);
-});
-
-test("18) esperando ubicación compartida → volver → selector de método", async () => {
+test("esperando ubicación compartida → volver → selector de método", async () => {
     const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_LOCATION_SHARE", partialData: {} });
     const { deps, sendCalls } = baseDeps({ pendingStore: store });
 
@@ -545,24 +428,12 @@ test("a malformed location message without real coordinates is ignored entirely"
 // independientes que sólo comparten el store (Postgres real en producción).
 // ==================================================
 
-test("26) the manual sub-flow survives independent processInboundMessage calls, no in-memory dependency", async () => {
+test("the manual sub-flow survives independent processInboundMessage calls, no in-memory dependency", async () => {
     const store = createFakePendingStore();
 
     const { deps: deps1, sendCalls: sendCalls1 } = baseDeps({ pendingStore: store });
     await processInboundMessage(textMessage({ text: "2" }), deps1);
-    assert.equal(sendCalls1[0].text, WHATSAPP_LOCATION_STREET_PROMPT_TEXT);
-
-    const { deps: deps2, sendCalls: sendCalls2 } = baseDeps({ pendingStore: store });
-    await processInboundMessage(textMessage({ text: "San Martín" }), deps2);
-    assert.equal(sendCalls2[0].text, WHATSAPP_LOCATION_STREET_NUMBER_PROMPT_TEXT);
-
-    const { deps: deps3, sendCalls: sendCalls3 } = baseDeps({ pendingStore: store });
-    await processInboundMessage(textMessage({ text: "850" }), deps3);
-    assert.equal(sendCalls3[0].text, WHATSAPP_LOCATION_CITY_PROMPT_TEXT);
-
-    const { deps: deps4, sendCalls: sendCalls4 } = baseDeps({ pendingStore: store });
-    await processInboundMessage(textMessage({ text: "Río Cuarto" }), deps4);
-    assert.equal(sendCalls4[0].text, buildLocationProvincePromptText());
+    assert.equal(sendCalls1[0].text, WHATSAPP_LOCATION_MANUAL_ADDRESS_PROMPT_TEXT);
 
     const expectedLocation = {
         address: "San Martín 850",
@@ -574,16 +445,16 @@ test("26) the manual sub-flow survives independent processInboundMessage calls, 
         googlePlaceId: null,
     };
 
-    const { deps: deps5, sendCalls: sendCalls5 } = baseDeps({ pendingStore: store });
-    await processInboundMessage(textMessage({ text: "5" }), deps5);
-    assert.equal(deps5.handleConversationInput.calls.length, 0, "todavía falta confirmar");
-    assert.equal(sendCalls5[0].text, buildWhatsappLocationConfirmationText(expectedLocation));
+    const { deps: deps2, sendCalls: sendCalls2 } = baseDeps({ pendingStore: store });
+    await processInboundMessage(textMessage({ text: "San Martín 850, Río Cuarto, Córdoba" }), deps2);
+    assert.equal(deps2.handleConversationInput.calls.length, 0, "todavía falta confirmar");
+    assert.equal(sendCalls2[0].text, buildWhatsappLocationConfirmationText(expectedLocation));
 
-    const { deps: deps6, sendCalls: sendCalls6 } = baseDeps({ pendingStore: store });
-    await processInboundMessage(textMessage({ text: "1" }), deps6);
-    assert.equal(deps6.handleConversationInput.calls.length, 1);
-    assert.deepEqual(deps6.handleConversationInput.calls[0][1].value, expectedLocation);
-    assert.equal(sendCalls6[0].text, "¿Cómo se realizarán las funciones de este evento?");
+    const { deps: deps3, sendCalls: sendCalls3 } = baseDeps({ pendingStore: store });
+    await processInboundMessage(textMessage({ text: "1" }), deps3);
+    assert.equal(deps3.handleConversationInput.calls.length, 1);
+    assert.deepEqual(deps3.handleConversationInput.calls[0][1].value, expectedLocation);
+    assert.equal(sendCalls3[0].text, "¿Este evento ocurre una sola vez o se repite?");
     assert.equal(await store.getPendingStepInput("conv1"), null);
 });
 
@@ -601,7 +472,7 @@ test("AWAITING_LOCATION_CONFIRMATION: '1' (share path) calls the engine exactly 
     assert.equal(deps.handleConversationInput.calls.length, 1);
     assert.deepEqual(deps.handleConversationInput.calls[0], ["conv1", { value: location }]);
     assert.equal(store.calls.delete.length, 1);
-    assert.equal(sendCalls[0].text, "¿Cómo se realizarán las funciones de este evento?");
+    assert.equal(sendCalls[0].text, "¿Este evento ocurre una sola vez o se repite?");
 });
 
 test("AWAITING_LOCATION_CONFIRMATION: 'Sí' (manual path) calls the engine exactly once with the exact object already built", async () => {
@@ -613,7 +484,7 @@ test("AWAITING_LOCATION_CONFIRMATION: 'Sí' (manual path) calls the engine exact
 
     assert.equal(deps.handleConversationInput.calls.length, 1);
     assert.deepEqual(deps.handleConversationInput.calls[0], ["conv1", { value: location }]);
-    assert.equal(sendCalls[0].text, "¿Cómo se realizarán las funciones de este evento?");
+    assert.equal(sendCalls[0].text, "¿Este evento ocurre una sola vez o se repite?");
 });
 
 test("AWAITING_LOCATION_CONFIRMATION: '2'/'No' discards the temporary location and returns to the method selector, never calling the engine", async () => {
@@ -672,6 +543,79 @@ test("AWAITING_LOCATION_CONFIRMATION: if the engine rejects the confirmed locati
 });
 
 // ==================================================
+// Fase 3K, sección 9 — reutilizar la ubicación del último evento de la
+// Organization (AWAITING_REUSE_CONFIRMATION). El pending ya viene creado
+// (lo arma replyForEngineResult, whatsapp.controller.js, en el momento en
+// que el motor recién avanza a LOCATION — ver whatsapp.imageUpload.controller.test.js
+// para esa parte); acá se prueba sólo la respuesta a esa pregunta.
+// ==================================================
+
+test("AWAITING_REUSE_CONFIRMATION: '1' commits the reused location directly, without asking method/address again", async () => {
+    const reusable = { venueName: "Elvis Bar", address: "San Martín 850", city: "Río Cuarto", province: "Córdoba", latitude: null, longitude: null, googlePlaceId: null };
+    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_REUSE_CONFIRMATION", partialData: { location: reusable } });
+    const { deps, sendCalls } = baseDeps({ pendingStore: store });
+
+    await processInboundMessage(textMessage({ text: "1" }), deps);
+
+    assert.equal(deps.handleConversationInput.calls.length, 1);
+    assert.deepEqual(deps.handleConversationInput.calls[0], ["conv1", { value: reusable }]);
+    assert.equal(store.calls.delete.length, 1);
+    assert.equal(sendCalls[0].text, "¿Este evento ocurre una sola vez o se repite?");
+});
+
+test("AWAITING_REUSE_CONFIRMATION: '2' (es en otro lugar) falls through to the normal method selector, never calling the engine", async () => {
+    const reusable = { venueName: "Elvis Bar", address: "San Martín 850", city: "Río Cuarto", province: "Córdoba", latitude: null, longitude: null, googlePlaceId: null };
+    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_REUSE_CONFIRMATION", partialData: { location: reusable } });
+    const { deps, sendCalls } = baseDeps({ pendingStore: store });
+
+    await processInboundMessage(textMessage({ text: "2" }), deps);
+
+    assert.equal(deps.handleConversationInput.calls.length, 0);
+    assert.equal(store.calls.update[0].status, "AWAITING_LOCATION_METHOD");
+    assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_METHOD_PROMPT_TEXT);
+});
+
+test("AWAITING_REUSE_CONFIRMATION: an invalid reply re-shows the same reuse question, never guesses", async () => {
+    const reusable = { venueName: "Elvis Bar", address: "San Martín 850", city: "Río Cuarto", province: "Córdoba", latitude: null, longitude: null, googlePlaceId: null };
+    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_REUSE_CONFIRMATION", partialData: { location: reusable } });
+    const { deps, sendCalls } = baseDeps({ pendingStore: store });
+
+    await processInboundMessage(textMessage({ text: "tal vez" }), deps);
+
+    assert.equal(deps.handleConversationInput.calls.length, 0);
+    assert.equal(sendCalls[0].text, buildWhatsappLocationReuseInvalidText(reusable));
+});
+
+test("AWAITING_REUSE_CONFIRMATION: 'volver' uses the engine's real BACK, same as the method selector", async () => {
+    const reusable = { venueName: "Elvis Bar", address: "San Martín 850", city: "Río Cuarto", province: "Córdoba", latitude: null, longitude: null, googlePlaceId: null };
+    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_REUSE_CONFIRMATION", partialData: { location: reusable } });
+    const { deps, sendCalls } = baseDeps({
+        pendingStore: store,
+        handleConversationInput: spy({
+            conversationId: "conv1",
+            prompt: { stepId: "COVER_IMAGE", type: "QUESTION", inputType: "IMAGE_URL", text: "Mandame la imagen." },
+            canGoBack: true,
+            sections: [],
+        }),
+    });
+
+    await processInboundMessage(textMessage({ text: "volver" }), deps);
+
+    assert.equal(deps.handleConversationInput.calls.length, 1);
+    assert.deepEqual(deps.handleConversationInput.calls[0], ["conv1", { action: "BACK" }]);
+    assert.equal(store.calls.delete.length, 1);
+    assert.equal(sendCalls[0].text, "Mandame la imagen.");
+});
+
+test("buildWhatsappLocationReusePromptText mentions the venue name and the address", () => {
+    const text = buildWhatsappLocationReusePromptText({ venueName: "Elvis Bar", address: "San Martín 850", city: "Río Cuarto" });
+    assert.ok(text.includes("Elvis Bar"));
+    assert.ok(text.includes("San Martín 850"));
+    assert.ok(text.includes("1. Sí"));
+    assert.ok(text.includes("2. Es en otro lugar"));
+});
+
+// ==================================================
 // Fase 3G, sección 4 — link de Google Maps: coordenadas vs. dirección.
 // ==================================================
 
@@ -709,7 +653,7 @@ test("buildWhatsappLocationConfirmationText includes the maps link and the 1/2 +
 // ==================================================
 
 test("a stale LOCATION pending is never reused when the real current step has moved on", async () => {
-    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_STREET", partialData: { street: "Colón" } });
+    const store = createFakePendingStore({ conversationId: "conv1", stepId: "LOCATION", status: "AWAITING_MANUAL_ADDRESS", partialData: {} });
     const { deps } = baseDeps({
         pendingStore: store,
         resumeConversation: spy({
@@ -722,6 +666,6 @@ test("a stale LOCATION pending is never reused when the real current step has mo
 
     await processInboundMessage(textMessage({ text: "algo" }), deps);
 
-    // No se interpretó como respuesta de "calle" del sub-flujo LOCATION.
+    // No se interpretó como respuesta de dirección del sub-flujo LOCATION.
     assert.equal(store.calls.update.length, 0);
 });

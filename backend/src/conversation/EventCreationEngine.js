@@ -150,13 +150,17 @@ export async function start({ clerkId, channel, channelRef, organizationId = nul
 // mensajes, así que no hay otro identificador estable más que channel +
 // channelRef (Fase 2E). Reutiliza exactamente las mismas columnas que ya
 // escribe start(), no agrega ningún estado ni modelo nuevo.
+// Fase 3K — se agrega `organizationId` al select (ya existe en la fila
+// desde Fase 2G): lo necesita el adaptador WhatsApp para poder ofrecer
+// reutilizar la ubicación del último evento de ESA organización sin tener
+// que volver a resolverla por teléfono a mitad de conversación.
 export async function findActiveConversation({ channel, channelRef }) {
     const state = await prisma.conversationState.findFirst({
         where: { channel, channelRef, status: "ACTIVE" },
         orderBy: { createdAt: "desc" },
-        select: { id: true, userId: true },
+        select: { id: true, userId: true, organizationId: true },
     });
-    return state ? { id: state.id, userId: state.userId } : null;
+    return state ? { id: state.id, userId: state.userId, organizationId: state.organizationId } : null;
 }
 
 async function loadActiveConversation(conversationId) {

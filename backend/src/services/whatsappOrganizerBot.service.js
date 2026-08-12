@@ -67,6 +67,23 @@ export function buildWhatsappImageUploadErrorText(reason) {
 export const WHATSAPP_LOCATION_METHOD_PROMPT_TEXT =
     `📍 ¿Cómo querés cargar la ubicación del evento?\n\n1. Compartir ubicación\n2. Completar dirección manualmente\n\nRespondé con 1 o 2.${WHATSAPP_BACK_HINT_TEXT}`;
 
+// Fase 3K, sección 9 — si la Organization ya tiene una dirección usable en
+// un evento anterior (ver whatsappOrganizationLocation.service.js), se
+// ofrece reutilizarla ANTES de preguntar el método — nunca se inventa el
+// nombre del lugar (venueName) si no vino de ese evento anterior: en ese
+// caso se usa la dirección como encabezado, igual que hace el resto del
+// bot (ver EventServicePort#buildLocationInput).
+export function buildWhatsappLocationReusePromptText(location) {
+    const label = location.venueName || location.address;
+    const addressLine = [location.address, location.city].filter(Boolean).join(", ");
+    return `¿El evento es en ${label}?\n\n📍 ${addressLine}\n\n1. Sí\n2. Es en otro lugar\n\nRespondé con 1 o 2.${WHATSAPP_BACK_HINT_TEXT}`;
+}
+
+export function buildWhatsappLocationReuseInvalidText(location) {
+    const label = location.venueName || location.address;
+    return `❌ Esa opción no existe.\n\n¿El evento es en ${label}?\n\n1. Sí\n2. Es en otro lugar\n\nRespondé con 1 o 2.`;
+}
+
 export const WHATSAPP_LOCATION_METHOD_INVALID_TEXT =
     "❌ Esa opción no existe.\n\n1. Compartir ubicación\n2. Completar dirección manualmente\n\nRespondé con 1 o 2.";
 
@@ -82,55 +99,65 @@ export const WHATSAPP_LOCATION_SHARE_PROMPT_TEXT =
 export const WHATSAPP_LOCATION_SHARE_RETRY_TEXT =
     "📍 Para continuar, compartime la ubicación del lugar desde WhatsApp.\n\nTocá 📎 → Ubicación y buscá/seleccioná el establecimiento.";
 
-// Opción 2 — dirección manual, paso a paso (una pregunta = un dato).
-export const WHATSAPP_LOCATION_STREET_PROMPT_TEXT = `🛣️ ¿Cuál es la calle?\n\nEjemplo:\nSan Martín${WHATSAPP_BACK_HINT_TEXT}`;
-export const WHATSAPP_LOCATION_STREET_INVALID_TEXT = "❌ Necesito el nombre de la calle.\n\nEjemplo:\nSan Martín";
+// Fase 3K, opción 2 — dirección manual COMPLETA en un solo mensaje
+// ("San Martín 850, General Roca, Río Negro") en vez de 4 preguntas
+// separadas (calle, altura, ciudad, provincia). Se divide por comas en
+// EXACTAMENTE 3 partes — calle+altura, ciudad, provincia — nunca menos,
+// nunca más: si el organizador puso una coma de más o de menos, se pide
+// de nuevo en vez de adivinar cuál falta.
+export const WHATSAPP_LOCATION_MANUAL_ADDRESS_PROMPT_TEXT =
+    `Escribime la dirección completa 📍\n\nSepará los datos con comas.\n\nEjemplo:\nSan Martín 850, General Roca, Río Negro${WHATSAPP_BACK_HINT_TEXT}`;
 
-export const WHATSAPP_LOCATION_STREET_NUMBER_PROMPT_TEXT = `🔢 ¿Cuál es la altura?\n\nEjemplo:\n850${WHATSAPP_BACK_HINT_TEXT}`;
-export const WHATSAPP_LOCATION_STREET_NUMBER_INVALID_TEXT =
-    "❌ No pude reconocer esa altura.\n\nEscribila en números.\n\nEjemplo:\n850";
-
-export const WHATSAPP_LOCATION_CITY_PROMPT_TEXT = `🏙️ ¿En qué ciudad se realiza?\n\nEjemplo:\nRío Cuarto${WHATSAPP_BACK_HINT_TEXT}`;
-export const WHATSAPP_LOCATION_CITY_INVALID_TEXT = "❌ Necesito el nombre de la ciudad.\n\nEjemplo:\nRío Cuarto";
-
-function buildProvinceOptionsList() {
-    return ARGENTINA_PROVINCES.map((name, index) => `${index + 1}. ${name}`).join("\n");
+export function buildWhatsappCompactAddressInvalidText() {
+    return "No pude entender esa dirección 😅\n\nMandámela así, separada por comas:\nCalle y altura, Ciudad, Provincia\n\nEjemplo:\nSan Martín 850, General Roca, Río Negro";
 }
 
-export function buildLocationProvincePromptText() {
-    return `🗺️ ¿En qué provincia?\n\n${buildProvinceOptionsList()}\n\nRespondé con el número.${WHATSAPP_BACK_HINT_TEXT}`;
+function normalizeForMatching(text) {
+    return text
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
 }
 
-export function buildLocationProvinceInvalidText() {
-    return `❌ Esa opción no existe.\n\n${buildProvinceOptionsList()}\n\nRespondé con el número.`;
+// Igualdad EXACTA (case/tilde-insensitive) contra ARGENTINA_PROVINCES —
+// nunca coincidencia parcial/fuzzy (sección 12 del pedido original: "No
+// usar coincidencia parcial peligrosa"). Devuelve el nombre real de la
+// provincia (el shape que espera inputHandlers/location.js#parse en
+// `province`) o `null` si no matchea ninguna — nunca se inventa una
+// provincia a partir de un parecido.
+function resolveArgentinaProvinceByFreeText(rawText) {
+    const normalized = normalizeForMatching(rawText);
+    return ARGENTINA_PROVINCES.find((province) => normalizeForMatching(province) === normalized) ?? null;
 }
 
-// Índice 1-based EXACTO contra ARGENTINA_PROVINCES — nunca coincidencia
-// parcial/fuzzy (sección 12 del pedido: "No usar coincidencia parcial
-// peligrosa... no hace falta fuzzy matching"). Devuelve el nombre real de
-// la provincia (el shape que espera inputHandlers/location.js#parse en
-// `province`), nunca el índice.
-export function resolveArgentinaProvinceIndexReply(rawText) {
-    const trimmed = typeof rawText === "string" ? rawText.trim() : "";
-    if (!/^\d+$/.test(trimmed)) return null;
+// `address` incluye altura tal cual la escribió el organizador (nunca se
+// separa/reformatea) — mismo shape final que ya usaba el modo manual
+// paso a paso (venueName/latitude/longitude/googlePlaceId en null a
+// propósito: nunca se geocodifica acá, ver EventServicePort#buildLocationInput
+// y event.service.js#buildLocationData, que geocodifican server-side de
+// forma best-effort recién al confirmar el evento).
+export function parseWhatsappCompactAddressText(rawText) {
+    if (typeof rawText !== "string") return null;
+    const parts = rawText
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean);
+    if (parts.length !== 3) return null;
 
-    const index = Number(trimmed);
-    if (!Number.isInteger(index) || index < 1 || index > ARGENTINA_PROVINCES.length) return null;
+    const [streetAndNumber, city, provinceText] = parts;
+    const province = resolveArgentinaProvinceByFreeText(provinceText);
+    if (!province) return null;
 
-    return ARGENTINA_PROVINCES[index - 1];
-}
-
-// La altura se guarda como STRING (no Number) para concatenarla tal cual en
-// `address` ("San Martín 850") sin riesgo de formateo (ej. ceros a la
-// izquierda) — sólo se exige que sea un entero positivo real.
-export function parseWhatsappStreetNumberText(rawText) {
-    const trimmed = typeof rawText === "string" ? rawText.trim() : "";
-    if (!/^\d+$/.test(trimmed)) return null;
-
-    const n = Number(trimmed);
-    if (!Number.isInteger(n) || n <= 0) return null;
-
-    return trimmed;
+    return {
+        address: streetAndNumber,
+        city,
+        province,
+        venueName: null,
+        latitude: null,
+        longitude: null,
+        googlePlaceId: null,
+    };
 }
 
 // El motor rechazó el objeto LOCATION ya completo (no debería pasar nunca
@@ -244,42 +271,13 @@ export function buildWhatsappLocationConfirmationText(location) {
 
 // ==================================================================
 // Fase 3C — step FUNCTIONS_SINGLE_CARD (inputType FUNCTION_CARD, "una sola
-// función") conversacional en 3 mensajes: fecha, hora de inicio, hora de
-// fin. Reemplaza el formato compuesto de un solo mensaje
-// ("DD/MM/AAAA HH:MM a HH:MM", Fase anterior) — esa UX queda ELIMINADA, no
-// se mantienen las dos en paralelo (ver informe de entrega). El motor
-// (inputHandlers/functionCard.js) sigue exigiendo exactamente lo mismo de
-// siempre, {date, startTime, endTime} en una sola llamada — la división en
-// 3 preguntas es EXCLUSIVA del adaptador WhatsApp, orquestada con
-// WhatsappPendingStepInput (whatsapp.controller.js#tryHandleFunctionCardSubflow).
-// Los validadores reales del motor se reutilizan tal cual, nunca se
-// reimplementan: isValidCalendarDateString/normalizeCalendarDateString
-// (utils/calendarDate.js) para la fecha, isValidTimeString
-// (inputHandlers/time.js) para los horarios.
+// función"). El motor (inputHandlers/functionCard.js) exige
+// {date, startTime, endTime} en una sola llamada — Fase 3K compactó la UX
+// de WhatsApp a un solo mensaje ("26/08, 20:00-22:00", ver
+// parseWhatsappCompactDateTimeText más abajo); las 3 preguntas separadas
+// de la versión anterior (fecha / hora inicio / hora fin) quedaron
+// eliminadas, no se mantienen en paralelo (ver informe de entrega).
 // ==================================================================
-
-export const WHATSAPP_FUNCTION_CARD_DATE_PROMPT_TEXT =
-    `📅 ¿Qué día es la función?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n25/08/2026${WHATSAPP_BACK_HINT_TEXT}`;
-
-export const WHATSAPP_FUNCTION_CARD_DATE_INVALID_TEXT =
-    "❌ No pude reconocer esa fecha.\n\nEscribila así:\nDD/MM/AAAA\n\nEjemplo:\n25/08/2026";
-
-// Fase 3C, sección 5/6 — fecha mínima = hoy, SÓLO para WhatsApp (no se
-// mueve al motor compartido en esta fase, ver getArgentinaTodayDateString
-// más abajo).
-export const WHATSAPP_FUNCTION_CARD_DATE_PAST_TEXT =
-    "❌ Esa fecha ya pasó.\n\nIngresá una fecha desde hoy en adelante.\n\nFormato:\nDD/MM/AAAA\n\nEjemplo:\n25/08/2026";
-
-export const WHATSAPP_FUNCTION_CARD_START_TIME_PROMPT_TEXT =
-    `🕐 ¿A qué hora comienza?\n\nEscribila así:\nHH:MM\n\nEjemplo:\n20:00${WHATSAPP_BACK_HINT_TEXT}`;
-
-export const WHATSAPP_FUNCTION_CARD_END_TIME_PROMPT_TEXT =
-    `🕐 ¿A qué hora termina?\n\nEscribila así:\nHH:MM\n\nEjemplo:\n23:00${WHATSAPP_BACK_HINT_TEXT}`;
-
-// Mismo texto para hora de inicio Y hora de fin inválidas — el pedido dio
-// un único texto de error para "horario" (sección 8), sin variantes.
-export const WHATSAPP_FUNCTION_CARD_TIME_INVALID_TEXT =
-    "❌ No pude reconocer ese horario.\n\nEscribilo así:\nHH:MM\n\nEjemplo:\n20:00";
 
 // El motor rechazó el objeto {date,startTime,endTime} ya completo (no
 // debería pasar nunca en la práctica: fecha y horarios ya se validaron uno
@@ -290,31 +288,52 @@ export const WHATSAPP_FUNCTION_CARD_TIME_INVALID_TEXT =
 export const WHATSAPP_FUNCTION_CARD_COMMIT_ERROR_TEXT =
     "❌ No pudimos guardar la función con esos datos.\n\nVolvé a escribir la hora de finalización.\n\nFormato:\nHH:MM\n\nEjemplo:\n23:00";
 
-// Formato ÚNICO y estricto a propósito (mismo criterio ya aprobado en la
-// fase anterior: "no necesito múltiples formatos si eso agrega
-// complejidad") — día y mes SIEMPRE de 2 dígitos, año de 4. "25/8/2026",
-// "25-08-2026" o "25.08.2026" no matchean.
-const FUNCTION_CARD_DATE_PATTERN = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+// Fase 3K — el año pasa a ser OPCIONAL: se enseña DD/MM (más rápido de
+// escribir desde el celular) pero DD/MM/AAAA sigue funcionando tal cual
+// antes (nunca se le quita una capacidad a quien ya lo usaba así). Día y
+// mes aceptan 1 o 2 dígitos ("6/8" y "06/08" son el mismo valor) — nunca
+// hay ambigüedad de orden (Argentina siempre DD/MM, nunca MM/DD).
+const FUNCTION_CARD_DATE_WITH_YEAR_PATTERN = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+const FUNCTION_CARD_DATE_WITHOUT_YEAR_PATTERN = /^(\d{1,2})\/(\d{1,2})$/;
 
-// Devuelve la fecha normalizada ("YYYY-MM-DD", el shape real que espera
-// functionCard.js#parse) sólo si el texto matchea el formato EXACTO y
-// además representa una fecha REAL — nunca sólo un chequeo de forma.
-// "31/02/2026"/"32/08/2026"/"00/08/2026" matchean el regex pero
-// isValidCalendarDateString los rechaza (Date.UTC roundtrip, ver
-// utils/calendarDate.js), exactamente igual que ya lo hace Web para el
-// mismo campo. Devuelve `null` (nunca inventa un valor parcial) ante
-// cualquier desajuste.
-export function parseWhatsappFunctionCardDateText(rawText) {
+// isValidCalendarDateString/normalizeCalendarDateString son los mismos
+// validadores reales del motor (utils/calendarDate.js) — nunca se
+// reimplementan. Devuelve `null` (nunca un valor parcial/inventado) ante
+// cualquier desajuste, incluidas fechas con forma válida pero que no
+// existen ("31/02").
+function normalizeIfRealCalendarDate(year, month, day) {
+    const isoDate = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+    if (!isValidCalendarDateString(isoDate)) return null;
+    return normalizeCalendarDateString(isoDate);
+}
+
+// Sin año, se infiere el PRÓXIMO DD/MM que corresponda: si esa fecha
+// todavía no pasó este año (Argentina), se usa el año actual; si ya pasó,
+// se asume el año que viene (mismo criterio que "el próximo viernes" en
+// lenguaje natural) — nunca se asume el año pasado. `now` es inyectable
+// para poder testear el límite exacto sin mockear el reloj global (mismo
+// criterio que getArgentinaTodayDateString/isArgentineDateInThePast).
+export function parseWhatsappFunctionCardDateText(rawText, now = new Date()) {
     if (typeof rawText !== "string") return null;
     const trimmed = rawText.trim();
-    const match = FUNCTION_CARD_DATE_PATTERN.exec(trimmed);
-    if (!match) return null;
 
-    const [, day, month, year] = match;
-    const isoDate = `${year}-${month}-${day}`;
-    if (!isValidCalendarDateString(isoDate)) return null;
+    const withYear = FUNCTION_CARD_DATE_WITH_YEAR_PATTERN.exec(trimmed);
+    if (withYear) {
+        const [, day, month, year] = withYear;
+        return normalizeIfRealCalendarDate(year, month, day);
+    }
 
-    return normalizeCalendarDateString(isoDate);
+    const withoutYear = FUNCTION_CARD_DATE_WITHOUT_YEAR_PATTERN.exec(trimmed);
+    if (withoutYear) {
+        const [, day, month] = withoutYear;
+        const currentYear = getArgentinaTodayDateString(now).slice(0, 4);
+        const candidateThisYear = normalizeIfRealCalendarDate(currentYear, month, day);
+        if (!candidateThisYear) return null;
+        if (!isArgentineDateInThePast(candidateThisYear, now)) return candidateThisYear;
+        return normalizeIfRealCalendarDate(String(Number(currentYear) + 1), month, day);
+    }
+
+    return null;
 }
 
 // Fase 3C, sección 5 — "hoy" para Argentina, SIN depender de la timezone
@@ -343,6 +362,74 @@ export function isArgentineDateInThePast(normalizedDate, now = new Date()) {
 }
 
 // ==================================================================
+// Fase 3K, principio 1/3 — combina fecha + horario de una función en UN
+// solo mensaje ("26/08, 20:00-22:00") en vez de 3 preguntas separadas.
+// Reutiliza tal cual parseWhatsappFunctionCardDateText (fecha, año
+// opcional) — nunca reimplementa esa regla, sólo separa el texto en sus
+// dos partes antes de pasárselas. El separador ENTRE fecha y horario
+// tolera coma+espacio, sólo espacio, o nada; el separador DENTRO del rango
+// horario tolera "-" o "a", con o sin espacios, con u sin minutos, con o
+// sin "hs" — exactamente las variantes pedidas en "el bot enseña una
+// forma, pero debe entender varias". El formato enseñado (ver
+// WHATSAPP_FUNCTION_CARD_DATE_TIME_PROMPT_TEXT) sigue siendo uno solo.
+// ==================================================================
+
+// La fecha es lo que quede ANTES del primer token con forma D/M (1-2
+// dígitos) al principio del texto — nunca se intenta adivinar el corte por
+// posición de espacio a secas (ambiguo si el horario también tuviera
+// espacios), así que se ancla al inicio.
+const COMPACT_DATE_TOKEN_REGEX = /^(\d{1,2}\/\d{1,2}(?:\/\d{4})?)/;
+
+// Un lado del rango horario: horas (1-2 dígitos) + minutos opcionales +
+// "hs"/"h" opcional. "20", "20:00", "20hs", "20:00hs" son todos válidos.
+const COMPACT_TIME_SIDE = "(\\d{1,2})(?::(\\d{2}))?\\s*(?:hs?\\.?)?";
+const COMPACT_TIME_RANGE_REGEX = new RegExp(`^${COMPACT_TIME_SIDE}\\s*(?:-|a)\\s*${COMPACT_TIME_SIDE}$`, "i");
+
+function normalizeCompactTimeSide(hours, minutes) {
+    const h = Number(hours);
+    if (!Number.isInteger(h) || h < 0 || h > 23) return null;
+    const m = minutes === undefined ? 0 : Number(minutes);
+    if (!Number.isInteger(m) || m < 0 || m > 59) return null;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+// Devuelve {date, startTime, endTime} (el shape exacto que ya exige
+// functionCard.js#parse) o `null` — nunca un resultado parcial. Fecha en
+// el pasado NO se rechaza acá (mismo criterio que antes: eso lo decide el
+// caller con isArgentineDateInThePast, para poder dar un mensaje distinto
+// a "formato inválido").
+export function parseWhatsappCompactDateTimeText(rawText, now = new Date()) {
+    if (typeof rawText !== "string") return null;
+    const trimmed = rawText.trim();
+
+    const dateMatch = COMPACT_DATE_TOKEN_REGEX.exec(trimmed);
+    if (!dateMatch) return null;
+    const date = parseWhatsappFunctionCardDateText(dateMatch[1], now);
+    if (!date) return null;
+
+    const rest = trimmed.slice(dateMatch[1].length).replace(/^[\s,]+/, "").trim();
+    const timeMatch = COMPACT_TIME_RANGE_REGEX.exec(rest);
+    if (!timeMatch) return null;
+
+    const [, startHours, startMinutes, endHours, endMinutes] = timeMatch;
+    const startTime = normalizeCompactTimeSide(startHours, startMinutes);
+    const endTime = normalizeCompactTimeSide(endHours, endMinutes);
+    if (!startTime || !endTime) return null;
+
+    return { date, startTime, endTime };
+}
+
+export const WHATSAPP_FUNCTION_CARD_DATE_TIME_PROMPT_TEXT =
+    `📅 ¿Qué día y horario es la función?\n\nEscribilo así:\nDD/MM, HH:MM-HH:MM\n\nEjemplo:\n26/08, 20:00-22:00${WHATSAPP_BACK_HINT_TEXT}`;
+
+export function buildWhatsappCompactDateTimeInvalidText() {
+    return "No pude entender la fecha y el horario 😅\n\nMandámelo así:\nDD/MM, HH:MM-HH:MM\n\nEjemplo:\n26/08, 20:00-22:00";
+}
+
+export const WHATSAPP_COMPACT_DATE_TIME_PAST_TEXT =
+    "Esa fecha ya pasó.\n\nIngresá una fecha desde hoy en adelante.\n\nEjemplo:\n26/08, 20:00-22:00";
+
+// ==================================================================
 // Fase 3E — step FUNCTIONS_LIST (inputType FUNCTIONS_LIST, "varias
 // funciones", modo MULTIPLE de FUNCTIONS_MODE) conversacional: fecha ->
 // hora de inicio -> hora de fin -> ¿agregar otra? -> repetir o finalizar.
@@ -357,13 +444,13 @@ export function isArgentineDateInThePast(normalizedDate, now = new Date()) {
 // ==================================================================
 
 export const WHATSAPP_FUNCTIONS_LIST_DATE_PROMPT_TEXT =
-    `📅 ¿Qué día es la primera función?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n25/08/2026${WHATSAPP_BACK_HINT_TEXT}`;
+    `📅 Pasame la fecha y horario de la primera función.\n\nEscribilo así:\nDD/MM, HH:MM-HH:MM\n\nEjemplo:\n26/08, 20:00-22:00${WHATSAPP_BACK_HINT_TEXT}`;
 
 // Se muestra al arrancar cada función siguiente (después de responder "1"
-// en AWAITING_MULTIPLE_ADD_ANOTHER) — misma validación, sólo cambia el
-// enunciado para dejar claro que la anterior ya quedó guardada.
+// en AWAITING_ADD_ANOTHER) — misma validación, sólo cambia el enunciado
+// para dejar claro que la anterior ya quedó guardada.
 export const WHATSAPP_FUNCTIONS_LIST_DATE_PROMPT_NEXT_TEXT =
-    `📅 ¿Qué día es la siguiente función?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n26/08/2026${WHATSAPP_BACK_HINT_TEXT}`;
+    `📅 Pasame la próxima fecha y horario.\n\nEscribilo así:\nDD/MM, HH:MM-HH:MM\n\nEjemplo:\n27/08, 21:00-23:00${WHATSAPP_BACK_HINT_TEXT}`;
 
 export function buildWhatsappFunctionsListDatePromptText(isFirstFunction) {
     return isFirstFunction ? WHATSAPP_FUNCTIONS_LIST_DATE_PROMPT_TEXT : WHATSAPP_FUNCTIONS_LIST_DATE_PROMPT_NEXT_TEXT;
@@ -409,27 +496,51 @@ export function buildWhatsappFunctionAddedSummaryText(fn) {
 // comentario en tryHandleRecurringSchedulesSubflow).
 // ==================================================================
 
-export const WHATSAPP_RECURRING_FROM_DATE_PROMPT_TEXT =
-    `🔁 Vamos a configurar las funciones recurrentes.\n\n📅 ¿Desde qué fecha se repite el evento?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n20/08/2026${WHATSAPP_BACK_HINT_TEXT}`;
+// Fase 3K — combina "desde" y "hasta" en un solo mensaje ("01/09 al
+// 30/09") en vez de 2 preguntas separadas. Mismo parser de fecha
+// (parseWhatsappFunctionCardDateText, año opcional) para cada lado —
+// nunca reimplementado. Separador tolerante: "al", "hasta", "a" o "-".
+// Nunca ambiguo con el contenido de la fecha (día/mes son sólo dígitos y
+// "/", ninguna de esas palabras puede aparecer dentro de un token de fecha
+// válido).
+const DATE_RANGE_SEPARATOR_REGEX = /^(.+?)\s*(?:al|hasta|a|-)\s*(.+)$/i;
 
-export const WHATSAPP_RECURRING_TO_DATE_PROMPT_TEXT =
-    `📅 ¿Hasta qué fecha se repite?\n\nEscribí la fecha así:\nDD/MM/AAAA\n\nEjemplo:\n30/09/2026${WHATSAPP_BACK_HINT_TEXT}`;
+export function parseWhatsappCompactDateRangeText(rawText, now = new Date()) {
+    if (typeof rawText !== "string") return null;
+    const match = DATE_RANGE_SEPARATOR_REGEX.exec(rawText.trim());
+    if (!match) return null;
+
+    const from = parseWhatsappFunctionCardDateText(match[1].trim(), now);
+    const to = parseWhatsappFunctionCardDateText(match[2].trim(), now);
+    if (!from || !to) return null;
+
+    return { from, to };
+}
+
+export const WHATSAPP_RECURRING_RANGE_PROMPT_TEXT =
+    `🔁 Vamos a configurar las funciones recurrentes.\n\n📅 ¿Desde y hasta qué fecha se repite?\n\nEscribilo así:\nDD/MM al DD/MM\n\nEjemplo:\n01/09 al 30/09${WHATSAPP_BACK_HINT_TEXT}`;
+
+export function buildWhatsappCompactDateRangeInvalidText() {
+    return "No pude entender esas fechas 😅\n\nMandámelo así:\nDD/MM al DD/MM\n\nEjemplo:\n01/09 al 30/09";
+}
+
+export const WHATSAPP_COMPACT_DATE_RANGE_PAST_TEXT =
+    "La fecha de inicio ya pasó.\n\nIngresá un rango desde hoy en adelante.\n\nEjemplo:\n01/09 al 30/09";
 
 // La misma regla "hasta >= desde" que ya exige inputHandlers/dateRange.js —
 // se valida ACÁ, ANTES de llamar al motor (nunca se llama con un rango
-// inválido), para poder mostrar el mensaje puntual del pedido y mantener
-// `from` sin pedirlo de nuevo. No es una regla nueva: es la misma regla del
-// handler real, aplicada del lado del adaptador para evitar un viaje al
-// motor que ya sabemos que va a fallar.
+// inválido). No es una regla nueva: es la misma regla del handler real,
+// aplicada del lado del adaptador para evitar un viaje al motor que ya
+// sabemos que va a fallar.
 export function isRecurringToBeforeFrom(from, to) {
     return compareCalendarDateStrings(to, from) < 0;
 }
 
 export const WHATSAPP_RECURRING_TO_BEFORE_FROM_TEXT =
-    "❌ La fecha final no puede ser anterior a la fecha inicial.\n\nIngresá nuevamente la fecha hasta.\n\nFormato:\nDD/MM/AAAA\n\nEjemplo:\n30/09/2026";
+    "❌ La fecha final no puede ser anterior a la inicial.\n\nMandámelo de nuevo así:\nDD/MM al DD/MM\n\nEjemplo:\n01/09 al 30/09";
 
 export const WHATSAPP_RECURRING_RANGE_COMMIT_ERROR_TEXT =
-    "❌ No pudimos guardar ese rango de fechas.\n\nVolvé a escribir la fecha hasta.\n\nFormato:\nDD/MM/AAAA\n\nEjemplo:\n30/09/2026";
+    "❌ No pudimos guardar ese rango de fechas.\n\nVolvé a escribirlo así:\nDD/MM al DD/MM\n\nEjemplo:\n01/09 al 30/09";
 
 // Días de semana — misma convención interna 0=Lunes..6=Domingo que ya usa
 // el motor (ver comentario de generateRecurringSlots en
@@ -442,24 +553,54 @@ function buildWeekdayOptionsList() {
     return WHATSAPP_WEEKDAY_LABELS.map((name, index) => `${index + 1}. ${name}`).join("\n");
 }
 
-export const WHATSAPP_RECURRING_WEEKDAYS_PROMPT_TEXT = `📆 ¿Qué días se repite el evento?\n\n${buildWeekdayOptionsList()}\n\nPodés elegir uno o varios separados por coma.\n\nEjemplo:\n1,3,5${WHATSAPP_BACK_HINT_TEXT}`;
+// Fase 3K — se enseña el nombre de los días ("viernes, sábado"), más
+// natural que el índice numérico — el índice ("1,3,5") sigue funcionando
+// tal cual para no romper a nadie que ya lo aprendió así (ver
+// parseWhatsappWeekdaySelection).
+export const WHATSAPP_RECURRING_WEEKDAYS_PROMPT_TEXT =
+    `📆 ¿Qué días se repite el evento?\n\nEscribí los días separados por coma.\n\nEjemplo:\nviernes, sábado${WHATSAPP_BACK_HINT_TEXT}`;
 
-export const WHATSAPP_RECURRING_WEEKDAYS_INVALID_TEXT = `❌ No pude reconocer esos días.\n\n${buildWeekdayOptionsList()}\n\nPodés elegir uno o varios separados por coma.\n\nEjemplo:\n1,3,5`;
+export const WHATSAPP_RECURRING_WEEKDAYS_INVALID_TEXT =
+    "❌ No pude reconocer esos días.\n\nEscribilos separados por coma.\n\nEjemplo:\nviernes, sábado";
 
-export const WHATSAPP_RECURRING_WEEKDAYS_COMMIT_ERROR_TEXT = `❌ No pudimos guardar esos días.\n\n${buildWeekdayOptionsList()}\n\nPodés elegir uno o varios separados por coma.\n\nEjemplo:\n1,3,5`;
+export const WHATSAPP_RECURRING_WEEKDAYS_COMMIT_ERROR_TEXT =
+    "❌ No pudimos guardar esos días.\n\nVolvé a escribirlos separados por coma.\n\nEjemplo:\nviernes, sábado";
 
-// Acepta "1", "1,3,5", "1, 3, 5" — un índice 1-7 por token, separados por
-// coma, sin importar espacios alrededor. Rechaza cualquier token fuera de
-// 1-7, vacío (ej. "1,,3"), decimal/con puntos (ej. "1.3.5", que al no tener
-// comas queda como un único token que no matchea el patrón de un solo
-// dígito) o texto libre. Duplicados: se eliminan conservando el orden de la
-// PRIMERA aparición (ej. "1,1,3" -> [0,2]) — no es una regla nueva de
-// negocio, sólo la forma más simple y determinística de resolver una
-// entrada repetida sin inventar semántica adicional; el motor
+// Nombres de día en español, sin tilde y en minúscula (ver
+// normalizeWeekdayToken) — misma convención interna 0=Lunes..6=Domingo que
+// ya usa el motor (generateRecurringSlots, steps/definitions.js /
+// inputHandlers/weekdays.js). El mapeo es EXCLUSIVO de este adaptador,
+// nunca se toca el motor.
+const WEEKDAY_NAME_TO_INDEX = {
+    lunes: 0,
+    martes: 1,
+    miercoles: 2,
+    jueves: 3,
+    viernes: 4,
+    sabado: 5,
+    domingo: 6,
+};
+
+function normalizeWeekdayToken(token) {
+    return token
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
+}
+
+// Acepta tanto nombres ("viernes, sábado", "viernes y sábado", con o sin
+// tilde) como el índice numérico legado ("1,3,5", 1=Lunes..7=Domingo) —
+// nunca se le quita una capacidad a quien ya usaba el índice. Separador
+// tolerante: coma, o la palabra "y" como token independiente (nunca dentro
+// de otra palabra, ver \b). Rechaza cualquier token que no matchee ninguno
+// de los dos formatos, vacío (ej. "viernes,,sábado"), o texto libre.
+// Duplicados: se eliminan conservando el orden de la PRIMERA aparición —
+// no es una regla nueva de negocio, sólo la forma más simple y
+// determinística de resolver una entrada repetida; el motor
 // (weekdays.js#parse) igualmente dedupea y ordena por su cuenta antes de
-// guardar, así que el orden acá sólo afecta qué se le pasa, nunca lo que
-// termina persistido. Devuelve `null` (nunca un array parcial) ante
-// cualquier entrada inválida.
+// guardar. Devuelve `null` (nunca un array parcial) ante cualquier entrada
+// inválida.
 const WEEKDAY_UX_TOKEN_PATTERN = /^[1-7]$/;
 
 export function parseWhatsappWeekdaySelection(rawText) {
@@ -467,12 +608,22 @@ export function parseWhatsappWeekdaySelection(rawText) {
     const trimmed = rawText.trim();
     if (!trimmed) return null;
 
-    const tokens = trimmed.split(",").map((token) => token.trim());
-    if (tokens.some((token) => !WEEKDAY_UX_TOKEN_PATTERN.test(token))) return null;
+    const tokens = trimmed
+        .split(/,|\by\b/i)
+        .map((token) => token.trim())
+        .filter(Boolean);
+    if (tokens.length === 0) return null;
 
     const internalDays = [];
     for (const token of tokens) {
-        const internalDay = Number(token) - 1; // 1..7 (Lunes..Domingo) -> 0..6
+        let internalDay;
+        if (WEEKDAY_UX_TOKEN_PATTERN.test(token)) {
+            internalDay = Number(token) - 1;
+        } else {
+            const normalized = normalizeWeekdayToken(token);
+            if (!(normalized in WEEKDAY_NAME_TO_INDEX)) return null;
+            internalDay = WEEKDAY_NAME_TO_INDEX[normalized];
+        }
         if (!internalDays.includes(internalDay)) internalDays.push(internalDay);
     }
     return internalDays;
@@ -494,16 +645,35 @@ export function buildWhatsappWeekdaysConfirmationText(internalDays) {
     return `✅ Días seleccionados:\n${joinSpanishList(labels)}`;
 }
 
-// Horarios recurrentes — mismo prompt/validación de hora ya aprobados en
-// Fase 3C/3E (WHATSAPP_FUNCTION_CARD_START_TIME_PROMPT_TEXT/
-// _END_TIME_PROMPT_TEXT/_TIME_INVALID_TEXT), reutilizados tal cual para el
-// primer horario. Sólo el prompt de inicio de un horario SIGUIENTE necesita
-// texto propio (distingue "el siguiente horario" del primero).
-export const WHATSAPP_RECURRING_START_TIME_NEXT_PROMPT_TEXT =
-    `🕐 ¿A qué hora comienza el siguiente horario?\n\nEscribí la hora así:\nHH:MM\n\nEjemplo:\n23:00${WHATSAPP_BACK_HINT_TEXT}`;
+// Fase 3K — un horario recurrente en un solo mensaje ("20:00-22:00"),
+// reutilizando el MISMO parser/regex tolerante de rango horario que
+// parseWhatsappCompactDateTimeText (COMPACT_TIME_RANGE_REGEX/
+// normalizeCompactTimeSide, definidos más arriba) — nunca duplicado.
+export function parseWhatsappCompactTimeRangeText(rawText) {
+    if (typeof rawText !== "string") return null;
+    const match = COMPACT_TIME_RANGE_REGEX.exec(rawText.trim());
+    if (!match) return null;
+
+    const [, startHours, startMinutes, endHours, endMinutes] = match;
+    const startTime = normalizeCompactTimeSide(startHours, startMinutes);
+    const endTime = normalizeCompactTimeSide(endHours, endMinutes);
+    if (!startTime || !endTime) return null;
+
+    return { startTime, endTime };
+}
+
+export const WHATSAPP_RECURRING_SCHEDULE_PROMPT_TEXT =
+    `🕐 ¿En qué horario se hace la función esos días?\n\nEscribilo así:\nHH:MM-HH:MM\n\nEjemplo:\n20:00-22:00${WHATSAPP_BACK_HINT_TEXT}`;
+
+export const WHATSAPP_RECURRING_SCHEDULE_NEXT_PROMPT_TEXT =
+    `🕐 ¿Y el siguiente horario?\n\nEscribilo así:\nHH:MM-HH:MM\n\nEjemplo:\n20:00-22:00${WHATSAPP_BACK_HINT_TEXT}`;
 
 export function buildWhatsappRecurringStartTimePromptText(isFirstSchedule) {
-    return isFirstSchedule ? WHATSAPP_FUNCTION_CARD_START_TIME_PROMPT_TEXT : WHATSAPP_RECURRING_START_TIME_NEXT_PROMPT_TEXT;
+    return isFirstSchedule ? WHATSAPP_RECURRING_SCHEDULE_PROMPT_TEXT : WHATSAPP_RECURRING_SCHEDULE_NEXT_PROMPT_TEXT;
+}
+
+export function buildWhatsappCompactTimeRangeInvalidText() {
+    return "No pude entender ese horario 😅\n\nMandámelo así:\nHH:MM-HH:MM\n\nEjemplo:\n20:00-22:00";
 }
 
 export function buildWhatsappScheduleAddedSummaryText(schedule) {
@@ -530,6 +700,81 @@ export const WHATSAPP_RECURRING_NO_OCCURRENCES_TEXT =
     '❌ No se generó ninguna función con esas fechas y esos días.\n\nEscribí "volver" para ajustar los horarios, los días o el rango de fechas.';
 
 // ==================================================================
+// Fase 3K, sección 11 — combina nombre + precio de un tipo de entrada en
+// UN solo mensaje ("General, 8000") en vez de dos preguntas separadas
+// (TICKET_NAME, un SINGLE_SELECT numerado, y TICKET_PRICE). La CANTIDAD
+// disponible (TICKET_QUANTITY) NO se combina acá a propósito: es dato de
+// stock real que el organizador tiene que decidir, nunca se puede inventar
+// un valor por defecto sin arriesgar vender entradas que no existen — sigue
+// preguntándose aparte, con el prompt genérico que el motor ya trae
+// ("¿Cuántas hay disponibles?").
+// ==================================================================
+
+// Mismas 7 opciones reales de TICKET_NAME (steps/definitions.js) — nunca
+// duplicadas como lista aparte, sólo los ids que hacen falta para
+// matchear el nombre escrito libremente contra una opción conocida.
+const KNOWN_TICKET_NAME_IDS = ["General", "VIP", "Platea", "Campo", "Anticipada", "Palco", "Mesa"];
+
+// Igualdad EXACTA case/tilde-insensitive (mismo criterio que las provincias,
+// ver resolveArgentinaProvinceByFreeText) — nunca fuzzy. Si no matchea
+// ninguna opción conocida, se trata como nombre personalizado: el motor ya
+// sabe recibir eso vía TICKET_NAME={value:"OTHER"} -> TICKET_NAME_CUSTOM
+// (ver tryHandleTicketComboSubflow, whatsapp.controller.js), nunca se
+// rechaza un nombre válido sólo porque no está en la lista.
+export function resolveWhatsappTicketNameOptionId(rawName) {
+    const normalized = normalizeForMatching(rawName);
+    return KNOWN_TICKET_NAME_IDS.find((id) => normalizeForMatching(id) === normalized) ?? "OTHER";
+}
+
+// El precio se ENSEÑA siempre sin el signo $ ("General, 8000") — nunca se
+// muestra un ejemplo con $ (sección 11 del pedido). Para lo que se
+// ENTIENDE, se tolera que alguien lo escriba con $ o con puntos/comas de
+// separador de miles ("$8.000", "8,000"): se limpia todo lo que no sea
+// dígito antes de convertir a número — nunca se interpreta como
+// decimales/centavos (los precios de entradas de este dominio son siempre
+// enteros, ver formatWhatsappPriceARS más abajo, que tampoco usa decimales).
+export function parseWhatsappTicketPriceText(rawText) {
+    if (typeof rawText !== "string") return null;
+    const digitsOnly = rawText.replace(/\D/g, "");
+    if (!digitsOnly) return null;
+    const price = Number(digitsOnly);
+    if (!Number.isInteger(price) || price < 0) return null;
+    return price;
+}
+
+// Divide en EXACTAMENTE 2 partes por la ÚLTIMA coma (un nombre de entrada
+// nunca debería llevar coma, pero por si acaso, la coma que separa
+// nombre/precio es siempre la última) — nunca menos, nunca más de 2 partes
+// útiles. Devuelve `null` (nunca un resultado parcial) si falta la coma, si
+// el nombre queda vacío, o si el precio no es reconocible.
+export function parseWhatsappTicketComboText(rawText) {
+    if (typeof rawText !== "string") return null;
+    const lastCommaIndex = rawText.lastIndexOf(",");
+    if (lastCommaIndex === -1) return null;
+
+    const name = rawText.slice(0, lastCommaIndex).trim();
+    const priceText = rawText.slice(lastCommaIndex + 1).trim();
+    if (!name) return null;
+
+    const price = parseWhatsappTicketPriceText(priceText);
+    if (price === null) return null;
+
+    return { name, price };
+}
+
+// El texto base ("¿Qué tipo de entrada querés agregar primero/ahora?") lo
+// arma el motor tal cual (steps/definitions.js#TICKET_NAME.buildPrompt ya
+// distingue primero/siguiente según haya tickets cargados) — acá sólo se
+// le agrega el formato compacto, nunca se reemplaza esa distinción real
+// por una propia (ver extractWhatsappReplyText#prompt.stepId==="TICKET_NAME").
+export function buildWhatsappTicketComboPromptText(engineQuestionText) {
+    return `${engineQuestionText}\n\nEscribí el nombre y el precio, separados por una coma.\n\nEjemplo:\nGeneral, 8000\n\nIngresá el valor sin el signo $.${WHATSAPP_BACK_HINT_TEXT}`;
+}
+
+export function buildWhatsappTicketComboInvalidText() {
+    return "No pude entender el precio 😅\n\nMandámelo así:\nGeneral, 8000\n\nEscribí el valor sin el signo $.";
+}
+
 // Fase 3G, secciones 2/3 — steps YES_NO (inputType YES_NO: WANTS_FREE_TICKETS,
 // PROMO_VIDEO_ASK "YouTube", SOCIAL_LINKS_ASK "redes sociales",
 // ADD_ANOTHER_SOCIAL) genéricos, no específicos de YouTube/redes: los
@@ -660,11 +905,44 @@ export const WHATSAPP_LINK_CHALLENGE_PENDING_TEXT =
 // nunca reglas de negocio (esas viven en whatsappOrganizerDiscovery.service.js).
 // ==================================================================
 
-// Caso A (auditoría Fase 2G): exactamente una Organization APPROVED con el
-// teléfono de este wa_id — saludo personalizado en vez del genérico
-// AUTO_REPLY_TEXT.
-export function buildKnownOrganizationGreetingText(organizationName) {
-    return `Hola ${organizationName} 👋 Soy el asistente de PaseCultural. ¿Querés publicar un evento?\n\n1. Sí\n2. No\n\nRespondé con 1 o 2.`;
+// Fase 3K — el teléfono identifica primero a la PERSONA, nunca a la
+// Organization en su lugar ("Hola Cine Nadia" se reemplaza por "Hola
+// Ezequiel"). El nombre sale EXCLUSIVAMENTE de User.firstName (el mismo
+// dato ya sincronizado desde Clerk, ver whatsappOrganizerDiscovery.service.js)
+// y sólo se usa cuando es inequívoco: todas las Organizations candidatas
+// deben pertenecer al MISMO owner. Si dos candidatas tienen dueños
+// distintos (un mismo teléfono compartido por personas distintas) o si
+// Clerk nunca sincronizó un nombre, se cae al saludo genérico sin nombre —
+// nunca se adivina ni se mezcla el nombre de una organización con el de
+// otra persona.
+export function resolvePersonFirstName(candidates) {
+    if (!Array.isArray(candidates) || candidates.length === 0) return null;
+    const firstClerkId = candidates[0].clerkId;
+    const sameOwner = candidates.every((candidate) => candidate.clerkId === firstClerkId);
+    if (!sameOwner) return null;
+    const firstName = candidates[0].ownerFirstName;
+    return typeof firstName === "string" && firstName.trim() ? firstName.trim() : null;
+}
+
+function buildGreetingPrefix(personFirstName) {
+    return personFirstName ? `Hola ${personFirstName} 👋` : "¡Hola! 👋";
+}
+
+// Caso A: exactamente una Organization APPROVED con el teléfono de este
+// wa_id — saludo a la persona + pregunta ya con el nombre de la
+// organización, en un único mensaje (antes eran dos preguntas separadas).
+export function buildKnownOrganizationGreetingText(personFirstName, organizationName) {
+    return `${buildGreetingPrefix(personFirstName)} Soy el asistente de PaseCultural.\n\n¿Querés publicar un evento para ${organizationName}?\n\n1. Sí\n2. No\n\nRespondé con 1 o 2.`;
+}
+
+// Caso B, primer contacto: todavía no sabemos CUÁL organización (hay
+// varias) — se pregunta la intención primero, de forma genérica, y recién
+// si es afirmativa se muestra el selector (ver processInboundMessage). No
+// se persiste ningún estado para este paso: es exactamente tan sin-estado
+// como el saludo de Caso A, sólo que sin poder nombrar todavía la
+// organización.
+export function buildGenericPublishIntentGreetingText(personFirstName) {
+    return `${buildGreetingPrefix(personFirstName)} Soy el asistente de PaseCultural.\n\n¿Querés publicar un evento?\n\n1. Sí\n2. No\n\nRespondé con 1 o 2.`;
 }
 
 // Caso C: el teléfono no coincide con ninguna Organization APPROVED. Nunca
@@ -672,12 +950,16 @@ export function buildKnownOrganizationGreetingText(organizationName) {
 export const WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT =
     "No encontré una organización habilitada asociada a este número de WhatsApp.\n\nIngresá a PaseCultural y verificá que el teléfono registrado en tu organización sea el mismo número desde el que estás escribiendo.";
 
-// Caso B: varias Organizations APPROVED comparten el mismo teléfono —
-// selector numerado, en el MISMO orden que candidateOrganizationIds (nunca
-// se reordena entre el mensaje y la validación de la respuesta).
+// Caso B, selector: varias Organizations APPROVED comparten el mismo
+// teléfono y la persona ya confirmó que quiere publicar — selector
+// numerado, en el MISMO orden que candidateOrganizationIds (nunca se
+// reordena entre el mensaje y la validación de la respuesta). No incluye
+// una opción "otra organización": no hay ningún destino funcional para esa
+// opción sin reactivar el código de 6 dígitos de Fase 2F, que esta fase
+// explícitamente no reactiva (ver informe de entrega).
 export function buildOrganizationSelectorText(candidates) {
     const options = candidates.map((candidate, index) => `${index + 1}. ${candidate.name}`).join("\n");
-    return `Encontré varias organizaciones asociadas a este número.\n\n¿Con cuál querés trabajar?\n\n${options}`;
+    return `¿Con cuál de tus organizaciones querés trabajar?\n\n${options}`;
 }
 
 // La respuesta no fue un número válido de la lista mostrada — nunca se
@@ -686,7 +968,7 @@ export function buildOrganizationSelectorText(candidates) {
 export const WHATSAPP_SELECTION_INVALID_TEXT = "No entendí esa opción. Respondé con el número de la organización de la lista.";
 
 export function buildOrganizationSelectedConfirmationText(organizationName) {
-    return `Perfecto. Estás trabajando con ${organizationName}.\n¿Querés publicar un evento?\n\n1. Sí\n2. No\n\nRespondé con 1 o 2.`;
+    return `Perfecto 👍 Vamos a publicar para ${organizationName}.\n\n¿Querés publicar un evento?\n\n1. Sí\n2. No\n\nRespondé con 1 o 2.`;
 }
 
 // Mientras se espera la confirmación final ("Sí"/"No"/"1"/"2") tras elegir
@@ -694,7 +976,7 @@ export function buildOrganizationSelectedConfirmationText(organizationName) {
 // ni negativa vuelve a preguntar sin repetir el selector numerado de
 // Organizations (esa ya está resuelta, sólo falta confirmar la intención).
 export function buildOrganizationSelectionConfirmationRetryText(organizationName) {
-    return `¿Querés publicar un evento con ${organizationName}?\n\n1. Sí\n2. No\n\nRespondé con 1 o 2.`;
+    return `¿Querés publicar un evento para ${organizationName}?\n\n1. Sí\n2. No\n\nRespondé con 1 o 2.`;
 }
 
 // ==================================================================
@@ -779,6 +1061,19 @@ function formatOptionsList(options) {
     return options.map((option, index) => `${index + 1}. ${option.label}`).join("\n");
 }
 
+// Fase 3K — enunciados más conversacionales para WhatsApp, EXCLUSIVOS de
+// este adaptador (nunca tocan steps/definitions.js: ese texto lo sigue
+// mostrando la Web sin cambios, ver informe de entrega — auditoría
+// ConversationView.jsx#prompt.text). Las opciones reales (ids/orden) no
+// cambian, sólo el enunciado.
+const QUESTION_TEXT_OVERRIDES = {
+    FUNCTIONS_MODE: "¿Este evento ocurre una sola vez o se repite?",
+    EVENT_PRICING_TYPE: "¿El evento es gratuito o pago?",
+    // "No" acá también responde SOCIAL_LINKS_ASK por su cuenta (ver
+    // tryHandleYesNoSubflow) — una sola puerta para los dos extras.
+    PROMO_VIDEO_ASK: "¿Querés agregar video promocional o redes sociales?",
+};
+
 // El motor (singleSelect.js#parse) espera SIEMPRE el `id` real de una
 // opción, nunca un índice — ese contrato es compartido con Web y no se toca.
 // Este helper es exclusivo del adaptador de WhatsApp: convierte una
@@ -846,9 +1141,14 @@ export function extractWhatsappReplyText(engineResult) {
     // comparten el mismo inputType. El motor sigue devolviendo únicamente
     // `text` (nunca `options`, a diferencia de SINGLE_SELECT) — acá se
     // agrega la numeración 1/2 y el recordatorio de VOLVER de forma
-    // genérica para los cuatro, no sólo para YouTube/redes.
+    // genérica para los cuatro, no sólo para YouTube/redes. Fase 3K —
+    // PROMO_VIDEO_ASK usa QUESTION_TEXT_OVERRIDES para preguntar "video O
+    // redes" en una sola puerta (ver tryHandleYesNoSubflow,
+    // whatsapp.controller.js, que auto-responde SOCIAL_LINKS_ASK cuando
+    // esta puerta se contesta que no).
     if (prompt.inputType === "YES_NO") {
-        const yesNoText = prompt.error ? `⚠️ ${prompt.error}\n\n${prompt.text}` : prompt.text;
+        const questionText = QUESTION_TEXT_OVERRIDES[prompt.stepId] ?? prompt.text;
+        const yesNoText = prompt.error ? `⚠️ ${prompt.error}\n\n${questionText}` : questionText;
         return `${yesNoText}\n\n1. Sí\n2. No\n\nRespondé con el número de la opción.${WHATSAPP_BACK_HINT_TEXT}`;
     }
 
@@ -874,7 +1174,7 @@ export function extractWhatsappReplyText(engineResult) {
     // formulario compuesto de la Web) por la primera pregunta del
     // sub-flujo: la fecha.
     if (prompt.inputType === "FUNCTION_CARD") {
-        return WHATSAPP_FUNCTION_CARD_DATE_PROMPT_TEXT;
+        return WHATSAPP_FUNCTION_CARD_DATE_TIME_PROMPT_TEXT;
     }
 
     // type === "QUESTION", step FUNCTIONS_LIST — Fase 3E: esto SÓLO se
@@ -894,7 +1194,7 @@ export function extractWhatsappReplyText(engineResult) {
     // WEEKDAYS) — el sub-flujo de rango en sí (desde/hasta) lo maneja
     // enteramente tryHandleRecurringRangeSubflow.
     if (prompt.inputType === "DATE_RANGE") {
-        return WHATSAPP_RECURRING_FROM_DATE_PROMPT_TEXT;
+        return WHATSAPP_RECURRING_RANGE_PROMPT_TEXT;
     }
 
     // type === "QUESTION", step FUNCTIONS_WEEKDAYS — Fase 3F: sólo la
@@ -906,10 +1206,28 @@ export function extractWhatsappReplyText(engineResult) {
 
     // type === "QUESTION", step FUNCTIONS_RECURRING_SCHEDULES — Fase 3F:
     // sólo la primera vez que el motor avanza a este step (tras completar
-    // los días). Reutiliza tal cual el prompt de hora de inicio ya
-    // aprobado en Fase 3C — misma pregunta, mismo validador.
+    // los días). Fase 3K — horario compacto ("20:00-22:00") en vez de
+    // hora de inicio/fin por separado.
     if (prompt.inputType === "TIME_RANGE_LIST") {
-        return WHATSAPP_FUNCTION_CARD_START_TIME_PROMPT_TEXT;
+        return WHATSAPP_RECURRING_SCHEDULE_PROMPT_TEXT;
+    }
+
+    // type === "QUESTION", step TICKET_NAME — Fase 3K, sección 11:
+    // reemplaza el SINGLE_SELECT numerado (7 opciones + "Otro") por texto
+    // libre "Nombre, Precio". tryHandleTicketComboSubflow
+    // (whatsapp.controller.js) es quien intercepta la respuesta real —
+    // nunca llega acá un índice numérico para este step.
+    if (prompt.stepId === "TICKET_NAME") {
+        return buildWhatsappTicketComboPromptText(prompt.text);
+    }
+
+    // type === "QUESTION", step ADD_ANOTHER_TICKET — mismas opciones
+    // reales del motor (ADD/CONTINUE), sólo se traduce la etiqueta a
+    // "Sí"/"No" (más natural después de cargar una entrada) — el índice
+    // numérico sigue resolviendo exactamente a esos mismos ids reales.
+    if (prompt.stepId === "ADD_ANOTHER_TICKET") {
+        const baseText = prompt.error ? `⚠️ ${prompt.error}\n\n${prompt.text}` : prompt.text;
+        return `${baseText}\n\n1. Sí\n2. No\n\nRespondé con el número de la opción.`;
     }
 
     // type === "QUESTION" — si el motor marcó un error de validación sobre
@@ -918,7 +1236,16 @@ export function extractWhatsappReplyText(engineResult) {
     // después qué hacer". Si el step trae `options` (SINGLE_SELECT), se
     // listan numeradas EN EL MISMO ORDEN que las entrega el motor, con una
     // instrucción explícita de cómo responder.
-    const baseText = prompt.error ? `⚠️ ${prompt.error}\n\n${prompt.text}` : prompt.text;
+    //
+    // Fase 3K — QUESTION_TEXT_OVERRIDES cambia únicamente el enunciado (más
+    // conversacional que el de steps/definitions.js, pensado para un
+    // formulario Web) para un par de steps puntuales — nunca las opciones
+    // reales ni el orden en que se listan: `formatOptionsList` sigue
+    // usando `prompt.options` tal cual las entrega el motor, así que
+    // `resolveSingleSelectIndexReply` (el índice 1-based que interpreta la
+    // respuesta) sigue resolviendo exactamente a los mismos ids reales.
+    const questionText = QUESTION_TEXT_OVERRIDES[prompt.stepId] ?? prompt.text;
+    const baseText = prompt.error ? `⚠️ ${prompt.error}\n\n${questionText}` : questionText;
     if (Array.isArray(prompt.options) && prompt.options.length > 0) {
         return `${baseText}\n\n${formatOptionsList(prompt.options)}\n\nRespondé con el número de la opción.`;
     }

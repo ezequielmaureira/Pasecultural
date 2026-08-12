@@ -1,96 +1,63 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-    parseWhatsappStreetNumberText,
-    resolveArgentinaProvinceIndexReply,
-    buildLocationProvincePromptText,
-    buildLocationProvinceInvalidText,
-} from "../src/services/whatsappOrganizerBot.service.js";
-import { ARGENTINA_PROVINCES } from "../src/utils/argentinaProvinces.js";
+import { parseWhatsappCompactAddressText, buildWhatsappCompactAddressInvalidText } from "../src/services/whatsappOrganizerBot.service.js";
 
-// Fase 3D — parsers puros del sub-flujo de dirección manual (calle → altura
-// → ciudad → provincia).
+// Fase 3K — reemplaza el sub-flujo de dirección manual paso a paso (calle
+// → altura → ciudad → provincia, 4 preguntas) por un único mensaje
+// compacto ("San Martín 850, General Roca, Río Negro"). Los parsers
+// puntuales de esa versión anterior (parseWhatsappStreetNumberText,
+// resolveArgentinaProvinceIndexReply, buildLocationProvincePromptText/
+// InvalidText) ya no existen — parseWhatsappCompactAddressText es la
+// única función real de este sub-flujo.
 
-// ==================================================
-// parseWhatsappStreetNumberText — altura
-// ==================================================
-
-test("a plain positive integer is a valid street number", () => {
-    assert.equal(parseWhatsappStreetNumberText("850"), "850");
-    assert.equal(parseWhatsappStreetNumberText("1"), "1");
+test("a well-formed compact address (calle+altura, ciudad, provincia) parses correctly", () => {
+    const result = parseWhatsappCompactAddressText("San Martín 850, General Roca, Río Negro");
+    assert.deepEqual(result, {
+        address: "San Martín 850",
+        city: "General Roca",
+        province: "Río Negro",
+        venueName: null,
+        latitude: null,
+        longitude: null,
+        googlePlaceId: null,
+    });
 });
 
-test("tolerates surrounding whitespace", () => {
-    assert.equal(parseWhatsappStreetNumberText("  850  "), "850");
+test("province matching is case/accent-insensitive but otherwise exact", () => {
+    const result = parseWhatsappCompactAddressText("San Martin 850, General Roca, rio negro");
+    assert.equal(result.province, "Río Negro");
 });
 
-test("zero is not a valid street number", () => {
-    assert.equal(parseWhatsappStreetNumberText("0"), null);
+test("tolerates extra spaces around each comma-separated part", () => {
+    const result = parseWhatsappCompactAddressText("  San Martín 850  ,  General Roca ,  Río Negro  ");
+    assert.equal(result.address, "San Martín 850");
+    assert.equal(result.city, "General Roca");
+    assert.equal(result.province, "Río Negro");
 });
 
-test("non-numeric text is never a valid street number", () => {
-    assert.equal(parseWhatsappStreetNumberText("abc"), null);
-    assert.equal(parseWhatsappStreetNumberText(""), null);
+test("missing a part (only 2 commas' worth of data) is rejected, never guessed", () => {
+    assert.equal(parseWhatsappCompactAddressText("San Martín 850, General Roca"), null);
 });
 
-test("negative or decimal numbers are never valid", () => {
-    assert.equal(parseWhatsappStreetNumberText("-5"), null);
-    assert.equal(parseWhatsappStreetNumberText("8.5"), null);
+test("an extra part (4 comma-separated segments) is rejected, never guessed which to drop", () => {
+    assert.equal(parseWhatsappCompactAddressText("San Martín 850, General Roca, Río Negro, Argentina"), null);
+});
+
+test("a province that doesn't match any real Argentine province is rejected, never invented", () => {
+    assert.equal(parseWhatsappCompactAddressText("San Martín 850, General Roca, Neverland"), null);
+});
+
+test("free text with no commas at all is rejected", () => {
+    assert.equal(parseWhatsappCompactAddressText("no sé la dirección"), null);
+    assert.equal(parseWhatsappCompactAddressText(""), null);
 });
 
 test("never throws on non-string input", () => {
-    assert.equal(parseWhatsappStreetNumberText(null), null);
-    assert.equal(parseWhatsappStreetNumberText(undefined), null);
+    assert.equal(parseWhatsappCompactAddressText(null), null);
+    assert.equal(parseWhatsappCompactAddressText(undefined), null);
 });
 
-// ==================================================
-// resolveArgentinaProvinceIndexReply — índice 1-based EXACTO, nunca
-// coincidencia parcial/fuzzy.
-// ==================================================
-
-test("a valid 1-based index resolves the real province name", () => {
-    assert.equal(resolveArgentinaProvinceIndexReply("1"), "Buenos Aires");
-    assert.equal(resolveArgentinaProvinceIndexReply("5"), "Córdoba");
-    assert.equal(resolveArgentinaProvinceIndexReply(String(ARGENTINA_PROVINCES.length)), "Ciudad Autónoma de Buenos Aires");
-});
-
-test("index 0 or negative is rejected", () => {
-    assert.equal(resolveArgentinaProvinceIndexReply("0"), null);
-    assert.equal(resolveArgentinaProvinceIndexReply("-1"), null);
-});
-
-test("an out-of-range index (99) is rejected", () => {
-    assert.equal(resolveArgentinaProvinceIndexReply("99"), null);
-    assert.equal(resolveArgentinaProvinceIndexReply(String(ARGENTINA_PROVINCES.length + 1)), null);
-});
-
-test("never accepts a written province name (no fuzzy matching)", () => {
-    assert.equal(resolveArgentinaProvinceIndexReply("Córdoba"), null);
-    assert.equal(resolveArgentinaProvinceIndexReply("cordoba"), null);
-});
-
-test("never accepts free text", () => {
-    assert.equal(resolveArgentinaProvinceIndexReply("no sé"), null);
-    assert.equal(resolveArgentinaProvinceIndexReply(""), null);
-});
-
-test("tolerates surrounding whitespace around a valid index", () => {
-    assert.equal(resolveArgentinaProvinceIndexReply("  1  "), "Buenos Aires");
-});
-
-// ==================================================
-// Renderers — orden idéntico a ARGENTINA_PROVINCES, nunca reordenado.
-// ==================================================
-
-test("buildLocationProvincePromptText lists every province numbered, in the exact array order", () => {
-    const text = buildLocationProvincePromptText();
-    assert.ok(text.includes("1. Buenos Aires"));
-    assert.ok(text.includes(`${ARGENTINA_PROVINCES.length}. Ciudad Autónoma de Buenos Aires`));
-    assert.ok(text.indexOf("1. Buenos Aires") < text.indexOf("2. Catamarca"));
-});
-
-test("buildLocationProvinceInvalidText also lists every province numbered", () => {
-    const text = buildLocationProvinceInvalidText();
-    assert.ok(text.includes("1. Buenos Aires"));
-    assert.ok(text.startsWith("❌"));
+test("buildWhatsappCompactAddressInvalidText explains the comma-separated format with a real example", () => {
+    const text = buildWhatsappCompactAddressInvalidText();
+    assert.ok(text.includes("San Martín 850, General Roca, Río Negro"));
 });

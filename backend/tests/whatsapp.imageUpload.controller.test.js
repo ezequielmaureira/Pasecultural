@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { processInboundMessage } from "../src/controllers/whatsapp.controller.js";
-import { WHATSAPP_IMAGE_NOT_EXPECTED_TEXT, buildWhatsappImageUploadErrorText } from "../src/services/whatsappOrganizerBot.service.js";
+import {
+    WHATSAPP_IMAGE_NOT_EXPECTED_TEXT,
+    buildWhatsappImageUploadErrorText,
+    WHATSAPP_LOCATION_METHOD_PROMPT_TEXT,
+    buildWhatsappLocationReusePromptText,
+} from "../src/services/whatsappOrganizerBot.service.js";
 
 // Bug fix (carga de imagen del evento) — árbol de decisión de
 // processInboundMessage para message.type==="image". Mismo criterio DI que
@@ -77,11 +82,101 @@ function baseDeps(overrides = {}) {
             }),
             cancelConversation: spy(undefined),
             uploadImage: spy({ success: true, url: "https://res.cloudinary.com/pasecultural/image/upload/v1/pasecultural/abc123.jpg" }),
+            // Fase 3K — el único punto real donde el motor recién avanza a
+            // LOCATION es justo después de confirmar la imagen de portada
+            // (ver replyForEngineResult, whatsapp.controller.js): por
+            // default acá no hay ninguna ubicación reutilizable, así que el
+            // camino por defecto (prompt genérico) sigue intacto salvo que
+            // un test puntual lo pise.
+            findReusableLocation: spy(null),
+            resetPendingStepInput: spy(undefined),
             ...overrides,
         },
         sendCalls,
     };
 }
+
+const LOCATION_PROMPT_RESULT = {
+    conversationId: "conv1",
+    prompt: { stepId: "LOCATION", type: "QUESTION", inputType: "LOCATION", text: "Elegí la ubicación del evento." },
+    canGoBack: true,
+    sections: [],
+};
+
+const REUSABLE_LOCATION = {
+    venueName: "Elvis Bar",
+    address: "San Martín 850",
+    city: "Río Cuarto",
+    province: "Córdoba",
+    latitude: -33.12,
+    longitude: -64.35,
+    googlePlaceId: "place_123",
+};
+
+// ==================================================
+// Fase 3K, sección 9 — al confirmar la imagen de portada, si el motor
+// avanza a LOCATION y la Organization ya tiene una dirección usable en un
+// evento anterior, se ofrece reutilizarla en lugar del selector de método
+// genérico (replyForEngineResult, whatsapp.controller.js). Este es el
+// ÚNICO punto real donde ese chequeo ocurre — ver el comentario en
+// whatsapp.location.controller.test.js.
+// ==================================================
+
+test("when the engine advances to LOCATION and the organization has a reusable location, the reuse prompt is shown instead of the generic method selector", async () => {
+    const { deps, sendCalls } = baseDeps({
+        findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }),
+        handleConversationInput: spy(LOCATION_PROMPT_RESULT),
+        findReusableLocation: spy(REUSABLE_LOCATION),
+    });
+
+    await processInboundMessage(imageMessage(), deps);
+
+    assert.equal(deps.findReusableLocation.calls.length, 1);
+    assert.deepEqual(deps.findReusableLocation.calls[0], ["org_1"]);
+    assert.equal(sendCalls[0].text, buildWhatsappLocationReusePromptText(REUSABLE_LOCATION));
+    assert.ok(sendCalls[0].text.includes("Elvis Bar"));
+    assert.equal(deps.resetPendingStepInput.calls.length, 1);
+    assert.deepEqual(deps.resetPendingStepInput.calls[0], ["conv1", "LOCATION", "AWAITING_REUSE_CONFIRMATION", { location: REUSABLE_LOCATION }]);
+});
+
+test("when the engine advances to LOCATION but the organization has no reusable location, the generic method selector is shown and no pending is created", async () => {
+    const { deps, sendCalls } = baseDeps({
+        findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }),
+        handleConversationInput: spy(LOCATION_PROMPT_RESULT),
+        findReusableLocation: spy(null),
+    });
+
+    await processInboundMessage(imageMessage(), deps);
+
+    assert.equal(deps.findReusableLocation.calls.length, 1);
+    assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_METHOD_PROMPT_TEXT);
+    assert.equal(deps.resetPendingStepInput.calls.length, 0);
+});
+
+test("when the active conversation has no organizationId, the reuse check is skipped entirely, even if the engine advances to LOCATION", async () => {
+    const { deps, sendCalls } = baseDeps({
+        findActiveConversation: spy({ id: "conv1", userId: "user_123" }),
+        handleConversationInput: spy(LOCATION_PROMPT_RESULT),
+        findReusableLocation: spy(REUSABLE_LOCATION),
+    });
+
+    await processInboundMessage(imageMessage(), deps);
+
+    assert.equal(deps.findReusableLocation.calls.length, 0, "nunca se consulta sin organizationId");
+    assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_METHOD_PROMPT_TEXT);
+});
+
+test("the reuse check never runs when the engine advances to a step other than LOCATION", async () => {
+    const { deps } = baseDeps({
+        findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }),
+        handleConversationInput: spy({ conversationId: "conv1", prompt: { stepId: "SOME_NEXT_STEP", type: "QUESTION", inputType: "SHORT_TEXT", text: "Siguiente pregunta del motor." } }),
+        findReusableLocation: spy(REUSABLE_LOCATION),
+    });
+
+    await processInboundMessage(imageMessage(), deps);
+
+    assert.equal(deps.findReusableLocation.calls.length, 0);
+});
 
 test("a valid image on the IMAGE_URL step uploads it and advances the engine with the Cloudinary secure_url", async () => {
     const { deps, sendCalls } = baseDeps();

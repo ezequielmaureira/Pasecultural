@@ -12,6 +12,7 @@ import {
     WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT,
     WHATSAPP_SELECTION_INVALID_TEXT,
     buildKnownOrganizationGreetingText,
+    buildGenericPublishIntentGreetingText,
     buildOrganizationSelectorText,
     buildOrganizationSelectedConfirmationText,
     buildOrganizationSelectionConfirmationRetryText,
@@ -376,14 +377,33 @@ test("resolveSingleSelectIndexReply: null/empty options list never resolves anyt
 // ==================================================
 
 // Caso A: exactamente una Organization APPROVED coincide con el teléfono.
-test("Caso A) single matching organization + 'Hola' sends the personalized greeting and never starts the engine", async () => {
-    const { deps, sendCalls } = baseDeps();
+// Fase 3K, sección 1 — identifica a la PERSONA primero ("Hola Ezequiel 👋"),
+// nunca sólo a la organización. resolvePersonFirstName exige que TODOS los
+// candidatos compartan el mismo clerkId (ver whatsappOrganizerBot.service.js) —
+// acá hay uno solo, así que siempre se cumple.
+test("Caso A) single matching organization + 'Hola' greets the PERSON by name first, then asks about the organization, never starting the engine", async () => {
+    const { deps, sendCalls } = baseDeps({
+        discoverCandidates: spy([{ organizationId: "org_1", name: "Elvis Bar", clerkId: "user_123", ownerFirstName: "Ezequiel" }]),
+    });
 
     await processInboundMessage(textMessage({ text: "Hola" }), deps);
 
     assert.equal(deps.startConversation.calls.length, 0);
     assert.equal(deps.createPendingSelection.calls.length, 0);
-    assert.equal(sendCalls[0].text, buildKnownOrganizationGreetingText("Elvis Bar"));
+    assert.equal(sendCalls[0].text, buildKnownOrganizationGreetingText("Ezequiel", "Elvis Bar"));
+    assert.ok(sendCalls[0].text.startsWith("Hola Ezequiel 👋"));
+});
+
+// Sin firstName resoluble (ej. el owner nunca cargó su nombre real) cae al
+// saludo genérico "¡Hola! 👋" — nunca se inventa un nombre, y la organización
+// sigue nombrándose igual.
+test("Caso A) without a resolvable owner first name, falls back to the generic '¡Hola!' greeting, still naming the organization", async () => {
+    const { deps, sendCalls } = baseDeps();
+
+    await processInboundMessage(textMessage({ text: "Hola" }), deps);
+
+    assert.equal(sendCalls[0].text, buildKnownOrganizationGreetingText(null, "Elvis Bar"));
+    assert.ok(sendCalls[0].text.startsWith("¡Hola! 👋"));
 });
 
 test("Caso A) single matching organization + 'Sí' calls EventCreationEngine.start exactly once with that organizationId", async () => {
@@ -483,6 +503,64 @@ test("Caso B) multiple matching organizations + 'No' declines without ever offer
 
     assert.equal(deps.createPendingSelection.calls.length, 0);
     assert.equal(sendCalls[0].text, WHATSAPP_DECLINE_TEXT);
+});
+
+// Fase 3K, sección 1 (Caso B) — antes de mostrar el selector, primero se
+// pregunta la intención de forma genérica (sin poder nombrar todavía
+// ninguna organización puntual) y SIN persistir ningún estado nuevo: si el
+// primer mensaje no es claramente afirmativo ("Hola", texto ambiguo), se
+// muestra sólo el saludo genérico — nunca el selector, nunca
+// createPendingSelection.
+test("Caso B) an ambiguous first message ('Hola') shows the generic greeting, never the selector, and creates no pending selection", async () => {
+    const { deps, sendCalls } = baseDeps({ discoverCandidates: spy(MULTI_CANDIDATES) });
+
+    await processInboundMessage(textMessage({ text: "Hola" }), deps);
+
+    assert.equal(deps.createPendingSelection.calls.length, 0);
+    assert.equal(deps.startConversation.calls.length, 0);
+    assert.equal(sendCalls[0].text, buildGenericPublishIntentGreetingText(null));
+    assert.ok(sendCalls[0].text.startsWith("¡Hola! 👋"));
+    assert.ok(!sendCalls[0].text.includes("Elvis Bar"), "el saludo genérico nunca nombra ninguna organización puntual");
+});
+
+// Cuando TODAS las candidatas comparten el mismo dueño, el saludo genérico
+// también se personaliza con su nombre — mismo criterio que Caso A.
+test("Caso B) the generic greeting is personalized with the owner's first name when every candidate shares the same clerkId", async () => {
+    const sameOwnerCandidates = MULTI_CANDIDATES.map((c) => ({ ...c, ownerFirstName: "Ezequiel" }));
+    const { deps, sendCalls } = baseDeps({ discoverCandidates: spy(sameOwnerCandidates) });
+
+    await processInboundMessage(textMessage({ text: "Hola" }), deps);
+
+    assert.equal(sendCalls[0].text, buildGenericPublishIntentGreetingText("Ezequiel"));
+    assert.ok(sendCalls[0].text.startsWith("Hola Ezequiel 👋"));
+});
+
+// Si las candidatas pertenecen a dueños distintos, nunca se adivina de
+// cuál de ellos se trata — resolvePersonFirstName exige unanimidad.
+test("Caso B) candidates belonging to different owners never resolve a first name — falls back to the generic greeting", async () => {
+    const mixedOwnerCandidates = [
+        { ...MULTI_CANDIDATES[0], ownerFirstName: "Ezequiel" },
+        { ...MULTI_CANDIDATES[1], clerkId: "user_999", ownerFirstName: "Julia" },
+    ];
+    const { deps, sendCalls } = baseDeps({ discoverCandidates: spy(mixedOwnerCandidates) });
+
+    await processInboundMessage(textMessage({ text: "Hola" }), deps);
+
+    assert.equal(sendCalls[0].text, buildGenericPublishIntentGreetingText(null));
+});
+
+// Una vez confirmada la intención (aunque sea en el primerísimo mensaje,
+// sin haber visto el saludo genérico antes), el selector se muestra
+// directamente — no obliga a un intercambio extra si el organizador ya
+// sabe lo que quiere.
+test("Caso B) an affirmative first message skips the generic greeting entirely and shows the selector right away", async () => {
+    const { deps, sendCalls } = baseDeps({ discoverCandidates: spy(MULTI_CANDIDATES) });
+
+    await processInboundMessage(textMessage({ text: "dale", from: "5491100003333" }), deps);
+
+    assert.equal(deps.createPendingSelection.calls.length, 1);
+    assert.deepEqual(deps.createPendingSelection.calls[0], ["5491100003333", ["org_1", "org_2", "org_3"]]);
+    assert.equal(sendCalls[0].text, buildOrganizationSelectorText(MULTI_CANDIDATES));
 });
 
 // Selección pendiente — AWAITING_SELECTION: sólo un índice válido de la
@@ -698,6 +776,12 @@ test("invalid free text on an active SINGLE_SELECT step never silently selects a
     assert.ok(sendCalls[0].text.includes("Elegí una de las opciones que te muestro."));
 });
 
+// Nota Fase 3K: TICKET_NAME dejó de ser un ejemplo válido de "step
+// genérico" para este test — ahora tiene su propio texto especial en
+// extractWhatsappReplyText (ver whatsapp.ticketCombo.controller.test.js).
+// Se usa acá un stepId inventado, sin ningún tratamiento especial, para
+// seguir probando exclusivamente la genericidad de
+// resolveSingleSelectIndexReply/el mecanismo de reintento por índice.
 test("the numeric-index retry works generically on a different SINGLE_SELECT step, not just CATEGORY", async () => {
     const pricingOptions = [
         { id: "FREE", label: "Gratuito" },
@@ -705,7 +789,7 @@ test("the numeric-index retry works generically on a different SINGLE_SELECT ste
     ];
     const handleConversationInput = spy((_conversationId, { value }) => {
         if (value === "PAID") {
-            return { conversationId: "conv1", prompt: { stepId: "TICKET_NAME", type: "QUESTION", text: "¿Qué tipo de entrada querés agregar primero?" } };
+            return { conversationId: "conv1", prompt: { stepId: "SOME_UNSPECIALIZED_STEP", type: "QUESTION", text: "Siguiente pregunta genérica." } };
         }
         return {
             conversationId: "conv1",
@@ -725,7 +809,7 @@ test("the numeric-index retry works generically on a different SINGLE_SELECT ste
 
     assert.equal(handleConversationInput.calls.length, 2);
     assert.deepEqual(handleConversationInput.calls[1], ["conv1", { value: "PAID" }]);
-    assert.equal(sendCalls[0].text, "¿Qué tipo de entrada querés agregar primero?");
+    assert.equal(sendCalls[0].text, "Siguiente pregunta genérica.");
 });
 
 test("a plain non-SINGLE_SELECT validation error (ej. SHORT_TEXT) never triggers the index-retry mechanism", async () => {

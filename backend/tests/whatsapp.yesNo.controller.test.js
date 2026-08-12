@@ -47,6 +47,24 @@ function spy(returnValue) {
     return fn;
 }
 
+// Devuelve un valor DISTINTO por cada llamada — necesario para probar el
+// encadenamiento automático PROMO_VIDEO_ASK=false -> SOCIAL_LINKS_ASK=false
+// (Fase 3K, sección 15): dos llamadas reales al motor con resultados
+// distintos, nunca la misma respuesta repetida.
+function sequentialSpy(returnValues) {
+    const calls = [];
+    let i = 0;
+    const fn = async (...args) => {
+        calls.push(args);
+        const value = returnValues[Math.min(i, returnValues.length - 1)];
+        i += 1;
+        if (value instanceof Error) throw value;
+        return typeof value === "function" ? value(...args) : value;
+    };
+    fn.calls = calls;
+    return fn;
+}
+
 function promoVideoAskState(overrides = {}) {
     return {
         conversationId: "conv1",
@@ -102,17 +120,29 @@ test("resolveWhatsappYesNoReply: '1' -> true, '2' -> false, anything else -> nul
 // texto plano sin opciones.
 // ==================================================
 
-test("extractWhatsappReplyText shows '1. Sí / 2. No' and the VOLVER hint for a YES_NO prompt", () => {
+// Fase 3K, sección 15 — PROMO_VIDEO_ASK usa QUESTION_TEXT_OVERRIDES: la
+// pregunta real mostrada en WhatsApp pregunta por video Y redes en una
+// sola puerta ("¿Querés agregar video promocional o redes sociales?"),
+// nunca el enunciado original del motor (pensado sólo para YouTube, ver
+// steps/definitions.js) — las opciones numeradas y VOLVER no cambian.
+test("extractWhatsappReplyText shows the combined video/social gate wording, '1. Sí / 2. No' and the VOLVER hint for PROMO_VIDEO_ASK", () => {
     const text = extractWhatsappReplyText(promoVideoAskState());
-    assert.ok(text.startsWith("¿Querés agregar un video promocional de YouTube?"));
+    assert.ok(text.startsWith("¿Querés agregar video promocional o redes sociales?"));
     assert.ok(text.includes("1. Sí\n2. No"));
     assert.ok(text.includes("Respondé con el número de la opción."));
     assert.ok(text.includes("VOLVER"));
 });
 
-test("extractWhatsappReplyText prefixes the engine's error before the YES_NO question", () => {
+test("extractWhatsappReplyText prefixes the engine's error before the (overridden) YES_NO question", () => {
     const text = extractWhatsappReplyText(promoVideoAskState({ error: 'Respondé "Sí" o "No".' }));
-    assert.ok(text.startsWith('⚠️ Respondé "Sí" o "No".\n\n¿Querés agregar un video promocional de YouTube?'));
+    assert.ok(text.startsWith('⚠️ Respondé "Sí" o "No".\n\n¿Querés agregar video promocional o redes sociales?'));
+});
+
+// Un step YES_NO SIN override (ej. SOCIAL_LINKS_ASK) sigue mostrando el
+// texto real del motor tal cual — el override es puntual, no general.
+test("extractWhatsappReplyText shows the engine's own text as-is for a YES_NO step with no override (e.g. SOCIAL_LINKS_ASK)", () => {
+    const text = extractWhatsappReplyText(socialLinksAskState());
+    assert.ok(text.startsWith("¿Querés agregar redes sociales?"));
 });
 
 // ==================================================
@@ -132,17 +162,62 @@ test("B. YouTube: '1' maps to boolean true and is sent to the engine, never the 
     assert.ok(sendCalls[0].text.startsWith("Pasame el link del video"));
 });
 
-test("B. YouTube: '2' maps to boolean false and is sent to the engine", async () => {
+// Fase 3K, sección 15 — "No" en la puerta combinada nunca deja al
+// organizador frente a una segunda pregunta que ya dijo que no quería:
+// el motor avanza real a SOCIAL_LINKS_ASK (PROMO_VIDEO_ASK.next con
+// wantsPromoVideo=false, steps/definitions.js) y tryHandleYesNoSubflow la
+// responde automáticamente con `false` en la MISMA vuelta — dos llamadas
+// reales al motor, una sola respuesta al organizador.
+test("B. YouTube: '2' maps to boolean false and auto-skips SOCIAL_LINKS_ASK in the same turn (never asks it separately)", async () => {
+    const socialLinksAskResult = { conversationId: "conv1", prompt: { stepId: "SOCIAL_LINKS_ASK", type: "QUESTION", inputType: "YES_NO", text: "¿Querés agregar redes sociales?" } };
+    const previewResult = { conversationId: "conv1", prompt: { stepId: "PREVIEW", type: "PREVIEW", draft: { title: "x" } } };
     const { deps, sendCalls } = baseDeps({
         resumeConversation: spy(promoVideoAskState()),
+        handleConversationInput: sequentialSpy([socialLinksAskResult, previewResult]),
+    });
+
+    await processInboundMessage(textMessage({ text: "2" }), deps);
+
+    assert.equal(deps.handleConversationInput.calls.length, 2, "una llamada por PROMO_VIDEO_ASK, otra automática por SOCIAL_LINKS_ASK");
+    assert.deepEqual(deps.handleConversationInput.calls[0], ["conv1", { value: false }]);
+    assert.deepEqual(deps.handleConversationInput.calls[1], ["conv1", { value: false }]);
+    // El organizador nunca ve la pregunta de redes sociales — recibe
+    // directamente lo que sigue después de saltarla (PREVIEW en este caso).
+    assert.ok(!sendCalls[0].text.includes("¿Querés agregar redes sociales?"));
+});
+
+// Si la respuesta fue AFIRMATIVA, nunca se toca SOCIAL_LINKS_ASK: sigue el
+// camino normal (URL de YouTube), y redes sociales se pregunta de verdad
+// más adelante, en su propio turno.
+test("B. YouTube: '1' (affirmative) never auto-answers SOCIAL_LINKS_ASK — only one engine call", async () => {
+    const { deps, sendCalls } = baseDeps({
+        resumeConversation: spy(promoVideoAskState()),
+        handleConversationInput: spy({ conversationId: "conv1", prompt: { stepId: "PROMO_VIDEO_URL", type: "QUESTION", inputType: "YOUTUBE_URL", text: "Pasame el link del video (video o Short de YouTube)." } }),
+    });
+
+    await processInboundMessage(textMessage({ text: "1" }), deps);
+
+    assert.equal(deps.handleConversationInput.calls.length, 1);
+    assert.ok(sendCalls[0].text.startsWith("Pasame el link del video"));
+});
+
+// El auto-skip es EXCLUSIVO de PROMO_VIDEO_ASK: una respuesta negativa en
+// cualquier otro step YES_NO (ej. WANTS_FREE_TICKETS) nunca dispara una
+// segunda llamada al motor, aunque por coincidencia el motor devuelva un
+// step llamado igual.
+test("the auto-skip chain never triggers for a YES_NO step other than PROMO_VIDEO_ASK, even if it happens to advance to a step named SOCIAL_LINKS_ASK", async () => {
+    const wantsFreeTicketsState = {
+        conversationId: "conv1",
+        prompt: { stepId: "WANTS_FREE_TICKETS", type: "QUESTION", inputType: "YES_NO", text: "¿Querés emitir entradas gratuitas para controlar el acceso?" },
+    };
+    const { deps } = baseDeps({
+        resumeConversation: spy(wantsFreeTicketsState),
         handleConversationInput: spy({ conversationId: "conv1", prompt: { stepId: "SOCIAL_LINKS_ASK", type: "QUESTION", inputType: "YES_NO", text: "¿Querés agregar redes sociales?" } }),
     });
 
     await processInboundMessage(textMessage({ text: "2" }), deps);
 
-    assert.equal(deps.handleConversationInput.calls.length, 1);
-    assert.deepEqual(deps.handleConversationInput.calls[0], ["conv1", { value: false }]);
-    assert.ok(sendCalls[0].text.startsWith("¿Querés agregar redes sociales?"));
+    assert.equal(deps.handleConversationInput.calls.length, 1, "WANTS_FREE_TICKETS nunca encadena una segunda llamada");
 });
 
 test("B. YouTube: 'volver' uses the engine's real BACK, never a fabricated navigation", async () => {

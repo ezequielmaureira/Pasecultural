@@ -8,9 +8,12 @@ import {
 
 // Fase 3C — parseWhatsappFunctionCardDateText reemplaza a
 // parseWhatsappFunctionCardText (formato compuesto, eliminado): ahora sólo
-// reconoce una fecha sola, DD/MM/AAAA estricto, reutilizando los mismos
-// validadores reales del motor (isValidCalendarDateString/
-// normalizeCalendarDateString).
+// reconoce una fecha sola, reutilizando los mismos validadores reales del
+// motor (isValidCalendarDateString/normalizeCalendarDateString).
+//
+// Fase 3K — el año pasa a ser OPCIONAL (se enseña DD/MM; DD/MM/AAAA sigue
+// funcionando tal cual) y día/mes aceptan 1 o 2 dígitos ("6/8" == "06/08")
+// — ver los tests de esa sección más abajo.
 
 test("25/08/2026 -> se normaliza a 2026-08-25", () => {
     assert.equal(parseWhatsappFunctionCardDateText("25/08/2026"), "2026-08-25");
@@ -37,9 +40,9 @@ test("nunca acepta separadores distintos a '/' (guion o punto)", () => {
     assert.equal(parseWhatsappFunctionCardDateText("25.08.2026"), null);
 });
 
-test("nunca acepta día/mes de un solo dígito (formato oficial es estrictamente DD/MM/AAAA de 2 dígitos)", () => {
-    assert.equal(parseWhatsappFunctionCardDateText("25/8/2026"), null);
-    assert.equal(parseWhatsappFunctionCardDateText("5/08/2026"), null);
+test("Fase 3K: día/mes de un solo dígito son válidos, con o sin año (tolerante en lo que entiende)", () => {
+    assert.equal(parseWhatsappFunctionCardDateText("25/8/2026"), "2026-08-25");
+    assert.equal(parseWhatsappFunctionCardDateText("5/08/2026"), "2026-08-05");
 });
 
 test("texto libre nunca se interpreta como fecha", () => {
@@ -63,6 +66,30 @@ test("never throws on non-string input", () => {
     assert.equal(parseWhatsappFunctionCardDateText(null), null);
     assert.equal(parseWhatsappFunctionCardDateText(undefined), null);
     assert.equal(parseWhatsappFunctionCardDateText(12345), null);
+});
+
+// ==================================================
+// Fase 3K — DD/MM sin año: se infiere el PRÓXIMO DD/MM que corresponda.
+// ==================================================
+
+test("DD/MM sin año, todavía no pasó este año -> usa el año actual", () => {
+    const now = new Date("2026-08-12T15:00:00.000Z"); // 12/08/2026 en Argentina
+    assert.equal(parseWhatsappFunctionCardDateText("26/08", now), "2026-08-26");
+});
+
+test("DD/MM sin año, ya pasó este año -> rueda al año siguiente (nunca al pasado)", () => {
+    const now = new Date("2026-08-12T15:00:00.000Z");
+    assert.equal(parseWhatsappFunctionCardDateText("01/01", now), "2027-01-01");
+});
+
+test("DD/MM sin año == hoy -> se toma como hoy (no rueda al año siguiente)", () => {
+    const now = new Date("2026-08-12T15:00:00.000Z"); // 12/08 en Argentina
+    assert.equal(parseWhatsappFunctionCardDateText("12/08", now), "2026-08-12");
+});
+
+test("DD/MM sin año sigue rechazando una fecha inexistente (31/02)", () => {
+    const now = new Date("2026-08-12T15:00:00.000Z");
+    assert.equal(parseWhatsappFunctionCardDateText("31/02", now), null);
 });
 
 // ==================================================

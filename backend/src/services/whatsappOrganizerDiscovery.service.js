@@ -8,13 +8,24 @@ import { logger } from "../logging/logger.js";
 // teléfono contra Organization.phone. whatsappOrganizerIdentity.service.js
 // queda sin usar (legacy), no se borra (ver informe de entrega).
 
+// Fase 3K — se agrega `ownerFirstName` (User.firstName, el mismo dato que ya
+// sincroniza Clerk) para poder saludar a la PERSONA, no a la organización
+// (ver sección "Identificación del usuario" del pedido). Nunca se inventa
+// ni se deriva de ningún otro campo — si Clerk no sincronizó un nombre,
+// queda `null` y el saludo cae a la variante sin nombre (ver
+// resolvePersonFirstName en whatsappOrganizerBot.service.js).
 function toCandidate(link) {
-    return { organizationId: link.organizationId, name: link.organization.name, clerkId: link.organization.owner.clerkId };
+    return {
+        organizationId: link.organizationId,
+        name: link.organization.name,
+        clerkId: link.organization.owner.clerkId,
+        ownerFirstName: link.organization.owner.firstName,
+    };
 }
 
 const CANDIDATE_LINK_SELECT = {
     organizationId: true,
-    organization: { select: { name: true, status: true, owner: { select: { clerkId: true } } } },
+    organization: { select: { name: true, status: true, owner: { select: { clerkId: true, firstName: true } } } },
 };
 
 // PRIMERO resuelve vínculos ya existentes para este wa_id (rápido, sin
@@ -43,7 +54,7 @@ export async function discoverWhatsappOrganizationCandidates(waId) {
     // sección "concurrencia" del informe de entrega).
     const unlinkedApproved = await prisma.organization.findMany({
         where: { status: "APPROVED", phone: { not: null }, whatsappOrganizerLink: null },
-        select: { id: true, name: true, phone: true, owner: { select: { clerkId: true } } },
+        select: { id: true, name: true, phone: true, owner: { select: { clerkId: true, firstName: true } } },
     });
     const matches = unlinkedApproved.filter((org) => isSameArgentinePhone(org.phone, waId));
     if (matches.length === 0) return [];
@@ -57,7 +68,7 @@ export async function discoverWhatsappOrganizationCandidates(waId) {
             // se agrega de nuevo — nunca se pisa el waId que ya haya quedado
             // asociado.
             await prisma.whatsappOrganizerLink.create({ data: { waId, organizationId: org.id } });
-            created.push({ organizationId: org.id, name: org.name, clerkId: org.owner.clerkId });
+            created.push({ organizationId: org.id, name: org.name, clerkId: org.owner.clerkId, ownerFirstName: org.owner.firstName });
         } catch (error) {
             if (error.code === "P2002") {
                 logger.warn("whatsapp organizer discovery: conflicto de vínculo concurrente", {
@@ -132,8 +143,8 @@ export async function clearPendingOrganizationSelection(waId) {
 export async function resolveOrganizationOwner(organizationId) {
     const organization = await prisma.organization.findUnique({
         where: { id: organizationId },
-        select: { name: true, status: true, owner: { select: { clerkId: true } } },
+        select: { name: true, status: true, owner: { select: { clerkId: true, firstName: true } } },
     });
     if (!organization || organization.status !== "APPROVED") return null;
-    return { name: organization.name, clerkId: organization.owner.clerkId };
+    return { name: organization.name, clerkId: organization.owner.clerkId, ownerFirstName: organization.owner.firstName };
 }
