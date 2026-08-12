@@ -28,38 +28,74 @@ const CANDIDATE_LINK_SELECT = {
     organization: { select: { name: true, status: true, owner: { select: { clerkId: true, firstName: true } } } },
 };
 
-// PRIMERO resuelve vínculos ya existentes para este wa_id (rápido, sin
-// tocar Organization.phone de nuevo) — sólo si no hay ninguno vigente se
-// dispara el descubrimiento por teléfono. Revalida `status==="APPROVED"`
-// en ambos caminos: una Organization pudo pasar a SUSPENDED/REJECTED
-// después de haberse vinculado, y un vínculo viejo nunca debe alcanzar por
-// sí solo para operar.
+// Pura, exportada para poder probarla directamente sin tocar Prisma: unión
+// de las dos fuentes de candidatos (vínculos ya existentes + Organizations
+// recién descubiertas por teléfono), deduplicada EXCLUSIVAMENTE por
+// organizationId — nunca por nombre, teléfono, responsable o DNI, ninguno
+// de los cuales identifica a una Organization de forma inequívoca. Preserva
+// el orden de aparición (primero `byLink`, después `byPhone`).
+export function mergeOrganizationCandidates(byLink, byPhone) {
+    const seen = new Set();
+    const combined = [];
+    for (const candidate of [...byLink, ...byPhone]) {
+        if (seen.has(candidate.organizationId)) continue;
+        seen.add(candidate.organizationId);
+        combined.push(candidate);
+    }
+    return combined;
+}
+
+// FIX (post FASE 3K) — bug real detectado en prueba: dos Organizations
+// APPROVED con el mismo teléfono ("Cine Nadia" y "La Taberna de Mou"), pero
+// sólo una ya tenía un WhatsappOrganizerLink creado (de un contacto
+// anterior, o de cuando la otra Organization todavía no estaba APPROVED).
+// La versión vieja de esta función hacía un `return` apenas encontraba
+// CUALQUIER link existente para el wa_id, sin volver a mirar
+// Organization.phone — así que la segunda Organization (sin link todavía)
+// jamás se descubría, para siempre, aunque su teléfono coincidiera
+// perfectamente. La causa NO era la unicidad de ningún campo del schema
+// (waId nunca fue @unique en WhatsappOrganizerLink, ver el modelo) sino
+// exclusivamente ese atajo de "ya encontré uno, no sigo buscando".
+//
+// Corrección: SIEMPRE se consultan ambas fuentes — vínculos ya existentes
+// para este wa_id, Y Organizations APPROVED sin vínculo cuyo teléfono
+// coincide — nunca una en lugar de la otra. Se unen, se deduplican
+// exclusivamente por organizationId (nunca por nombre/teléfono/responsable/
+// DNI — dos Organizations legítimamente distintas pueden compartir
+// cualquiera de esos datos) y se devuelve el conjunto completo. Los
+// vínculos que falten para las Organizations recién descubiertas por
+// teléfono se crean acá mismo, de forma idempotente (P2002 atrapado, igual
+// que antes) — nunca se duplica un link ya existente.
 export async function discoverWhatsappOrganizationCandidates(waId) {
     const existingLinks = await prisma.whatsappOrganizerLink.findMany({
         where: { waId },
         select: CANDIDATE_LINK_SELECT,
     });
-    const approvedExisting = existingLinks.filter((link) => link.organization.status === "APPROVED");
-    if (approvedExisting.length > 0) {
-        return approvedExisting.map(toCandidate);
-    }
+    const byLink = existingLinks.filter((link) => link.organization.status === "APPROVED").map(toCandidate);
 
+    // waId sin forma de teléfono reconocible: nunca puede coincidir con
+    // ningún Organization.phone real (isSameArgentinePhone exige que ambos
+    // lados normalicen), así que se evita la consulta de descubrimiento por
+    // completo — los vínculos ya existentes (`byLink`) igual se devuelven
+    // tal cual.
     const normalizedWaId = normalizeArgentinePhoneForMatching(waId);
-    if (!normalizedWaId) return [];
+    if (!normalizedWaId) return byLink;
 
     // Sólo Organizations APPROVED, con teléfono cargado, y que TODAVÍA no
     // tengan ningún WhatsApp asociado — una Organization ya vinculada
     // (a este u otro wa_id) nunca vuelve a ser candidata de descubrimiento:
     // así se garantiza que nunca se reasigna/pisa un vínculo existente (ver
-    // sección "concurrencia" del informe de entrega).
+    // sección "concurrencia" del informe de entrega). Esta consulta corre
+    // SIEMPRE, nunca condicionada a si `byLink` ya tenía resultados — es
+    // exactamente lo que permite descubrir una segunda Organization que se
+    // aprobó o cargó su teléfono después de que la primera ya se vinculó.
     const unlinkedApproved = await prisma.organization.findMany({
         where: { status: "APPROVED", phone: { not: null }, whatsappOrganizerLink: null },
         select: { id: true, name: true, phone: true, owner: { select: { clerkId: true, firstName: true } } },
     });
     const matches = unlinkedApproved.filter((org) => isSameArgentinePhone(org.phone, waId));
-    if (matches.length === 0) return [];
 
-    const created = [];
+    const byPhone = [];
     for (const org of matches) {
         try {
             // create puro, nunca upsert: si otra request concurrente ya creó
@@ -68,7 +104,7 @@ export async function discoverWhatsappOrganizationCandidates(waId) {
             // se agrega de nuevo — nunca se pisa el waId que ya haya quedado
             // asociado.
             await prisma.whatsappOrganizerLink.create({ data: { waId, organizationId: org.id } });
-            created.push({ organizationId: org.id, name: org.name, clerkId: org.owner.clerkId, ownerFirstName: org.owner.firstName });
+            byPhone.push({ organizationId: org.id, name: org.name, clerkId: org.owner.clerkId, ownerFirstName: org.owner.firstName });
         } catch (error) {
             if (error.code === "P2002") {
                 logger.warn("whatsapp organizer discovery: conflicto de vínculo concurrente", {
@@ -80,7 +116,7 @@ export async function discoverWhatsappOrganizationCandidates(waId) {
         }
     }
 
-    return created;
+    return mergeOrganizationCandidates(byLink, byPhone);
 }
 
 // ==================================================================

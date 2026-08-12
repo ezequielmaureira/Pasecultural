@@ -563,6 +563,74 @@ test("Caso B) an affirmative first message skips the generic greeting entirely a
     assert.equal(sendCalls[0].text, buildOrganizationSelectorText(MULTI_CANDIDATES));
 });
 
+// ==================================================================
+// FIX (post FASE 3K) — bug real: "Cine Nadia" y "La Taberna de Mou"
+// comparten teléfono; sólo Cine Nadia tenía WhatsappOrganizerLink previo.
+// discoverWhatsappOrganizationCandidates ya se corrigió para devolver
+// AMBAS (ver tests/whatsappOrganizerDiscovery.test.js, escenario 5) — este
+// test end-to-end prueba que, una vez que discoverCandidates devuelve las
+// dos, todo el resto del árbol de decisión (selector -> selección ->
+// confirmación -> EventCreationEngine.start) funciona con el organizationId
+// REAL elegido, exactamente como pide el informe (conversación exacta,
+// sección H). Cuatro mensajes separados, como cuatro webhooks reales.
+// ==================================================================
+test("REGRESSION end-to-end: Cine Nadia + La Taberna de Mou (mismo teléfono) — selector, selección de la segunda, confirmación, y EventCreationEngine.start con el organizationId real elegido", async () => {
+    const REAL_CANDIDATES = [
+        { organizationId: "org_cine_nadia_real_id", name: "Cine Nadia", clerkId: "user_ezequiel" },
+        { organizationId: "org_la_taberna_real_id", name: "La Taberna de Mou", clerkId: "user_ezequiel" },
+    ];
+    const FROM = "5492984405532";
+
+    // Mensaje 1: saludo ambiguo -> genérico, sin selector todavía.
+    const { deps: deps1, sendCalls: sendCalls1 } = baseDeps({
+        discoverCandidates: spy(REAL_CANDIDATES),
+    });
+    await processInboundMessage(textMessage({ text: "Hola", from: FROM }), deps1);
+    assert.equal(deps1.createPendingSelection.calls.length, 0);
+    assert.ok(sendCalls1[0].text.includes("¿Querés publicar un evento?"));
+
+    // Mensaje 2: "1" (afirmativo) -> selector con las DOS organizaciones
+    // reales, en el orden real que devolvió el descubrimiento.
+    const { deps: deps2, sendCalls: sendCalls2 } = baseDeps({
+        discoverCandidates: spy(REAL_CANDIDATES),
+    });
+    await processInboundMessage(textMessage({ text: "1", from: FROM }), deps2);
+    assert.deepEqual(deps2.createPendingSelection.calls[0], [FROM, ["org_cine_nadia_real_id", "org_la_taberna_real_id"]]);
+    assert.equal(sendCalls2[0].text, "¿Con cuál de tus organizaciones querés trabajar?\n\n1. Cine Nadia\n2. La Taberna de Mou");
+
+    // Mensaje 3: "2" -> elige La Taberna de Mou (la SEGUNDA, la que antes
+    // del fix nunca aparecía).
+    const { deps: deps3, sendCalls: sendCalls3 } = baseDeps({
+        getPendingSelection: spy({ status: "AWAITING_SELECTION", candidateOrganizationIds: ["org_cine_nadia_real_id", "org_la_taberna_real_id"] }),
+        resolveOwner: spy({ name: "La Taberna de Mou", clerkId: "user_ezequiel" }),
+    });
+    await processInboundMessage(textMessage({ text: "2", from: FROM }), deps3);
+    assert.deepEqual(deps3.resolveOwner.calls[0], ["org_la_taberna_real_id"]);
+    assert.deepEqual(deps3.confirmSelection.calls[0], [FROM, "org_la_taberna_real_id"]);
+    assert.equal(sendCalls3[0].text, "Perfecto 👍 Vamos a publicar para La Taberna de Mou.\n\n¿Querés publicar un evento?\n\n1. Sí\n2. No\n\nRespondé con 1 o 2.");
+
+    // Mensaje 4: "1" (Sí) -> EventCreationEngine.start recibe el
+    // organizationId REAL de La Taberna de Mou — nunca el de Cine Nadia,
+    // nunca un valor por defecto.
+    const { deps: deps4, sendCalls: sendCalls4 } = baseDeps({
+        getPendingSelection: spy({ status: "AWAITING_CONFIRMATION", selectedOrganizationId: "org_la_taberna_real_id" }),
+        resolveOwner: spy({ name: "La Taberna de Mou", clerkId: "user_ezequiel" }),
+        startConversation: spy({ conversationId: "conv1", prompt: { stepId: "NAME", type: "QUESTION", text: "¿Cómo se llama tu evento?" }, canGoBack: false, sections: [] }),
+    });
+    await processInboundMessage(textMessage({ text: "1", from: FROM }), deps4);
+    assert.equal(deps4.startConversation.calls.length, 1);
+    assert.deepEqual(deps4.startConversation.calls[0][0], {
+        clerkId: "user_ezequiel",
+        channel: "WHATSAPP",
+        channelRef: FROM,
+        organizationId: "org_la_taberna_real_id",
+    });
+    assert.equal(deps4.clearPendingSelection.calls.length, 1);
+    // FASE 3K sigue normalmente: la siguiente pregunta es la primera del
+    // motor real (NAME), nunca un prompt roto.
+    assert.equal(sendCalls4[0].text, "¿Cómo se llama tu evento?");
+});
+
 // Selección pendiente — AWAITING_SELECTION: sólo un índice válido de la
 // lista EXACTA que ya se mostró es aceptado; nunca un organizationId/nombre
 // escrito a mano.
