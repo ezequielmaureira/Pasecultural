@@ -108,9 +108,14 @@ export async function commit(clerkId, draftEvent, action, organizationId = null)
             organizationId
         );
 
+        // Fase 3O — perf: acá nunca se usa el evento que devuelven estas dos
+        // llamadas (se pisa más abajo con updateMyEventService/
+        // getMyEventByIdService), así que `returnEvent: false` les ahorra el
+        // findUnique con EVENT_DETAIL_INCLUDE que iban a descartar igual.
+        // Ver el comentario de cada service en event.service.js.
         const links = buildLinksInput(draftEvent);
         if (links.length > 0) {
-            await syncEventLinksService(clerkId, event.id, links, organizationId);
+            await syncEventLinksService(clerkId, event.id, links, organizationId, { returnEvent: false });
         }
 
         await syncEventScheduleService(
@@ -120,7 +125,8 @@ export async function commit(clerkId, draftEvent, action, organizationId = null)
                 functions: buildFunctionsInput(draftEvent),
                 ticketTypes: buildTicketTypesInput(draftEvent),
             },
-            organizationId
+            organizationId,
+            { returnEvent: false }
         );
 
         if (action === "PUBLISH") {

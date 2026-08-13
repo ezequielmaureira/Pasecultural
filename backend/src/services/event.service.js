@@ -6,6 +6,7 @@ import { isValidHttpUrl, parseMediaUrl } from "../utils/mediaParser.js";
 import { runArchiveSelfHeal } from "./eventArchive.service.js";
 import { effectiveCapacity, SOLD_TICKET_STATUSES } from "./functionCapacity.service.js";
 import { geocodeLocationIfNeeded } from "./geocoding.service.js";
+import { timeExternalCall } from "../utils/whatsappPerf.js";
 
 const UPDATABLE_FIELDS = [
     "title",
@@ -114,15 +115,21 @@ export async function buildLocationData(location) {
         location.longitude === null || location.longitude === undefined || location.longitude === "" ? null : Number(location.longitude);
     const rawGooglePlaceId = location.googlePlaceId?.trim() || null;
 
-    const { latitude, longitude, googlePlaceId } = await geocodeLocationIfNeeded({
-        latitude: rawLatitude,
-        longitude: rawLongitude,
-        address: addressLine || formattedAddress,
-        city,
-        province,
-        country,
-        googlePlaceId: rawGooglePlaceId,
-    });
+    // Fase 3O — instrumentado: es I/O externo (fetch a Google, hasta 5s de
+    // timeout, ver geocoding.service.js) que no pasa por Prisma, así que sin
+    // esto queda invisible dentro de `dbCalls` — indistinguible de una
+    // consulta lenta a Postgres en el desglose de [WA_PERF].
+    const { latitude, longitude, googlePlaceId } = await timeExternalCall("geocoding.requestGeocode", () =>
+        geocodeLocationIfNeeded({
+            latitude: rawLatitude,
+            longitude: rawLongitude,
+            address: addressLine || formattedAddress,
+            city,
+            province,
+            country,
+            googlePlaceId: rawGooglePlaceId,
+        })
+    );
 
     return {
         venueName,
@@ -385,7 +392,14 @@ function recomputeEventSummary(functionsInput, ticketTypesInput) {
     };
 }
 
-export const syncEventScheduleService = async (clerkId, eventId, input, organizationId = null) => {
+// `returnEvent` (Fase 3O — perf): mismo criterio que syncEventLinksService
+// de acá arriba — EventServicePort.commit nunca usa el evento que esta
+// función devolvía, así que `{ returnEvent: false }` salta el findUnique
+// final con EVENT_DETAIL_INCLUDE (el más caro de los dos: acá SÍ ya existen
+// funciones/ticketTypes/asignaciones reales para incluir). Default `true`
+// preserva el comportamiento exacto para event.controller.js (Web), que sí
+// usa el evento devuelto.
+export const syncEventScheduleService = async (clerkId, eventId, input, organizationId = null, { returnEvent = true } = {}) => {
     const context = await getMyOrganization(clerkId, organizationId);
     if (!context) return null;
 
@@ -484,6 +498,7 @@ export const syncEventScheduleService = async (clerkId, eventId, input, organiza
         await tx.event.update({ where: { id: eventId }, data: summary });
     });
 
+    if (!returnEvent) return null;
     return prisma.event.findUnique({ where: { id: eventId }, include: EVENT_DETAIL_INCLUDE });
 };
 
@@ -512,7 +527,15 @@ function analyzeLink(link) {
     };
 }
 
-export const syncEventLinksService = async (clerkId, eventId, linksInput, organizationId = null) => {
+// `returnEvent` (Fase 3O — perf): EventServicePort.commit encadena esta
+// llamada con syncEventScheduleService y una lectura final propia, y nunca
+// usa el evento que esta función devolvía — lo pedía igual porque hasta acá
+// no había forma de decirle "no lo necesito". Pasar `{ returnEvent: false }`
+// salta ÚNICAMENTE el findUnique con EVENT_DETAIL_INCLUDE de más abajo (la
+// sincronización de links en sí no cambia). Default `true` preserva EXACTO
+// el comportamiento anterior para el único otro caller (event.controller.js,
+// que sí usa el evento devuelto como respuesta HTTP).
+export const syncEventLinksService = async (clerkId, eventId, linksInput, organizationId = null, { returnEvent = true } = {}) => {
     const context = await getMyOrganization(clerkId, organizationId);
     if (!context) return null;
 
@@ -536,13 +559,21 @@ export const syncEventLinksService = async (clerkId, eventId, linksInput, organi
     await prisma.$transaction(async (tx) => {
         await tx.eventLink.deleteMany({ where: { eventId } });
 
-        for (let index = 0; index < analyzedLinks.length; index += 1) {
-            await tx.eventLink.create({
-                data: { ...analyzedLinks[index], eventId, order: index },
+        // Fase 3O — antes creaba cada link con un `create` propio dentro del
+        // loop (N queries secuenciales, un N+1 real). EventLink no tiene
+        // ninguna @@unique más allá de `id` (ver schema.prisma), y las URLs
+        // ya se dedupean arriba en JS (LINK_DUPLICATE_URL) — un `createMany`
+        // en una sola sentencia inserta exactamente las mismas filas, con el
+        // mismo `order` por índice, sin riesgo de violar ninguna constraint
+        // que el `create` uno-por-uno no corriera ya.
+        if (analyzedLinks.length > 0) {
+            await tx.eventLink.createMany({
+                data: analyzedLinks.map((link, index) => ({ ...link, eventId, order: index })),
             });
         }
     });
 
+    if (!returnEvent) return null;
     return prisma.event.findUnique({ where: { id: eventId }, include: EVENT_DETAIL_INCLUDE });
 };
 

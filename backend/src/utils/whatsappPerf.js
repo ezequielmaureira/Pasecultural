@@ -114,6 +114,27 @@ function getActiveTimer() {
     return activeTimerStorage.getStore() ?? null;
 }
 
+// Fase 3O — mismo criterio que `instrumentPrismaClient`, pero para I/O que
+// NO pasa por Prisma (ej. el fetch de geocodificación en event.service.js):
+// sin esto, ese tiempo queda invisible dentro de la marca gruesa que lo
+// contenga (ej. SUBFLOW), indistinguible de tiempo de CPU o de Postgres.
+// `label` es SIEMPRE un identificador técnico fijo (nunca datos ni
+// argumentos) — se registra en el mismo array `dbCalls` que las queries
+// reales para no agregar un campo nuevo al log. No-op total si
+// WHATSAPP_PERF_LOG está desactivado (una sola comparación, igual que el
+// resto del archivo) o si no hay timer activo en este request.
+export async function timeExternalCall(label, fn) {
+    if (!isWhatsappPerfLogEnabled()) return fn();
+    const timer = getActiveTimer();
+    if (!timer) return fn();
+
+    const startedAt = process.hrtime.bigint();
+    const result = await fn();
+    const ms = Math.round(Number(process.hrtime.bigint() - startedAt) / 1e5) / 10;
+    timer.recordDbCall(label, ms);
+    return result;
+}
+
 // Envuelve un PrismaClient (o un cliente ya extendido) para que CADA
 // operación real (find/create/update/delete/etc., cualquier modelo) quede
 // medida y asociada al timer activo del mensaje que la disparó — sin tocar
