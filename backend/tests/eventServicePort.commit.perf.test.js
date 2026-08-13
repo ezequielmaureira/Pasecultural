@@ -13,10 +13,13 @@ import { syncEventLinksService, syncEventScheduleService } from "../src/services
 // contra una base de test SEPARADA (backend/.env.test, ver informe de
 // entrega) — nunca contra la base real del proyecto.
 //
-// Se saltan limpiamente sin DATABASE_URL (mismo criterio que el resto del
-// proyecto).
+// Guardrail centralizado — ver tests/helpers/dbGuard.js. Reemplaza el
+// `Boolean(process.env.DATABASE_URL)` que tenía este archivo: ese chequeo
+// sólo verifica que la variable exista, nunca a qué proyecto apunta (ver
+// "Encontrar el test exacto que contaminó producción" — el mismo patrón en
+// whatsappOrganizerDiscovery.test.js escribió datos reales en producción).
 
-const hasDatabase = Boolean(process.env.DATABASE_URL);
+import { hasDatabase } from "./helpers/dbGuard.js";
 const testWithDb = hasDatabase ? test : test.skip;
 
 function uniqueSuffix() {

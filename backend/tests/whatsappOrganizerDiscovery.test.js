@@ -106,7 +106,11 @@ test("mergeOrganizationCandidates: both empty returns empty", () => {
 // incluido el caso crítico de regresión (escenario 5).
 // ==================================================================
 
-const hasDatabase = Boolean(process.env.DATABASE_URL);
+// Guardrail centralizado — ver tests/helpers/dbGuard.js. NUNCA reemplazar
+// por `Boolean(process.env.DATABASE_URL)` acá: ese chequeo fue exactamente
+// lo que permitió que este archivo escribiera datos reales en producción
+// (ver informe "Encontrar el test exacto que contaminó producción").
+import { hasDatabase } from "./helpers/dbGuard.js";
 const testWithDb = hasDatabase ? test : test.skip;
 
 function uniqueSuffix() {

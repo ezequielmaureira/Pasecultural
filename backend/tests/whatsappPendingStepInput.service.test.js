@@ -19,7 +19,10 @@ import {
 // `node --test` en este sandbox. Se corrieron una vez, de verdad, contra un
 // PostgreSQL descartable (ver informe de entrega) para probar cada
 // escenario end-to-end.
-const hasDatabase = Boolean(process.env.DATABASE_URL);
+// Guardrail centralizado — ver tests/helpers/dbGuard.js (nunca reemplazar
+// por `Boolean(process.env.DATABASE_URL)` acá, ver ese archivo para el
+// motivo).
+import { hasDatabase } from "./helpers/dbGuard.js";
 const testWithDb = hasDatabase ? test : test.skip;
 
 async function createConversationState(overrides = {}) {
