@@ -34,6 +34,14 @@ export const WHATSAPP_BACK_HINT_TEXT = "\n\n↩️ Escribí VOLVER para regresar
 // motor, se re-muestra la pregunta real vigente.
 export const WHATSAPP_IMAGE_NOT_EXPECTED_TEXT = "En este paso no necesito una imagen.";
 
+// Caso inverso: el step actual SÍ es IMAGE_URL pero llegó texto u otro
+// contenido que no es una imagen (video/audio/documento/sticker/ubicación).
+// Nunca se le pasa ese valor al motor (el error genérico de
+// inputHandlers/imageUrl.js habla de /api/media/upload, pensado para Web) —
+// acá se responde directo, sin tocar draft/pending step ni Cloudinary.
+export const WHATSAPP_IMAGE_REQUIRED_TEXT =
+    "Necesito que envíes una foto del evento 🖼️\n\nUsá el botón de adjuntar de WhatsApp y elegí una imagen.\n\nTambién podés escribir Volver.";
+
 const IMAGE_UPLOAD_ERROR_TEXTS = {
     MISSING_MEDIA_ID: "No pudimos leer esa imagen. Probá enviarla de nuevo.",
     INVALID_MIME_TYPE: "Ese formato de imagen no es compatible. Mandame una imagen JPG, PNG o WEBP.",

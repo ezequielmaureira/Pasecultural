@@ -14,8 +14,6 @@ import {
     buildKnownOrganizationGreetingText,
     buildGenericPublishIntentGreetingText,
     buildOrganizationSelectorText,
-    buildOrganizationSelectedConfirmationText,
-    buildOrganizationSelectionConfirmationRetryText,
 } from "../src/services/whatsappOrganizerBot.service.js";
 import { processInboundMessage, processInboundMessages } from "../src/controllers/whatsapp.controller.js";
 
@@ -70,7 +68,6 @@ function baseDeps(overrides = {}) {
             discoverCandidates: spy([{ organizationId: "org_1", name: "Elvis Bar", clerkId: "user_123" }]),
             getPendingSelection: spy(null),
             createPendingSelection: spy(undefined),
-            confirmSelection: spy(undefined),
             clearPendingSelection: spy(undefined),
             resolveOwner: spy({ name: "Elvis Bar", clerkId: "user_123" }),
             // Fase 3C — el sub-flujo de FUNCTIONS_SINGLE_CARD se consulta
@@ -570,11 +567,17 @@ test("Caso B) an affirmative first message skips the generic greeting entirely a
 // AMBAS (ver tests/whatsappOrganizerDiscovery.test.js, escenario 5) — este
 // test end-to-end prueba que, una vez que discoverCandidates devuelve las
 // dos, todo el resto del árbol de decisión (selector -> selección ->
-// confirmación -> EventCreationEngine.start) funciona con el organizationId
-// REAL elegido, exactamente como pide el informe (conversación exacta,
-// sección H). Cuatro mensajes separados, como cuatro webhooks reales.
+// EventCreationEngine.start) funciona con el organizationId REAL elegido.
+//
+// Bug fix (confirmación redundante) — antes eran CUATRO mensajes (saludo,
+// "1", elegir organización, "Sí" de nuevo para confirmar la MISMA elección
+// que el organizador ya había hecho explícitamente). Elegir del selector YA
+// es la confirmación: ahora son sólo TRES mensajes, como tres webhooks
+// reales — nunca se llama ni se muestra
+// buildOrganizationSelectedConfirmationText, nunca se vuelve a preguntar
+// Sí/No, y la conversación arranca en el mismo mensaje que la elección.
 // ==================================================================
-test("REGRESSION end-to-end: Cine Nadia + La Taberna de Mou (mismo teléfono) — selector, selección de la segunda, confirmación, y EventCreationEngine.start con el organizationId real elegido", async () => {
+test("REGRESSION end-to-end: Cine Nadia + La Taberna de Mou (mismo teléfono) — selector, selección de la segunda, y EventCreationEngine.start directo con el organizationId real elegido", async () => {
     const REAL_CANDIDATES = [
         { organizationId: "org_cine_nadia_real_id", name: "Cine Nadia", clerkId: "user_ezequiel" },
         { organizationId: "org_la_taberna_real_id", name: "La Taberna de Mou", clerkId: "user_ezequiel" },
@@ -599,36 +602,29 @@ test("REGRESSION end-to-end: Cine Nadia + La Taberna de Mou (mismo teléfono) �
     assert.equal(sendCalls2[0].text, "¿Con cuál de tus organizaciones querés trabajar?\n\n1. Cine Nadia\n2. La Taberna de Mou");
 
     // Mensaje 3: "2" -> elige La Taberna de Mou (la SEGUNDA, la que antes
-    // del fix nunca aparecía).
+    // del fix de discovery nunca aparecía) Y arranca el motor en el mismo
+    // mensaje — el organizationId REAL de La Taberna de Mou llega directo a
+    // EventCreationEngine.start, nunca el de Cine Nadia, nunca un valor por
+    // defecto, y sin ningún mensaje de confirmación intermedio.
     const { deps: deps3, sendCalls: sendCalls3 } = baseDeps({
         getPendingSelection: spy({ status: "AWAITING_SELECTION", candidateOrganizationIds: ["org_cine_nadia_real_id", "org_la_taberna_real_id"] }),
         resolveOwner: spy({ name: "La Taberna de Mou", clerkId: "user_ezequiel" }),
+        startConversation: spy({ conversationId: "conv1", prompt: { stepId: "NAME", type: "QUESTION", text: "¿Cómo se llama tu evento?" }, canGoBack: false, sections: [] }),
     });
     await processInboundMessage(textMessage({ text: "2", from: FROM }), deps3);
     assert.deepEqual(deps3.resolveOwner.calls[0], ["org_la_taberna_real_id"]);
-    assert.deepEqual(deps3.confirmSelection.calls[0], [FROM, "org_la_taberna_real_id"]);
-    assert.equal(sendCalls3[0].text, "Perfecto 👍 Vamos a publicar para La Taberna de Mou.\n\n¿Querés publicar un evento?\n\n1. Sí\n2. No\n\nRespondé con 1 o 2.");
-
-    // Mensaje 4: "1" (Sí) -> EventCreationEngine.start recibe el
-    // organizationId REAL de La Taberna de Mou — nunca el de Cine Nadia,
-    // nunca un valor por defecto.
-    const { deps: deps4, sendCalls: sendCalls4 } = baseDeps({
-        getPendingSelection: spy({ status: "AWAITING_CONFIRMATION", selectedOrganizationId: "org_la_taberna_real_id" }),
-        resolveOwner: spy({ name: "La Taberna de Mou", clerkId: "user_ezequiel" }),
-        startConversation: spy({ conversationId: "conv1", prompt: { stepId: "NAME", type: "QUESTION", text: "¿Cómo se llama tu evento?" }, canGoBack: false, sections: [] }),
-    });
-    await processInboundMessage(textMessage({ text: "1", from: FROM }), deps4);
-    assert.equal(deps4.startConversation.calls.length, 1);
-    assert.deepEqual(deps4.startConversation.calls[0][0], {
+    assert.equal(deps3.startConversation.calls.length, 1);
+    assert.deepEqual(deps3.startConversation.calls[0][0], {
         clerkId: "user_ezequiel",
         channel: "WHATSAPP",
         channelRef: FROM,
         organizationId: "org_la_taberna_real_id",
     });
-    assert.equal(deps4.clearPendingSelection.calls.length, 1);
+    assert.equal(deps3.clearPendingSelection.calls.length, 1);
     // FASE 3K sigue normalmente: la siguiente pregunta es la primera del
-    // motor real (NAME), nunca un prompt roto.
-    assert.equal(sendCalls4[0].text, "¿Cómo se llama tu evento?");
+    // motor real (NAME), nunca un prompt roto ni una confirmación de más.
+    assert.equal(sendCalls3[0].text, "¿Cómo se llama tu evento?");
+    assert.equal(sendCalls3.length, 1, "un solo mensaje de salida — nunca se manda la confirmación redundante");
 });
 
 // Selección pendiente — AWAITING_SELECTION: sólo un índice válido de la
@@ -642,7 +638,12 @@ function pendingAwaitingSelection(overrides = {}) {
     });
 }
 
-test("pending AWAITING_SELECTION + a valid index resolves the correct organizationId and asks for confirmation", async () => {
+// Bug fix (confirmación redundante) — elegir un índice válido YA ES la
+// confirmación explícita del organizador: persiste la elección (libera el
+// pending selection) y arranca EventCreationEngine en el MISMO mensaje,
+// sin mostrar nunca buildOrganizationSelectedConfirmationText ni volver a
+// preguntar Sí/No.
+test("pending AWAITING_SELECTION + a valid index persists the selection and starts the engine directly, without asking to confirm again", async () => {
     const { deps, sendCalls } = baseDeps({
         getPendingSelection: pendingAwaitingSelection(),
         resolveOwner: spy({ name: "Elvis Multiespacio", clerkId: "user_123" }),
@@ -652,13 +653,22 @@ test("pending AWAITING_SELECTION + a valid index resolves the correct organizati
 
     assert.equal(deps.resolveOwner.calls.length, 1);
     assert.deepEqual(deps.resolveOwner.calls[0], ["org_2"]);
-    assert.equal(deps.confirmSelection.calls.length, 1);
-    assert.deepEqual(deps.confirmSelection.calls[0], ["5491100003333", "org_2"]);
-    assert.equal(deps.startConversation.calls.length, 0);
-    assert.equal(sendCalls[0].text, buildOrganizationSelectedConfirmationText("Elvis Multiespacio"));
+    assert.equal(deps.clearPendingSelection.calls.length, 1);
+    assert.deepEqual(deps.clearPendingSelection.calls[0], ["5491100003333"]);
+    assert.equal(deps.startConversation.calls.length, 1);
+    assert.deepEqual(deps.startConversation.calls[0][0], {
+        clerkId: "user_123",
+        channel: "WHATSAPP",
+        channelRef: "5491100003333",
+        organizationId: "org_2",
+    });
+    // La conversación nunca arranca dos veces para una sola elección.
+    assert.equal(deps.startConversation.calls.length, 1);
+    assert.equal(sendCalls.length, 1);
+    assert.equal(sendCalls[0].text, "¿Cómo se llama tu evento?");
 });
 
-test("pending AWAITING_SELECTION + an out-of-range or non-numeric reply never resolves an organization nor confirms one", async () => {
+test("pending AWAITING_SELECTION + an out-of-range or non-numeric reply never resolves an organization nor starts the engine — the selector stays active", async () => {
     // "" queda afuera: shouldAutoReply ya descarta un mensaje de texto vacío
     // antes de llegar a la rama de selección pendiente (ver tests de
     // shouldAutoReply más arriba) — no es un caso de "índice inválido".
@@ -668,7 +678,7 @@ test("pending AWAITING_SELECTION + an out-of-range or non-numeric reply never re
         await processInboundMessage(textMessage({ text: invalidReply }), deps);
 
         assert.equal(deps.resolveOwner.calls.length, 0, `no debería resolver owner para "${invalidReply}"`);
-        assert.equal(deps.confirmSelection.calls.length, 0);
+        assert.equal(deps.clearPendingSelection.calls.length, 0, `el selector debe seguir activo para "${invalidReply}"`);
         assert.equal(deps.startConversation.calls.length, 0);
         assert.equal(sendCalls[0].text, WHATSAPP_SELECTION_INVALID_TEXT);
     }
@@ -684,59 +694,10 @@ test("pending AWAITING_SELECTION + 'cancelar' clears the pending selection inste
     assert.equal(sendCalls[0].text, WHATSAPP_CANCEL_TEXT);
 });
 
-// Selección pendiente — AWAITING_CONFIRMATION: la Organization ya está
-// resuelta, sólo falta la confirmación final "Sí"/"No" — recién ACÁ se
-// llama a EventCreationEngine.start, nunca antes.
-function pendingAwaitingConfirmation(overrides = {}) {
-    return spy({ status: "AWAITING_CONFIRMATION", selectedOrganizationId: "org_2", ...overrides });
-}
+test("pending AWAITING_SELECTION + a valid index whose organization stopped being APPROVED meanwhile is treated as not-found and cleared, without starting the engine", async () => {
+    const { deps, sendCalls } = baseDeps({ getPendingSelection: pendingAwaitingSelection(), resolveOwner: spy(null) });
 
-test("pending AWAITING_CONFIRMATION + 'Sí' clears the pending selection and starts the engine with the confirmed organizationId", async () => {
-    const { deps, sendCalls } = baseDeps({
-        getPendingSelection: pendingAwaitingConfirmation(),
-        resolveOwner: spy({ name: "Elvis Multiespacio", clerkId: "user_123" }),
-    });
-
-    await processInboundMessage(textMessage({ text: "Sí", from: "5491100003333" }), deps);
-
-    assert.equal(deps.clearPendingSelection.calls.length, 1);
-    assert.equal(deps.startConversation.calls.length, 1);
-    assert.deepEqual(deps.startConversation.calls[0][0], {
-        clerkId: "user_123",
-        channel: "WHATSAPP",
-        channelRef: "5491100003333",
-        organizationId: "org_2",
-    });
-    assert.equal(sendCalls[0].text, "¿Cómo se llama tu evento?");
-});
-
-test("pending AWAITING_CONFIRMATION + 'No' clears the pending selection and declines without starting the engine", async () => {
-    const { deps, sendCalls } = baseDeps({ getPendingSelection: pendingAwaitingConfirmation() });
-
-    await processInboundMessage(textMessage({ text: "No" }), deps);
-
-    assert.equal(deps.clearPendingSelection.calls.length, 1);
-    assert.equal(deps.startConversation.calls.length, 0);
-    assert.equal(sendCalls[0].text, WHATSAPP_DECLINE_TEXT);
-});
-
-test("pending AWAITING_CONFIRMATION + an unrelated reply re-asks for confirmation without repeating the numbered selector", async () => {
-    const { deps, sendCalls } = baseDeps({
-        getPendingSelection: pendingAwaitingConfirmation(),
-        resolveOwner: spy({ name: "Elvis Multiespacio", clerkId: "user_123" }),
-    });
-
-    await processInboundMessage(textMessage({ text: "no entendí" }), deps);
-
-    assert.equal(deps.clearPendingSelection.calls.length, 0);
-    assert.equal(deps.startConversation.calls.length, 0);
-    assert.equal(sendCalls[0].text, buildOrganizationSelectionConfirmationRetryText("Elvis Multiespacio"));
-});
-
-test("pending AWAITING_CONFIRMATION whose organization stopped being APPROVED meanwhile is treated as not-found and cleared", async () => {
-    const { deps, sendCalls } = baseDeps({ getPendingSelection: pendingAwaitingConfirmation(), resolveOwner: spy(null) });
-
-    await processInboundMessage(textMessage({ text: "Sí" }), deps);
+    await processInboundMessage(textMessage({ text: "2", from: "5491100003333" }), deps);
 
     assert.equal(deps.clearPendingSelection.calls.length, 1);
     assert.equal(deps.startConversation.calls.length, 0);

@@ -223,7 +223,6 @@ function identityDeps(overrides = {}) {
         discoverCandidates: async () => [{ organizationId: "org_1", name: "Elvis Bar", clerkId: "user_123" }],
         startConversation: async () => ({ conversationId: "conv1", prompt: { stepId: "NAME", type: "QUESTION", text: "¿Cómo se llama tu evento?" }, canGoBack: false, sections: [] }),
         createPendingSelection: async () => undefined,
-        confirmSelection: async () => undefined,
         clearPendingSelection: async () => undefined,
         resolveOwner: async () => ({ name: "Elvis Bar", clerkId: "user_123" }),
         ...overrides,
@@ -256,7 +255,12 @@ test("with WHATSAPP_PERF_LOG=true, a greeting message (no pending, no active con
     });
 });
 
-test("with WHATSAPP_PERF_LOG=true, selecting an organization (AWAITING_SELECTION) logs RESOLVE_OWNER and CONFIRM_SELECTION marks", async () => {
+// Bug fix (confirmación redundante): elegir una organización del selector
+// ahora arranca EventCreationEngine en el MISMO mensaje — ya no hace falta
+// un segundo mensaje "Sí" para llegar a START (ver
+// tests/whatsapp.organizerBot.test.js para la cobertura funcional
+// completa). RESOLVE_OWNER/CLEAR_SELECTION/START quedan todos marcados acá.
+test("with WHATSAPP_PERF_LOG=true, selecting an organization (AWAITING_SELECTION) logs RESOLVE_OWNER, CLEAR_SELECTION and START marks in the same message", async () => {
     await withPerfLogCapture(async (calls) => {
         await processInboundMessage(
             textMessageFrom("2"),
@@ -266,19 +270,7 @@ test("with WHATSAPP_PERF_LOG=true, selecting an organization (AWAITING_SELECTION
         const markNames = findPerfLog(calls).context.marks.map((m) => m.name);
         assert.ok(markNames.includes("PENDING_SELECTION_READ"));
         assert.ok(markNames.includes("RESOLVE_OWNER"));
-        assert.ok(markNames.includes("CONFIRM_SELECTION"));
-    });
-});
-
-test("with WHATSAPP_PERF_LOG=true, confirming the final 'Sí' (AWAITING_CONFIRMATION) logs RESOLVE_OWNER and START marks", async () => {
-    await withPerfLogCapture(async (calls) => {
-        await processInboundMessage(
-            textMessageFrom("1"),
-            identityDeps({ getPendingSelection: async () => ({ status: "AWAITING_CONFIRMATION", selectedOrganizationId: "org_2" }) })
-        );
-
-        const markNames = findPerfLog(calls).context.marks.map((m) => m.name);
-        assert.ok(markNames.includes("RESOLVE_OWNER"));
+        assert.ok(markNames.includes("CLEAR_SELECTION"));
         assert.ok(markNames.includes("START"));
     });
 });

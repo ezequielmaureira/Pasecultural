@@ -19,7 +19,6 @@ import {
     getPendingOrganizationSelection,
     createPendingOrganizationSelection,
     resolveOrganizationSelectionChoice,
-    confirmOrganizationSelection,
     clearPendingOrganizationSelection,
     resolveOrganizationOwner,
 } from "../services/whatsappOrganizerDiscovery.service.js";
@@ -38,6 +37,7 @@ import {
     WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT,
     WHATSAPP_SELECTION_INVALID_TEXT,
     WHATSAPP_IMAGE_NOT_EXPECTED_TEXT,
+    WHATSAPP_IMAGE_REQUIRED_TEXT,
     WHATSAPP_LOCATION_NOT_EXPECTED_TEXT,
     WHATSAPP_LOCATION_INSUFFICIENT_TEXT,
     WHATSAPP_LOCATION_METHOD_PROMPT_TEXT,
@@ -52,8 +52,6 @@ import {
     buildWhatsappLocationReuseInvalidText,
     buildKnownOrganizationGreetingText,
     buildOrganizationSelectorText,
-    buildOrganizationSelectedConfirmationText,
-    buildOrganizationSelectionConfirmationRetryText,
     buildWhatsappImageUploadErrorText,
     buildLocationInputFromWhatsapp,
     isPublishableWhatsappLocation,
@@ -1111,7 +1109,6 @@ export async function processInboundMessage(
         discoverCandidates = discoverWhatsappOrganizationCandidates,
         getPendingSelection = getPendingOrganizationSelection,
         createPendingSelection = createPendingOrganizationSelection,
-        confirmSelection = confirmOrganizationSelection,
         clearPendingSelection = clearPendingOrganizationSelection,
         resolveOwner = resolveOrganizationOwner,
         uploadImage = uploadWhatsappImageMessage,
@@ -1135,7 +1132,16 @@ export async function processInboundMessage(
     // isProcessableImage — un mensaje type==="location" también queda
     // descartado por shouldAutoReply si no se lo deja pasar explícito acá.
     const isProcessableLocation = message?.type === "location" && Boolean(message.location);
-    if (!shouldAutoReply(message) && !isProcessableImage && !isProcessableLocation) return;
+    // Bug fix (imagen esperada en WhatsApp): cualquier OTRO tipo de mensaje
+    // (video/audio/documento/sticker/contacts/etc. — nunca text/image/
+    // location, que ya tienen su propio camino) también queda descartado
+    // por shouldAutoReply. Antes de este fix se ignoraba en silencio incluso
+    // cuando el organizador estaba parado justo en COVER_IMAGE (IMAGE_URL);
+    // se deja pasar acá para poder revisar el step real más abajo y, sólo
+    // en ese caso puntual, pedir explícitamente una foto.
+    const isOtherMediaType =
+        typeof message?.type === "string" && message.type !== "text" && message.type !== "image" && message.type !== "location";
+    if (!shouldAutoReply(message) && !isProcessableImage && !isProcessableLocation && !isOtherMediaType) return;
 
     // channelRef identifica la conversación de forma estable por el wa_id
     // de origen — SIEMPRE el número tal cual lo manda Meta (message.from),
@@ -1243,7 +1249,34 @@ export async function processInboundMessage(
             perf.mark("SUBFLOW");
             if (locationResult.handled) return;
 
+            // Bug fix (imagen esperada en WhatsApp): si el step real es
+            // justo COVER_IMAGE (IMAGE_URL), "no necesito una ubicación acá"
+            // es engañoso — lo que hace falta es específicamente una foto.
+            if (currentState?.prompt?.inputType === "IMAGE_URL") {
+                await reply(WHATSAPP_IMAGE_REQUIRED_TEXT, "IMAGE_REQUIRED_INVALID_CONTENT");
+                return;
+            }
+
             await reply(`${WHATSAPP_LOCATION_NOT_EXPECTED_TEXT}\n\n${extractWhatsappReplyText(currentState)}`, "LOCATION_NOT_EXPECTED");
+            return;
+        }
+
+        // Bug fix (imagen esperada en WhatsApp): cualquier tipo de mensaje
+        // que no sea text/image/location (video/audio/documento/sticker/
+        // etc.) sólo importa si hay una conversación activa parada justo en
+        // COVER_IMAGE — ahí se pide la foto explícitamente, sin tocar el
+        // motor, el draft, el pending step ni Cloudinary. Para cualquier
+        // otro step se preserva el comportamiento previo a este fix: se
+        // ignora en silencio (mismo criterio que shouldAutoReply ya aplicaba
+        // para estos tipos).
+        if (isOtherMediaType) {
+            if (!active) return;
+
+            const currentState = await resumeConversation(active.id);
+            perf.mark("RESUME");
+            if (currentState?.prompt?.inputType === "IMAGE_URL") {
+                await reply(WHATSAPP_IMAGE_REQUIRED_TEXT, "IMAGE_REQUIRED_INVALID_CONTENT");
+            }
             return;
         }
 
@@ -1475,6 +1508,18 @@ export async function processInboundMessage(
                 }
             }
             perf.mark("SUBFLOW");
+            // Bug fix (imagen esperada en WhatsApp): un texto que YA es una
+            // URL http(s) válida sigue funcionando igual que siempre (el
+            // motor la acepta, ver inputHandlers/imageUrl.js#parse) — sólo
+            // se reemplaza la respuesta cuando el motor la rechazó
+            // (prompt.error) y el step que la rechazó es justo IMAGE_URL: el
+            // error genérico de ese handler ("Subí la imagen a
+            // /api/media/upload…") está pensado para Web, no tiene sentido
+            // para un organizador escribiendo por WhatsApp.
+            if (result?.prompt?.error && result.prompt.inputType === "IMAGE_URL") {
+                await reply(WHATSAPP_IMAGE_REQUIRED_TEXT, "IMAGE_REQUIRED_INVALID_CONTENT");
+                return;
+            }
             await reply(extractWhatsappReplyText(result), "HANDLE_INPUT");
             return;
         }
@@ -1502,59 +1547,43 @@ export async function processInboundMessage(
                 return;
             }
 
-            if (pendingSelection.status === "AWAITING_SELECTION") {
-                const choice = resolveOrganizationSelectionChoice(pendingSelection.candidateOrganizationIds, text);
-                if (!choice.valid) {
-                    await reply(WHATSAPP_SELECTION_INVALID_TEXT, "SELECTION_INVALID");
-                    return;
-                }
-
-                const owner = await resolveOwner(choice.organizationId);
-                perf.mark("RESOLVE_OWNER");
-                if (!owner) {
-                    // La Organization elegida dejó de estar APPROVED entre el
-                    // descubrimiento y la elección — nunca se sigue con una
-                    // Organization inválida.
-                    await clearPendingSelection(channelRef);
-                    await reply(WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT, "SELECTION_ORG_UNAVAILABLE");
-                    return;
-                }
-
-                await confirmSelection(channelRef, choice.organizationId);
-                perf.mark("CONFIRM_SELECTION");
-                await reply(buildOrganizationSelectedConfirmationText(owner.name), "SELECTION_CONFIRMED");
+            // pendingSelection.status === "AWAITING_SELECTION" — único status
+            // posible acá: nada deja un pendingSelection en otro estado.
+            const choice = resolveOrganizationSelectionChoice(pendingSelection.candidateOrganizationIds, text);
+            if (!choice.valid) {
+                await reply(WHATSAPP_SELECTION_INVALID_TEXT, "SELECTION_INVALID");
                 return;
             }
 
-            // pendingSelection.status === "AWAITING_CONFIRMATION"
-            const owner = await resolveOwner(pendingSelection.selectedOrganizationId);
+            const owner = await resolveOwner(choice.organizationId);
             perf.mark("RESOLVE_OWNER");
             if (!owner) {
+                // La Organization elegida dejó de estar APPROVED entre el
+                // descubrimiento y la elección — nunca se sigue con una
+                // Organization inválida.
                 await clearPendingSelection(channelRef);
                 await reply(WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT, "SELECTION_ORG_UNAVAILABLE");
                 return;
             }
 
-            const confirmationIntent = classifyInitialIntent(text);
-            if (confirmationIntent === "AFFIRMATIVE") {
-                await clearPendingSelection(channelRef);
-                const startResult = await startConversation({
-                    clerkId: owner.clerkId,
-                    channel: WHATSAPP_CHANNEL,
-                    channelRef,
-                    organizationId: pendingSelection.selectedOrganizationId,
-                });
-                perf.mark("START");
-                await reply(extractWhatsappReplyText(startResult), "START");
-                return;
-            }
-            if (confirmationIntent === "NEGATIVE") {
-                await clearPendingSelection(channelRef);
-                await reply(WHATSAPP_DECLINE_TEXT, "DECLINE");
-                return;
-            }
-
-            await reply(buildOrganizationSelectionConfirmationRetryText(owner.name), "SELECTION_CONFIRMATION_RETRY");
+            // Bug fix (confirmación redundante): elegir una organización del
+            // selector YA ES la confirmación explícita del organizador — no
+            // hace falta volver a preguntar "¿Vamos a publicar con X? Sí/No"
+            // (eso obligaba a un mensaje extra por nada). Se persiste la
+            // elección liberando el pending selection y se arranca
+            // EventCreationEngine directo, exactamente como ya hacía este
+            // mismo bloque para AWAITING_CONFIRMATION + "Sí" — la única
+            // diferencia es que ahora se llega acá un mensaje antes.
+            await clearPendingSelection(channelRef);
+            perf.mark("CLEAR_SELECTION");
+            const startResult = await startConversation({
+                clerkId: owner.clerkId,
+                channel: WHATSAPP_CHANNEL,
+                channelRef,
+                organizationId: choice.organizationId,
+            });
+            perf.mark("START");
+            await reply(extractWhatsappReplyText(startResult), "START");
             return;
         }
 
