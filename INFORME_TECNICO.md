@@ -1,574 +1,417 @@
 # INFORME TÉCNICO MAESTRO — PaseCultural
 
-Documento de estado real del proyecto, basado exclusivamente en el código presente en el repositorio al momento de escribirlo. No es un documento de planificación ni de opinión: describe lo que existe, cómo funciona y qué falta, tal como está implementado hoy.
+## Estado actual del sistema
+
+**Documentación interna de entrega técnica.** Describe el sistema tal como está construido hoy — qué es, cómo funciona, qué está implementado y qué queda pendiente — para que un desarrollador nuevo pueda entenderlo, mantenerlo y continuarlo sin necesitar la historia previa del proyecto. No es una bitácora de construcción ni un registro de commits: es el plano del sistema terminado. Basado exclusivamente en el código presente en el repositorio; donde el código y una afirmación anterior discrepaban, este documento sigue al código.
+
+**Fecha de actualización:** 14/08/2026 · **Versión:** 2026-08-14
 
 ---
 
-## 1. RESUMEN GENERAL
+## 1. RESUMEN EJECUTIVO
 
-**Objetivo de la aplicación.** PaseCultural es una plataforma de venta y administración de entradas para eventos culturales (teatro, música, centros culturales, productoras independientes). Cubre todo el ciclo: un organizador crea y publica un evento con sus funciones y tipos de entrada, el público compra sin necesidad de crear una cuenta, cada entrada se emite como un ticket individual con QR cifrado, el ingreso se controla en la puerta con una app de "Scanner" operada por personal sin cuenta de usuario tradicional, y el organizador (o el equipo de PaseCultural, rol "Developer") administra todo desde paneles propios.
+**Qué problema resuelve.** PaseCultural es una plataforma de venta y administración de entradas para eventos culturales (teatro, música, centros culturales, productoras independientes). Cubre el ciclo completo: un organizador crea y publica un evento con sus funciones y tipos de entrada (por Web o conversando con un bot de WhatsApp), el público compra sin necesidad de crear una cuenta, cada entrada se emite como un ticket individual con QR cifrado, el ingreso se controla en la puerta con una app de "Scanner" operada por personal sin cuenta de usuario tradicional, y tanto el organizador como el equipo de PaseCultural (rol "Developer") administran todo desde paneles propios con datos reales.
 
-**Arquitectura general.** Monorepo con dos carpetas independientes y sin capa intermedia: `backend` (API REST) y `frontend` (SPA), que se comunican directo por HTTP/JSON. No hay SSR, no hay BFF, no hay microservicios: es una API monolítica y un cliente SPA.
+**Estado general del producto.** Núcleo funcional completo y en uso: catálogo de eventos, checkout de compra, entradas con QR cifrado, control de acceso con garantías de concurrencia verificadas, recuperación de compra, administración de entradas con auditoría, cortesías, ventas, estadísticas reales para organizador y para el equipo interno, y un canal completo de creación de eventos por WhatsApp que usa el mismo motor que la Web. El hueco más grande del sistema, con diferencia, es que **no existe ningún cobro real** — comprar una entrada hoy es funcionalmente gratis del lado técnico, sin importar el precio configurado.
 
-**Tecnologías utilizadas — Frontend:** React 19, Vite 8, React Router 7, Tailwind CSS 4, Clerk (`@clerk/clerk-react` + `@clerk/localizations` para español), Google Maps JS API (`@googlemaps/js-api-loader`), `qrcode.react` (render de QR), `qr-scanner` (lectura de QR por cámara, módulo Scanner), `jspdf` (generación de PDF de entradas en el navegador), `lucide-react` (iconografía). Sin librería de manejo de estado global (ni Redux ni Zustand ni similar — todo con Context de React + `useState`/`useEffect`), sin librería de formularios, sin librería de componentes UI de terceros (todo el sistema de diseño es propio, sobre Tailwind), sin `html2canvas`, sin i18n propio (textos en español hardcodeados; sólo la UI de Clerk está localizada), sin SDK de analítica/monitoreo, sin infraestructura de testing (no hay Jest/Vitest/Testing Library instalado).
+**Módulos operativos** (funcionando de punta a punta, backend + frontend, con datos reales): Autenticación, Organizaciones, Eventos (Web y WhatsApp), Funciones, Entradas y tipos de tickets, Ventas, QR y control de acceso, Scanners, Cortesías, Recuperación de compra, Emails, Panel Developer, Panel Organizer, Configuración.
 
-**Tecnologías utilizadas — Backend:** Node.js con Express 5 (ESM puro, `type: module`), Prisma 6 como ORM sobre PostgreSQL, `@clerk/express` para autenticación de usuarios con cuenta, `jsonwebtoken` (JWT propio, sólo para sesiones de Scanner), `bcrypt` (no usado para contraseñas de usuario —Clerk las maneja— sino como parte de la infraestructura de hashing del módulo Scanner/verificación), `resend` (envío de email transaccional), `cloudinary` (imágenes), `pdfkit` (PDF de entradas del lado servidor, para el link público de recuperación), `qrcode` (generación de imágenes QR para los emails), `multer` (upload de archivos), `pg` (driver Postgres). Sin framework de testing, sin linter configurado, sin TypeScript.
-
-**Base de datos.** PostgreSQL, gestionada enteramente por Prisma (schema versionado + migraciones SQL generadas). 35 migraciones aplicadas a la fecha de esta actualización (26 al momento de la redacción original de este informe, 2026-08-08; las 9 restantes son del subsistema WhatsApp — ver "Actualización al 13 de agosto de 2026").
-
-**Servicios externos integrados:** Clerk (autenticación y gestión de cuentas de compradores registrados, organizadores y developer), Resend (todos los emails transaccionales), Cloudinary (imágenes de portada de evento y logo de organización), Google Maps JavaScript API (autocompletar direcciones, mapas de ubicación), **WhatsApp Business API / Meta Graph API** (webhook + envío de mensajes del bot conversacional para organizadores — integrado entre el 2026-08-09 y el 2026-08-12, posterior a la redacción original de este informe; ver "Actualización al 13 de agosto de 2026"). **Mercado Pago NO está integrado** — ver secciones 7 y 14, sigue siendo la ausencia más importante del proyecto.
+**Componentes pendientes:** integración de pago real (Mercado Pago — la ausencia más importante), exportación real de entradas seleccionadas, página de Términos de Servicio dedicada, deduplicación de reintentos de Meta en WhatsApp, timeout de conversación de WhatsApp por inactividad, limpieza de un lote de datos de prueba que quedó en producción (ver §11).
 
 ---
 
-## 2. MÓDULOS
+## 2. ARQUITECTURA ACTUAL
 
-Para cada módulo: objetivo, estado, % aproximado, funcionalidades implementadas y pendientes.
+Monorepo con dos aplicaciones independientes, sin capa intermedia: `backend` (API REST) y `frontend` (SPA), que se comunican por HTTP/JSON. No hay SSR, no hay BFF, no hay microservicios.
+
+### Frontend
+React 19, Vite, React Router 7, Tailwind CSS 4. Autenticación vía Clerk (`@clerk/clerk-react` + `@clerk/localizations` en español). Mapas y autocompletado de direcciones vía Google Maps JavaScript API (`@googlemaps/js-api-loader`). `qrcode.react` (render de QR en pantalla), `qr-scanner` (lectura de QR por cámara, módulo Scanner), `jspdf` (PDF de entradas generado en el navegador), `lucide-react` (iconografía). Sin librería de estado global (Context de React + `useState`/`useEffect`), sin librería de formularios, sin librería de componentes UI de terceros (sistema de diseño propio sobre Tailwind), sin i18n propio (textos en español hardcodeados; sólo la UI de Clerk está localizada), sin SDK de analítica/monitoreo, sin infraestructura de testing.
+
+### Backend
+Node.js con Express 5 (ESM puro, `type: module`). Prisma 6 como ORM sobre PostgreSQL. `@clerk/express` para autenticación de usuarios con cuenta. `jsonwebtoken` (JWT propio, sesiones de Scanner). `bcrypt` (hashing del módulo Scanner/verificación, no de contraseñas de usuario — Clerk las maneja). `resend` (email transaccional). `cloudinary` (imágenes). `pdfkit`/`qrcode` (PDF y QR generados del lado servidor). `multer` (upload de archivos). `pg` (driver Postgres). Sin TypeScript, sin linter configurado, sin framework de testing externo — usa el test runner nativo de Node (`node:test`).
+
+### PostgreSQL / Prisma
+Base de datos gestionada enteramente por Prisma (schema versionado + migraciones SQL). 34 migraciones aplicadas, 22 modelos, 22 enums (detalle completo en §8). Alojada en Supabase — hay **dos proyectos Supabase separados**: uno de producción y uno de TEST, distinguidos internamente por project-ref y nunca por nombre en ningún log o documento (ver §9, guardrail `dbGuard.js`).
+
+### Clerk
+Autenticación y gestión de sesión para cualquier persona con cuenta (comprador registrado, organizador, developer). El backend nunca valida contraseñas ni sesiones por su cuenta — delega 100% en el SDK (`clerkMiddleware()` en `app.js`, lee sus credenciales de variables de entorno por convención propia del SDK, nunca pasadas explícitamente en el código). El módulo Scanner es la única parte del sistema que **no** usa Clerk (sesión propia, ver §4/§9).
+
+### Render
+Host del backend. Confirmado por código, no sólo por convención: el backend lee `process.env.RENDER_GIT_COMMIT`, una variable que Render inyecta automáticamente en cada deploy — su sola presencia como variable esperada en el código es evidencia de que el backend corre en Render. No hay `render.yaml` versionado en el repositorio — la configuración del servicio (build command, variables de entorno, auto-deploy desde `main`) vive en el dashboard de Render, fuera de este repositorio.
+
+### Vercel
+Host del frontend. `frontend/vercel.json` está versionado en el repo, con una única regla de rewrite (`/(.*)` → `/index.html`, necesaria para que las rutas de React Router funcionen en carga directa/refresh). El build (`vite build`) y el deploy se gestionan por la integración estándar de Vercel con el repositorio Git.
+
+### Cloudinary
+Almacenamiento de imágenes (portadas de evento, logos de organización). Subida genérica vía `POST /api/media/upload` (5 MB máx, PNG/JPEG/WEBP), borrado por `publicId`.
+
+### Resend
+Envío de los 3 emails transaccionales del sistema (ver §4, Emails). Cliente inicializado de forma perezosa (`getRequiredEnv`), nunca al importar el módulo.
+
+### WhatsApp Cloud API (Meta Graph API)
+Canal alternativo de creación de eventos para organizadores, vía un bot conversacional. Webhook público (`GET/POST /api/whatsapp/webhook`) y envío de mensajes salientes vía Graph API. Detalle completo del flujo vigente en §5.
+
+### Relación entre componentes
+
+```
+Frontend (Vercel, SPA)
+  ├─ Clerk (sesión, directo desde el navegador)
+  ├─ Google Maps JS API (directo desde el navegador)
+  └─ HTTP/JSON ──> Backend API (Render)
+                     ├─ PostgreSQL (Supabase, vía Prisma)
+                     ├─ Clerk (verificación de sesión)
+                     ├─ Cloudinary (imágenes)
+                     ├─ Resend (emails)
+                     ├─ Google Maps Geocoding API (best-effort)
+                     └─ Meta Graph API (WhatsApp)
+
+Organizador (WhatsApp) <──mensaje──> Meta <──webhook──> Backend API (Render)
+```
+
+El motor de creación de eventos (`EventCreationEngine`/`EventServicePort`) es la única pieza de lógica de negocio compartida entre ambos canales de entrada (Web y WhatsApp) — cada canal sólo aporta su propia capa de interpretación de entrada/salida (formulario/chat vs. texto libre de WhatsApp) sobre el mismo motor y las mismas tablas.
+
+---
+
+## 3. ROLES Y PERMISOS
+
+Enum `Role` en la base: `DEVELOPER`, `ORGANIZER`, `SCANNER`, `CUSTOMER`. Autorización siempre resuelta server-side (`requireRole`, nunca confiada desde el cliente); dentro del panel de organizador, además del rol, cada acción revalida que el recurso (evento, scanner, entrada, venta) pertenezca a la organización de quien hace el pedido.
+
+| Rol | Cómo se obtiene | Capacidades reales | Restricciones |
+|---|---|---|---|
+| **Developer** | Lista de emails hardcodeada en `auth.service.js`, asignada al sincronizar la cuenta (`POST /api/auth/sync`) | Aprobar/rechazar/suspender organizaciones; gestionar rol/estado de cualquier usuario; ver plataforma completa sin acotarse a una organización (eventos, ventas, entradas, scanners de **todos** los organizadores, sólo lectura); Dashboard con KPIs globales; panel de Herramientas de Desarrollo (reset/seed de base, envío de WhatsApp de prueba) | No puede cancelar una cortesía de una organización ajena (limitación heredada, no ampliada a propósito) |
+| **Organizer** | Automático al crear una organización (`POST /api/organizations`, promueve de `CUSTOMER`) | CRUD completo de sus propios eventos, funciones, tipos de entrada, links; emitir cortesías; administrar entradas vendidas (cancelar/rehabilitar/reactivar/marcar usada/eliminar); gestionar scanners de sus eventos; ver ventas y dashboard de su organización; vincular un número de WhatsApp a su organización | Siempre acotado a los eventos/recursos de **su propia** organización; sólo puede **publicar** eventos si la organización está `APPROVED` por un Developer |
+| **Scanner** | Registro único por invitación del organizador (`EventScanner`, no requiere Clerk ni cuenta `User`) | Login recurrente por email + código de 6 dígitos; validar entradas en dos pasos (ver preview de la entrada, luego confirmar el ingreso); ver estadísticas de la función que tiene asignada | Sesión propia por JWT (`SCANNER_SESSION_SECRET`, 24 hs), revalidada `ACTIVE` en cada request — una desactivación del organizador corta el acceso al instante. El rol `SCANNER` del enum `Role`/`User` existe pero está en desuso: los scanners reales son filas `EventScanner`, independientes de Clerk |
+| **Customer** | Rol por defecto de cualquier `User` sin organización propia | Comprar entradas (con o sin cuenta), ver "Mis entradas" si tiene cuenta, recuperar una compra sin cuenta por email+DNI+código | Sin acceso a ningún panel administrativo |
+
+---
+
+## 4. MÓDULOS FUNCIONALES
+
+Para cada módulo: propósito, estado actual, funcionamiento y limitaciones reales — verificado contra el código vigente.
 
 ### Autenticación
-**Objetivo:** identificar quién es cada usuario y qué puede hacer. **Estado: completo para su alcance actual.** **~95%.**
-Implementado: login/registro delegado 100% a los componentes prebuilt de Clerk; sincronización on-demand de la sesión de Clerk a una fila `User` propia (`POST /api/auth/sync`, sin webhook de Clerk); "adopción" automática de compras de invitado previas cuando alguien se registra con el mismo email que usó para comprar sin cuenta; asignación de rol `DEVELOPER` por lista hardcodeada de emails en el código; promoción automática a `ORGANIZER` al crear una organización; roles `DEVELOPER/ORGANIZER/SCANNER/CUSTOMER`; suspensión de cuenta por Developer. El módulo Scanner tiene su **propio** sistema de autenticación, completamente separado de Clerk (JWT propio, ver módulo Scanners). Pendiente: no hay webhook de Clerk (`user.created`, etc.) — la sincronización depende de que el frontend llame a `/api/auth/sync` después de cada login; no hay flujo de "olvidé mi contraseña" propio (lo maneja Clerk); el rol `SCANNER` del enum `Role` de `User` está prácticamente en desuso (los scanners reales son filas `EventScanner`, no `User`).
-
-### Organizaciones
-**Objetivo:** que una entidad (teatro, productora, etc.) pueda operar como organizador. **Estado: completo.** **~90%.**
-Implementado: alta de organización (una por usuario, auto-promueve a `ORGANIZER`), edición de datos propios, baja propia, listado/detalle/aprobación/rechazo/suspensión por Developer, bloqueo de publicación de eventos si la organización no está `APPROVED`. Pendiente: no hay verificación de identidad más allá de los campos de texto que carga el propio organizador (CUIT, responsable, etc. — nada se valida contra un padrón externo); no hay onboarding de datos de cobro (ver Mercado Pago).
+**Propósito:** identificar quién es cada usuario y qué puede hacer. **Estado: completo.**
+Login/registro delegado 100% a los componentes prebuilt de Clerk; sincronización on-demand de la sesión de Clerk a una fila `User` propia (`POST /api/auth/sync`, sin webhook de Clerk); adopción automática de compras de invitado previas cuando alguien se registra con el mismo email que usó para comprar sin cuenta; asignación de rol `DEVELOPER` por lista hardcodeada de emails; promoción automática a `ORGANIZER` al crear una organización. **Limitaciones:** no hay webhook de Clerk — la sincronización depende de que el frontend llame a `/api/auth/sync` después de cada login; no hay flujo de "olvidé mi contraseña" propio (lo maneja Clerk).
 
 ### Eventos
-**Objetivo:** que un organizador arme y publique un evento con sus funciones y entradas. **Estado: completo, con TRES caminos de creación/edición en paralelo (dos web + WhatsApp).** **~90%.**
-Implementado: CRUD completo (crear/listar/editar/eliminar/publicar/despublicar/cancelar), motor conversacional tipo "chat" para crear eventos paso a paso (con posibilidad de retomar, editar cualquier sección desde una vista previa, y guardar como borrador), wizard clásico de formulario para editar eventos ya creados, programación de funciones (fecha única, rango, días de la semana, recurrencia), catálogo de tipos de entrada con overrides por función, enlaces del evento (redes/video, con detección automática de plataforma), ubicación con Google Maps, listado público con filtros (categoría, texto, fecha, gratis/pago, orden), detalle público por slug. Reglas de publicación (requiere organización aprobada, ubicación completa, al menos una función, al menos un tipo de entrada con precio y stock, cada función con al menos una asignación de entradas habilitada). **[Actualizado 2026-08-13]** El canal WhatsApp del motor conversacional (`ConversationChannel.WHATSAPP`), que este informe describía como "declarado pero sin adaptador", tiene desde el 2026-08-09 un adaptador completo y en uso (webhook de Meta, identificación por teléfono, selector de organización, y el mismo `EventCreationEngine` que usa la Web) — ver detalle completo, estado punto por punto y hallazgos de UX pendientes en "Actualización al 13 de agosto de 2026". Pendiente: no hay reordenamiento manual de eventos en el listado del organizador más allá del orden por fecha de creación.
+**Propósito:** que un organizador arme y publique un evento con sus funciones y entradas. **Estado: completo, con dos canales de creación (Web y WhatsApp) sobre el mismo motor.**
+CRUD completo (crear/listar/editar/eliminar/publicar/despublicar/cancelar/archivar/restaurar/duplicar); motor conversacional tipo "chat" (Web y WhatsApp) para crear eventos paso a paso, con posibilidad de retomar, editar cualquier sección desde una vista previa y guardar como borrador; wizard clásico de formulario para editar eventos ya existentes; enlaces del evento (redes/video, detección automática de plataforma); ubicación con Google Maps (Web) o compartida/manual (WhatsApp); listado público con filtros; Historial de Eventos (archivado automático + restaurar/duplicar, `/organizador/historial`). Reglas de publicación: organización aprobada, ubicación completa, al menos una función, al menos un tipo de entrada con precio y stock, cada función con al menos una asignación de entradas habilitada. **Limitaciones:** no hay reordenamiento manual de eventos en el listado más allá del orden por fecha de creación.
 
-### Tipos de entradas
-**Objetivo:** catálogo de tipos de entrada (General, VIP, etc.) por evento, con precio/stock/visibilidad, y sus asignaciones por función. **Estado: funcional, con una pantalla de sólo lectura desactualizada.** **~80%.**
-Implementado: alta/edición/baja de tipos de entrada, overrides de precio/stock/visibilidad por función, catálogo dentro del wizard/chat de evento. Pendiente: la pantalla dedicada del organizador ("Tipos de entrada", ex-"Entradas") muestra la columna "Vendidas" **hardcodeada en 0** para toda fila, sin conectar a ningún dato real — no refleja ventas reales.
+### Funciones
+**Propósito:** programar las fechas/horarios concretos de un evento, independientes del catálogo de entradas. **Estado: completo.**
+Programación por fecha única, rango de fechas, días de la semana o recurrencia (Web y WhatsApp, mismas tres modalidades en ambos canales); pantalla dedicada "Estado de Funciones" (`/organizador/funciones`) con capacidad/emitidas/vendidas/check-ins por función, integrando también las estadísticas de cortesías; cada función puede tener asignaciones de tipos de entrada con overrides de precio/stock/visibilidad respecto del catálogo general.
 
-### Cortesías
-**Objetivo:** que el organizador emita entradas sin costo (sponsors, prensa, invitados, staff, artistas, familiares) sin mezclarlas con la venta real. **Estado: completo.** **~90%.**
-Implementado: módulo propio dentro del panel de organizador (`/organizador/cortesias`), separado de "Entradas"/"Ventas"; asistente de 6 pasos (evento → función → tipo de entrada del catálogo existente, nunca uno nuevo → cantidad → motivo opcional [Sponsor/Prensa/Invitado/Staff/Artista/Familiar/Protocolo/Otro] + nota libre → entrega por "Compartir" o "Enviar por correo"); "Compartir" reutiliza exactamente la misma infraestructura de invitación del Scanner (Web Share API con fallback a copiar link/WhatsApp/QR); "Enviar por correo" dispara el mismo email de confirmación que recibe un comprador real, sin ningún template paralelo; la emisión reutiliza el mismo flujo de venta confirmada de punta a punta (mismo `Ticket`, mismo QR cifrado, mismo PDF, mismo Scanner) — la única diferencia funcional es `origin = COURTESY` en vez de `SALE` y precio 0; historial con filtros (evento/estado/motivo), estado derivado en vivo (nunca almacenado) y acciones por fila (compartir de nuevo, reenviar por correo, descargar PDF, copiar link, cancelar); estadísticas de cortesías (emitidas/utilizadas/pendientes/canceladas) integradas en "Estado de Funciones"; auditoría completa por emisión (quién, cuándo, evento, función, motivo, cantidad, email de destino si aplica, método de entrega). Restringido a roles `ORGANIZER`/`DEVELOPER`. Pendiente: un `DEVELOPER` no puede cancelar una cortesía de una organización que no es la propia (limitación heredada de `ticketAdmin.service.js`, no ampliada a propósito); el historial no tiene todavía un filtro visible por canal de emisión, aunque la estructura de datos (`Ticket.origin`) ya lo permite sin cambios de arquitectura.
+### Entradas y tipos de tickets
+**Propósito:** catálogo de tipos de entrada (General, VIP, etc.) por evento y administración de las entradas ya vendidas. **Estado: completo.**
+*Catálogo* (`/organizador/tipos-de-entrada`): alta/edición/baja de tipos de entrada, overrides por función, columna "Vendidas" con datos reales por tipo de entrada (`GET /api/events/mine/ticket-types-sales`). *Administración de entradas vendidas* (`/organizador/entradas`): modelo con auditoría completa (`TicketAuditLog`, append-only) y check-ins históricos (`CheckIn`, ya no 1:1 con la entrada); 5 operaciones administrativas (cancelar/rehabilitar/reactivar/marcar usada manualmente/eliminar con soft delete), individuales o en lote; buscador server-side (número/nombre/email/DNI); selector de evento/función; **filtro por estado con control visual real** (pills clickeables, ya conectadas al backend). **Limitaciones:** la acción masiva "Exportar seleccionadas" está en la interfaz pero es un stub — muestra un aviso ("se preparará en una próxima iteración") sin generar ningún archivo.
 
-### Compra
-**Objetivo:** que cualquier persona pueda comprar entradas sin necesidad de crear una cuenta. **Estado: completo como flujo de checkout, sin pasarela de pago real.** **~75%** (100% del flujo de checkout invitado, 0% de integración de pago real).
-Implementado: selección de función, selección de cantidad por tipo de entrada, resumen, datos del comprador (nombre/apellido/email/DNI, sin cuenta), confirmación "instantánea" (ver Mercado Pago — hoy no hay paso de pago real intermedio), recuperación de una compra en curso por `saleToken` en la URL (sobrevive a recargas de página), reintento con backoff/timeout si la confirmación tarda. Pendiente: **no existe ningún paso de pago real** — comprar hoy es funcionalmente gratis para cualquier evento, pago o no, del lado técnico (ver sección 7).
+### Ventas
+**Propósito:** que el organizador vea y gestione las operaciones de venta de sus eventos. **Estado: completo.**
+Pantalla dedicada (`/organizador/ventas`) con listado filtrable por evento/estado (todas/confirmadas/pendientes/canceladas/vencidas) y búsqueda, alimentada por `GET /api/sales`. Confirmación manual de ventas cargadas a mano (efectivo/transferencia) vía `POST /api/sales/:id/confirm`. El equipo Developer tiene su propia vista platform-wide equivalente, de sólo lectura (`/developer/ventas`).
 
-### Confirmación / Mercado Pago
-**Objetivo:** cobrar de verdad y confirmar la venta según el resultado del pago. **Estado: NO implementado.** **~0-5%** (sólo el enum y el punto de extensión están preparados).
-Implementado: nada de integración real. Existe el valor `MERCADO_PAGO` en el enum `PaymentMethod` (nunca usado en la práctica, todas las ventas se crean con `MANUAL`), un campo `Sale.confirmedBy` nullable (documentado como preparado para que una confirmación automática por webhook no tenga un organizador asociado), y un único punto de extensión aislado en el frontend (`processPayment()` en `lib/payment/paymentGateway.js`) documentado explícitamente como "la única función que va a cambiar el día que se integre Mercado Pago". Hoy esa función crea la venta y la confirma en el mismo paso, sin pasarela ni redirección a ningún checkout externo. Confirmación manual por organizador (`POST /api/sales/:id/confirm`) sí existe y es el único mecanismo real de confirmación (pensado para pagos en efectivo/transferencia cargados a mano). Pendiente: **todo** — SDK, Checkout Pro o Checkout API, webhook de notificación, conciliación de estados, manejo de pagos rechazados/pendientes, onboarding de cuenta de cobro del organizador (la pantalla de Configuración ya tiene el placeholder visual para esto, sin ninguna lógica detrás).
-
-### Recuperación de entradas
-**Objetivo:** que alguien que compró sin cuenta pueda volver a ver/descargar sus entradas. **Estado: completo.** **~95%.**
-Implementado: búsqueda por email+DNI (sin revelar si existe o no una compra), código de verificación de 6 dígitos por email como segundo factor (con hash, expiración, límite de intentos, cooldown de reenvío y rate limit por IP), pantalla intermedia "Compra encontrada" antes de exponer cualquier dato, reenvío del email de confirmación completo, descarga del PDF completo de la compra, reutilización total del flujo de compra existente (`PurchaseWizard`/`SuccessStep`) vía `saleToken` para "Ver mis entradas". Pendiente: nada identificado como incompleto dentro de su alcance.
-
-### Correos
-**Objetivo:** todas las notificaciones transaccionales por email. **Estado: completo para lo que existe, acotado en alcance.** **~85%** (de lo que el proyecto necesita hoy; ver pendientes).
-Implementado: 3 emails reales (confirmación de compra con QRs adjuntos + PDF, código de verificación de Scanner, código de verificación de recuperación de compra) — detalle completo en sección 8. Pendiente: no hay email de bienvenida, no hay email de aprobación/rechazo de organización (el organizador sólo se entera si vuelve a mirar el panel), no hay notificación al organizador cuando se registra una venta nueva.
-
-### Entradas (administración)
-**Objetivo:** que el organizador pueda administrar entradas ya vendidas (cancelar, rehabilitar, marcar usada, eliminar, ver historial). **Estado: completo, backend y frontend.** **~90%.**
-Implementado: modelo de datos con auditoría completa (`TicketAuditLog`, append-only) y check-ins históricos (`CheckIn`, ya no 1:1 con la entrada — una entrada reactivada puede volver a tener ingresos), 5 operaciones administrativas individuales (cancelar/rehabilitar/reactivar/marcar usada manualmente/eliminar con soft delete) cada una con su fila de auditoría, acciones masivas sobre selección múltiple (cancelar/rehabilitar/eliminar), pantalla del organizador con selector de evento/función, buscador server-side (número/nombre/email/DNI), tarjetas de resumen por estado, selección múltiple con checkbox, drawer lateral de detalle con check-ins y auditoría completos. Pendiente: la acción masiva "Exportar seleccionadas" está presente en la UI pero es un stub (muestra un toast "se preparará en una próxima iteración", no genera ningún archivo); los filtros por estado individuales (pills "Disponibles/Utilizadas/Canceladas/Reintegradas/Eliminadas") quedaron sin punto de entrada en la UI actual — el estado que los controla (`statusFilter`) sigue existiendo y viajando al backend, pero no hay ningún control visible que lo cambie (ver sección 14, deuda técnica).
+### QR y control de acceso
+**Propósito:** emitir entradas verificables y validarlas en la puerta sin ambigüedad. **Estado: completo.**
+Al confirmarse una venta, cada `Ticket` recibe un `TicketQr` cuyo secreto se genera con un generador criptográfico seguro y se cifra (AES-256-GCM) antes de guardarse — nunca en texto plano ni como imagen persistida; se arma al vuelo cada vez que hace falta mostrarlo (email, "Mis entradas", PDF). La validación en el Scanner es en **dos pasos**: `scan` (lee el QR, devuelve el estado de la entrada — válida/ya usada/cancelada/no corresponde a este evento — y datos para mostrar al operador: nombre del comprador, función, lugar — sin mutar nada) y `confirm` (recién ahí marca la entrada como usada, con un `UPDATE` condicional atómico dentro de una transacción). Esa separación deja ver quién está entrando antes de confirmar el ingreso. La atomicidad del segundo paso está verificada con pruebas de concurrencia real (hasta 20 escaneos simultáneos sobre la misma entrada, nunca un doble ingreso válido).
 
 ### Scanners
-**Objetivo:** operar el control de acceso en la puerta de un evento, sin necesidad de una cuenta de usuario tradicional. **Estado: completo.** **~95%.**
-Implementado: alta de invitaciones por el organizador (una o varias, por puerta), registro público único por invitación (nombre/apellido/DNI/email/teléfono + código de 6 dígitos), portal de acceso recurrente "Soy Scanner" (email + código de 6 dígitos, sin contraseña, sin Clerk) para todo ingreso posterior a la invitación, sesión propia por JWT firmado (24hs), verificación de que el scanner sigue `ACTIVE` en cada request (una desactivación del organizador corta el acceso al instante), dashboard previo (identidad, evento, puerta, estado, último acceso, entradas validadas hoy), selección de evento/función, lector de QR con cámara, historial de escaneos, estadísticas de función, validación con garantías de concurrencia verificadas (ver sección 7). Pendiente: el rol `SCANNER` de `User`/Clerk no se usa en este flujo (es intencional, no una carencia); no hay una vista de "todas las puertas en vivo" para el organizador durante el evento (sólo historial/estadísticas por función).
+**Propósito:** operar el control de acceso en la puerta, sin cuenta de usuario tradicional. **Estado: completo.**
+Alta de invitaciones por el organizador (una o varias, por puerta); registro público único por invitación (datos personales + código de 6 dígitos); portal de acceso recurrente "Soy Scanner" (email + código, sin contraseña, sin Clerk) para todo ingreso posterior; sesión propia por JWT (24 hs), revalidada `ACTIVE` en cada request; dashboard previo, selección de evento/función, lector de QR con cámara, historial de escaneos, estadísticas de función. El equipo Developer tiene una vista platform-wide de sólo lectura equivalente (`/developer/scanners`). **Limitaciones:** no hay una vista de "todas las puertas en vivo" para el organizador durante el evento (sólo historial/estadísticas por función).
 
-### Dashboard Organizador
-**Objetivo:** panorama general del organizador. **Estado: completo, con datos reales de punta a punta.** **~90%.**
-Implementado: banner de estado de la organización (pendiente/rechazada/suspendida/aprobada); selector de evento destacado (en curso/próximo/finalizado) que alimenta todo lo demás de la pantalla; hero del evento seleccionado con ocupación real; resumen del evento en 4 bloques — **Comercial** (recaudación, entradas vendidas, ticket promedio — sólo `origin=SALE`, nunca incluye cortesías), **Emisión** (entradas emitidas totales + desglose por canal con nombres amigables, ej. "💰 Vendidas" / "🎁 Cortesías"), **Accesos** (ingresadas, pendientes de ingreso, canceladas si aplica) y **Ocupación** (capacidad, emitidas, disponibles, % de ocupación) — todos calculados 100% en el backend (`functionCapacity.service.js`), nunca recalculados en el cliente; actividad reciente del evento (ventas, check-ins, acciones de auditoría, altas de scanner) combinada en una sola línea de tiempo; grilla "Estado de mis eventos" (todos los eventos de la organización) con capacidad/ocupación reales vía un endpoint batcheado propio (`GET /api/events/mine/stats`); tabla de últimas ventas del evento seleccionado. "Capacidad total"/"Entradas emitidas" del bloque Ocupación suman todas las funciones vigentes del evento a propósito (capacidad real de toda la temporada, no de una función suelta) — verificado correcto en una auditoría de código punta a punta. Pendiente: la "recaudación" que se muestra es la suma de ventas ya `CONFIRMED` en la base — sigue sin existir un cobro real (ver Mercado Pago).
+### Cortesías
+**Propósito:** que el organizador emita entradas sin costo (sponsors, prensa, invitados, staff, etc.) sin mezclarlas con la venta real. **Estado: completo.**
+Asistente de 6 pasos (evento → función → tipo de entrada del catálogo existente → cantidad → motivo opcional + nota libre → entrega por "Compartir" o "Enviar por correo"); reutiliza de punta a punta el mismo flujo de venta confirmada (mismo `Ticket`, QR cifrado, PDF, Scanner) — la única diferencia real es `origin=COURTESY` en vez de `SALE` y precio 0; historial con filtros, estado derivado en vivo, auditoría completa por emisión. Ninguna métrica comercial (recaudación, ticket promedio) incluye nunca una cortesía — todas filtran explícitamente `origin=SALE`. **Limitaciones:** un Developer no puede cancelar una cortesía de una organización ajena; el historial no tiene todavía un filtro visible por canal de emisión (el dato ya existe, falta sólo la UI).
 
-### Dashboard Developer
-**Objetivo:** panorama general de la plataforma para el equipo de PaseCultural. **Estado: maqueta visual, sin ningún dato real.** **~10%** (sólo el layout/diseño).
-Implementado: layout completo con tarjetas de estadísticas, gráfico de ventas de 7 días, gráfico de dona de estado de entradas, lista de próximos eventos, actividad reciente. Pendiente: **absolutamente todo el contenido es un valor hardcodeado en el código** (usuarios, eventos, entradas vendidas, ventas, la serie del gráfico, los eventos "próximos" con fechas de 2025, la actividad reciente) — no hay ninguna llamada a la API en todo el archivo. Los botones "Ver todos"/"Ver todas" no tienen acción.
+### Recuperación de compra
+**Propósito:** que alguien que compró sin cuenta pueda volver a ver/descargar sus entradas. **Estado: completo.**
+Búsqueda por email+DNI (respuesta siempre genérica, nunca revela si existe o no una coincidencia), código de verificación de 6 dígitos por email como segundo factor, pantalla intermedia "Compra encontrada" antes de exponer cualquier dato, reenvío del email completo, descarga de PDF, reutilización total del flujo de compra (`saleToken`) para "Ver mis entradas".
 
-### Dashboard Scanner
-**Objetivo:** pantalla previa al lector de QR para el operador de puerta. **Estado: completo.** **~95%.** (Ya cubierto en el módulo "Scanners" — se lista aparte porque el pedido lo pide como ítem propio.)
+### Emails
+**Propósito:** notificaciones transaccionales. **Estado: completo para lo que existe, acotado en alcance.** Tres emails reales, los tres vía Resend: confirmación de compra (QR embebidos + PDF adjunto, protegido contra duplicados con un reclamo atómico), código de verificación de Scanner (6 dígitos, 10 minutos), código de verificación de recuperación de compra (6 dígitos, 10 minutos, sin mencionar ningún dato de la compra). **Limitaciones:** no hay email de bienvenida, no hay notificación de aprobación/rechazo de organización, no hay notificación de venta nueva al organizador.
+
+### Panel Developer
+**Propósito:** panorama y control de toda la plataforma para el equipo de PaseCultural. **Estado: completo, con datos reales de punta a punta.**
+Dashboard con KPIs reales (usuarios, organizadores, organizaciones pendientes, eventos publicados, entradas vendidas, volumen bruto de ventas, scanners activos), próximos eventos y actividad reciente combinada (altas/aprobaciones de organización, altas/publicaciones de evento, ventas confirmadas) — todo calculado server-side, sin ningún valor hardcodeado. Vistas platform-wide de sólo lectura: organizaciones (aprobar/rechazar/suspender), usuarios (rol/estado/baja), eventos, entradas, scanners, ventas. Panel de Herramientas de Desarrollo (`/developer/base-de-datos`): estadísticas de la base, reset completo (con frase de confirmación exacta del lado servidor, no sólo del lado cliente), creación de evento de demostración, envío de un mensaje de WhatsApp de prueba. **Limitaciones:** la protección del panel de Herramientas de Desarrollo es deliberadamente simple (sólo `requireRole("DEVELOPER")` + frase de confirmación para el reset) — el propio código la documenta como "temporal", asumiendo que todavía no hay clientes reales en producción; esa premisa **no pudo verificarse de forma independiente** desde este entorno (implicaría consultar producción, fuera de alcance).
+
+### Panel Organizer
+**Propósito:** panorama del organizador sobre su propia organización. **Estado: completo, con datos reales de punta a punta.**
+Banner de estado de la organización; selector de evento destacado; hero con ocupación real; resumen del evento en 4 bloques — **Comercial** (recaudación, entradas vendidas, ticket promedio, sólo `origin=SALE`), **Emisión** (emitidas totales + desglose por canal), **Accesos** (ingresadas/pendientes/canceladas) y **Ocupación** (capacidad/emitidas/disponibles/%) — todos calculados 100% en el backend (`functionCapacity.service.js`), única fuente compartida con la pantalla de Entradas; actividad reciente; grilla "Estado de mis eventos" (capacidad/ocupación reales, endpoint batcheado); últimas ventas. **Limitaciones:** la "recaudación" mostrada es la suma de ventas ya `CONFIRMED` en la base — no hay cobro real detrás (ver Mercado Pago).
 
 ### Configuración
-**Objetivo:** que el organizador administre los datos de su organización. **Estado: completo salvo cobros.** **~70%.**
-Implementado: edición de todos los datos de la organización (nombre, tipo, CUIT, contacto, ubicación, redes, logo, descripción). Pendiente: la tarjeta "Datos bancarios / Mercado Pago" es un placeholder estático ("Próximamente"), sin ningún campo ni lógica — coincide con que Mercado Pago no está integrado.
+**Propósito:** que el organizador administre los datos de su organización. **Estado: completo salvo cobros.**
+Edición de todos los datos de la organización (nombre, tipo, CUIT, contacto, ubicación, redes, logo, descripción); vinculación de un número de WhatsApp a la organización, con verificación por código de 6 dígitos enviado al propio WhatsApp (`GET/POST /api/organizations/me/whatsapp-link`) — mismo mecanismo de vínculo que usa el descubrimiento automático por teléfono desde el lado del bot (ver §5), acá iniciado proactivamente desde la Web. **Limitaciones:** la tarjeta "Datos bancarios / Mercado Pago" es un placeholder estático, sin ningún campo ni lógica.
+
+### WhatsApp
+**Propósito:** canal alternativo de creación de eventos, conversando con un bot desde WhatsApp. **Estado: completo y en uso**, mismo motor que la Web. Detalle completo del flujo vigente en §5.
 
 ### Mercado Pago
-Ver arriba ("Confirmación / Mercado Pago") — se repite acá porque el pedido lo pide como módulo propio. **Estado: no implementado. ~0-5%.**
-
-### Medios (Cloudinary)
-**Objetivo:** subir y administrar imágenes (portadas de evento, logos de organización). **Estado: completo.** **~95%.**
-Implementado: subida genérica de imágenes (5MB máx, PNG/JPEG/WEBP), borrado por `publicId`, usado tanto para portadas de evento como logos de organización. Sin pendientes identificados dentro de su alcance.
+**Propósito:** cobrar de verdad y confirmar la venta según el resultado del pago. **Estado: NO implementado.**
+Existe el valor `MERCADO_PAGO` en el enum `PaymentMethod` (nunca usado en la práctica — todas las ventas se crean con `MANUAL`), un campo `Sale.confirmedBy` nullable (preparado para que una confirmación automática por webhook no tenga un organizador asociado), y un único punto de extensión aislado en el frontend (`processPayment()`, documentado como "la única función que va a cambiar el día que se integre Mercado Pago"). Hoy esa función crea la venta y la confirma en el mismo paso, sin pasarela ni redirección a ningún checkout externo. Confirmación manual por organizador sí existe (pensada para efectivo/transferencia). **Falta todo:** SDK, checkout, webhook de notificación, conciliación de estados, manejo de pagos rechazados/pendientes, onboarding de cuenta de cobro.
 
 ---
 
-## 3. FRONTEND
+## 5. FLUJO ACTUAL DE WHATSAPP
 
-Todas las pantallas, agrupadas por área. Para cada una: ruta, propósito, estado, componentes principales.
+Todo lo que sigue describe el comportamiento **vigente** del bot conversacional para organizadores — no su historia. El motor real que impulsa cada paso es el mismo `EventCreationEngine`/`EventServicePort` que usa la Web; WhatsApp sólo aporta la capa de interpretación de texto libre y los mensajes propios del canal.
 
-### Públicas (sin autenticación, dentro de `PublicShell`)
+**Saludo y descubrimiento de organizaciones.** Un mensaje entrante se identifica por el teléfono de origen (`wa_id`). Si ese teléfono ya tiene una organización vinculada (`WhatsappOrganizerLink`), se resuelve directo. Si no, se buscan en paralelo (`Promise.all`, nunca secuencial) los vínculos ya existentes y las organizaciones aprobadas cuyo teléfono coincide, y se combinan deduplicando exclusivamente por `organizationId` — así una organización con el mismo teléfono pero sin vínculo creado todavía también se descubre.
 
-| Ruta | Propósito | Estado | Componentes principales |
-|---|---|---|---|
-| `/` | Home / marketplace | Terminada | `HeroCarousel`, `CategoryFilterBar`, `EventsCarousel` (x3), `TrustBar`, `RecoverPurchaseSection`, `ScannerPortalSection` |
-| `/eventos` | Listado con filtros/búsqueda/orden | Terminada | `EventCard`, filtros por querystring |
-| `/evento/:slug` | Detalle público de evento | Terminada | `MediaEmbed`, `SocialLinks`, `LocationMap` |
-| `/comprar` | Wizard de compra (nuevo o recuperado por `saleToken`) | Terminada como checkout; sin pago real | `PurchaseWizard` + 5 steps, `PurchaseOverlay` |
-| `/mis-entradas` | Entradas del usuario con cuenta | Terminada | `TicketCard`, `TicketDetailModal`, `TicketQrModal`/`TicketQrFullscreen` |
-| `/recuperar-compra` | Recuperación de compra sin cuenta | Terminada | flujo propio de código de 6 dígitos, pantalla "Compra encontrada" |
-| `/scanner/invitacion/:token` | Registro único de scanner por invitación | Terminada | `ScannerInvitationClaim` |
-| `/scanner/portal` | Login recurrente de scanner (email+código) | Terminada | `ScannerPortal` |
-| `/para-organizadores` | Landing comercial | Terminada (contenido estático) | `Hero`/`Features`/`HowItWorks`/`CtaBanner`/`TrustBar` propios de la landing |
-| `/como-funciona` | Explicación + FAQ | Terminada (contenido estático) | `FaqAccordion`, `SecurityCard`, `StepCard` |
-| `/perfil` | Perfil del usuario | **Stub** (`ComingSoon`) | — |
-| `/iniciar-sesion` | Login | Terminada (componente prebuilt de Clerk) | `<SignIn/>` de Clerk |
-| `/registro` | Registro | Terminada (componente prebuilt de Clerk) | `<SignUp/>` de Clerk |
+**Selección cuando el teléfono pertenece a varias organizaciones.** Siempre se pregunta explícitamente "¿Con cuál de tus organizaciones querés trabajar?", listando todas las candidatas — nunca se asume una por defecto.
 
-### Scanner (shell propio, sin Clerk)
+**Vinculación de un teléfono nuevo.** Si el número no está vinculado a ninguna organización conocida, se ofrece un código de verificación de 6 dígitos (vigente 10 minutos, máximo 5 intentos, cooldown de reenvío de 1 minuto) — mismo mecanismo que la vinculación proactiva desde Configuración en la Web (§4).
 
-| Ruta | Propósito | Estado |
-|---|---|---|
-| `/scanner` | Toda la app de Scanner (dashboard → selección → lector) | Terminada |
+**Creación y reanudación de conversaciones.** Cada conversación es una fila `ConversationState` (`channel="WHATSAPP"`, `channelRef=wa_id`). Al llegar un mensaje, se busca la conversación `ACTIVE` de ese `wa_id` (única consulta adicional que necesita WhatsApp y que Web no necesita, porque Web siempre trae su `conversationId` guardado del lado del cliente); si existe, se retoma exactamente donde quedó — el organizador puede cortar y volver horas después sin perder nada.
 
-### Auth-gated fuera del panel
+**Carga paso a paso del evento.** El mismo `draftEvent` en JSON que arma el motor para Web se va completando pregunta por pregunta; nada se persiste como `Event` real hasta que el organizador confirma "Publicar" o "Guardar borrador" en la vista previa final.
 
-| Ruta | Propósito | Estado |
-|---|---|---|
-| `/bienvenida` | Redirección post-login según rol | Terminada |
-| `/organizador/nueva-organizacion` | Alta de organización | Terminada |
+**Modalidades de funciones.** Las mismas tres que en Web: una sola función, varias funciones cargadas una por una, o un rango recurrente por días de la semana.
 
-### Panel Developer (`RoleGuard["developer"]`)
+**Carga de imágenes.** El organizador manda una foto real → se descarga desde Meta y se sube a Cloudinary → el motor avanza. Si en el paso que espera la imagen llega **cualquier otra cosa** — texto, video, audio, documento, sticker o una ubicación — el bot responde siempre con el mismo mensaje claro y específico de WhatsApp ("Necesito que envíes una foto del evento... Usá el botón de adjuntar..."), nunca con el error genérico pensado para el flujo Web (que menciona un endpoint HTTP). El estado no se corrompe ni avanza en ningún caso: el `draftEvent`/paso actual quedan exactamente donde estaban hasta que llega una imagen real.
 
-| Ruta | Propósito | Estado |
-|---|---|---|
-| `/developer` | Dashboard general | **Maqueta, sin datos reales** |
-| `/developer/organizaciones` | Aprobar/rechazar/suspender organizaciones | Terminada |
-| `/developer/usuarios` | Gestión de usuarios (rol, estado, baja) | Terminada |
+**Ubicación: compartida o dirección manual.** Al llegar al paso de ubicación, el bot pregunta directo "¿Cómo querés cargar la ubicación? 1. Compartir ubicación / 2. Completar dirección manualmente" — **el sistema no sugiere ni precarga ninguna dirección de un evento anterior de la organización.** El estado arranca siempre vacío (sin dirección, coordenadas ni ningún dato precargado). Compartir ubicación nativa entrega coordenadas reales; la dirección manual se carga en un solo mensaje separado por comas (calle y altura, ciudad, provincia). En ambos casos se muestra un resumen de confirmación (con link a Google Maps) **después** de que el organizador ingresó la dirección o compartió la ubicación — nunca antes. El status `AWAITING_REUSE_CONFIRMATION` existe todavía en el código exclusivamente por compatibilidad retroactiva: si una conversación vieja quedó esperando esa respuesta (de antes de este cambio), el bot todavía sabe procesarla para que no quede trabada, pero ningún mensaje nuevo la genera.
 
-### Panel Organizador (`RoleGuard["organizer"]`, bajo `/organizador`)
+**Creación DRAFT.** Al elegir "Guardar borrador" en la vista previa, se crea el `Event` real (`status="DRAFT"`), sus funciones, catálogo de entradas y links — sin publicarlo. La lectura final que arma la respuesta usa un camino optimizado (ver abajo) que no vuelve a resolver la organización ni corre el self-heal de archivado (matemáticamente imposible que encuentre algo en un evento recién creado).
 
-| Ruta | Propósito | Estado |
-|---|---|---|
-| `/organizador` | Dashboard | Terminada, con datos reales (ver §9) |
-| `/organizador/eventos` | Listado/CRUD de eventos | Terminada |
-| `/organizador/eventos/nuevo` | Creación conversacional de evento | Terminada |
-| `/organizador/eventos/:id/editar` | Edición por wizard clásico | Terminada |
-| `/organizador/entradas` | Administración de entradas vendidas | Terminada, con deuda técnica puntual (ver §14) |
-| `/organizador/tipos-de-entrada` | Catálogo de tipos de entrada (solo lectura) | Terminada, con columna "Vendidas" siempre en 0 |
-| `/organizador/cortesias` | Landing del módulo Cortesías | Terminada |
-| `/organizador/cortesias/emitir` | Asistente de emisión de cortesía | Terminada |
-| `/organizador/cortesias/historial` | Historial de cortesías emitidas | Terminada |
-| `/organizador/ventas` | Ventas/órdenes | **Stub permanente** |
-| `/organizador/scanners` | Gestión de scanners de un evento | Terminada |
-| `/organizador/scanners/nuevo` | Alta conversacional de invitaciones de scanner | Terminada |
-| `/organizador/configuracion` | Datos de la organización | Terminada salvo cobros (placeholder) |
+**Publicación.** Al elegir "Publicar", además de lo anterior se valida que la organización esté aprobada y que el evento cumpla las reglas de publicación (§4, Eventos), y el evento pasa a `PUBLISHED`. Esta operación es la más lenta del flujo (~20 segundos) — aceptada como está por ser una operación única por evento, no repetida por cada mensaje (ver abajo).
 
-Ruta comodín `*` dentro del panel → pantalla local "Página no encontrada".
+**Cancelación y navegación.** "Cancelar" borra por completo el borrador en curso. "Volver" retrocede un paso sin perder lo ya cargado más adelante (nunca revierte el `draftEvent`, sólo mueve el cursor). Cualquier paso puede editarse puntualmente desde la vista previa final antes de confirmar.
+
+**Comportamiento ante errores.** Un rechazo de validación del motor (ej. falta la ubicación, categoría personalizada sin especificar) nunca corta la conversación — vuelve como un mensaje de error conversacional sobre el mismo paso, con el estado intacto.
+
+### Diseño de rendimiento del canal
+
+Estas son características actuales del diseño, no un historial de cambios:
+
+- **Cache por mensaje de `ConversationState`.** Cada mensaje entrante corre dentro de su propio contexto aislado (`AsyncLocalStorage`) — nunca compartido entre mensajes concurrentes de distintos números, nunca reutilizado entre un mensaje y el siguiente del mismo número.
+- **Camino habitual en 2 consultas.** Encontrar la conversación activa y aplicar la escritura de un paso normal son `findFirst` + `updateMany` — la fila completa que trae ese `findFirst` queda cacheada en el contexto del mensaje, así que no hace falta un segundo `findUnique` para retomarla.
+- **Detección de conflictos con `status: ACTIVE`.** Toda escritura filtra explícitamente por `status: "ACTIVE"` en vez de un `update` ciego por id — si otro proceso cerró/eliminó la conversación justo en el medio (siempre detectable, nunca silenciado), se invalida la copia cacheada y se lanza el error real correspondiente en vez de escribir sobre una fila que ya no correspondía.
+- **`WhatsappPendingStepInput.upsert`.** Los sub-pasos intermedios (método de ubicación, dirección compuesta, etc.) se guardan con una única operación `upsert`, nunca un borrado seguido de una creación.
+- **Descubrimiento de organizaciones paralelizado.** Las dos consultas independientes de la resolución por teléfono corren con `Promise.all`, nunca una detrás de la otra.
+- **Lectura final de DRAFT optimizada.** No repite la resolución de usuario/organización que ya se hizo al crear el evento en la misma llamada, y se salta un self-heal de archivado que no puede encontrar nada en un evento recién creado.
+- **PUBLISH sin cambios.** La rama de publicación no fue tocada por ninguna de estas optimizaciones — mismo comportamiento y mismo costo de siempre, los ~20 segundos mencionados arriba se aceptan como una latencia conocida de una operación que ocurre una única vez por evento.
 
 ---
 
-## 4. BACKEND
+## 6. BACKEND Y API
 
-**Servicios (`backend/src/services/`):** `auth.service.js`, `user.service.js`, `organization.service.js`, `event.service.js`, `functionCapacity.service.js` (única fuente de capacidad/emitidas/vendidas/ingresadas/canceladas — por función, por evento y batcheada para todos los eventos del organizador), `sale.service.js`, `courtesy.service.js` (emisión/historial/estadísticas/cancelación de cortesías, reutilizando `sale.service.js`/`ticketAdmin.service.js` en vez de duplicar lógica de venta), `saleRecoveryVerification.service.js`, `ticket.service.js`, `ticketAdmin.service.js`, `scanner.service.js`, `scannerInvitation.service.js`, `scannerLogin.service.js`, `eventScanner.service.js`, `scannerRead.service.js`, `media.service.js`, más el subárbol `email/` (`sendSaleConfirmationEmail.service.js`, `sendScannerVerificationCode.service.js`, `sendSaleRecoveryVerificationCode.service.js`, `ticketQrImages.js`, `ticketsPdf.js`, `formatDateAR.js`) y el subárbol `conversation/` (`EventCreationEngine.js`, `EventServicePort.js`, `steps/`, `inputHandlers/`, `errorMessages.js`). **[Agregado 2026-08-13, subsistema WhatsApp, no existía en la redacción original]** `whatsapp.service.js` (envío/parseo Meta), `whatsappOrganizerBot.service.js` (textos, parseo de fechas/horarios compactos, formateo de respuestas), `whatsappOrganizerDiscovery.service.js` (resolución de organización por teléfono), `whatsappOrganizerLink.service.js`, `whatsappPendingStepInput.service.js`, `whatsappOrganizationLocation.service.js`, `whatsappMediaUpload.service.js` — detalle de cada uno en "Actualización al 13 de agosto de 2026".
+### Organización de carpetas
+`backend/src/{controllers,services,routes,middlewares,utils,config,conversation,errors,logging}`. Un archivo por dominio en `controllers/`/`routes/`, patrón consistente: el controller sólo valida `req`, llama al service y devuelve la respuesta; la lógica de negocio vive en los services (`whatsapp.controller.js` es la única excepción parcial — por diseño concentra los sub-flujos de interpretación de texto libre de ese canal).
 
-**Controllers (`backend/src/controllers/`):** un archivo por dominio, espejo casi 1:1 de los services: `auth.controller.js`, `user.controller.js`, `organization.controller.js`, `event.controller.js`, `eventScanner.controller.js`, `functionCapacity.controller.js`, `sale.controller.js`, `courtesy.controller.js`, `ticket.controller.js`, `ticketAdmin.controller.js`, `scanner.controller.js`, `scannerRead.controller.js`, `scannerInvitation.controller.js`, `scannerAuth.controller.js`, `media.controller.js`, y (agregado 2026-08-13) `whatsapp.controller.js` (webhook + todo el árbol de sub-flujos conversacionales, es el controller más grande del proyecto — ver actualización). Todos siguen el mismo patrón: sólo validan `req`, llaman al service y devuelven la respuesta; la lógica de negocio vive exclusivamente en los services (`whatsapp.controller.js` es la única excepción parcial: por diseño concentra los sub-flujos de interpretación de texto libre, ver actualización).
+### Servicios clave y su responsabilidad
+- `event.service.js` / `functionCapacity.service.js` — CRUD de eventos y única fuente de capacidad/emitidas/vendidas/ingresadas/canceladas (por función, por evento y batcheada).
+- `sale.service.js` / `courtesy.service.js` — ventas reales y cortesías, esta última reutilizando la primera en vez de duplicar lógica.
+- `ticketAdmin.service.js` — las 5 operaciones administrativas sobre entradas, individuales y masivas, cada una auditada.
+- `scanner.service.js` / `scannerLogin.service.js` / `scannerInvitation.service.js` / `eventScanner.service.js` — todo el ciclo de vida del módulo Scanner.
+- `developerDashboard.service.js` / `developerEvents.service.js` / `developerSales.service.js` / `developerScanners.service.js` / `developerTickets.service.js` — vistas platform-wide de sólo lectura para Developer, siempre sin `organizationId` como filtro (a propósito).
+- `devTools.service.js` — herramientas de desarrollo (reset/seed), protección deliberadamente simplificada (ver §4/§8).
+- `conversation/EventCreationEngine.js` + `EventServicePort.js` — el motor conversacional compartido por Web y WhatsApp.
+- `whatsapp*.service.js` (7 archivos) — todo lo específico del canal: envío/parseo Meta, descubrimiento por teléfono, vínculo organizador↔teléfono, pending steps, ubicación reutilizable (ya no llamada desde el flujo activo, ver §5), subida de imágenes.
+- `email/` — los 3 servicios de envío transaccional (ver §4, Emails) + generación de QR/PDF embebidos.
+- `eventArchive.service.js` — self-heal de archivado automático, reusado por todos los listados operativos.
 
-**Routes (`backend/src/routes/`):** `auth.routes.js`, `user.routes.js`, `organization.routes.js`, `media.routes.js`, `event.routes.js` (incluye las sub-rutas de scanners, capacidad/estadísticas y administración de entradas de un evento), `conversation.routes.js`, `sale.routes.js`, `courtesy.routes.js`, `ticket.routes.js`, `scanner.routes.js`, `scannerInvitation.routes.js`, `scannerAuth.routes.js`, y (agregado 2026-08-13) `whatsapp.routes.js` (`GET/POST /api/whatsapp/webhook`, público — Meta no manda ningún header de sesión). Ver inventario completo de endpoints en la sección 10.
+### Manejo de errores
+`errors/AppError.js` centraliza el mapeo de errores de negocio a respuestas HTTP; `errors/errorHandler.js` es el único middleware de error de la app (`app.js`). El motor conversacional traduce errores internos a mensajes conversacionales (`translateEventServiceError`) para no filtrar nunca un error técnico crudo al organizador.
 
-**Middlewares (`backend/src/middlewares/`):** exactamente 4 archivos — `requireAuth.js` (sólo confirma que hay sesión de Clerk), `requireRole.js` (variádico, resuelve y adjunta el `User` local, 401/403 según corresponda), `requireScannerSession.js` (JWT propio del módulo Scanner, revalida `ACTIVE` contra la base en cada request), `rateLimit.js` (limitador en memoria por IP, sin dependencia externa). CORS y el manejo global de errores no son middlewares propios sino configuración inline en `app.js` (`cors()`) y el módulo `errors/errorHandler.js`.
+### Integraciones externas
+Ver §2 (Arquitectura) para la lista completa; cada integración vive detrás de un único módulo de configuración en `src/config/` (`prisma.js`, `resend.js`, `cloudinary.js`, `qrEncryption.js`, `scannerSession.js`) o de un service dedicado (`whatsapp.service.js`, `geocoding.service.js`).
 
-**Jobs.** No existe ningún sistema de jobs/colas/tareas programadas en el proyecto (sin cron, sin worker, sin cola de mensajes). Todo procesamiento es síncrono dentro del ciclo request/response.
+### Inventario de endpoints (agrupado por dominio)
 
-**Emails.** Ver sección 8 completa.
-
-**Utilidades (`backend/src/utils/`):** entre otras, `getUserByClerkId.js`, `validateEmail.js`, `validateBuyerDocument.js` (normalización/validación de DNI, compartida por compra, recuperación y auditoría de entradas), `validateOrganization.js`, `organizationTrust.js` (`canPublishEvents`), `generateSlug.js`, `mediaParser.js` (detección de plataforma de un link pegado), `verificationCode.js` (generación/hash/comparación de códigos de 6 dígitos, compartida entre Scanner y recuperación de compra), `withTimeout.js` (compartido por los tres servicios de email), `htmlEscape.js`, `ticketNumber.js`, `calendarDate.js` (única infraestructura del backend para fechas de calendario "YYYY-MM-DD" — parseo/normalización/combinación con hora en la timezone oficial de la plataforma, `-03:00` fijo, nunca `new Date(string)` directo; usada por todo el motor conversacional de creación de eventos).
-
-**Configuración (`backend/src/config/`):** `prisma.js` (cliente singleton), `resend.js` (cliente Resend + config de remitente, validación perezosa), `cloudinary.js`, `qrEncryption.js` (cifrado AES-256-GCM del secreto de cada QR), `scannerSession.js` (firma/verificación del JWT propio de Scanner).
-
----
-
-## 5. BASE DE DATOS
-
-Todas las entidades del `schema.prisma` **(22 modelos, 22 enums a la fecha de esta actualización — 18/21 al momento de la redacción original; los 4 modelos nuevos son del subsistema WhatsApp: `WhatsappLinkChallenge`, `WhatsappOrganizerLink`, `WhatsappPendingOrganizationSelection`, `WhatsappPendingStepInput`, más el campo `WhatsappPendingStepInput`-relacionado agregado a `ConversationState`; detalle de propósito de cada uno en "Actualización al 13 de agosto de 2026")**, con propósito, relaciones y uso actual.
-
-- **User** — cuenta de cualquier persona (comprador, organizador, developer); `clerkId` nullable para soportar compra de invitado. Relaciona con `Organization` (dueño), `Sale` (comprador), `Ticket` (comprador/dueño de la entrada, roles separados a propósito para una futura transferencia de entradas). Uso: activo, es el centro de identidad de toda la app salvo el módulo Scanner.
-- **Organization** — una entidad organizadora, dueña de sus eventos. Relaciona 1 a 1 con su `owner User`, 1 a N con `Event`. Uso: activo, con ciclo de aprobación por Developer.
-- **Event** — un evento cultural. Relaciona con `Organization`, y 1 a N con `EventFunction`, `TicketType`, `EventLink`, `Sale`, `Ticket`, `EventScanner`. Uso: activo, es la entidad central del catálogo.
-- **EventLink** — un link asociado a un evento (red social, video promocional, etc.), con metadata de embed resuelta del lado servidor. Uso: activo.
-- **EventFunction** — una fecha/función concreta de un evento (nunca el precio/stock, que vive en `TicketType`). Relaciona con `FunctionTicketType`, `Sale`, `Ticket`. Uso: activo.
-- **TicketType** — catálogo reusable de tipos de entrada de un evento (precio, stock, nombre). Relaciona con `FunctionTicketType`, `SaleItem`, `Ticket`. Uso: activo.
-- **FunctionTicketType** — asigna un `TicketType` a una `EventFunction` concreta, con overrides opcionales de precio/stock/visibilidad. Uso: activo.
-- **ConversationState** — estado persistido del motor conversacional de creación de eventos (borrador en curso, paso actual, historial de navegación). Uso: activo mientras dura la conversación; se vuelve irrelevante una vez que el evento se publica/guarda.
-- **Sale** — una venta/orden de compra. Relaciona con `User` (comprador), `Event`, `EventFunction`, y 1 a N con `SaleItem`/`Ticket`. Incluye todo el seguimiento de envío del email de confirmación. Tiene `origin` (enum `SaleOrigin`: `SALE`/`COURTESY`, default `SALE`) — distingue una venta real de una cortesía sin duplicar el modelo; toda métrica comercial (recaudación, Mercado Pago cuando exista) filtra explícitamente por `origin=SALE`. Uso: activo, es la entidad central de la compra.
-- **CourtesyIssuance** — metadata de una cortesía (motivo, nota libre, método de entrega, quién la emitió), 1 a 1 con la `Sale` que la representa — nunca un sistema de tickets paralelo, la cortesía usa exactamente el mismo `Sale`/`Ticket`/`TicketQr` que una venta real, sólo con `origin=COURTESY` y precio 0. Uso: activo.
-- **SaleRecoveryVerification** — sesión de código de 6 dígitos para el flujo de recuperación de compra, con clave única por par email+DNI normalizado (no por venta, porque un mismo par puede matchear varias). Uso: activo, vida corta (se invalida tras usarse).
-- **SaleItem** — línea de detalle de una venta (tipo de entrada + cantidad + precio congelado al momento de la compra). Uso: activo.
-- **Ticket** — una entrada individual y escaneable, generada recién al confirmarse la venta. Relaciona con `Sale`, `Event`, `EventFunction`, `TicketType`, `User` (comprador y dueño), y 1 a N con `TicketQr`, `CheckIn`, `ScanAttempt`, `TicketAuditLog`. Tiene su propio `origin` (mismo enum `SaleOrigin`, copiado de `Sale.origin` al emitirse) — denormalizado a propósito porque Prisma no puede agrupar por un campo de una relación: es lo que permite que `functionCapacity.service.js` desglose emitidas/vendidas por canal (y cualquier canal futuro — STAFF/PRESS/VIP/etc. — sin tocar código, sólo agregando el valor al enum) sin un join costoso. El Scanner también lo usa para mostrar el canal de la entrada escaneada (💰 venta / 🎁 cortesía). Uso: activo, es la entidad central del control de acceso.
-- **TicketQr** — el secreto del QR de una entrada, cifrado de forma reversible (nunca en texto plano, nunca como imagen persistida). Uso: activo.
-- **CheckIn** — historial de ingresos de una entrada (ya no es 1 a 1 con `Ticket`: una entrada reactivada puede volver a tener check-ins). Guarda origen (escaneo real o carga manual), puerta, scanner y dispositivo. Uso: activo.
-- **ScanAttempt** — auditoría de TODO intento de escaneo, válido o no (a diferencia de `CheckIn`, que sólo registra los válidos). Uso: activo, es el log completo para detectar QR reusados/compartidos.
-- **TicketAuditLog** — bitácora append-only de toda acción administrativa sobre una entrada (cancelar/rehabilitar/reactivar/marcar usada/eliminar), con actor, motivo y transición de estado. Uso: activo, nunca se actualiza ni se borra por código.
-- **EventScanner** — una persona/puesto de scanner para un evento puntual, sin cuenta de Clerk. Contiene tanto el ciclo de vida de la invitación como los datos de verificación por código. Uso: activo, es la identidad completa del módulo Scanner.
-
-**Enums:** `Role`, `UserStatus`, `OrganizationStatus`, `OrganizationType`, `EventStatus`, `EventVisibility`, `FunctionStatus`, `ConversationChannel`, `ConversationStatus`, `SaleStatus`, `SaleOrigin` (`SALE`/`COURTESY` — el discriminador comercial/operativo de toda la plataforma), `PaymentMethod`, `EmailDeliveryStatus`, `TicketStatus`, `ScanResult`, `CourtesyReason` (Sponsor/Prensa/Invitado/Staff/Artista/Familiar/Protocolo/Otro), `CourtesyDeliveryMethod` (`SHARE`/`EMAIL`), `CheckInSource`, `TicketAuditAction`, `TicketAuditActorType`, `EventScannerStatus`.
-
----
-
-## 6. FLUJOS IMPLEMENTADOS
-
-**Registro organizador.** Un usuario con sesión de Clerk (cualquier rol previo) llama a crear una organización → si no tenía una, se crea en estado `PENDING` y su rol pasa de `CUSTOMER` a `ORGANIZER` automáticamente → puede operar el panel de organizador y armar eventos en borrador desde el primer momento → sólo puede **publicar** un evento una vez que un Developer aprueba la organización.
-
-**Creación de evento.** Dos caminos posibles, ambos terminan en las mismas tablas: (a) motor conversacional paso a paso, que arma un `draftEvent` en JSON dentro de `ConversationState` y recién crea el `Event` real al confirmar "Publicar"/"Guardar borrador" en la vista previa; (b) wizard clásico de formulario, usado siempre para **editar** un evento ya existente (no para crear uno nuevo). Ambos pasan por las mismas validaciones de publicación (organización aprobada, ubicación completa, al menos una función y un tipo de entrada con precio/stock).
-
-**Compra.** El comprador elige función y cantidades sin necesidad de cuenta → completa nombre/apellido/email/DNI → se crea la `Sale` en estado `PENDING` → se confirma en el mismo paso (hoy no hay pasarela de pago real intermedia) → al confirmar se generan los `Ticket` individuales con su `TicketQr` cifrado → se dispara el email de confirmación con los QR y el PDF adjuntos.
-
-**Confirmación.** Hoy existen dos caminos de confirmación: automática (la que dispara el propio flujo de compra, simulando un pago instantáneo) y manual (el organizador confirma una venta cargada a mano, por ejemplo un pago en efectivo). No existe un tercer camino por webhook de pasarela de pago porque no hay pasarela integrada.
-
-**Cortesías.** El organizador elige evento → función (se saltea si sólo hay una) → tipo de entrada del catálogo existente → cantidad → motivo opcional → método de entrega → se crea la misma `Sale`/`Ticket`/`TicketQr` que generaría una venta real, pero con `origin=COURTESY` y precio 0, reutilizando el mismo `confirmSaleService` (con la única diferencia de que "Compartir" no dispara el email automático, para no mandarlo dos veces si el organizador también decide compartir el link). Queda auditada en `CourtesyIssuance` y nunca afecta ninguna métrica comercial (recaudación, ticket promedio, etc.), que siguen filtrando exclusivamente por `origin=SALE`.
-
-**Generación QR.** Al confirmarse la venta, cada `Ticket` recibe un `TicketQr` cuyo secreto se genera y se cifra (AES-256-GCM) antes de guardarse — nunca se persiste en texto plano ni como imagen. El QR que ve el comprador se arma al vuelo (`ticketId.secretDescifrado`) cada vez que hace falta mostrarlo (email, "Mis entradas", PDF), nunca se guarda una imagen del QR en la base.
-
-**Correo.** Disparado automáticamente tras la confirmación de una venta (por cualquiera de los dos caminos), con reintento idempotente (nunca duplica el envío si se llama más de una vez para la misma venta) y reenvío manual disponible tanto para el comprador (por token público) como para el organizador/developer (por id interno, autenticado).
-
-**Recuperación.** El comprador sin cuenta busca por email+DNI (respuesta siempre genérica, no revela si existe o no una coincidencia) → si hay una compra real, se envía un código de 6 dígitos al correo → verificado el código, recién ahí se revela la compra (una pantalla intermedia "Compra encontrada", nunca los datos completos antes del código) → desde ahí puede ver sus entradas (reutilizando el flujo de compra por `saleToken`), reenviar el email o descargar el PDF completo.
-
-**Scanner.** Un organizador genera invitaciones para una puerta → la persona invitada se registra una única vez (datos personales + código de 6 dígitos) → de ahí en más, todo acceso pasa por el Portal Scanner (email + código de 6 dígitos, sin contraseña) → sesión propia por JWT → dashboard previo → selección de evento/función → lector de cámara → cada escaneo válido marca la entrada como usada de forma atómica (a prueba de dos scanners escaneando el mismo QR al mismo tiempo) y registra un `CheckIn` + un `ScanAttempt`.
-
-**Administración de entradas.** El organizador, desde el panel, puede cancelar, rehabilitar, reactivar (una entrada ya usada), marcar como usada manualmente (sin escaneo real) o eliminar (soft delete) cualquier entrada de sus eventos, individualmente o en lote — cada acción queda auditada.
-
-**Auditoría.** Toda acción administrativa sobre una entrada (nunca un escaneo normal, que ya tiene su propio registro en `ScanAttempt`/`CheckIn`) genera una fila en `TicketAuditLog` con quién, cuándo, desde qué estado a cuál y por qué motivo (opcional) — nunca se actualiza ni se borra una fila de esa tabla por código.
-
----
-
-## 7. SEGURIDAD
-
-**Autenticación.** Dos sistemas completamente separados y deliberadamente no unificados: (1) Clerk para cualquier persona con cuenta (comprador registrado, organizador, developer) — el backend nunca valida contraseñas ni sesiones por su cuenta, delega 100% en el SDK de Clerk; (2) un sistema propio, sin Clerk, para el módulo Scanner — JWT firmado por el propio backend (`SCANNER_SESSION_SECRET`, 24hs de vigencia), emitido sólo tras verificar un código de 6 dígitos.
-
-**Autorización.** Basada en rol (`Role` de `User`, resuelto siempre server-side vía `requireRole`, nunca confiado desde el cliente) para todo lo que no es del módulo Scanner. Dentro del panel de organizador, además del rol, cada acción revalida que el recurso (evento, scanner, entrada) pertenezca a la organización del que hace el pedido — nunca alcanza con tener rol `ORGANIZER`, tiene que ser dueño del recurso puntual.
-
-**Permisos.** El rol `DEVELOPER` es el único que puede aprobar/rechazar organizaciones, cambiar el rol o estado de cualquier usuario, o listar todo el sistema sin acotarse a una organización propia. El rol `ORGANIZER` está siempre acotado a los eventos de su propia organización.
-
-**Tokens.** Tres tipos de token público distintos, cada uno con un propósito único y sin superposición: `Sale.publicRecoveryToken` (autoriza confirmar/consultar/recuperar una venta puntual sin cuenta), `EventScanner.invitationToken` (autoriza el registro único de un scanner — después de la activación, ya no sirve para volver a entrar, sólo dentro de una ventana de gracia de 2 minutos pensada exclusivamente para un doble-envío accidental del mismo formulario), y el JWT de sesión de Scanner (autoriza operar el lector, revalidado contra la base en cada request).
-
-**QR.** El secreto de cada entrada se genera con un generador criptográfico seguro, se cifra de forma reversible antes de guardarse (la clave vive fuera de la base, en una variable de entorno) y nunca se persiste en texto plano ni como imagen. La validación de un escaneo compara el secreto provisto contra el descifrado en tiempo constante (protección contra timing attacks).
-
-**Protección contra reutilización.** Verificada explícitamente con pruebas de concurrencia real (múltiples escaneos simultáneos del mismo QR, incluyendo hasta 20 en paralelo sobre la misma entrada): la garantía real es un `UPDATE` condicional atómico sobre el estado de la entrada dentro de una transacción — nunca puede haber dos escaneos válidos para la misma entrada, sin importar cuántos scanners la escaneen al mismo tiempo ni la velocidad del servidor.
-
-**Rate limits.** Limitador propio en memoria (sin dependencia externa, no apto para múltiples instancias del servidor sin adaptarlo) aplicado a los endpoints públicos "adivinables": búsqueda de recuperación de compra, reenvío de código de recuperación, verificación de código de recuperación, registro/reenvío/verificación de invitación de scanner, login/reenvío/verificación del Portal Scanner.
-
-**Recuperación.** Ver flujo completo en la sección 6 — diseñada explícitamente para no revelar nunca si un email/DNI existen en el sistema antes de verificar el código.
-
----
-
-## 8. CORREOS
-
-Tres emails implementados, los tres vía Resend:
-
-1. **Confirmación de compra** — se dispara automáticamente al confirmarse una venta (por cualquiera de los dos caminos de confirmación) y también puede reenviarse manualmente (por el comprador vía token público, o por organizador/developer vía id interno). Contiene: los QR de cada entrada embebidos como imagen y un PDF adjunto con todas las entradas de la venta. Envío protegido contra duplicados con un reclamo atómico (nunca se manda dos veces para el mismo intento simultáneo).
-2. **Código de verificación de Scanner** — se dispara tanto en el registro único por invitación como en cada login por el Portal Scanner. Contiene el código de 6 dígitos, vigente 10 minutos.
-3. **Código de verificación de recuperación de compra** — se dispara al buscar una compra por email+DNI (sólo si hay una coincidencia real, aunque la respuesta al usuario sea siempre la misma exista o no). Contiene el código de 6 dígitos, vigente 10 minutos, sin mencionar ningún dato de la compra.
-
-**Qué falta.** No hay email de bienvenida al crear una cuenta, no hay notificación al organizador cuando su organización es aprobada/rechazada (tiene que volver a mirar el panel), no hay notificación de venta nueva al organizador. Los emails transaccionales propios de Clerk (verificación de cuenta, magic link, etc.) los maneja Clerk por su cuenta, fuera de este código.
-
----
-
-## 9. DASHBOARDS
-
-**Developer.** Muestra tarjetas de estadísticas generales, un gráfico de ventas de 7 días, un gráfico de dona de estado de entradas, próximos eventos y actividad reciente — **absolutamente todo con datos hardcodeados en el código**, sin ninguna llamada a la API. Falta: conectar cada sección a datos reales (no existe siquiera el intento de fetch).
-
-**Organizador.** Banner de estado de la organización, selector de evento destacado, hero con ocupación real, resumen del evento en 4 bloques (Comercial/Emisión/Accesos/Ocupación — todos calculados en el backend, única fuente de verdad compartida con la pantalla de Entradas), actividad reciente, grilla "Estado de mis eventos" y últimas ventas — todo con datos reales, incluida la capacidad total sumada correctamente a través de todas las funciones vigentes del evento. Falta: la "recaudación" mostrada es la suma de ventas confirmadas en la base, no un cobro real (ligado a Mercado Pago).
-
-**Scanner.** Completo — identidad del scanner, evento, puerta, estado, último acceso y entradas validadas hoy, todo con datos reales resueltos del lado servidor. Sin pendientes identificados.
-
----
-
-## 10. APIs
-
-### Endpoints públicos (sin autenticación)
-- `GET /api/health`
-- `GET /api/events/public`, `GET /api/events/public/:slug`, `GET /api/events/categories`
-- `POST /api/sales`, `POST /api/sales/:token/confirm-by-buyer`, `GET /api/sales/:token/status`, `GET /api/sales/:token/pdf`, `POST /api/sales/:token/resend-email`
-- `POST /api/sales/recover`, `POST /api/sales/recover/resend`, `POST /api/sales/recover/verify`
-- `GET /api/scanner-invitations/:token`, `POST /api/scanner-invitations/:token/register`, `POST /api/scanner-invitations/:token/resend`, `POST /api/scanner-invitations/:token/verify`
-- `POST /api/scanner-auth/request-code`, `POST /api/scanner-auth/resend-code`, `POST /api/scanner-auth/verify`
-
-### Endpoints privados (requieren sesión de Clerk, o sesión propia de Scanner)
+**Públicos:** `GET /api/health` · `GET /api/events/public`, `/public/:slug`, `/categories` · `POST /api/sales`, `POST /api/sales/:token/confirm-by-buyer`, `GET /api/sales/:token/status`, `GET /api/sales/:token/pdf`, `POST /api/sales/:token/resend-email` · `POST /api/sales/recover`, `/recover/resend`, `/recover/verify` · `GET /api/scanner-invitations/:token`, `POST /:token/register`, `/:token/resend`, `/:token/verify` · `POST /api/scanner-auth/request-code`, `/resend-code`, `/verify` · `GET/POST /api/whatsapp/webhook`.
 
 **Auth:** `POST /api/auth/sync`.
 
-**Usuarios (sólo Developer):** `GET /api/users`, `GET /api/users/count`, `GET /api/users/:id`, `PATCH /api/users/:id/role`, `PATCH /api/users/:id/status`, `DELETE /api/users/:id`.
+**Usuarios** (Developer): `GET /api/users`, `/count`, `/:id` · `PATCH /:id/role`, `/:id/status` · `DELETE /:id`.
 
-**Organizaciones:** `GET /api/organizations/me`, `PATCH /api/organizations/me`, `DELETE /api/organizations/me`, `POST /api/organizations` (cualquier usuario con sesión); `GET /api/organizations`, `GET /api/organizations/:id`, `PATCH /api/organizations/:id/status`, `DELETE /api/organizations/:id` (sólo Developer).
+**Organizaciones:** `GET/PATCH/DELETE /api/organizations/me` · `POST /api/organizations` · `GET/POST /api/organizations/me/whatsapp-link` (Organizer) · `GET /api/organizations`, `/:id` · `PATCH /:id/status` · `DELETE /:id` (Developer).
 
-**Eventos:** `GET /api/events/scanner-events`, `POST /api/events`, `GET /api/events/mine`, `GET /api/events/mine/stats` (capacidad/emitidas/vendidas/ingresadas de todos los eventos vigentes del organizador en una sola tanda de consultas, fuente de la grilla "Estado de mis eventos" del Dashboard), `GET /api/events/:id`, `PATCH /api/events/:id`, `PUT /api/events/:id/schedule`, `PUT /api/events/:id/links`, `GET /api/events/:id/functions/stats` (mismo cálculo, por función, para un evento puntual), `DELETE /api/events/:id`.
+**Eventos:** `GET /api/events/scanner-events`, `/archived` · `POST /api/events` · `GET /mine`, `/mine/stats`, `/mine/ticket-types-sales`, `/:id` · `PATCH /:id` · `PUT /:id/schedule`, `/:id/links` · `POST /:id/restore`, `/:id/duplicate` · `GET /:id/functions/stats` · `DELETE /:id`. Sub-recursos de scanners y administración de entradas de un evento anidados bajo `/api/events/:id/...` (8 + 5 endpoints respectivamente, altas/bajas/acciones individuales y masivas).
 
-**Scanners de un evento (dentro de `/api/events`):** `GET /:id/scanners`, `POST /:id/scanners`, `PATCH /:id/scanners/:scannerId`, `POST /:id/scanners/:scannerId/disable`, `POST /:id/scanners/:scannerId/reactivate`, `POST /:id/scanners/:scannerId/revoke`, `POST /:id/scanners/:scannerId/regenerate`, `DELETE /:id/scanners/:scannerId`.
+**Conversación (chat de creación de eventos, Web):** `POST /api/conversations/start` · `GET /:id/status`, `/:id` · `POST /:id/reply` · `DELETE /:id`.
 
-**Administración de entradas de un evento (dentro de `/api/events`):** `POST /:id/tickets/bulk-action`, `POST /:id/tickets/:ticketId/cancel`, `POST /:id/tickets/:ticketId/rehabilitate`, `POST /:id/tickets/:ticketId/reactivate`, `POST /:id/tickets/:ticketId/mark-used`, `DELETE /:id/tickets/:ticketId`.
+**Ventas:** `GET /api/sales/mine` · `GET /api/sales` (Organizer) · `POST /:id/confirm` (Organizer) · `POST /:id/cancel` · `POST /:id/resend-confirmation-email` (Developer/Organizer).
 
-**Conversación (creación de eventos por chat):** `POST /api/conversations/start`, `GET /api/conversations/:id/status`, `GET /api/conversations/:id`, `POST /api/conversations/:id/reply`, `DELETE /api/conversations/:id`.
+**Cortesías** (Organizer/Developer): `POST /api/courtesies` · `GET /api/courtesies`, `/stats` · `POST /:saleId/resend-email` · `GET /:saleId/pdf` · `POST /:saleId/cancel`.
 
-**Ventas:** `GET /api/sales/mine`, `GET /api/sales` (sólo Organizer), `POST /api/sales/:id/confirm` (sólo Organizer), `POST /api/sales/:id/cancel`, `POST /api/sales/:id/resend-confirmation-email` (Developer u Organizer).
+**Entradas (comprador):** `GET /api/tickets/mine`, `/number/:ticketNumber`, `/:id/qr`, `/:id`. **Entradas (organizador):** `GET /api/tickets/organizer`.
 
-**Cortesías (sólo Organizer/Developer):** `POST /api/courtesies` (emitir), `GET /api/courtesies` (historial con filtros), `GET /api/courtesies/stats`, `POST /api/courtesies/:saleId/resend-email`, `GET /api/courtesies/:saleId/pdf`, `POST /api/courtesies/:saleId/cancel`.
+**Medios:** `POST /api/media/upload` · `DELETE /api/media/*publicId`.
 
-**Entradas (comprador):** `GET /api/tickets/mine`, `GET /api/tickets/number/:ticketNumber`, `GET /api/tickets/:id/qr`, `GET /api/tickets/:id`.
+**Módulo Scanner** (sesión propia): `GET /api/scanner/dashboard`, `/events`, `/events/:eventId/functions/:functionId/stats`, `/scan-attempts` · `POST /scan`, `/scan/confirm`.
 
-**Entradas (organizador, listado global):** `GET /api/tickets/organizer`.
+**Panel Developer** (todos `requireRole("DEVELOPER")`): `GET /api/developer/dashboard` · `GET /events`, `/organizations/options` · `GET /sales`, `/sales/:id` · `GET /scanners`, `/scanners/:id` · `GET /tickets`, `/tickets/:id`, `/events/options`.
 
-**Medios:** `POST /api/media/upload`, `DELETE /api/media/*publicId`.
-
-**Módulo Scanner (sesión propia, no Clerk):** `GET /api/scanner/dashboard`, `GET /api/scanner/events`, `GET /api/scanner/events/:eventId/functions/:functionId/stats`, `GET /api/scanner/scan-attempts`, `POST /api/scanner/validate`.
+**Herramientas de Desarrollo** (`/api/dev`, Developer): `GET /stats` · `POST /reset`, `/demo-event`, `/whatsapp/test-send`.
 
 ---
 
-## 11. FUNCIONALIDADES TERMINADAS
+## 7. BASE DE DATOS
 
-- Autenticación de usuarios con cuenta vía Clerk, con sincronización a base propia.
-- Alta, edición, aprobación y suspensión de organizaciones.
-- Creación y edición de eventos por dos caminos (chat y wizard), con reglas de publicación.
-- Catálogo de tipos de entrada con overrides por función.
-- Checkout de compra sin cuenta, de punta a punta (sin pago real).
-- Generación de entradas individuales con QR cifrado.
-- Envío de email de confirmación con QR y PDF adjuntos, con reenvío.
-- Recuperación de compra sin cuenta, con segundo factor por código.
-- Registro único de scanner por invitación + acceso recurrente por Portal Scanner.
-- Validación de QR en puerta, con garantía de consistencia bajo concurrencia real verificada con pruebas.
-- Administración completa de entradas (cancelar/rehabilitar/reactivar/marcar usada/eliminar, individual y masivo) con auditoría completa.
-- Panel de Developer para gestión de organizaciones y usuarios.
-- Subida de imágenes (Cloudinary).
-- Módulo de Cortesías (emisión, historial, estadísticas, cancelación), reutilizando de punta a punta el mismo flujo de venta/ticket/QR/email/PDF que una venta real.
-- Dashboard del organizador con estadísticas reales — Comercial/Emisión/Accesos/Ocupación, una única fuente de verdad backend (`functionCapacity.service.js`) compartida entre el Dashboard y la pantalla de Entradas, con capacidad/vendidas/emitidas/ingresadas/canceladas y desglose por canal de emisión (venta/cortesía, preparado para futuros canales sin rediseño).
+`schema.prisma`: **22 modelos, 22 enums**, 34 migraciones aplicadas. No se incluye ninguna credencial ni URL de conexión en este documento — ver §8 para cómo se referencian ambos entornos (producción/TEST) de forma segura, siempre por project-ref, nunca por URL completa.
 
-## 12. FUNCIONALIDADES PARCIALES
+### Modelos principales
+- **User** — cuenta de cualquier persona; `clerkId` nullable (compra de invitado). Relaciona con `Organization` (dueño), `Sale`/`Ticket` (comprador).
+- **Organization** — entidad organizadora, dueña de sus eventos, con ciclo de aprobación por Developer.
+- **Event** — evento cultural; entidad central del catálogo. Relaciona con `EventFunction`, `TicketType`, `EventLink`, `Sale`, `Ticket`, `EventScanner`.
+- **EventFunction** — una fecha/función concreta (precio/stock viven en `TicketType`, no acá).
+- **TicketType** — catálogo reusable de tipos de entrada por evento.
+- **FunctionTicketType** — asigna un `TicketType` a una `EventFunction`, con overrides opcionales.
+- **EventLink** — link asociado a un evento, con metadata de embed resuelta server-side.
+- **Sale** — una venta/orden. `origin` (`SaleOrigin`: `SALE`/`COURTESY`) distingue venta real de cortesía sin duplicar el modelo; toda métrica comercial filtra explícitamente `origin=SALE`.
+- **SaleItem** — línea de detalle de una venta (tipo de entrada + cantidad + precio congelado).
+- **CourtesyIssuance** — metadata de una cortesía (motivo, nota, método de entrega), 1 a 1 con la `Sale` que representa.
+- **Ticket** — entrada individual escaneable. Tiene su propio `origin` (denormalizado desde `Sale.origin`, necesario porque Prisma no puede agrupar por un campo de una relación) — es lo que permite desglosar emitidas/vendidas por canal sin join costoso, y admite cualquier canal futuro agregando sólo un valor al enum.
+- **TicketQr** — secreto del QR, cifrado de forma reversible, nunca en texto plano ni como imagen.
+- **CheckIn** — historial de ingresos (ya no 1:1 con `Ticket` — una entrada reactivada puede volver a tener check-ins).
+- **ScanAttempt** — auditoría de TODO intento de escaneo, válido o no.
+- **TicketAuditLog** — bitácora append-only de toda acción administrativa sobre una entrada.
+- **EventScanner** — identidad completa de un puesto de scanner (invitación + verificación), sin cuenta de Clerk.
+- **SaleRecoveryVerification** — sesión de código de 6 dígitos para recuperación de compra, clave única por email+DNI normalizado.
 
-- **Pantalla "Tipos de entrada"**: todo real salvo la columna "Vendidas", hardcodeada en 0.
-- **Administración de entradas (pantalla)**: las acciones individuales y masivas funcionan de punta a punta; la acción masiva "Exportar" es un botón que sólo muestra un aviso, sin generar ningún archivo; los filtros por estado individuales quedaron sin control visible en la pantalla actual (el estado y la llamada al backend siguen existiendo, pero no hay ningún botón/pill que lo dispare).
-- **Compra**: el checkout completo funciona, pero "confirmar" no pasa por ningún pago real — es una confirmación automática simulada.
-- **Cortesías**: un `DEVELOPER` no puede cancelar una cortesía de una organización que no administra (limitación heredada y deliberada, no ampliada); el historial no tiene todavía un filtro visible por canal de emisión (la estructura de datos ya lo permite sin cambios de arquitectura).
+### Tablas del flujo WhatsApp
+- **ConversationState** — estado persistido del motor conversacional (borrador en curso, paso actual, historial de navegación); compartido por Web y WhatsApp, distinguidos por `channel`/`channelRef`.
+- **WhatsappOrganizerLink** — vínculo `wa_id`↔`Organization` (`organizationId` único: una Organization, a lo sumo un vínculo; `waId` deliberadamente no único, un teléfono puede administrar más de una organización).
+- **WhatsappLinkChallenge** — código de 6 dígitos pendiente de verificación para crear un vínculo nuevo.
+- **WhatsappPendingOrganizationSelection** — estado del selector cuando un teléfono tiene más de una organización candidata.
+- **WhatsappPendingStepInput** — sub-pasos intermedios de un paso compuesto (ej. método de ubicación → dirección), con `conversationId` único (a lo sumo un pending por conversación).
 
-## 13. FUNCIONALIDADES PENDIENTES (por prioridad real, según lo que el código ya deja ver)
+### Enums
+`Role`, `UserStatus`, `OrganizationStatus`, `OrganizationType`, `EventStatus`, `EventVisibility`, `FunctionStatus`, `ConversationChannel`, `ConversationStatus`, `SaleStatus`, `SaleOrigin`, `PaymentMethod`, `EmailDeliveryStatus`, `TicketStatus`, `ScanResult`, `CourtesyReason`, `CourtesyDeliveryMethod`, `CheckInSource`, `TicketAuditAction`, `TicketAuditActorType`, `EventScannerStatus`.
 
-1. **Integración de Mercado Pago** — es la ausencia más grande del proyecto: sin esto, ninguna venta cobra dinero de verdad. Todo el resto del sistema (entradas, QR, scanner, emails, recuperación) ya está construido asumiendo que este paso va a existir.
-2. **Conectar el Dashboard de Developer a datos reales** — hoy es 100% maqueta.
-3. **Exportación real de entradas seleccionadas** (el botón ya existe en la UI, sólo falta la lógica).
-4. **Reponer un control visible de filtro por estado** en la pantalla de administración de entradas (el backend y el estado ya lo soportan).
-5. **Onboarding de datos de cobro del organizador** (ligado directamente a Mercado Pago).
-6. **Notificaciones por email adicionales** (aprobación/rechazo de organización, venta nueva).
-7. ~~Adaptador de WhatsApp para el motor conversacional de creación de eventos~~ — **[Actualizado 2026-08-13] implementado** entre el 2026-08-09 y el 2026-08-12 (posterior a la redacción original de este punto). Quedan pendientes puntuales dentro de ese adaptador, no la ausencia del adaptador en sí — ver "Actualización al 13 de agosto de 2026", sección de hallazgos UX.
-8. **Páginas legales reales** (Términos y Privacidad hoy enlazan a la home).
-9. **Pantalla de perfil del usuario** (hoy es un stub).
-10. **Filtro visible por canal de emisión** en el historial de Cortesías (dato ya disponible, falta sólo la UI).
-
-## 14. DEUDA TÉCNICA
-
-**Problemas conocidos / hallazgos concretos de código:**
-- En la pantalla de administración de entradas del organizador, el estado `statusFilter` y su lógica de filtrado siguen presentes y viajan al backend, pero no hay ningún control en la interfaz que permita cambiarlo — quedó código vivo sin punto de entrada visible tras una evolución posterior de la pantalla (que agregó selector de evento/función y acciones masivas).
-- La acción masiva "Exportar seleccionadas" está en la interfaz pero no hace nada real (sólo un aviso).
-- El campo "Vendidas" de la pantalla "Tipos de entrada" es un valor fijo, no calculado.
-- El Dashboard de Developer no tiene ninguna conexión a la API — es enteramente una maqueta visual con datos de ejemplo.
-- **[Resuelto]** El Dashboard del organizador y la pantalla de Entradas tenían cálculos de capacidad/vendidas/ocupación duplicados e independientes entre frontend y backend (y uno de ellos no distinguía cortesías de ventas reales, inflando "Entradas vendidas"). Se consolidaron en una única fuente backend (`functionCapacity.service.js`) consumida por ambas pantallas — el `OrganizerDataContext` ya no expone una lista completa de tickets del organizador para tallar a mano en el cliente, expone el resumen ya agregado (`eventsStats`, vía `GET /api/events/mine/stats`).
-- **[Resuelto]** Las fechas de calendario (sin hora) del wizard/chat de creación de eventos podían desincronizarse un día del real en timezones detrás de UTC (Argentina incluida) — `new Date("YYYY-MM-DD")` se interpreta como medianoche UTC, no local. Afectaba al selector de fecha del wizard, a la tarjeta de revisión final del evento y, más seriamente, a la hora real guardada para eventos creados por el chat (dependía de la timezone del servidor, no de Argentina). Corregido con una única infraestructura de fechas de calendario (`lib/dateGrid.js` en el frontend, `utils/calendarDate.js` en el backend) y un offset explícito `-03:00` para toda combinación fecha+hora.
-
-**Limitaciones conocidas (documentadas en el propio código, no ocultas):**
-- El rate limiter es en memoria: no sobrevive un reinicio del proceso ni se comparte entre instancias si el backend llegara a correr en más de un proceso.
-- Varios campos de "quién hizo esto" (el scanner de un check-in, el actor de una auditoría) se guardan como texto suelto, sin relación formal en la base de datos — funcionan bien hoy, pero no tienen integridad referencial a nivel de base.
-- El canal WhatsApp del motor conversacional está modelado en la base pero no tiene ningún adaptador real.
-- La timezone oficial de la plataforma (`-03:00`, Argentina) está hardcodeada como constante en dos lugares independientes (frontend y backend, son dos proyectos npm separados sin paquete común) — correcto mientras la plataforma opere sólo en Argentina; el día que soporte más de una timezone, ambos puntos hay que tocarlos.
-
-**Código duplicado identificado:** normalización de email/DNI y los pequeños formateadores de fecha (los que trabajan con timestamps reales, no con fechas de calendario — ver arriba) están repetidos en varios archivos del frontend en lugar de centralizados en un único lugar (patrón usado deliberadamente en este proyecto para no crear una dependencia cruzada entre pantallas que evolucionan por separado — no necesariamente un problema a resolver, pero es duplicación real si se lo mide así). Del lado del backend, la lógica de "cuál es la organización de este usuario" (`findFirst` por `ownerId`) está repetida como una función local pequeña en más de un archivo de servicio en lugar de una única función compartida.
-
-**Módulos candidatos a mejora:** el Dashboard de Developer (reconstruir sobre datos reales), la pantalla de administración de entradas (terminar exportación y reponer el filtro por estado).
-
-## 15. PRÓXIMOS PASOS (orden de prioridad real, según el estado actual del código, sin inventar funcionalidades)
-
-1. Integrar Mercado Pago (SDK, checkout, webhook, conciliación de estados) — es el único paso que falta para que el dinero se mueva de verdad.
-2. Terminar la exportación de entradas seleccionadas.
-3. Reponer el control de filtro por estado en la pantalla de administración de entradas.
-4. Conectar el Dashboard de Developer a datos reales.
-5. Calcular "Vendidas" de verdad en la pantalla de Tipos de entrada.
-6. Emails adicionales (aprobación de organización, venta nueva).
-7. Páginas legales reales y pantalla de perfil.
-8. ~~Adaptador de WhatsApp para el motor conversacional~~ — **implementado 2026-08-09/12**; los próximos pasos reales de este frente ahora son otros (guardrail de tests, corrección de hallazgos UX puntuales, timeout de conversación) — ver la lista de próximos pasos en "Actualización al 13 de agosto de 2026", que reemplaza la prioridad de este punto.
-9. Filtro visible por canal de emisión en el historial de Cortesías.
-
-## 16. EVALUACIÓN GENERAL
-
-**Avance aproximado del proyecto: ~75-80%.** El core funcional completo (catálogo de eventos, checkout, entradas con QR cifrado, control de acceso con garantías de concurrencia verificadas, recuperación de compra, administración de entradas con auditoría, cortesías, estadísticas reales del organizador, paneles de Developer y Organizador para todo lo que no es venta) está implementado y, en la enorme mayoría de los casos, terminado de punta a punta backend+frontend. El hueco más grande, con diferencia, sigue siendo el cobro real.
-
-**Para una versión Beta** (uso real con usuarios externos pero controlado): falta, como mínimo, integrar Mercado Pago (sin esto no hay negocio real posible salvo ventas 100% manuales/gratuitas). El Dashboard del organizador ya no es un bloqueante — un organizador puede ver recaudación, ocupación y accesos reales desde el panel. El resto del sistema ya está en condiciones de sostener una Beta acotada con pagos manuales/en efectivo mientras se construye la integración de pago.
-
-**Para una versión Comercial**: además de lo anterior, se necesita el Dashboard de Developer conectado a datos reales (hoy no sirve para operar el negocio), la exportación de entradas terminada, notificaciones por email adicionales (aprobación de organización, venta nueva), páginas legales reales, y revisar/formalizar las relaciones de datos que hoy son texto suelto (scanner que hizo un check-in, actor de una auditoría) si el volumen de uso lo justifica.
-
-**[Actualizado 2026-08-13]** Desde la redacción original de esta evaluación (2026-08-08) se sumó un canal de creación de eventos completo por WhatsApp (bot conversacional para organizadores, ver actualización al final de este documento) — no cambia el ~75-80% de avance general (es un canal alternativo sobre funcionalidad ya contada, no una nueva pieza del ciclo de venta), pero sí introduce hallazgos de UX propios pendientes de corrección y motivó, esta misma semana, un guardrail nuevo de seguridad para tests con base de datos tras un incidente real de datos de prueba escritos en producción — ambos detallados en la actualización.
+### Datos sensibles
+El secreto de cada QR se cifra en la base (AES-256-GCM, clave fuera de la base). Ningún log de la aplicación imprime teléfono completo, DNI, email o el secreto de un QR — los logs de WhatsApp (`[WA_PERF]`) truncan el `conversationId` a 8 caracteres y nunca incluyen texto de mensajes ni identificadores de Meta.
 
 ---
 
-# ACTUALIZACIÓN AL 13 DE AGOSTO DE 2026
+## 8. SEGURIDAD Y CONSISTENCIA
 
-Todo lo que sigue es nuevo respecto de la redacción original (2026-08-08) y está verificado contra el código y el historial Git presentes en el repositorio en este momento, no contra documentos previos. Donde algo no pudo verificarse desde este entorno, se dice explícitamente en vez de asumirse.
+**Clerk y autorización.** Dos sistemas de autenticación deliberadamente no unificados: Clerk para cualquier cuenta con sesión (comprador, organizador, developer); JWT propio, sin Clerk, para el módulo Scanner. Autorización siempre por rol server-side (`requireRole`) más, dentro del panel de organizador, verificación de pertenencia del recurso a la organización de quien pide — nunca alcanza con el rol solo.
 
-## A1. Estado actual del proyecto
+**Cifrado de QR.** Generador criptográfico seguro + cifrado reversible (AES-256-GCM, clave en variable de entorno, nunca en la base) + comparación en tiempo constante al validar un escaneo (protección contra timing attacks).
 
-- **Branch actual:** `claude/whatsapp-db-roundtrip-optimization`.
-- **Último commit incorporado (local):** `85959cb` — `test: block database tests from production`.
-- **Relación con `origin/main`:** 1 commit local por delante, 0 por detrás (`git rev-list --left-right --count origin/main...HEAD` → `0 1`). `origin/main` está en `3363790` (`perf(whatsapp): optimize preview publish latency`).
-- **Working tree:** limpio — `git status` no muestra cambios sin commitear (el guardrail de tests con DB, tratado en A4, ya está commiteado en este branch, sólo falta el push).
-- **Qué está en `origin/main` (y por lo tanto potencialmente desplegado, si Render está configurado para desplegar desde `main`):** todo el subsistema WhatsApp descripto en A2 (commits del 2026-08-09 al 2026-08-12), incluida la optimización de latencia de `PREVIEW_PUBLISH` (`3363790`).
-- **Qué existe SÓLO en local, sin pushear todavía:** el guardrail de tests con base de datos (commit `85959cb`, tratado en A4).
-- **Qué no puede confirmarse desde este entorno:** el estado real desplegado en Render. Este entorno no tiene acceso al panel/API de Render — no hay forma de verificar si el despliegue activo corresponde efectivamente a `origin/main` en `3363790` o a una revisión anterior, ni si existe auto-deploy configurado. **Requiere confirmación del usuario.**
+**Control de ownership.** Cada acción sobre un evento, scanner o entrada revalida explícitamente que ese recurso pertenece a la organización de quien la pide — verificado en cada service, no sólo en el middleware de rol.
 
-## A2. WhatsApp para organizadores — estado real, verificado en código
+**Transacciones y actualizaciones atómicas.** El paso `confirm` de un escaneo usa un `UPDATE` condicional (`status: "ACTIVE"` → `"USED"`) dentro de una transacción — verificado con pruebas de concurrencia real, hasta 20 escaneos simultáneos sobre la misma entrada, sin nunca un doble ingreso válido. `ConversationState` usa el mismo patrón (`updateMany` filtrando por `status: "ACTIVE"` en vez de un `update` ciego) para detectar si otra escritura tocó la fila en el medio. Operaciones de escritura múltiple (sincronizar funciones+catálogo de un evento, reset completo de base) corren dentro de `$transaction`.
 
-El informe original (2026-08-08) describía este canal como "declarado en el modelo de datos pero sin ningún adaptador implementado". Eso dejó de ser cierto entre el 2026-08-09 y el 2026-08-12 (17 commits, ver `git log` en el repositorio). Estado punto por punto, verificado leyendo el código actual (`backend/src/controllers/whatsapp.controller.js`, `backend/src/services/whatsapp*.js`, `backend/src/conversation/EventCreationEngine.js`):
+**Guardrail `dbGuard.js`.** Módulo centralizado que lee `DATABASE_URL`/`DIRECT_URL` y aborta de inmediato — antes de que cualquier test defina un solo caso, mucho antes de poder crear un fixture — si detecta el project-ref de **producción**; habilita los tests con base real (`hasDatabase = true`) sólo si detecta el project-ref de **TEST**; nunca imprime la connection string completa, sólo compara como substring contra los dos project-ref conocidos. Está **commiteado y pusheado a `main`**, activo en el repositorio actual. Protege actualmente **4 archivos** de test que tocan Prisma real (no 3): `whatsappOrganizerDiscovery.test.js`, `whatsappPendingStepInput.service.test.js`, `eventServicePort.commit.perf.test.js`, `eventCreationEngine.conversationStateCache.test.js`.
 
-| Punto | Estado | Evidencia / matiz |
-|---|---|---|
-| Webhook de Meta | **Implementado** | `GET/POST /api/whatsapp/webhook`, montado público en `app.js`; verificación de token propia del handshake de Meta. |
-| Parseo de mensajes | **Implementado** | `whatsapp.service.js` normaliza texto/imagen/ubicación en una forma común antes de llegar al controller. |
-| Envío de respuestas | **Implementado** | `sendWhatsappTextMessage` vía Graph API, timeout propio de 10s (`GRAPH_API_TIMEOUT_MS`), distingue `TIMEOUT` de `NETWORK_ERROR`, nunca lanza. |
-| Identificación del responsable por teléfono | **Implementado** | `discoverWhatsappOrganizationCandidates` resuelve por `Organization.phone` normalizado (Argentina). |
-| `WhatsappOrganizerLink` | **Implementado** | Modelo real, `organizationId` `@unique` (una Organization, a lo sumo un link), `waId` deliberadamente NO único (un teléfono puede administrar más de una Organization). |
-| Descubrimiento de organizaciones aprobadas | **Implementado, con un bug histórico ya corregido** | Corregido en el commit `a261f4e` (2026-08-12) — ver A3. |
-| Selector para responsables con varias organizaciones | **Implementado** | Siempre pregunta "¿Con cuál de tus organizaciones querés trabajar?" y lista todas — verificado en `buildOrganizationSelectorText`. |
-| Persistencia de la organización elegida | **Implementado** | `ConversationState.organizationId`, resuelto una única vez al iniciar la conversación, nunca vuelto a resolver a mitad de camino. |
-| Integración con `EventCreationEngine` | **Implementado** | Mismo motor que usa la Web (`start`/`resume`/`handleInput`), sin fork de lógica de negocio — WhatsApp sólo interpreta texto libre antes de llamarlo. |
-| Creación / borrador / confirmación / publicación | **Implementado** | Mismo `EventServicePort.commit` que la Web. |
-| Geocodificación | **Implementado, con matiz** | Ubicación compartida por WhatsApp llega con coordenadas reales; dirección manual (paso a paso) NO se geocodifica en el momento de tipearla — el geocoding server-side (`geocoding.service.js`) corre después, al confirmar el evento, compartido con la Web. Ningún caso queda sin geocodificar. |
-| Manejo de imágenes | **Parcialmente implementado** | El caso feliz (llega una imagen real en el paso que la espera) funciona de punta a punta (Cloudinary). El caso "se espera una imagen y llega texto" **no corrompe el estado ni avanza el paso** (verificado: cae al parser del motor, que rechaza y no persiste nada), pero el mensaje de error que se le muestra al organizador es el genérico pensado para la Web ("Subí la imagen a /api/media/upload y mandame la URL que te devuelve"), no un mensaje de WhatsApp pidiendo la foto — ver hallazgo UX #1 en A5. |
-| Timeout de conversación por inactividad | **No implementado** | No existe ningún campo de expiración en `ConversationState` ni ningún job/cron en el proyecto (confirmado: el proyecto no tiene ningún sistema de tareas programadas, ver sección 4 original) que pudiera aplicar un timeout de 15 minutos. Una conversación abandonada queda `ACTIVE` indefinidamente hasta que el organizador la retoma o la cancela explícitamente. |
-| Reanudación | **Implementado** | `resume()` recupera el estado activo por `channelRef` (el número de WhatsApp) en cualquier mensaje posterior. |
-| Idempotencia ante reintentos de Meta | **No verificado — sin evidencia de protección explícita** | No se encontró ningún mecanismo de deduplicación por `messageId`/`wamid` en `whatsapp.controller.js`. Meta puede reentregar el mismo webhook más de una vez; no está probado qué pasa si eso ocurre mientras el mensaje ya fue procesado (en el peor caso, podría interpretarse como un segundo mensaje idéntico del usuario). No confirmado como bug real — sólo no hay evidencia de que esté protegido. |
-| Concurrencia (dos mensajes casi simultáneos del mismo número) | **No verificado** | No se encontró ningún `$transaction`/lock explícito alrededor de la lectura+escritura de `ConversationState` por mensaje, a diferencia del módulo Scanner (que sí tiene esta garantía verificada con pruebas de concurrencia real, ver sección 7 original). Distinto del caso Scanner porque un mismo organizador difícilmente mande dos mensajes en el mismo milisegundo, pero queda como un supuesto no probado, no como una garantía verificada. |
-| Instrumentación de latencia | **Implementado** | `whatsappPerf.js`: timer por mensaje (`[WA_PERF]`, gateado por `WHATSAPP_PERF_LOG`), conteo y duración de cada query Prisma real vía `instrumentPrismaClient` (Prisma Client Extensions + `AsyncLocalStorage`), y medición de llamadas externas (`timeExternalCall`, usado para el geocoding). Nunca loguea PII ni datos de negocio, sólo nombres de operación y duraciones. |
-| Optimización de duplicados de `ConversationState` | **[Actualizado 2026-08-14] Implementada** | Persistida en `0ea5ef2` y `47324ee` — ver B1. El camino normal de `HANDLE_INPUT` pasó de 3 a 2 consultas. |
+**Separación TEST/producción.** `backend/.env.test` **existe** en este entorno (no versionado en git, cargado sólo por `npm run test:db`/`npm test` vía un loader dedicado que nunca lee `.env`) y apunta al project-ref de TEST. `npm run test:db` **ya se ejecutó exitosamente contra la base de TEST real**, en más de una ocasión, siempre después de confirmar el project-ref con `dbGuard.js` antes de correr — ver §9 para los últimos resultados verificados.
 
-## A3. Últimos incidentes y correcciones (orden cronológico)
+**Protección de concurrencia — alcance real.** WhatsApp **detecta** conflictos de concurrencia sobre una misma conversación (la escritura filtrada por `status: "ACTIVE"` nunca pisa una fila que cambió en el medio, y lanza el error correcto en vez de fallar en silencio) — pero **todavía no serializa** todos los mensajes entrantes de un mismo `wa_id`: dos mensajes casi simultáneos del mismo número no se encolan ni se bloquean entre sí, sólo se detecta el conflicto si efectivamente llegan a pisarse. En el uso real (un organizador difícilmente manda dos mensajes en el mismo milisegundo) esto no se ha observado como problema, pero es una garantía distinta — más débil — que la de bloqueo por fila real que sí tiene el módulo Scanner.
 
-**1) Bug de descubrimiento incompleto — "aparece Cine Nadia pero no La Taberna de Mou".** Causa comprobada en código: la versión anterior de `discoverWhatsappOrganizationCandidates` hacía `return` apenas encontraba **cualquier** `WhatsappOrganizerLink` ya existente para el número, sin volver a consultar `Organization.phone` — así que una segunda Organization con el mismo teléfono, pero sin link todavía creado, nunca se descubría. No era un problema de unicidad de ningún campo del schema (`waId` nunca fue único). **Corregido** en el commit `a261f4e` (2026-08-12, `fix(whatsapp): resolve all organizations linked to phone`): ahora se consultan siempre las dos fuentes (links existentes + Organizations aprobadas sin link cuyo teléfono coincide) y se unen deduplicando exclusivamente por `organizationId`. Estado: **resuelto y verificado en código** (test de regresión específico en `tests/whatsappOrganizerDiscovery.test.js`).
+**Deduplicación de reintentos de Meta.** No hay ningún mecanismo de deduplicación por `wamid`/`messageId` confirmado en el código — Meta puede reintregar el mismo webhook más de una vez ante una demora en la respuesta; no está implementado ningún chequeo que reconozca "este mensaje ya se procesó" antes de reintentarlo como si fuera nuevo.
 
-**2) Datos de prueba escritos en producción — organizaciones duplicadas en el selector.** El mismo fix de `a261f4e`, al dejar de esconder resultados, expuso un problema de datos preexistente: 52 filas `Organization` (36 `ownerId` distintos, ninguno con eventos reales) aparecieron en producción con nombres "Cine Nadia" / "La Taberna de Mou" / "Organización Pendiente", en ráfagas de milisegundos/segundos el 2026-08-12 (~23:03, ~23:04, ~23:17). Causa comprobada, no supuesta: el archivo `backend/tests/whatsappOrganizerDiscovery.test.js` crea 13 Organizations y 9 Users reales por corrida completa (9 "Cine Nadia" + 3 "La Taberna de Mou" + 1 "Organización Pendiente" — coincide exactamente, dígito por dígito, con la primera ráfaga observada; 13×4 = 52 y 9×4 = 36 coinciden exactamente con el total, reconstruyendo 4 corridas). El guard de ese archivo (`Boolean(process.env.DATABASE_URL)`) sólo confirmaba que la variable existiera, nunca a qué proyecto apuntaba — si la terminal donde se corrió `node --test` tenía un `backend/.env` real cargado (no existe `.env.test` en ningún punto anterior del proyecto), los tests corrían de verdad contra producción. El `finally`/cleanup de cada test existe y está bien escrito, pero no llegó a ejecutarse en las 4 corridas — mecanismo exacto no confirmable sin logs externos a este entorno; hipótesis mejor fundada: el proceso se interrumpió (Ctrl+C o timeout) antes de terminar, plausible dado que cada corrida completa contra producción podía tardar 60-100+ segundos por la latencia real de ~900ms/query medida en esas fechas. **Estado: causa identificada con certeza (coincidencia numérica exacta), mecanismo de interrupción no confirmado al 100%, guardrail de código ya implementado (ver A4) — limpieza de los datos duplicados en producción NO realizada todavía, sigue pendiente y fuera del alcance de este informe (es una tarea de escritura en producción, no de diagnóstico).**
-**3) Tercer archivo con acceso real a Prisma — `eventServicePort.commit.perf.test.js`.** Al auditar el repositorio completo para el guardrail (no sólo los dos archivos ya conocidos), apareció un tercer archivo con el mismo patrón débil de guard, incorporado por el commit `3363790` (`perf(whatsapp): optimize preview publish latency`, ya en `origin/main`, no escrito en esta sesión). No hay evidencia de que este archivo haya contribuido al incidente de datos duplicados (su alcance es `Event`/`EventLink`, nunca `Organization`/`WhatsappOrganizerLink` — confirmado leyendo el diff completo del commit), pero tenía el mismo riesgo estructural. **Estado: identificado y corregido en el mismo guardrail (ver A4).**
+**Rate limits.** Limitador propio en memoria (sin dependencia externa, no apto para múltiples instancias sin adaptarlo), aplicado a todos los endpoints públicos "adivinables" (recuperación de compra, invitación/login de Scanner).
 
-**4) Separación tests unitarios / tests con DB, y suite completa contra base de test real.** Se agregaron 3 scripts (`npm test`, `npm run test:unit`, `npm run test:db`, ver A4). **Estado: los scripts existen y funcionan; la ejecución real contra una base de test todavía NO fue posible desde ningún entorno de esta sesión — no existe un `backend/.env.test` real con credenciales, sólo la plantilla `backend/.env.test.example`.** Sigue pendiente, ver A7 y A9.
+**Panel de Herramientas de Desarrollo.** Ver §4 (Panel Developer) — protección deliberadamente simplificada, documentada como temporal en el propio código.
 
-## A4. Guardrail de producción para tests con DB
+---
 
-Implementado el 2026-08-13, commiteado (`85959cb`, este mismo branch), **no pusheado todavía**.
+## 9. INSTALACIÓN, PRUEBAS Y DESPLIEGUE
 
-- **`backend/tests/helpers/dbGuard.js`** — módulo centralizado. Lee `DATABASE_URL` y `DIRECT_URL`. Si cualquiera contiene el project-ref de producción `oiyakkbvplxrysjwxwrf`, lanza una excepción inmediatamente al importarse (antes de que el archivo que lo importa defina un solo `test(...)`, y mucho antes de poder crear un fixture) — nunca imprime la connection string. Si contiene el project-ref de test `ldxmrsllusbnayerxtbu`, exporta `hasDatabase = true`. Si está ausente o es cualquier otro proyecto, `hasDatabase = false` — nunca escribe, nunca aborta.
-- **`backend/tests/helpers/loadTestEnv.js`** — preload vía `node --import`, carga `backend/.env.test` si existe (nunca `.env`); si el archivo no existe todavía, no falla, sólo no carga nada.
-- **Scripts en `backend/package.json`:** `test` (suite completa con `.env.test` cargado), `test:unit` (rápido, sin cargar `.env.test`), `test:db` (sólo los 3 archivos que tocan Prisma real, con `.env.test` cargado).
-- **`backend/.env.test.example`** — plantilla commiteada, sin credenciales reales, documentando los dos placeholders (`DATABASE_URL`/`DIRECT_URL`) y el project-ref esperado.
-- **`backend/tests/dbGuard.test.js`** — 10 tests nuevos, sin ninguna base real: 5 sobre la función pura de clasificación, 5 vía subproceso Node real que importa `dbGuard.js` con variables de entorno controladas, probando los 3 casos pedidos (producción → aborta antes de cualquier operación Prisma; test → habilita; ausente/otro proyecto → nunca escribe).
-- **Archivos protegidos por el guard centralizado (los 3 únicos en todo `backend/tests/` que tocan Prisma real con escritura, confirmado por barrido completo del directorio):** `whatsappOrganizerDiscovery.test.js`, `whatsappPendingStepInput.service.test.js`, `eventServicePort.commit.perf.test.js`.
-- **Resultados comprobados ahora mismo, en este entorno (re-verificado, no copiado de un informe anterior):** `npm run test:unit` → 521 tests, 489 pass, 0 fail, 32 skipped. `npm run test:db` → 45 tests, 13 pass, 0 fail, 32 skipped (los 32 son exactamente los `testWithDb` de los 3 archivos protegidos, saltados porque no hay `backend/.env.test` en este entorno).
-- **Tests omitidos por falta de una DB de test configurada:** los 32 anteriores — nunca se ejecutaron contra ninguna base real desde este entorno.
-- **Riesgos residuales:** (1) el guard es una comparación de substring sobre el project-ref, no una validación criptográfica de identidad — suficiente dado cómo Supabase nombra sus hosts, pero no infalible ante un project-ref manualmente falseado en la URL; (2) no hay todavía un `backend/.env.test` real, así que el camino "tests con DB" nunca fue ejercitado de punta a punta contra Postgres real, sólo simulado con URLs falsas en subprocesos de prueba; (3) los 52 registros duplicados de producción (A3, incidente 2) siguen sin limpiar.
-- **Estado de commit:** commiteado en `85959cb` sobre `claude/whatsapp-db-roundtrip-optimization`, **sin push**.
+### Requisitos
+Node.js (probado con v24.14.0 en este entorno; el proyecto no declara una versión mínima en `package.json`), npm, acceso a un proyecto PostgreSQL de Supabase (producción para correr la app; uno separado de TEST sólo para `npm run test:db`).
 
-## A5. Hallazgos de las pruebas UX del 2026-08-13
+### Variables de entorno (nombres únicamente — nunca valores)
 
-Verificado contra el código actual, no contra lo que documentos previos afirmaban. No se tuvo acceso a logs/transcripciones reales de la sesión de pruebas del 13/08 desde este entorno — cada fila es el resultado de leer el código correspondiente, no de reproducir la sesión de pruebas.
+**Backend** (`backend/.env`, no versionado): `PORT`, `NODE_ENV`, `DATABASE_URL`, `DIRECT_URL`, `CLERK_SECRET_KEY` (leída por `@clerk/express` por convención del SDK), `SCANNER_SESSION_SECRET`, `TICKET_QR_SECRET_KEY`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_TO` (opcional), `FRONTEND_URL`, `GOOGLE_MAPS_SERVER_API_KEY`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_GRAPH_API_VERSION`, `WHATSAPP_TEST_MODE` (opcional), `WHATSAPP_PERF_LOG` (opcional, diagnóstico). `RENDER_GIT_COMMIT` la inyecta Render automáticamente, nunca se configura a mano.
 
-| # | Requisito | Estado | Evidencia |
-|---|---|---|---|
-| 1 | Imagen esperada, llega texto → no avanzar/corromper, pedir imagen | **Parcial** | No corrompe estado ni avanza el paso (confirmado). El mensaje mostrado es el error genérico de Web ("Subí la imagen a /api/media/upload...", `inputHandlers/imageUrl.js`) — `extractWhatsappReplyText` no tiene una rama para `IMAGE_URL`, así que no hay un mensaje de WhatsApp pidiendo la foto. |
-| 2 | Paso de ubicación sin dirección precargada automáticamente | **Implementado** | `findReusableOrganizationLocation` sólo **ofrece** reutilizar una dirección anterior de la Organization — requiere confirmación explícita ("1"/"2"); si el organizador elige "2", el `pending` se limpia a `{}` antes de pedir la dirección nueva. El draft nunca se prellena solo. |
-| 3 | No repetir "¿Vamos a publicar con {org}? Sí/No" tras selección explícita | **Pendiente — bug real confirmado en código** | `buildOrganizationSelectedConfirmationText` (`whatsappOrganizerBot.service.js`) arma exactamente ese texto después de que el organizador ya eligió una organización del selector — y ya había respondido "sí" a "¿Querés publicar un evento?" en el saludo genérico previo al selector. Es una pregunta redundante real, no un falso positivo. |
-| 4 | Con más de una organización, siempre preguntar "¿Con cuál querés trabajar?" | **Implementado** | `buildOrganizationSelectorText`, siempre se muestran todos los candidatos. |
-| 5 | Incidente histórico "Cine Nadia sí, La Taberna de Mou no" | **Documentado, corregido** — ver A3, incidente 1. Distinto del incidente de datos duplicados (A3, incidente 2), que es posterior y de otra naturaleza. |
-| 6 | No aceptar fechas anteriores al día actual | **Implementado** | `isArgentineDateInThePast`, aplicado en los 3 caminos de carga de fecha (función única, lista de funciones, rango recurrente) — verificado los 3 call sites en `whatsapp.controller.js`. |
-| 7 | Modalidad de funciones: una / varias / recurrentes | **Implementado** | Step `FUNCTIONS_MODE`, 3 opciones (`SINGLE`/`MULTIPLE`/`RECURRING`). |
-| 8 | Ubicación: compartir por WhatsApp o dirección manual | **Implementado** | `tryHandleLocationSubflow`, dos caminos explícitos. |
-| 9 | Opción "Volver" en cualquier paso | **Implementado** | `isBackCommand` con manejo central para pasos sin sub-flujo propio, más manejo específico de "volver" dentro de cada sub-flujo (ubicación, funciones, entradas). |
-| 10 | Timeout de 15 minutos por inactividad | **No implementado** | Sin campo de expiración en el modelo, sin ningún job/cron en el proyecto que pudiera aplicarlo. |
-| 11 | Mensajes con opciones numeradas, formato explicado | **Implementado** | Patrón consistente en todo el bot ("1. Sí\n2. No", listas numeradas de opciones). |
-| 12 | Precio ingresado sin símbolo `$` | **Implementado** | `inputHandlers/price.js` acepta un número simple; el bot instruye explícitamente "sin el signo $"; el `$` sólo se reagrega al **mostrar** un precio ya cargado, nunca al pedirlo. |
+**Backend, sólo tests con DB** (`backend/.env.test`, no versionado — plantilla en `backend/.env.test.example`): `DATABASE_URL`, `DIRECT_URL` — deben apuntar exclusivamente al project-ref de TEST.
 
-## A6. Rendimiento y latencia
+**Frontend** (`frontend/.env`, no versionado, prefijo `VITE_` requerido por Vite): `VITE_API_URL`, `VITE_CLERK_PUBLISHABLE_KEY`, `VITE_GOOGLE_MAPS_API_KEY`.
 
-- **Instrumentación existente:** `whatsappPerf.js` — timer por mensaje, conteo/duración de cada query Prisma real (vía Prisma Client Extensions + `AsyncLocalStorage`, sin tocar cada service individualmente), medición de llamadas externas (geocoding). Gateada por `WHATSAPP_PERF_LOG`, nunca activa por defecto, nunca loguea PII.
-- **Cuellos de botella comprobados (con evidencia real de producción, en fases anteriores a esta actualización):** la enorme mayoría de la latencia de una interacción de WhatsApp está dentro de Prisma/Postgres, no en lógica de negocio ni en Meta; incluso un `findUnique` por clave primaria mostró una latencia uniforme alta, consistente con overhead de red/pooler entre Render y Supabase más que con complejidad de la query — diagnosticado, **nunca resuelto a nivel de infraestructura** (fuera del alcance autorizado en su momento).
-- **Lecturas duplicadas de `ConversationState`:** **[Actualizado 2026-08-14] resueltas en el camino normal.** La cache transparente (`AsyncLocalStorage`) diseñada acá se persistió en `0ea5ef2`, y `47324ee` la terminó de poblar en el punto que quedaba vacío (`findActiveConversation`) — ver B1. `HANDLE_INPUT` pasó de 3 a 2 consultas de `ConversationState`.
-- **Índice propuesto** sobre `ConversationState (channel, channelRef, status, createdAt)`: sigue **propuesto, no aplicado** — ninguna sesión de este proyecto tocó el schema para esto.
-- **Optimizaciones ya aplicadas y confirmadas en el código actual:** `syncEventLinksService`/`syncEventScheduleService` con parámetro `returnEvent:false` para evitar una lectura pesada descartada; `EventLink` pasó de un loop de `create` a un único `createMany`; instrumentación de la llamada externa de geocoding (antes invisible dentro de "tiempo de base de datos"). Todo esto corresponde al commit `3363790`, ya en `origin/main`.
-- **Resultados antes/después:** no se incluye ningún número de milisegundos específico en esta actualización salvo los ya documentados en informes de fases anteriores de este mismo repositorio — en particular, la cifra de "`LOCATION_CONFIRMATION_PROMPT` ~5176 ms" mencionada como antecedente posible **no se encontró en ningún archivo, log o commit del repositorio** (se buscó explícitamente) y por lo tanto no se incluye como dato verificado; `LOCATION_CONFIRMATION_PROMPT` sí existe en el código como nombre de marca de instrumentación (`whatsapp.controller.js`), pero sin ningún valor de latencia asociado guardado en el repositorio.
-- **Optimizaciones pendientes:** **[Actualizado 2026-08-14]** cache de `ConversationState`, `resetPendingStepInput` como `upsert` y paralelización de `discoverWhatsappOrganizationCandidates` — las 3 aplicadas y verificadas, ver B1. Sigue sin aplicarse, por decisión explícita (ver B4): la investigación de infraestructura (región Render/Supabase, modo de conexión del pooler).
+### Cómo levantar el proyecto localmente
+```
+cd backend && npm install && npm run dev     # nodemon, puerto según PORT
+cd frontend && npm install && npm run dev    # Vite dev server
+```
+`npm run build` (frontend) genera el bundle estático que Vercel sirve.
 
-## A7. Base Supabase de TEST
+### Comandos de test y su diferencia
+- `npm test` — suite completa, carga `.env.test` (vía `--import ./tests/helpers/loadTestEnv.js`) antes de que cualquier test se registre.
+- `npm run test:unit` — **no** carga `.env.test`; cualquier test que dependa de una base real (`hasDatabase`) se salta automáticamente. Nunca toca una base de datos.
+- `npm run test:db` — corre exclusivamente los 4 archivos que tocan Prisma real (ver §8, dbGuard), con `.env.test` cargado.
 
-- El proyecto de test **ya fue creado** (dato provisto por el usuario, no verificable desde este entorno sin credenciales).
-- Project-ref esperado: `ldxmrsllusbnayerxtbu`.
-- La base de **producción** (`oiyakkbvplxrysjwxwrf`) no debe borrarse ni modificarse — el guardrail de A4 existe específicamente para esto.
-- **Requiere confirmación del usuario:** si `backend/.env.test` ya existe localmente en la máquina del usuario y si sus credenciales corresponden efectivamente al project-ref de test. Desde este entorno se confirmó que `backend/.env.test` **no existe** y **no está trackeado en git** (correcto, así debe ser).
-- No se incluyó ninguna credencial ni URL real en este informe, en ningún punto.
-- Próxima validación pendiente: ejecutar `npm run test:db` con `backend/.env.test` apuntando de verdad al project-ref de test, confirmando el project-ref ANTES de correr (ver A9).
+### Guardrail antes de usar DB
+Antes de correr `npm test`/`npm run test:db`, `dbGuard.js` ya valida automáticamente el project-ref al importarse — pero como verificación manual adicional recomendada: confirmar que `backend/.env.test` contiene el project-ref de TEST y no el de producción, y que no hay ninguna variable `DATABASE_URL`/`DIRECT_URL` exportada en la shell que pueda pisar ese archivo (`dotenv` no sobreescribe variables ya presentes en el entorno).
 
-## A8. Estado de pruebas
+### Despliegue
+**Backend:** Render, configurado vía su propio dashboard (sin `render.yaml` versionado en este repositorio) — deploy típico a partir de push a `main`. **Frontend:** Vercel, integración estándar Git — `frontend/vercel.json` sólo define la regla de rewrite SPA.
 
-| Comando | Aprobados | Fallidos | Omitidos | ¿Usa DB real? | Evidencia |
+### Últimos resultados verificados
+| Comando | Total | Pass | Fail | Skipped | Cuándo / contra qué |
 |---|---|---|---|---|---|
-| `npm run test:unit` | 489 | 0 | 32 | No | Re-ejecutado en este entorno, 2026-08-13 |
-| `npm run test:db` (sin `.env.test`) | 13 | 0 | 32 | No — el guard confirma `ABSENT`, los `testWithDb` se saltan | Re-ejecutado en este entorno, 2026-08-13 |
-| `npm run test:db` con `.env.test` de prueba conteniendo el project-ref de PRODUCCIÓN (credenciales falsas, sólo para probar el guard) | 0 | 3 (las 3 falsas, esperado) | — | No — abortó antes de cualquier operación Prisma | Ejecutado y revertido en la sesión donde se implementó el guardrail (2026-08-13) |
-| `npm run test:db` contra la base de TEST real | — | — | — | — | **No ejecutado — requiere `backend/.env.test` real, no disponible en este entorno** |
+| `npm run test:unit` | 556 | 505 | 0 | 51 | Verificado en este entorno, 2026-08-14 — sin base de datos, los 51 omitidos son exclusivamente los que requieren DB real |
+| `npm run test:db` | 66 | 66 | 0 | 0 | Verificado en este entorno, 2026-08-14, contra el project-ref de TEST, después de aplicar todos los cambios de código de la fecha |
 
-No se ejecutó ningún test con DB contra ningún project-ref sin poder confirmar antes cuál era, tal como se pidió.
-
-## A9. Próximos pasos
-
-1. Revisar y **pushear** el guardrail (`85959cb`), que hoy sólo existe local en `claude/whatsapp-db-roundtrip-optimization`.
-2. Verificar (ya hecho, re-confirmar antes de cada corrida) que `backend/.env.test` no esté trackeado en git.
-3. Configurar `backend/.env.test` localmente con las credenciales reales de la base TEST (`ldxmrsllusbnayerxtbu`) — pendiente, fuera del alcance de este entorno.
-4. Comprobar explícitamente el project-ref antes de ejecutar cualquier test con DB (el guard ya lo hace automáticamente, pero conviene una verificación manual la primera vez).
-5. Ejecutar `npm run test:db` contra esa base real por primera vez.
-6. Revisar resultados y la limpieza de fixtures **únicamente en TEST** — nunca en producción.
-7. Continuar las pruebas UX del canal WhatsApp, en particular los 2 hallazgos pendientes de A5 (mensaje de imagen no esperada, pregunta redundante de confirmación) y la ausencia de timeout por inactividad.
-8. Consolidar las correcciones UX de A5 en una implementación controlada, con el mismo criterio de bajo riesgo usado en el resto de este proyecto (no mezclar con la optimización de latencia).
-9. ~~Retomar la optimización de latencia (cache de `ConversationState`, `upsert` de `WhatsappPendingStepInput`, paralelización de discovery — todas diseñadas en A6 pero no persistidas) recién después de asegurar que la suite de tests corre de forma segura contra la base de TEST real.~~ — **[Actualizado 2026-08-14] hecho**, ver B1-B5. Fase de optimización de latencia de WhatsApp cerrada.
-
-Pendiente aparte, no incluido en la lista anterior porque implica escribir en producción (fuera del alcance de esta actualización, que es sólo documental): limpiar los 52 registros duplicados de `Organization` identificados en A3, incidente 2 — requiere que el usuario confirme cuál de cada grupo duplicado es el registro real a conservar.
+### Pruebas automatizadas vs. pruebas manuales
+Los resultados de arriba son de la suite automatizada (`node:test`), ejecutada en este entorno. Las verificaciones de comportamiento descriptas en los módulos de este informe (ej. §5, manejo de imágenes/ubicación en WhatsApp) están respaldadas por lectura directa y verificada del código fuente vigente — no por una corrida en vivo del bot contra un número de WhatsApp real. **No se ejecutó, como parte de la elaboración de este documento, una prueba manual continua de punta a punta del flujo completo de WhatsApp** (saludo → imagen → ubicación → funciones → entradas → vista previa → publicación) en un único recorrido — ver §10 para lo que queda pendiente de esa validación funcional.
 
 ---
 
-# ACTUALIZACIÓN AL 14 DE AGOSTO DE 2026
+## 10. LIMITACIONES Y PENDIENTES REALES
 
-Resumen consolidado de la optimización de latencia de WhatsApp diseñada en la actualización anterior (A6) y cerrada en la fecha de esta actualización. Verificado contra el historial Git y los tests ejecutados en este entorno; las cifras de latencia post-deploy fueron provistas por el usuario a partir de logs `[WA_PERF]` reales de producción — no verificables desde este entorno (sin acceso a Render). No se incluye ningún log completo, message ID, teléfono, credencial ni URL completa en esta sección.
+Sólo lo que sigue efectivamente pendiente, verificado contra el código vigente — nada de esto está ya resuelto:
 
-## B1. Commits de esta fase (en orden)
+1. **Integración de Mercado Pago.** Es la ausencia más grande del sistema — sin esto, ninguna venta cobra dinero de verdad. Todo el resto (entradas, QR, scanner, emails) ya está construido asumiendo que este paso va a existir.
+2. **Deduplicación de reintentos de Meta por `wamid`.** No implementada — ver §8.
+3. **Serialización de mensajes de WhatsApp por `wa_id`.** Hoy sólo hay detección de conflicto, no bloqueo/cola — considerar si aparece evidencia real de mensajes casi simultáneos del mismo número causando algún problema.
+4. **Timeout de conversación de WhatsApp por inactividad.** No hay campo de expiración en `ConversationState` ni ningún job/cron en el proyecto (no existe infraestructura de tareas programadas) que pudiera aplicarlo — una conversación abandonada queda `ACTIVE` indefinidamente hasta que el organizador la retoma o la cancela.
+5. **Revalidación funcional de fechas anteriores al día actual.** La regla está implementada en código (`isArgentineDateInThePast`, aplicada en los 3 caminos de carga de fecha) y verificada por lectura de código — falta una revalidación funcional en vivo como parte de una prueba final integral.
+6. **Revalidación funcional de las 3 modalidades de función (única/múltiples/recurrentes).** Mismo caso que el punto anterior: implementado y verificado por código, falta una pasada funcional en vivo.
+7. **Prueba final integral del canal WhatsApp de punta a punta.** No ejecutada como parte de este documento (ver §9).
+8. **Exportación real de entradas seleccionadas.** El botón existe en la UI, la lógica no.
+9. **Página de Términos de Servicio dedicada.** No se encontró una ruta propia en el frontend — sí existen ya `/privacidad` y `/eliminacion-de-datos` como páginas reales.
+10. **Limpieza de datos de prueba en producción.** Un lote de organizaciones de prueba (creadas por una corrida real de tests contra producción antes de que existiera `dbGuard.js`) quedó identificado pero no se confirmó su limpieza desde este entorno — no verificable sin consultar producción, fuera de alcance.
+11. **Recaudación mostrada como cobro real.** Sigue siendo la suma de ventas `CONFIRMED` en la base, no un cobro real — depende enteramente de Mercado Pago.
+12. **Protección temporal del panel de Herramientas de Desarrollo.** Documentada en el propio código como provisoria mientras no haya clientes reales — esa premisa no se pudo reverificar de forma independiente.
 
-1. **`0ea5ef2`** — `perf(whatsapp): reduce database operations per message`. Consolidó en código tres optimizaciones que la actualización anterior había diseñado pero no persistido (ver A6): cache de `ConversationState` acotada a un único mensaje (`conversationStateRequestCache.js`, vía `AsyncLocalStorage`, nunca compartida entre mensajes concurrentes), `resetPendingStepInput` convertido de `deleteMany`+`create` a un único `upsert`, y paralelización (`Promise.all`) de las dos consultas independientes de `discoverWhatsappOrganizationCandidates`.
-2. **`47324ee`** — `perf(whatsapp): reuse active conversation lookup`. La cache introducida por `0ea5ef2` quedaba vacía en el camino más común porque `findActiveConversation()` usaba un `select` parcial (`id`/`userId`/`organizationId`) que no alcanzaba para cachearse — `resume()` seguía pagando su propio `findUnique` completo. Se amplió la consulta a la fila completa y se pobló la cache ahí mismo (sin cambiar el contrato público de `findActiveConversation`, que sigue devolviendo sólo esos 3 campos a sus callers). El camino normal de `HANDLE_INPUT` bajó de 3 consultas (`findFirst` + `findUnique` + `updateMany`) a 2 (`findFirst` + `updateMany`). Sin impacto en Web: `findActiveConversation` es exclusivo del adaptador de WhatsApp.
-3. **`5a1c8e3`** — `perf(whatsapp): reduce preview draft queries`. En la rama DRAFT de `EventServicePort.commit()`, la lectura final (`getMyEventByIdService`) repetía la resolución de `User`/`Organization` que `createEventService` ya había hecho segundos antes en la misma llamada, y además corría un self-heal de archivado que nunca puede encontrar nada en un evento recién creado (todavía en estado `DRAFT`, el filtro del self-heal sólo mira `PUBLISHED`/`FINISHED`/`CANCELLED`). Se reemplazó por una lectura directa (`getEventWithDetailsById`, nueva, sin re-chequeo de pertenencia ni self-heal) — 3 operaciones Prisma menos por cada borrador guardado, verificado con conteo exacto contra la base de TEST. **`PREVIEW_PUBLISH` no se tocó**: se verificó que su desglose de operaciones quedó idéntico, antes y después.
-4. **`336f6e0`** — `fix(whatsapp): stop suggesting previous event location`. Eliminada la consulta `Event.findFirst` que, al llegar al paso de ubicación, ofrecía reutilizar la dirección de un evento anterior de la Organization, junto con el mensaje "¿el evento es en {lugar}?" asociado. El flujo pasa ahora directo al selector de método (1. Compartir ubicación / 2. Ingresar dirección manual), con el estado siempre vacío — sin dirección, coordenadas ni ningún dato precargado. El status `AWAITING_REUSE_CONFIRMATION` se dejó de generar para conversaciones nuevas, pero el sub-flujo todavía sabe procesarlo: una conversación vieja que ya estuviera esperando esa respuesta puede seguir respondiendo con normalidad, sin quedar trabada.
+---
 
-## B2. Resultados medidos (provistos por el usuario, logs `[WA_PERF]` de producción)
+## 11. GUÍA DE TRASPASO
 
-No verificables desde este entorno — no hay acceso a los logs de Render. Se documentan tal como fueron reportados, sin reproducir ninguna línea de log completa:
+### Archivos que un desarrollador nuevo debería leer primero
+1. Este documento completo.
+2. `backend/prisma/schema.prisma` — el modelo de datos real, fuente de verdad de toda relación.
+3. `backend/src/app.js` — todos los montajes de rutas y middlewares globales, en un solo lugar.
+4. `backend/src/conversation/EventCreationEngine.js` + `EventServicePort.js` — el motor compartido por Web y WhatsApp; entender esto antes de tocar cualquiera de los dos canales.
+5. `backend/src/controllers/whatsapp.controller.js` — el controller más grande del proyecto; concentra toda la interpretación de texto libre del bot.
+6. `frontend/src/App.jsx` — el árbol completo de rutas y guards por rol.
 
-- `HANDLE_INPUT`: mediana aproximada de ~3,24 s a ~2,62 s después de `47324ee`; muestras posteriores en el rango 2,3–2,7 s.
-- Flujo de imagen: de ~7,86 s a ~6,42 s, medido antes de la última simplificación (`336f6e0`) — no se reportó todavía una cifra posterior a ese commit.
-- `RESUME`: prácticamente 0 ms en el camino normal, consistente con que `47324ee` le elimina el `findUnique` propio.
-- Todas las muestras reportadas con `success:true`.
+### Cómo agregar una funcionalidad sin romper Web o WhatsApp
+Cualquier cambio a un paso del motor conversacional (`conversation/steps/`, `inputHandlers/`) afecta a **ambos** canales — no hay fork de lógica de negocio entre ellos. Si el cambio es específico de un canal (un texto, un formato de mensaje, una validación de formato de entrada), debe vivir en la capa de adaptador de ese canal (`whatsapp.controller.js`/`whatsappOrganizerBot.service.js` para WhatsApp; los componentes React del wizard/chat para Web), nunca en el motor. Antes de cambiar un paso compartido, revisar ambos adaptadores para confirmar que ninguno asume un detalle del formato anterior.
 
-## B3. Tests
+### Zonas que requieren especial cuidado
+- **`ConversationState` y su cache por mensaje** (`conversationStateRequestCache.js`) — la cache es exclusivamente por `AsyncLocalStorage`, nunca debe convertirse en una Map global ni persistir entre mensajes distintos.
+- **Escrituras a `ConversationState`** — siempre vía `updateMany` filtrado por `status: "ACTIVE"`, nunca un `update` ciego por id (ver §8).
+- **El secreto de cada QR** (`qrEncryption.js`) — nunca debe persistirse ni loguearse en texto plano.
+- **El paso `confirm` de un escaneo** — la atomicidad de esa única transacción es lo que impide un doble ingreso; cualquier refactor debe preservar el `UPDATE` condicional exacto.
+- **`dbGuard.js`** — ningún test nuevo que toque Prisma real debe implementar su propio chequeo de entorno; siempre importar `hasDatabase` desde ahí.
+- **Panel de Herramientas de Desarrollo** — su protección es deliberadamente mínima; no asumir que es seguro exponerlo o replicarlo sin agregar una capa extra antes de que haya clientes reales.
 
-Ejecutados y verificados en este entorno para cada uno de los 3 commits de código de esta fase (`47324ee`, `5a1c8e3`, `336f6e0`), en cada caso con el guardrail de A4 (`dbGuard.js`) confirmando el project-ref de TEST (`ldxmrsllusbnayerxtbu`) y la ausencia del de producción antes de correr cualquier test con DB:
+### Checklist antes de modificar DB, WhatsApp, ventas o QR
+- [ ] ¿El cambio toca `schema.prisma`? → generar una migración real, nunca editar una ya aplicada.
+- [ ] ¿El cambio toca un paso del motor conversacional? → verificar el impacto en Web **y** WhatsApp antes de mergear.
+- [ ] ¿El cambio agrega un test que usa Prisma real? → importar `hasDatabase` de `dbGuard.js`, nunca un chequeo propio de `process.env.DATABASE_URL`.
+- [ ] ¿Vas a correr `npm run test:db`? → confirmar el project-ref de `backend/.env.test` **antes** de ejecutar, nunca asumir.
+- [ ] ¿El cambio toca la emisión o validación de un `TicketQr`? → nunca loguear ni devolver el secreto en texto plano fuera de los puntos ya existentes (email, "Mis entradas", PDF).
+- [ ] ¿El cambio toca `Sale`/`Ticket.origin`? → confirmar que ninguna métrica comercial nueva deja de filtrar `origin=SALE`.
 
-- `npm run test:unit`: verde en los 3 puntos (505 pass / 0 fail en el estado final de la fase).
-- `npm run test:db`: verde en los 3 puntos (66/66 pass / 0 fail en el estado final), corrido contra la base de TEST real — primera vez que este comando se ejecutó contra una base real desde que existe el guardrail (A7 lo dejaba pendiente).
-- Se agregaron tests de conteo exacto de operaciones Prisma (antes/después) para `47324ee` y `5a1c8e3`, reutilizando la instrumentación `[WA_PERF]` ya existente contra datos reales de TEST, sin mocks de Prisma.
-- `336f6e0` no requirió tests con DB (cambio acotado a `whatsapp.controller.js`, capa con inyección de dependencias mockeada) — cubierto con tests unitarios nuevos más la suite preexistente de ubicación (sin modificar), que ya prueba de punta a punta dirección manual, ubicación compartida y la compatibilidad con conversaciones viejas en `AWAITING_REUSE_CONFIRMATION`.
+---
 
-## B4. Decisiones de alcance (explícitas del usuario para esta fase)
+## 12. HISTORIAL RESUMIDO
 
-- No seguir optimizando los pasos "planos" del motor conversacional (nombre, descripción, categoría, etc.) — margen de mejora marginal frente al riesgo de seguir tocando el camino caliente.
-- Los ~20 segundos de la operación de publicación (`PREVIEW_PUBLISH`) se aceptan tal cual: es una operación única por evento, no repetida por mensaje, y no una candidata prioritaria de optimización.
-- No se modifica Render, Supabase, el pooler de conexión ni ningún plan contratado — la causa de fondo diagnosticada en A6 (latencia de infraestructura, no de código de aplicación) queda documentada pero fuera de alcance por decisión explícita.
+Sólo hitos, sin narrar commits ni fases completas.
 
-## B5. Cierre de esta fase
-
-Con estos 4 commits, la optimización de latencia de WhatsApp diseñada en A6 y las lecturas duplicadas de `ConversationState` señaladas ahí mismo como pendientes quedan **implementadas y verificadas**. Se da por **cerrada** la fase de optimización de latencia de WhatsApp. Los puntos que siguen abiertos (B6) son de otra naturaleza — validación funcional/UX, no latencia — y quedan para una fase posterior, no como continuación directa de ésta.
-
-## B6. Pendientes (fuera del alcance de esta fase)
-
-- Respuesta cuando llega un video en el paso que espera una imagen (variante puntual de A5 #1, no reverificada en esta fase).
-- Validación de fechas anteriores al día actual como parte de una prueba final integral — A5 #6 ya documenta esto como implementado en código (`isArgentineDateInThePast`); lo que queda pendiente es la re-validación funcional, no una corrección de código conocida.
-- Verificación funcional de los 3 modos de función (única/múltiples/recurrentes) como parte de la misma prueba integral — A5 #7 ya lo documenta como implementado en código; misma salvedad que el punto anterior.
-- Prueba final integral del canal WhatsApp de punta a punta (no ejecutada en este entorno).
-- Integración de Mercado Pago — confirmado que sigue para una fase posterior, sin cambios respecto de las secciones 13/15 del informe original.
-
-## B7. Puntos de secciones previas superados por esta fase
-
-Los siguientes puntos de la actualización del 13/08 quedan reemplazados por B1-B5 (se dejan anotados en su lugar original en vez de reescribirse, siguiendo el mismo criterio que ya usa este informe en las secciones 13 y 15): la fila "Optimización de duplicados de `ConversationState`" de A2 (era "Diseñada, NO implementada"), el bloque de "Lecturas duplicadas de `ConversationState`" y "Optimizaciones pendientes" de A6 (`upsert` de pending y paralelización de discovery incluidos), y el punto 9 de A9 — los tres pasan a **implementados**, ver B1-B3.
+| Fecha | Cambio | Estado |
+|---|---|---|
+| 2026-08-08 | Redacción de la primera versión de este informe | Reemplazada por esta versión |
+| 2026-08-09 | Módulo de Ventas del organizador | Implementado |
+| 2026-08-09 | Páginas de Política de Privacidad y Eliminación de Datos | Implementado |
+| 2026-08-09/11 | Adaptador de WhatsApp para creación de eventos (motor compartido con Web) | Implementado |
+| 2026-08-12 | Corrección de descubrimiento de organizaciones por teléfono | Resuelto |
+| 2026-08-13 | Guardrail de tests contra producción (`dbGuard.js`) | Implementado, en `main` |
+| 2026-08-13 | Primera optimización de latencia de WhatsApp (cache por mensaje, upsert de pending, discovery paralelo) | Implementado |
+| 2026-08-14 | Optimización de `HANDLE_INPUT` (2 consultas en el camino habitual) | Implementado |
+| 2026-08-14 | Optimización de la lectura final de borradores (`PREVIEW_PUBLISH` sin cambios) | Implementado |
+| 2026-08-14 | Eliminación de la sugerencia de dirección de eventos anteriores en WhatsApp | Implementado |
+| 2026-08-14 | Reescritura de este informe como documentación de traspaso | Vigente |
