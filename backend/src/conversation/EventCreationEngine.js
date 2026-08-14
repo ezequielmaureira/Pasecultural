@@ -155,17 +155,35 @@ export async function start({ clerkId, channel, channelRef, organizationId = nul
 // mensajes, así que no hay otro identificador estable más que channel +
 // channelRef (Fase 2E). Reutiliza exactamente las mismas columnas que ya
 // escribe start(), no agrega ningún estado ni modelo nuevo.
-// Fase 3K — se agrega `organizationId` al select (ya existe en la fila
-// desde Fase 2G): lo necesita el adaptador WhatsApp para poder ofrecer
-// reutilizar la ubicación del último evento de ESA organización sin tener
-// que volver a resolverla por teléfono a mitad de conversación.
+// Fase 3K — `organizationId` se sigue exponiendo en el retorno (ya existe
+// en la fila desde Fase 2G): lo necesita el adaptador WhatsApp para poder
+// ofrecer reutilizar la ubicación del último evento de ESA organización sin
+// tener que volver a resolverla por teléfono a mitad de conversación.
+//
+// Fase 4 (PASO 2, optimización de latencia) — antes esta consulta traía un
+// `select` parcial (id/userId/organizationId), así que su resultado nunca
+// podía cachearse para reom(): resume() igual necesitaba currentStepId/
+// draftEvent/history/status, ausentes acá, y volvía a pagar su propio
+// findUnique. Ahora se trae la fila COMPLETA (mismo shape que ya devuelve
+// readConversationState) y se cachea de inmediato con
+// setCachedConversationState — si el mismo mensaje sigue con resume()
+// (WhatsApp siempre lo hace, ver whatsapp.controller.js), readConversationState
+// encuentra la copia ya cacheada y nunca dispara el findUnique. El WHERE de
+// esta consulta ya filtra `status: "ACTIVE"`, así que la fila cacheada es
+// exactamente tan fresca como la que antes leía resume() por su cuenta —
+// ningún caso nuevo de estado parcial o stale. setCachedConversationState es
+// no-op sin contexto activo (Web nunca llama a esta función), así que Web
+// queda completamente afuera de este cambio. El contrato público de
+// findActiveConversation no cambia: sigue devolviendo únicamente
+// {id, userId, organizationId} a sus callers, nunca la fila completa.
 export async function findActiveConversation({ channel, channelRef }) {
     const state = await prisma.conversationState.findFirst({
         where: { channel, channelRef, status: "ACTIVE" },
         orderBy: { createdAt: "desc" },
-        select: { id: true, userId: true, organizationId: true },
     });
-    return state ? { id: state.id, userId: state.userId, organizationId: state.organizationId } : null;
+    if (!state) return null;
+    setCachedConversationState(state);
+    return { id: state.id, userId: state.userId, organizationId: state.organizationId };
 }
 
 // Fase 4 (optimización de latencia) — único punto de lectura por id: si ya
