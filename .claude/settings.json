@@ -12,7 +12,9 @@
       "Bash(taskkill //F //PID 21780)",
       "Bash(git fetch *)",
       "Bash(taskkill //F //PID 380)",
-      "Bash(node --check src/services/email/sendSaleConfirmationEmail.service.js)"
+      "Bash(node --check src/services/email/sendSaleConfirmationEmail.service.js)",
+      "Bash(node --test tests/conversationStateRequestCache.test.js)",
+      "Bash(node /tmp/repro_discovery.mjs)"
     ]
   }
 }
