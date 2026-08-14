@@ -431,7 +431,7 @@ El informe original (2026-08-08) describía este canal como "declarado en el mod
 | Idempotencia ante reintentos de Meta | **No verificado — sin evidencia de protección explícita** | No se encontró ningún mecanismo de deduplicación por `messageId`/`wamid` en `whatsapp.controller.js`. Meta puede reentregar el mismo webhook más de una vez; no está probado qué pasa si eso ocurre mientras el mensaje ya fue procesado (en el peor caso, podría interpretarse como un segundo mensaje idéntico del usuario). No confirmado como bug real — sólo no hay evidencia de que esté protegido. |
 | Concurrencia (dos mensajes casi simultáneos del mismo número) | **No verificado** | No se encontró ningún `$transaction`/lock explícito alrededor de la lectura+escritura de `ConversationState` por mensaje, a diferencia del módulo Scanner (que sí tiene esta garantía verificada con pruebas de concurrencia real, ver sección 7 original). Distinto del caso Scanner porque un mismo organizador difícilmente mande dos mensajes en el mismo milisegundo, pero queda como un supuesto no probado, no como una garantía verificada. |
 | Instrumentación de latencia | **Implementado** | `whatsappPerf.js`: timer por mensaje (`[WA_PERF]`, gateado por `WHATSAPP_PERF_LOG`), conteo y duración de cada query Prisma real vía `instrumentPrismaClient` (Prisma Client Extensions + `AsyncLocalStorage`), y medición de llamadas externas (`timeExternalCall`, usado para el geocoding). Nunca loguea PII ni datos de negocio, sólo nombres de operación y duraciones. |
-| Optimización de duplicados de `ConversationState` | **Diseñada, NO implementada** | Ver A6 — un intento de cache transparente por `AsyncLocalStorage` para evitar releer `ConversationState` varias veces dentro de un mismo mensaje fue diseñado en una sesión anterior pero **no llegó a persistirse en el código** (confirmado ahora mismo: no hay ningún `AsyncLocalStorage`/`enterConversationStateCache` en `EventCreationEngine.js`). Sigue pendiente. |
+| Optimización de duplicados de `ConversationState` | **[Actualizado 2026-08-14] Implementada** | Persistida en `0ea5ef2` y `47324ee` — ver B1. El camino normal de `HANDLE_INPUT` pasó de 3 a 2 consultas. |
 
 ## A3. Últimos incidentes y correcciones (orden cronológico)
 
@@ -480,11 +480,11 @@ Verificado contra el código actual, no contra lo que documentos previos afirmab
 
 - **Instrumentación existente:** `whatsappPerf.js` — timer por mensaje, conteo/duración de cada query Prisma real (vía Prisma Client Extensions + `AsyncLocalStorage`, sin tocar cada service individualmente), medición de llamadas externas (geocoding). Gateada por `WHATSAPP_PERF_LOG`, nunca activa por defecto, nunca loguea PII.
 - **Cuellos de botella comprobados (con evidencia real de producción, en fases anteriores a esta actualización):** la enorme mayoría de la latencia de una interacción de WhatsApp está dentro de Prisma/Postgres, no en lógica de negocio ni en Meta; incluso un `findUnique` por clave primaria mostró una latencia uniforme alta, consistente con overhead de red/pooler entre Render y Supabase más que con complejidad de la query — diagnosticado, **nunca resuelto a nivel de infraestructura** (fuera del alcance autorizado en su momento).
-- **Lecturas duplicadas de `ConversationState`:** **siguen existiendo.** Un intento de cache transparente (`AsyncLocalStorage`) para reducir esas lecturas a ~1 por mensaje fue diseñado en una sesión anterior pero no quedó persistido en el código — confirmado ahora mismo releyendo `EventCreationEngine.js`: no hay ningún rastro de esa cache. Sigue pendiente, ver A9.
+- **Lecturas duplicadas de `ConversationState`:** **[Actualizado 2026-08-14] resueltas en el camino normal.** La cache transparente (`AsyncLocalStorage`) diseñada acá se persistió en `0ea5ef2`, y `47324ee` la terminó de poblar en el punto que quedaba vacío (`findActiveConversation`) — ver B1. `HANDLE_INPUT` pasó de 3 a 2 consultas de `ConversationState`.
 - **Índice propuesto** sobre `ConversationState (channel, channelRef, status, createdAt)`: sigue **propuesto, no aplicado** — ninguna sesión de este proyecto tocó el schema para esto.
 - **Optimizaciones ya aplicadas y confirmadas en el código actual:** `syncEventLinksService`/`syncEventScheduleService` con parámetro `returnEvent:false` para evitar una lectura pesada descartada; `EventLink` pasó de un loop de `create` a un único `createMany`; instrumentación de la llamada externa de geocoding (antes invisible dentro de "tiempo de base de datos"). Todo esto corresponde al commit `3363790`, ya en `origin/main`.
 - **Resultados antes/después:** no se incluye ningún número de milisegundos específico en esta actualización salvo los ya documentados en informes de fases anteriores de este mismo repositorio — en particular, la cifra de "`LOCATION_CONFIRMATION_PROMPT` ~5176 ms" mencionada como antecedente posible **no se encontró en ningún archivo, log o commit del repositorio** (se buscó explícitamente) y por lo tanto no se incluye como dato verificado; `LOCATION_CONFIRMATION_PROMPT` sí existe en el código como nombre de marca de instrumentación (`whatsapp.controller.js`), pero sin ningún valor de latencia asociado guardado en el repositorio.
-- **Optimizaciones pendientes:** cache de `ConversationState` (diseñada, no aplicada), `resetPendingStepInput` como `upsert` en vez de `deleteMany`+`create` (diseñada, no aplicada — confirmado: el archivo sigue con el patrón de dos operaciones), paralelización de las dos queries independientes de `discoverWhatsappOrganizationCandidates` vía `Promise.all` (diseñada, no aplicada — confirmado: siguen siendo dos `await` secuenciales), y la investigación de infraestructura (región Render/Supabase, modo de conexión del pooler) documentada pero nunca aplicada por estar fuera del alcance autorizado hasta ahora.
+- **Optimizaciones pendientes:** **[Actualizado 2026-08-14]** cache de `ConversationState`, `resetPendingStepInput` como `upsert` y paralelización de `discoverWhatsappOrganizationCandidates` — las 3 aplicadas y verificadas, ver B1. Sigue sin aplicarse, por decisión explícita (ver B4): la investigación de infraestructura (región Render/Supabase, modo de conexión del pooler).
 
 ## A7. Base Supabase de TEST
 
@@ -516,6 +516,59 @@ No se ejecutó ningún test con DB contra ningún project-ref sin poder confirma
 6. Revisar resultados y la limpieza de fixtures **únicamente en TEST** — nunca en producción.
 7. Continuar las pruebas UX del canal WhatsApp, en particular los 2 hallazgos pendientes de A5 (mensaje de imagen no esperada, pregunta redundante de confirmación) y la ausencia de timeout por inactividad.
 8. Consolidar las correcciones UX de A5 en una implementación controlada, con el mismo criterio de bajo riesgo usado en el resto de este proyecto (no mezclar con la optimización de latencia).
-9. Retomar la optimización de latencia (cache de `ConversationState`, `upsert` de `WhatsappPendingStepInput`, paralelización de discovery — todas diseñadas en A6 pero no persistidas) recién después de asegurar que la suite de tests corre de forma segura contra la base de TEST real.
+9. ~~Retomar la optimización de latencia (cache de `ConversationState`, `upsert` de `WhatsappPendingStepInput`, paralelización de discovery — todas diseñadas en A6 pero no persistidas) recién después de asegurar que la suite de tests corre de forma segura contra la base de TEST real.~~ — **[Actualizado 2026-08-14] hecho**, ver B1-B5. Fase de optimización de latencia de WhatsApp cerrada.
 
 Pendiente aparte, no incluido en la lista anterior porque implica escribir en producción (fuera del alcance de esta actualización, que es sólo documental): limpiar los 52 registros duplicados de `Organization` identificados en A3, incidente 2 — requiere que el usuario confirme cuál de cada grupo duplicado es el registro real a conservar.
+
+---
+
+# ACTUALIZACIÓN AL 14 DE AGOSTO DE 2026
+
+Resumen consolidado de la optimización de latencia de WhatsApp diseñada en la actualización anterior (A6) y cerrada en la fecha de esta actualización. Verificado contra el historial Git y los tests ejecutados en este entorno; las cifras de latencia post-deploy fueron provistas por el usuario a partir de logs `[WA_PERF]` reales de producción — no verificables desde este entorno (sin acceso a Render). No se incluye ningún log completo, message ID, teléfono, credencial ni URL completa en esta sección.
+
+## B1. Commits de esta fase (en orden)
+
+1. **`0ea5ef2`** — `perf(whatsapp): reduce database operations per message`. Consolidó en código tres optimizaciones que la actualización anterior había diseñado pero no persistido (ver A6): cache de `ConversationState` acotada a un único mensaje (`conversationStateRequestCache.js`, vía `AsyncLocalStorage`, nunca compartida entre mensajes concurrentes), `resetPendingStepInput` convertido de `deleteMany`+`create` a un único `upsert`, y paralelización (`Promise.all`) de las dos consultas independientes de `discoverWhatsappOrganizationCandidates`.
+2. **`47324ee`** — `perf(whatsapp): reuse active conversation lookup`. La cache introducida por `0ea5ef2` quedaba vacía en el camino más común porque `findActiveConversation()` usaba un `select` parcial (`id`/`userId`/`organizationId`) que no alcanzaba para cachearse — `resume()` seguía pagando su propio `findUnique` completo. Se amplió la consulta a la fila completa y se pobló la cache ahí mismo (sin cambiar el contrato público de `findActiveConversation`, que sigue devolviendo sólo esos 3 campos a sus callers). El camino normal de `HANDLE_INPUT` bajó de 3 consultas (`findFirst` + `findUnique` + `updateMany`) a 2 (`findFirst` + `updateMany`). Sin impacto en Web: `findActiveConversation` es exclusivo del adaptador de WhatsApp.
+3. **`5a1c8e3`** — `perf(whatsapp): reduce preview draft queries`. En la rama DRAFT de `EventServicePort.commit()`, la lectura final (`getMyEventByIdService`) repetía la resolución de `User`/`Organization` que `createEventService` ya había hecho segundos antes en la misma llamada, y además corría un self-heal de archivado que nunca puede encontrar nada en un evento recién creado (todavía en estado `DRAFT`, el filtro del self-heal sólo mira `PUBLISHED`/`FINISHED`/`CANCELLED`). Se reemplazó por una lectura directa (`getEventWithDetailsById`, nueva, sin re-chequeo de pertenencia ni self-heal) — 3 operaciones Prisma menos por cada borrador guardado, verificado con conteo exacto contra la base de TEST. **`PREVIEW_PUBLISH` no se tocó**: se verificó que su desglose de operaciones quedó idéntico, antes y después.
+4. **`336f6e0`** — `fix(whatsapp): stop suggesting previous event location`. Eliminada la consulta `Event.findFirst` que, al llegar al paso de ubicación, ofrecía reutilizar la dirección de un evento anterior de la Organization, junto con el mensaje "¿el evento es en {lugar}?" asociado. El flujo pasa ahora directo al selector de método (1. Compartir ubicación / 2. Ingresar dirección manual), con el estado siempre vacío — sin dirección, coordenadas ni ningún dato precargado. El status `AWAITING_REUSE_CONFIRMATION` se dejó de generar para conversaciones nuevas, pero el sub-flujo todavía sabe procesarlo: una conversación vieja que ya estuviera esperando esa respuesta puede seguir respondiendo con normalidad, sin quedar trabada.
+
+## B2. Resultados medidos (provistos por el usuario, logs `[WA_PERF]` de producción)
+
+No verificables desde este entorno — no hay acceso a los logs de Render. Se documentan tal como fueron reportados, sin reproducir ninguna línea de log completa:
+
+- `HANDLE_INPUT`: mediana aproximada de ~3,24 s a ~2,62 s después de `47324ee`; muestras posteriores en el rango 2,3–2,7 s.
+- Flujo de imagen: de ~7,86 s a ~6,42 s, medido antes de la última simplificación (`336f6e0`) — no se reportó todavía una cifra posterior a ese commit.
+- `RESUME`: prácticamente 0 ms en el camino normal, consistente con que `47324ee` le elimina el `findUnique` propio.
+- Todas las muestras reportadas con `success:true`.
+
+## B3. Tests
+
+Ejecutados y verificados en este entorno para cada uno de los 3 commits de código de esta fase (`47324ee`, `5a1c8e3`, `336f6e0`), en cada caso con el guardrail de A4 (`dbGuard.js`) confirmando el project-ref de TEST (`ldxmrsllusbnayerxtbu`) y la ausencia del de producción antes de correr cualquier test con DB:
+
+- `npm run test:unit`: verde en los 3 puntos (505 pass / 0 fail en el estado final de la fase).
+- `npm run test:db`: verde en los 3 puntos (66/66 pass / 0 fail en el estado final), corrido contra la base de TEST real — primera vez que este comando se ejecutó contra una base real desde que existe el guardrail (A7 lo dejaba pendiente).
+- Se agregaron tests de conteo exacto de operaciones Prisma (antes/después) para `47324ee` y `5a1c8e3`, reutilizando la instrumentación `[WA_PERF]` ya existente contra datos reales de TEST, sin mocks de Prisma.
+- `336f6e0` no requirió tests con DB (cambio acotado a `whatsapp.controller.js`, capa con inyección de dependencias mockeada) — cubierto con tests unitarios nuevos más la suite preexistente de ubicación (sin modificar), que ya prueba de punta a punta dirección manual, ubicación compartida y la compatibilidad con conversaciones viejas en `AWAITING_REUSE_CONFIRMATION`.
+
+## B4. Decisiones de alcance (explícitas del usuario para esta fase)
+
+- No seguir optimizando los pasos "planos" del motor conversacional (nombre, descripción, categoría, etc.) — margen de mejora marginal frente al riesgo de seguir tocando el camino caliente.
+- Los ~20 segundos de la operación de publicación (`PREVIEW_PUBLISH`) se aceptan tal cual: es una operación única por evento, no repetida por mensaje, y no una candidata prioritaria de optimización.
+- No se modifica Render, Supabase, el pooler de conexión ni ningún plan contratado — la causa de fondo diagnosticada en A6 (latencia de infraestructura, no de código de aplicación) queda documentada pero fuera de alcance por decisión explícita.
+
+## B5. Cierre de esta fase
+
+Con estos 4 commits, la optimización de latencia de WhatsApp diseñada en A6 y las lecturas duplicadas de `ConversationState` señaladas ahí mismo como pendientes quedan **implementadas y verificadas**. Se da por **cerrada** la fase de optimización de latencia de WhatsApp. Los puntos que siguen abiertos (B6) son de otra naturaleza — validación funcional/UX, no latencia — y quedan para una fase posterior, no como continuación directa de ésta.
+
+## B6. Pendientes (fuera del alcance de esta fase)
+
+- Respuesta cuando llega un video en el paso que espera una imagen (variante puntual de A5 #1, no reverificada en esta fase).
+- Validación de fechas anteriores al día actual como parte de una prueba final integral — A5 #6 ya documenta esto como implementado en código (`isArgentineDateInThePast`); lo que queda pendiente es la re-validación funcional, no una corrección de código conocida.
+- Verificación funcional de los 3 modos de función (única/múltiples/recurrentes) como parte de la misma prueba integral — A5 #7 ya lo documenta como implementado en código; misma salvedad que el punto anterior.
+- Prueba final integral del canal WhatsApp de punta a punta (no ejecutada en este entorno).
+- Integración de Mercado Pago — confirmado que sigue para una fase posterior, sin cambios respecto de las secciones 13/15 del informe original.
+
+## B7. Puntos de secciones previas superados por esta fase
+
+Los siguientes puntos de la actualización del 13/08 quedan reemplazados por B1-B5 (se dejan anotados en su lugar original en vez de reescribirse, siguiendo el mismo criterio que ya usa este informe en las secciones 13 y 15): la fila "Optimización de duplicados de `ConversationState`" de A2 (era "Diseñada, NO implementada"), el bloque de "Lecturas duplicadas de `ConversationState`" y "Optimizaciones pendientes" de A6 (`upsert` de pending y paralelización de discovery incluidos), y el punto 9 de A9 — los tres pasan a **implementados**, ver B1-B3.
