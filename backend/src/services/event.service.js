@@ -267,6 +267,25 @@ export const getMyEventByIdService = async (clerkId, id, organizationId = null) 
     return event;
 };
 
+// FASE 3 (perf PREVIEW_DRAFT) — lectura final SIN re-validar pertenencia ni
+// correr self-heal de archivado. Pensada EXCLUSIVAMENTE para
+// EventServicePort.commit() en la rama DRAFT: para ese caller, el evento
+// fue creado unas líneas antes EN LA MISMA llamada a commit() (nada
+// concurrente puede haber tocado su organizationId en el medio, es
+// secuencial dentro de una sola invocación async), así que re-verificar
+// pertenencia sería repetir exactamente el mismo resultado que
+// createEventService ya confirmó. El self-heal de archivado tampoco puede
+// encontrar nada: un evento recién creado siempre está en status "DRAFT",
+// que nunca matchea el filtro de runArchiveSelfHeal (sólo mira
+// PUBLISHED/FINISHED/CANCELLED) — correrlo acá siempre sería una consulta
+// que no puede cambiar el resultado. NO reemplaza a getMyEventByIdService
+// para ningún otro caller (ej. event.controller.js/Web, que sí necesita
+// volver a validar pertenencia y correr self-heal sobre un evento que pudo
+// haber sido tocado por otro proceso desde la última vez que se leyó).
+export const getEventWithDetailsById = (id) => {
+    return prisma.event.findUnique({ where: { id }, include: EVENT_DETAIL_INCLUDE });
+};
+
 function assertPublishable(event) {
     if (!event.venueName || !event.venueName.trim()) {
         throw new Error("LOCATION_MISSING_VENUE_NAME");

@@ -3,7 +3,7 @@ import {
     syncEventLinksService,
     syncEventScheduleService,
     updateMyEventService,
-    getMyEventByIdService,
+    getEventWithDetailsById,
 } from "../services/event.service.js";
 import { SOCIAL_NETWORKS } from "../utils/eventCategories.js";
 import { combineCalendarDateTime } from "../utils/calendarDate.js";
@@ -110,8 +110,8 @@ export async function commit(clerkId, draftEvent, action, organizationId = null)
 
         // Fase 3O — perf: acá nunca se usa el evento que devuelven estas dos
         // llamadas (se pisa más abajo con updateMyEventService/
-        // getMyEventByIdService), así que `returnEvent: false` les ahorra el
-        // findUnique con EVENT_DETAIL_INCLUDE que iban a descartar igual.
+        // getEventWithDetailsById), así que `returnEvent: false` les ahorra
+        // el findUnique con EVENT_DETAIL_INCLUDE que iban a descartar igual.
         // Ver el comentario de cada service en event.service.js.
         const links = buildLinksInput(draftEvent);
         if (links.length > 0) {
@@ -132,7 +132,13 @@ export async function commit(clerkId, draftEvent, action, organizationId = null)
         if (action === "PUBLISH") {
             event = await updateMyEventService(clerkId, event.id, { status: "PUBLISHED" }, organizationId);
         } else {
-            event = await getMyEventByIdService(clerkId, event.id, organizationId);
+            // FASE 3 (perf PREVIEW_DRAFT) — antes esto era getMyEventByIdService
+            // (clerkId, event.id, organizationId), que vuelve a resolver
+            // User+Organization y corre el self-heal de archivado por su
+            // cuenta: ambos son redundantes acá (ver justificación completa en
+            // event.service.js#getEventWithDetailsById). Rama exclusiva de
+            // DRAFT — la rama PUBLISH de arriba no se toca.
+            event = await getEventWithDetailsById(event.id);
         }
 
         return event;

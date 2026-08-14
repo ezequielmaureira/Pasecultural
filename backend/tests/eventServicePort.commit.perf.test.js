@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import prisma from "../src/config/prisma.js";
 import { commit } from "../src/conversation/EventServicePort.js";
 import { syncEventLinksService, syncEventScheduleService } from "../src/services/event.service.js";
+import { logger } from "../src/logging/logger.js";
+import { startWhatsappPerfTimer, enterWithActiveTimer } from "../src/utils/whatsappPerf.js";
 
 // Fase 3O (perf PREVIEW_PUBLISH) — igual que whatsappOrganizerDiscovery.test.js:
 // createEventService/syncEventLinksService/syncEventScheduleService tocan
@@ -24,6 +26,45 @@ const testWithDb = hasDatabase ? test : test.skip;
 
 function uniqueSuffix() {
     return randomUUID().slice(0, 8);
+}
+
+// Mismo patrón que eventCreationEngine.conversationStateCache.test.js (Fase
+// 4/2B): reutiliza la instrumentación [WA_PERF] ya existente
+// (instrumentPrismaClient, activa sólo con WHATSAPP_PERF_LOG=true) para
+// contar operaciones Prisma reales por nombre exacto, sin mockear Prisma.
+function withPerfEnv(run) {
+    const originalEnv = process.env.WHATSAPP_PERF_LOG;
+    process.env.WHATSAPP_PERF_LOG = "true";
+    return run().finally(() => {
+        if (originalEnv === undefined) delete process.env.WHATSAPP_PERF_LOG;
+        else process.env.WHATSAPP_PERF_LOG = originalEnv;
+    });
+}
+
+function withPerfLogCapture(run) {
+    const originalInfo = logger.info;
+    const calls = [];
+    logger.info = (message, context) => calls.push({ message, context });
+    return run(calls).finally(() => {
+        logger.info = originalInfo;
+    });
+}
+
+function countCalls(dbCalls, label) {
+    return dbCalls.filter((c) => c.label.toLowerCase() === label.toLowerCase()).length;
+}
+
+async function commitWithDbCalls(clerkId, draft, action, organizationId) {
+    return withPerfEnv(() =>
+        withPerfLogCapture(async (calls) => {
+            const timer = startWhatsappPerfTimer();
+            enterWithActiveTimer(timer);
+            const event = await commit(clerkId, draft, action, organizationId);
+            timer.finish({ conversationId: "test" });
+            const dbCalls = calls.find((c) => c.message === "[WA_PERF]").context.dbCalls;
+            return { event, dbCalls };
+        })
+    );
 }
 
 async function createUser(overrides = {}) {
@@ -308,6 +349,103 @@ testWithDb("syncEventScheduleService: default (sin opciones) sigue devolviendo e
         assert.ok(result, "debe devolver el evento, no null");
         assert.equal(result.functions.length, 1);
         assert.equal(result.ticketTypes.length, 1);
+    } finally {
+        await cleanup({ eventIds: event ? [event.id] : [], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+// ==================================================================
+// D. FASE 3 (perf PREVIEW_DRAFT) — commit()'s DRAFT branch reads the final
+// event via event.service.js#getEventWithDetailsById instead of
+// getMyEventByIdService: no redundant getMyOrganization() re-fetch (User +
+// Organization ya resueltos por createEventService en la misma llamada) y
+// sin el self-heal de archivado (matemáticamente imposible que encuentre
+// algo en un evento recién creado, todavía DRAFT). La rama PUBLISH
+// (updateMyEventService) y todo lo previo a la bifurcación (createEventService/
+// syncEventLinksService/syncEventScheduleService) quedan intocados — se
+// verifica acá que su desglose de dbCalls es BYTE A BYTE igual al de antes.
+// ==================================================================
+
+testWithDb("FASE 3.1) commit(DRAFT) with links: exactly 3 fewer operations than before (no self-heal findMany, no extra User/Organization.findUnique) — 23 -> 20", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    let event;
+    try {
+        const result = await commitWithDbCalls(owner.clerkId, buildDraft(), "DRAFT", org.id);
+        event = result.event;
+        const { dbCalls } = result;
+
+        assert.equal(dbCalls.length, 20, `dbCallCount esperado 20, dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
+        assert.equal(countCalls(dbCalls, "User.findUnique"), 3, "createEventService + syncEventLinksService + syncEventScheduleService, ya no la lectura final");
+        assert.equal(countCalls(dbCalls, "Organization.findUnique"), 3);
+        assert.equal(countCalls(dbCalls, "Event.findUnique"), 4, "slug-check + 2 ownership checks compartidos + la lectura final (sin cambios)");
+        assert.equal(countCalls(dbCalls, "Event.findMany"), 0, "el self-heal de archivado ya no se ejecuta para un evento recién creado");
+        assert.equal(countCalls(dbCalls, "Event.create"), 1);
+
+        assert.equal(event.status, "DRAFT");
+        assert.equal(event.organizationId, org.id);
+    } finally {
+        await cleanup({ eventIds: event ? [event.id] : [], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("FASE 3.2) commit(DRAFT) without links: exactly 3 fewer operations than before — 18 -> 15", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    let event;
+    try {
+        const draft = buildDraft({ promoVideoUrl: null, socialLinks: [] });
+        const result = await commitWithDbCalls(owner.clerkId, draft, "DRAFT", org.id);
+        event = result.event;
+        const { dbCalls } = result;
+
+        assert.equal(dbCalls.length, 15, `dbCallCount esperado 15, dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
+        assert.equal(countCalls(dbCalls, "User.findUnique"), 2, "createEventService + syncEventScheduleService únicamente (syncEventLinksService se saltea sin links)");
+        assert.equal(countCalls(dbCalls, "Organization.findUnique"), 2);
+        assert.equal(countCalls(dbCalls, "Event.findUnique"), 3, "slug-check + ownership de syncEventScheduleService + la lectura final");
+        assert.equal(countCalls(dbCalls, "Event.findMany"), 0);
+    } finally {
+        await cleanup({ eventIds: event ? [event.id] : [], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("FASE 3.3) commit(PUBLISH) stays byte-for-byte identical — mismo desglose de dbCalls que antes de este cambio, nada tocado en esa rama", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    let event;
+    try {
+        const result = await commitWithDbCalls(owner.clerkId, buildDraft(), "PUBLISH", org.id);
+        event = result.event;
+        const { dbCalls } = result;
+
+        assert.equal(dbCalls.length, 23, `PREVIEW_PUBLISH no debe cambiar de cantidad de operaciones, dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
+        assert.equal(countCalls(dbCalls, "User.findUnique"), 4, "createEventService + syncEventLinksService + syncEventScheduleService + updateMyEventService, sin cambios");
+        assert.equal(countCalls(dbCalls, "Organization.findUnique"), 4);
+        assert.equal(countCalls(dbCalls, "Event.findUnique"), 4);
+        assert.equal(countCalls(dbCalls, "Event.update"), 2, "recomputeEventSummary (dentro de la transacción) + la publicación real");
+        assert.equal(countCalls(dbCalls, "Event.findMany"), 0, "PUBLISH nunca pasó por getMyEventByIdService, no había self-heal que quitar");
+
+        assert.equal(event.status, "PUBLISHED");
+    } finally {
+        await cleanup({ eventIds: event ? [event.id] : [], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("FASE 3.4) commit(DRAFT) regression: el evento devuelto sigue trayendo funciones/ticketTypes/links completos, igual que con getMyEventByIdService antes", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    let event;
+    try {
+        event = await commit(owner.clerkId, buildDraft(), "DRAFT", org.id);
+
+        assert.equal(event.status, "DRAFT");
+        assert.equal(event.organizationId, org.id);
+        assert.equal(event.links.length, 2);
+        assert.equal(event.functions.length, 2);
+        assert.equal(event.ticketTypes.length, 2);
+        for (const fn of event.functions) {
+            assert.equal(fn.ticketAssignments.length, 2);
+        }
     } finally {
         await cleanup({ eventIds: event ? [event.id] : [], organizationIds: [org.id], userIds: [owner.id] });
     }
