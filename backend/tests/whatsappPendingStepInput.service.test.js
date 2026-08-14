@@ -9,6 +9,8 @@ import {
     deletePendingStepInput,
     resetPendingStepInput,
 } from "../src/services/whatsappPendingStepInput.service.js";
+import { logger } from "../src/logging/logger.js";
+import { startWhatsappPerfTimer, enterWithActiveTimer } from "../src/utils/whatsappPerf.js";
 
 // Fase 3B — este service es CRUD puro contra Postgres real: create/update/
 // delete/CASCADE/aislamiento entre filas no son expresables como funciones
@@ -132,6 +134,86 @@ testWithDb("resetPendingStepInput discards the old pending and starts fresh for 
 
         const current = await getPendingStepInput(conv.id);
         assert.equal(current.id, reset.id, "sólo debe quedar UN pending por conversación después del reset");
+    } finally {
+        await deleteConversationState(conv.id);
+    }
+});
+
+// ==================================================================
+// Fase 4 (optimización de latencia) — resetPendingStepInput pasó de
+// deleteMany+create (dos escrituras) a un único upsert. Se prueba con la
+// misma instrumentación real de Fase 3N (instrumentPrismaClient, activa
+// siempre en config/prisma.js, no-op salvo WHATSAPP_PERF_LOG=true) para
+// contar cuántas operaciones Prisma reales dispara — no hace falta mockear
+// nada, es exactamente el mismo mecanismo que ya usa [WA_PERF] en
+// producción.
+// ==================================================================
+
+function withPerfEnv(run) {
+    const originalEnv = process.env.WHATSAPP_PERF_LOG;
+    process.env.WHATSAPP_PERF_LOG = "true";
+    return run().finally(() => {
+        if (originalEnv === undefined) delete process.env.WHATSAPP_PERF_LOG;
+        else process.env.WHATSAPP_PERF_LOG = originalEnv;
+    });
+}
+
+function withPerfLogCapture(run) {
+    const originalInfo = logger.info;
+    const calls = [];
+    logger.info = (message, context) => calls.push({ message, context });
+    return run(calls).finally(() => {
+        logger.info = originalInfo;
+    });
+}
+
+// 6) reset usa una sola escritura — tanto para inicializar como para
+// reemplazar un pending ya existente.
+testWithDb("6) resetPendingStepInput writes exactly once (a single upsert), never deleteMany + create", async () => {
+    const conv = await createConversationState();
+    try {
+        await withPerfEnv(() =>
+            withPerfLogCapture(async (calls) => {
+                const timer = startWhatsappPerfTimer();
+                enterWithActiveTimer(timer);
+
+                // Caso A: no había ningún pending todavía (inicializar).
+                await resetPendingStepInput(conv.id, "LOCATION", "AWAITING_STREET");
+                // Caso B: ya había un pending de este mismo step (reemplazar).
+                await resetPendingStepInput(conv.id, "FUNCTIONS_SINGLE_CARD", "AWAITING_DATE", { date: "2026-08-25" });
+
+                timer.finish({ conversationId: conv.id });
+                const dbCalls = calls.find((c) => c.message === "[WA_PERF]").context.dbCalls;
+                const labels = dbCalls.map((c) => c.label.toLowerCase());
+
+                assert.equal(labels.filter((l) => l === "whatsapppendingstepinput.upsert").length, 2, `esperaba 2 upserts (uno por llamada), dbCalls: ${JSON.stringify(dbCalls)}`);
+                assert.ok(!labels.includes("whatsapppendingstepinput.deletemany"), "resetPendingStepInput nunca debe disparar deleteMany");
+                assert.ok(!labels.includes("whatsapppendingstepinput.create"), "resetPendingStepInput nunca debe disparar create por separado");
+
+                const current = await getPendingStepInput(conv.id);
+                assert.equal(current.stepId, "FUNCTIONS_SINGLE_CARD", "el segundo reset debe haber reemplazado por completo al primero");
+                assert.deepEqual(current.partialData, { date: "2026-08-25" });
+            })
+        );
+    } finally {
+        await deleteConversationState(conv.id);
+    }
+});
+
+// 7) los deletes reales siguen eliminando el pending — deletePendingStepInput
+// (usado cuando el comportamiento pedido es realmente "no hay más pending",
+// nunca "reemplazar por otro step") no se tocó: sigue siendo un deleteMany
+// real, cubierto arriba por "deletePendingStepInput removes it" /
+// "...is idempotent when nothing exists". Este test conecta explícitamente
+// ambos comportamientos: reset reemplaza con upsert, delete sigue borrando.
+testWithDb("7) resetPendingStepInput replaces via upsert, but deletePendingStepInput still genuinely deletes the row", async () => {
+    const conv = await createConversationState();
+    try {
+        await resetPendingStepInput(conv.id, "LOCATION", "AWAITING_STREET");
+        assert.ok(await getPendingStepInput(conv.id), "debe existir tras el reset");
+
+        await deletePendingStepInput(conv.id);
+        assert.equal(await getPendingStepInput(conv.id), null, "delete real debe seguir dejando la conversación sin ningún pending");
     } finally {
         await deleteConversationState(conv.id);
     }

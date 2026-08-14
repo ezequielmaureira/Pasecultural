@@ -96,6 +96,7 @@ import {
     deletePendingStepInput,
 } from "../services/whatsappPendingStepInput.service.js";
 import { startWhatsappPerfTimer, enterWithActiveTimer } from "../utils/whatsappPerf.js";
+import { enterWithConversationStateRequestCache } from "../conversation/conversationStateRequestCache.js";
 
 // El valor real de ConversationChannel para este canal (ver
 // prisma/schema.prisma `enum ConversationChannel { WEB WHATSAPP }`, ya usado
@@ -1167,6 +1168,12 @@ export async function processInboundMessage(
     // exacto vía AsyncLocalStorage — ver instrumentPrismaClient,
     // utils/whatsappPerf.js. No-op si WHATSAPP_PERF_LOG no está activo.
     enterWithActiveTimer(perf);
+    // Fase 4 (optimización de latencia) — mismo mecanismo y mismo punto de
+    // entrada que enterWithActiveTimer: un contexto de AsyncLocalStorage
+    // nuevo por mensaje (ver conversationStateRequestCache.js), nunca una
+    // Map global. Web (conversation.controller.js) nunca llama a esto, así
+    // que su comportamiento queda exactamente igual que antes.
+    enterWithConversationStateRequestCache();
     let activeConversationId = null;
     const reply = (replyText, engineAction) =>
         sendBotReply({ sendText, to, from: message.from, messageId: message.messageId, text: replyText, engineAction, perf, conversationId: activeConversationId });

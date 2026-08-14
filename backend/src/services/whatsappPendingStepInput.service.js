@@ -68,12 +68,19 @@ export async function deletePendingStepInput(conversationId) {
 }
 
 // La forma "limpia" de descartar/resetear que pide la sección 5 del pedido:
-// borra cualquier pending previo de esta conversación (sea del mismo step o
-// de uno viejo) y crea uno nuevo para `stepId` desde cero. Nunca dos
-// llamadas sueltas (delete + create) libradas al caller: una sola función
-// atómica desde el punto de vista del contrato del service, para que nunca
-// quede un estado intermedio ambiguo entre las dos operaciones.
+// reemplaza cualquier pending previo de esta conversación (sea del mismo
+// step o de uno viejo) por uno nuevo para `stepId` desde cero. Fase 4
+// (optimización de latencia) — antes esto era deleteMany + create (dos
+// round-trips); conversationId es @unique en el schema (ver
+// WhatsappPendingStepInput.conversationId), así que "borrar lo que había y
+// crear lo nuevo" y "upsert-eando esa misma fila" son exactamente el mismo
+// resultado final, en una sola escritura. Sigue siendo una única función
+// desde el punto de vista del contrato del service (nunca dos llamadas
+// sueltas libradas al caller), ahora también una única operación real.
 export async function resetPendingStepInput(conversationId, stepId, status, partialData = {}) {
-    await deletePendingStepInput(conversationId);
-    return createPendingStepInput(conversationId, stepId, status, partialData);
+    return prisma.whatsappPendingStepInput.upsert({
+        where: { conversationId },
+        create: { conversationId, stepId, status, partialData },
+        update: { stepId, status, partialData },
+    });
 }

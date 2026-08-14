@@ -3,6 +3,11 @@ import { FIRST_STEP_ID, PREVIEW_STEP_ID, getStep } from "./steps/definitions.js"
 import { SECTIONS } from "./steps/sections.js";
 import { getInputHandler } from "./inputHandlers/index.js";
 import * as EventServicePort from "./EventServicePort.js";
+import {
+    getCachedConversationState,
+    setCachedConversationState,
+    invalidateCachedConversationState,
+} from "./conversationStateRequestCache.js";
 
 // Orquestador único del flujo conversacional de creación de eventos.
 // No conoce Express, Twilio, ni Prisma más allá de leer/escribir su propio
@@ -163,8 +168,58 @@ export async function findActiveConversation({ channel, channelRef }) {
     return state ? { id: state.id, userId: state.userId, organizationId: state.organizationId } : null;
 }
 
-async function loadActiveConversation(conversationId) {
+// Fase 4 (optimización de latencia) — único punto de lectura por id: si ya
+// hay una copia cacheada de ESTE mensaje (ver conversationStateRequestCache.js)
+// la reutiliza sin volver a golpear Prisma; si no, lee real y la deja
+// cacheada para el resto del mensaje. Sin contexto activo (Web, o el primer
+// vistazo de cada mensaje de WhatsApp) esto es exactamente un findUnique
+// normal — cero diferencia de comportamiento, sólo de cuántas veces se
+// dispara.
+async function readConversationState(conversationId) {
+    const cached = getCachedConversationState(conversationId);
+    if (cached) return cached;
     const state = await prisma.conversationState.findUnique({ where: { id: conversationId } });
+    if (state) setCachedConversationState(state);
+    return state;
+}
+
+// Fase 4 — toda escritura de ConversationState pasa por acá. Antes de este
+// cambio, cada `update` confiaba en que loadActiveConversation acababa de
+// hacer SU PROPIA lectura fresca un instante antes (así que un `update`
+// ciego, sin filtrar por status, nunca corría riesgo real: nada más podía
+// haber tocado la fila en ese instante). Ahora que loadActiveConversation
+// puede devolver una copia CACHEADA (leída más temprano en el mismo
+// mensaje, ej. por resume()) esa garantía implícita ya no alcanza sola —así
+// que se repone acá, explícitamente: la escritura sólo se aplica si la fila
+// SIGUE existiendo y SIGUE `ACTIVE` en este preciso momento (`updateMany`
+// filtrando por status, nunca un `update` ciego por id). En el camino
+// normal (nadie más tocó esta conversación mientras tanto, el caso de
+// prácticamente cualquier mensaje real) esto sigue siendo UNA sola
+// escritura, tan rápida como el `update` de antes. Sólo en el caso raro de
+// un conflicto real (otro mensaje concurrente cerró/eliminó la conversación
+// justo en el medio) se paga una lectura extra — y ahí, a propósito, el
+// conflicto NUNCA se oculta: se invalida la copia cacheada y se lanza el
+// mismo error que ya lanzaba loadActiveConversation en ese caso
+// (CONVERSATION_NOT_FOUND / CONVERSATION_CLOSED), nunca un "éxito"
+// silencioso escribiendo sobre una fila que ya no correspondía.
+async function applyConversationUpdate(state, data) {
+    const { count } = await prisma.conversationState.updateMany({
+        where: { id: state.id, status: "ACTIVE" },
+        data,
+    });
+    if (count === 0) {
+        invalidateCachedConversationState(state.id);
+        const fresh = await prisma.conversationState.findUnique({ where: { id: state.id } });
+        if (!fresh) throw new Error("CONVERSATION_NOT_FOUND");
+        throw new Error("CONVERSATION_CLOSED");
+    }
+    const updated = { ...state, ...data };
+    setCachedConversationState(updated);
+    return updated;
+}
+
+async function loadActiveConversation(conversationId) {
+    const state = await readConversationState(conversationId);
     if (!state) {
         throw new Error("CONVERSATION_NOT_FOUND");
     }
@@ -178,7 +233,7 @@ async function loadActiveConversation(conversationId) {
 // status nuevo (ej. CANCELLED) para no tocar el enum ConversationStatus ni
 // pedir una migración de Prisma por esto.
 export async function cancel(conversationId, clerkId) {
-    const state = await prisma.conversationState.findUnique({ where: { id: conversationId } });
+    const state = await readConversationState(conversationId);
     if (!state) {
         throw new Error("CONVERSATION_NOT_FOUND");
     }
@@ -186,6 +241,7 @@ export async function cancel(conversationId, clerkId) {
         throw new Error("CONVERSATION_FORBIDDEN");
     }
     await prisma.conversationState.delete({ where: { id: conversationId } });
+    invalidateCachedConversationState(conversationId);
 }
 
 // Consulta liviana de "¿qué pasó realmente con esto?", pensada para el caso
@@ -206,7 +262,7 @@ export async function getStatus(conversationId) {
 }
 
 export async function resume(conversationId) {
-    const state = await prisma.conversationState.findUnique({ where: { id: conversationId } });
+    const state = await readConversationState(conversationId);
     if (!state) {
         throw new Error("CONVERSATION_NOT_FOUND");
     }
@@ -240,13 +296,10 @@ async function handleGoto(state, targetStepId) {
         ? { ...state.draftEvent, _returnTo: PREVIEW_STEP_ID }
         : state.draftEvent;
 
-    const updated = await prisma.conversationState.update({
-        where: { id: state.id },
-        data: {
-            currentStepId: targetStepId,
-            draftEvent: draft,
-            history: appendHistory(state.history, targetStepId),
-        },
+    const updated = await applyConversationUpdate(state, {
+        currentStepId: targetStepId,
+        draftEvent: draft,
+        history: appendHistory(state.history, targetStepId),
     });
 
     return toConversationResult(updated);
@@ -274,10 +327,7 @@ async function handleBack(state) {
     const previousHistory = state.history.slice(0, -1);
     const targetStepId = previousHistory[previousHistory.length - 1];
 
-    const updated = await prisma.conversationState.update({
-        where: { id: state.id },
-        data: { currentStepId: targetStepId, history: previousHistory },
-    });
+    const updated = await applyConversationUpdate(state, { currentStepId: targetStepId, history: previousHistory });
 
     return toConversationResult(updated);
 }
@@ -305,13 +355,10 @@ async function handlePreviewInput(state, rawInput) {
 
     try {
         const event = await EventServicePort.commit(state.userId, state.draftEvent, action, state.organizationId);
-        const updated = await prisma.conversationState.update({
-            where: { id: state.id },
-            data: {
-                status: action === "PUBLISH" ? "PUBLISHED" : "DRAFT_SAVED",
-                eventId: event.id,
-                history: appendHistory(state.history, PREVIEW_STEP_ID),
-            },
+        const updated = await applyConversationUpdate(state, {
+            status: action === "PUBLISH" ? "PUBLISHED" : "DRAFT_SAVED",
+            eventId: event.id,
+            history: appendHistory(state.history, PREVIEW_STEP_ID),
         });
         return {
             conversationId: updated.id,
@@ -380,13 +427,10 @@ export async function handleInput(conversationId, rawInput) {
         nextStepId = step.next(draft, value);
     }
 
-    const updated = await prisma.conversationState.update({
-        where: { id: state.id },
-        data: {
-            currentStepId: nextStepId,
-            draftEvent: draft,
-            history: appendHistory(state.history, nextStepId),
-        },
+    const updated = await applyConversationUpdate(state, {
+        currentStepId: nextStepId,
+        draftEvent: draft,
+        history: appendHistory(state.history, nextStepId),
     });
 
     return toConversationResult(updated);

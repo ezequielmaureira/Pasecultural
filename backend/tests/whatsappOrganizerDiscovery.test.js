@@ -96,6 +96,89 @@ test("mergeOrganizationCandidates: both empty returns empty", () => {
 });
 
 // ==================================================================
+// Fase 4 (optimización de latencia) — discoverWhatsappOrganizationCandidates
+// ahora dispara whatsappOrganizerLink.findMany y organization.findMany con
+// Promise.all en vez de secuencialmente. Probar la FORMA de la concurrencia
+// (¿de verdad están las dos en vuelo al mismo tiempo, o una espera a la
+// otra?) no es algo que una base real pueda demostrar de forma determinista
+// (no hay manera de controlar timing contra Supabase) — así que, a
+// diferencia del resto de este archivo, este único test reemplaza
+// temporalmente los métodos reales de Prisma por dobles con demora
+// controlada (mismo criterio que whatsappDbPerf.test.js con su
+// fakePrismaClient, aplicado acá al cliente real porque el service importa
+// el singleton directo, sin inyección de dependencias) y los restaura en un
+// finally. Nunca toca una base real, así que corre siempre, sin
+// hasDatabase/testWithDb.
+// ==================================================================
+
+test("discoverWhatsappOrganizationCandidates: runs whatsappOrganizerLink.findMany and organization.findMany concurrently (Promise.all), never sequentially", async () => {
+    const originalLinkFindMany = prisma.whatsappOrganizerLink.findMany;
+    const originalOrgFindMany = prisma.organization.findMany;
+    const DELAY_MS = 40;
+    let linkInFlight = false;
+    let orgInFlight = false;
+    let bothConcurrent = false;
+
+    prisma.whatsappOrganizerLink.findMany = async () => {
+        linkInFlight = true;
+        if (orgInFlight) bothConcurrent = true;
+        await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
+        linkInFlight = false;
+        return [];
+    };
+    prisma.organization.findMany = async () => {
+        orgInFlight = true;
+        if (linkInFlight) bothConcurrent = true;
+        await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
+        orgInFlight = false;
+        return [];
+    };
+
+    try {
+        const startedAt = Date.now();
+        await discoverWhatsappOrganizationCandidates("5492984405532");
+        const elapsedMs = Date.now() - startedAt;
+
+        // La prueba determinística real es `bothConcurrent` (se marca por
+        // orden relativo de arranque, nunca por duración absoluta). El
+        // chequeo de tiempo es sólo una segunda señal, con margen generoso
+        // para tolerar jitter del entorno (GC, I/O) sin volverse flaky —
+        // una ejecución SECUENCIAL de estos dos fakes tomaría igual
+        // ~2×DELAY_MS como mínimo, así que un margen de 5× sigue detectando
+        // con claridad una regresión real a secuencial.
+        assert.ok(bothConcurrent, "las dos consultas deben estar en vuelo al mismo tiempo — nunca una esperando a la otra");
+        assert.ok(
+            elapsedMs < DELAY_MS * 5,
+            `esperaba un tiempo cercano a ${DELAY_MS}ms (paralelo), tomó ${elapsedMs}ms`
+        );
+    } finally {
+        prisma.whatsappOrganizerLink.findMany = originalLinkFindMany;
+        prisma.organization.findMany = originalOrgFindMany;
+    }
+});
+
+test("discoverWhatsappOrganizationCandidates: an unrecognizable phone still short-circuits to a single query (whatsappOrganizerLink only), organization.findMany is never called", async () => {
+    const originalLinkFindMany = prisma.whatsappOrganizerLink.findMany;
+    const originalOrgFindMany = prisma.organization.findMany;
+    let orgFindManyCalls = 0;
+    prisma.whatsappOrganizerLink.findMany = async () => [];
+    prisma.organization.findMany = async () => {
+        orgFindManyCalls++;
+        return [];
+    };
+
+    try {
+        // "abc" nunca normaliza a un teléfono válido (normalizeArgentinePhoneForMatching).
+        const result = await discoverWhatsappOrganizationCandidates("abc");
+        assert.deepEqual(result, []);
+        assert.equal(orgFindManyCalls, 0, "sin teléfono reconocible, la segunda consulta debe seguir evitándose por completo");
+    } finally {
+        prisma.whatsappOrganizerLink.findMany = originalLinkFindMany;
+        prisma.organization.findMany = originalOrgFindMany;
+    }
+});
+
+// ==================================================================
 // discoverWhatsappOrganizationCandidates — integración real contra
 // Postgres (create/relaciones/constraints @unique no son expresables como
 // funciones puras, mismo criterio que el resto del proyecto — ningún

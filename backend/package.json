@@ -9,7 +9,7 @@
     "start": "node src/server.js",
     "test": "node --import ./tests/helpers/loadTestEnv.js --test tests/*.test.js",
     "test:unit": "node --test tests/*.test.js",
-    "test:db": "node --import ./tests/helpers/loadTestEnv.js --test tests/whatsappOrganizerDiscovery.test.js tests/whatsappPendingStepInput.service.test.js tests/eventServicePort.commit.perf.test.js"
+    "test:db": "node --import ./tests/helpers/loadTestEnv.js --test tests/whatsappOrganizerDiscovery.test.js tests/whatsappPendingStepInput.service.test.js tests/eventServicePort.commit.perf.test.js tests/eventCreationEngine.conversationStateCache.test.js"
   },
   "keywords": [],
   "author": "",

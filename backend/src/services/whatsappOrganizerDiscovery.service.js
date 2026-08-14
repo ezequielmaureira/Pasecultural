@@ -67,32 +67,46 @@ export function mergeOrganizationCandidates(byLink, byPhone) {
 // teléfono se crean acá mismo, de forma idempotente (P2002 atrapado, igual
 // que antes) — nunca se duplica un link ya existente.
 export async function discoverWhatsappOrganizationCandidates(waId) {
-    const existingLinks = await prisma.whatsappOrganizerLink.findMany({
-        where: { waId },
-        select: CANDIDATE_LINK_SELECT,
-    });
-    const byLink = existingLinks.filter((link) => link.organization.status === "APPROVED").map(toCandidate);
-
     // waId sin forma de teléfono reconocible: nunca puede coincidir con
     // ningún Organization.phone real (isSameArgentinePhone exige que ambos
     // lados normalicen), así que se evita la consulta de descubrimiento por
     // completo — los vínculos ya existentes (`byLink`) igual se devuelven
-    // tal cual.
+    // tal cual. Se calcula ANTES de disparar ninguna query para poder
+    // decidir de una sola vez si hace falta una o dos.
     const normalizedWaId = normalizeArgentinePhoneForMatching(waId);
-    if (!normalizedWaId) return byLink;
 
-    // Sólo Organizations APPROVED, con teléfono cargado, y que TODAVÍA no
-    // tengan ningún WhatsApp asociado — una Organization ya vinculada
-    // (a este u otro wa_id) nunca vuelve a ser candidata de descubrimiento:
-    // así se garantiza que nunca se reasigna/pisa un vínculo existente (ver
-    // sección "concurrencia" del informe de entrega). Esta consulta corre
-    // SIEMPRE, nunca condicionada a si `byLink` ya tenía resultados — es
+    if (!normalizedWaId) {
+        const existingLinks = await prisma.whatsappOrganizerLink.findMany({
+            where: { waId },
+            select: CANDIDATE_LINK_SELECT,
+        });
+        return existingLinks.filter((link) => link.organization.status === "APPROVED").map(toCandidate);
+    }
+
+    // Fase 4 (optimización de latencia) — las dos búsquedas son
+    // independientes entre sí: la segunda filtra por condiciones fijas
+    // (status/phone/whatsappOrganizerLink), nunca por lo que haya devuelto
+    // la primera, así que no hay ninguna dependencia real que obligue a
+    // esperarlas en secuencia. Antes corrían una detrás de la otra (dos
+    // round-trips en serie); con Promise.all corren en paralelo (un solo
+    // round-trip de latencia de red). Sigue corriendo SIEMPRE, nunca
+    // condicionada a si `existingLinks` ya tenía resultados — es
     // exactamente lo que permite descubrir una segunda Organization que se
     // aprobó o cargó su teléfono después de que la primera ya se vinculó.
-    const unlinkedApproved = await prisma.organization.findMany({
-        where: { status: "APPROVED", phone: { not: null }, whatsappOrganizerLink: null },
-        select: { id: true, name: true, phone: true, owner: { select: { clerkId: true, firstName: true } } },
-    });
+    const [existingLinks, unlinkedApproved] = await Promise.all([
+        prisma.whatsappOrganizerLink.findMany({ where: { waId }, select: CANDIDATE_LINK_SELECT }),
+        // Sólo Organizations APPROVED, con teléfono cargado, y que TODAVÍA
+        // no tengan ningún WhatsApp asociado — una Organization ya
+        // vinculada (a este u otro wa_id) nunca vuelve a ser candidata de
+        // descubrimiento: así se garantiza que nunca se reasigna/pisa un
+        // vínculo existente (ver sección "concurrencia" del informe de
+        // entrega).
+        prisma.organization.findMany({
+            where: { status: "APPROVED", phone: { not: null }, whatsappOrganizerLink: null },
+            select: { id: true, name: true, phone: true, owner: { select: { clerkId: true, firstName: true } } },
+        }),
+    ]);
+    const byLink = existingLinks.filter((link) => link.organization.status === "APPROVED").map(toCandidate);
     const matches = unlinkedApproved.filter((org) => isSameArgentinePhone(org.phone, waId));
 
     const byPhone = [];
