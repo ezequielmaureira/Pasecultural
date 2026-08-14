@@ -22,7 +22,6 @@ import {
     clearPendingOrganizationSelection,
     resolveOrganizationOwner,
 } from "../services/whatsappOrganizerDiscovery.service.js";
-import { findReusableOrganizationLocation } from "../services/whatsappOrganizationLocation.service.js";
 import {
     classifyInitialIntent,
     isCancelCommand,
@@ -48,7 +47,6 @@ import {
     WHATSAPP_LOCATION_COMMIT_ERROR_TEXT,
     buildWhatsappCompactAddressInvalidText,
     parseWhatsappCompactAddressText,
-    buildWhatsappLocationReusePromptText,
     buildWhatsappLocationReuseInvalidText,
     buildKnownOrganizationGreetingText,
     buildOrganizationSelectorText,
@@ -233,26 +231,32 @@ async function commitPrefilledFunctionsListIfNeeded(conversationId, result, hand
 
 // Fase 3K, sección 9 — el ÚNICO momento en que el motor recién avanza a
 // LOCATION (nunca durante el sub-flujo en sí, que corre enteramente en
-// tryHandleLocationSubflow) es acá: justo después de que se confirma la
-// imagen de portada (COVER_IMAGE.next() siempre es "LOCATION", ver
-// steps/definitions.js) — es el único punto donde hace falta decidir si
-// se muestra el prompt de método de siempre o, si esta Organization ya
-// tiene una dirección usable en un evento anterior, el de reutilizarla.
-// extractWhatsappReplyText es puro/sin I/O (por diseño, ver ese archivo)
-// así que la consulta a Prisma no podía vivir ahí — se resuelve acá, una
-// sola vez, y se pre-crea el pending correspondiente para que
-// tryHandleLocationSubflow lo encuentre ya armado en el próximo mensaje.
-async function replyForEngineResult({ conversationId, result, reply, engineAction, organizationId, findReusableLocation, resetPendingStepInput: resetPendingStepInputDep }) {
-    if (result?.prompt?.stepId === "LOCATION" && organizationId) {
-        const reusable = await findReusableLocation(organizationId);
-        if (reusable) {
-            await resetPendingStepInputDep(conversationId, "LOCATION", "AWAITING_REUSE_CONFIRMATION", { location: reusable });
-            await reply(buildWhatsappLocationReusePromptText(reusable), engineAction);
-            return;
-        }
-    }
-    await reply(extractWhatsappReplyText(result), engineAction);
-}
+// tryHandleLocationSubflow) es justo después de que se confirma la imagen
+// de portada (COVER_IMAGE.next() siempre es "LOCATION", ver
+// steps/definitions.js) — ver el call site de abajo, en la rama de imagen.
+//
+// Fix (dejar de sugerir direcciones de eventos anteriores) — antes existía
+// una función intermedia (replyForEngineResult) que, justo en ese momento,
+// consultaba si la Organization tenía una dirección usable en un evento
+// anterior (Event.findFirst, ver whatsappOrganizationLocation.service.js) y
+// ofrecía reutilizarla en lugar del selector de método. Eso quedó
+// eliminado por completo: ya no hace falta ninguna lógica especial acá —
+// extractWhatsappReplyText (whatsappOrganizerBot.service.js) YA devuelve
+// directo el selector de método (WHATSAPP_LOCATION_METHOD_PROMPT_TEXT —
+// "1. Compartir ubicación / 2. Completar dirección manualmente") para
+// cualquier resultado del motor cuyo step sea LOCATION, sin ningún dato
+// precargado; el pending correspondiente (AWAITING_LOCATION_METHOD, vacío)
+// lo sigue creando tryHandleLocationSubflow recién con el próximo mensaje,
+// exactamente como ya hacía antes de que existiera la sugerencia de
+// reutilización.
+//
+// Compatibilidad — el status AWAITING_REUSE_CONFIRMATION y sus textos
+// (buildWhatsappLocationReusePromptText/buildWhatsappLocationReuseInvalidText)
+// ya no se EMITEN, pero tryHandleLocationSubflow todavía sabe procesarlo
+// (ver más abajo): una conversación vieja cuyo WhatsappPendingStepInput ya
+// haya quedado en ese status (creado por una versión anterior de este
+// código, antes de este fix) sigue pudiendo responder "1"/"2"/"volver" con
+// normalidad, sin quedar trabada.
 
 // Fase 3K — colapsa fecha + hora de inicio + hora de fin en UN solo
 // mensaje ("26/08, 20:00-22:00", ver parseWhatsappCompactDateTimeText) en
@@ -1117,7 +1121,6 @@ export async function processInboundMessage(
         resetPendingStepInput: resetPendingStepInputDep = resetPendingStepInput,
         updatePendingStepInputStatus: updatePendingStepInputStatusDep = updatePendingStepInputStatus,
         deletePendingStepInput: deletePendingStepInputDep = deletePendingStepInput,
-        findReusableLocation = findReusableOrganizationLocation,
     } = {}
 ) {
     // Bug fix (carga de imagen del evento): antes shouldAutoReply por sí
@@ -1212,15 +1215,7 @@ export async function processInboundMessage(
             }
 
             const result = await handleConversationInput(active.id, { value: uploadResult.url });
-            await replyForEngineResult({
-                conversationId: active.id,
-                result,
-                reply,
-                engineAction: "IMAGE_UPLOADED",
-                organizationId: active.organizationId,
-                findReusableLocation,
-                resetPendingStepInput: resetPendingStepInputDep,
-            });
+            await reply(extractWhatsappReplyText(result), "IMAGE_UPLOADED");
             return;
         }
 

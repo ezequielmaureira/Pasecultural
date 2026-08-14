@@ -5,7 +5,6 @@ import {
     WHATSAPP_IMAGE_NOT_EXPECTED_TEXT,
     buildWhatsappImageUploadErrorText,
     WHATSAPP_LOCATION_METHOD_PROMPT_TEXT,
-    buildWhatsappLocationReusePromptText,
 } from "../src/services/whatsappOrganizerBot.service.js";
 
 // Bug fix (carga de imagen del evento) — árbol de decisión de
@@ -82,13 +81,6 @@ function baseDeps(overrides = {}) {
             }),
             cancelConversation: spy(undefined),
             uploadImage: spy({ success: true, url: "https://res.cloudinary.com/pasecultural/image/upload/v1/pasecultural/abc123.jpg" }),
-            // Fase 3K — el único punto real donde el motor recién avanza a
-            // LOCATION es justo después de confirmar la imagen de portada
-            // (ver replyForEngineResult, whatsapp.controller.js): por
-            // default acá no hay ninguna ubicación reutilizable, así que el
-            // camino por defecto (prompt genérico) sigue intacto salvo que
-            // un test puntual lo pise.
-            findReusableLocation: spy(null),
             resetPendingStepInput: spy(undefined),
             ...overrides,
         },
@@ -114,68 +106,69 @@ const REUSABLE_LOCATION = {
 };
 
 // ==================================================
-// Fase 3K, sección 9 — al confirmar la imagen de portada, si el motor
-// avanza a LOCATION y la Organization ya tiene una dirección usable en un
-// evento anterior, se ofrece reutilizarla en lugar del selector de método
-// genérico (replyForEngineResult, whatsapp.controller.js). Este es el
-// ÚNICO punto real donde ese chequeo ocurre — ver el comentario en
-// whatsapp.location.controller.test.js.
+// Fix (dejar de sugerir direcciones de eventos anteriores) — al confirmar
+// la imagen de portada, el motor avanza a LOCATION y ANTES se ofrecía
+// reutilizar la última dirección usable de la Organization (Event.findFirst,
+// ver whatsappOrganizationLocation.service.js). Ahora se va SIEMPRE directo
+// al selector de método (extractWhatsappReplyText ya lo arma solo para
+// cualquier resultado con step LOCATION, sin ninguna consulta ni dato
+// precargado) — ver el comentario en whatsapp.controller.js.
 // ==================================================
 
-test("when the engine advances to LOCATION and the organization has a reusable location, the reuse prompt is shown instead of the generic method selector", async () => {
+test("after the image is confirmed and the engine advances to LOCATION, the two-option method selector is shown directly — no reusable-location lookup, no previous address in the text", async () => {
     const { deps, sendCalls } = baseDeps({
         findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }),
         handleConversationInput: spy(LOCATION_PROMPT_RESULT),
+        // Se pasa a propósito: si el controller todavía la llamara, este spy
+        // lo detectaría. El fix elimina la dependencia del todo —
+        // processInboundMessage ya ni siquiera la destructura, así que
+        // queda como una propiedad extra sin uso, nunca invocada.
         findReusableLocation: spy(REUSABLE_LOCATION),
     });
 
     await processInboundMessage(imageMessage(), deps);
 
-    assert.equal(deps.findReusableLocation.calls.length, 1);
-    assert.deepEqual(deps.findReusableLocation.calls[0], ["org_1"]);
-    assert.equal(sendCalls[0].text, buildWhatsappLocationReusePromptText(REUSABLE_LOCATION));
-    assert.ok(sendCalls[0].text.includes("Elvis Bar"));
-    assert.equal(deps.resetPendingStepInput.calls.length, 1);
-    assert.deepEqual(deps.resetPendingStepInput.calls[0], ["conv1", "LOCATION", "AWAITING_REUSE_CONFIRMATION", { location: REUSABLE_LOCATION }]);
-});
-
-test("when the engine advances to LOCATION but the organization has no reusable location, the generic method selector is shown and no pending is created", async () => {
-    const { deps, sendCalls } = baseDeps({
-        findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }),
-        handleConversationInput: spy(LOCATION_PROMPT_RESULT),
-        findReusableLocation: spy(null),
-    });
-
-    await processInboundMessage(imageMessage(), deps);
-
-    assert.equal(deps.findReusableLocation.calls.length, 1);
+    assert.equal(deps.findReusableLocation.calls.length, 0, "Event.findFirst para direcciones anteriores no debe ejecutarse en el flujo nuevo");
     assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_METHOD_PROMPT_TEXT);
-    assert.equal(deps.resetPendingStepInput.calls.length, 0);
+    assert.ok(sendCalls[0].text.includes("1. Compartir ubicación"));
+    assert.ok(sendCalls[0].text.includes("2. Completar dirección manualmente"));
+    assert.ok(!sendCalls[0].text.includes(REUSABLE_LOCATION.address), "ninguna dirección anterior debe aparecer en el mensaje");
+    assert.ok(!sendCalls[0].text.includes(REUSABLE_LOCATION.venueName), "ningún nombre de lugar anterior debe aparecer en el mensaje");
 });
 
-test("when the active conversation has no organizationId, the reuse check is skipped entirely, even if the engine advances to LOCATION", async () => {
-    const { deps, sendCalls } = baseDeps({
-        findActiveConversation: spy({ id: "conv1", userId: "user_123" }),
-        handleConversationInput: spy(LOCATION_PROMPT_RESULT),
-        findReusableLocation: spy(REUSABLE_LOCATION),
-    });
-
-    await processInboundMessage(imageMessage(), deps);
-
-    assert.equal(deps.findReusableLocation.calls.length, 0, "nunca se consulta sin organizationId");
-    assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_METHOD_PROMPT_TEXT);
-});
-
-test("the reuse check never runs when the engine advances to a step other than LOCATION", async () => {
+test("the state starts empty: no pending is pre-created (nor pre-filled) when landing on LOCATION right after the image", async () => {
     const { deps } = baseDeps({
         findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }),
-        handleConversationInput: spy({ conversationId: "conv1", prompt: { stepId: "SOME_NEXT_STEP", type: "QUESTION", inputType: "SHORT_TEXT", text: "Siguiente pregunta del motor." } }),
+        handleConversationInput: spy(LOCATION_PROMPT_RESULT),
+    });
+
+    await processInboundMessage(imageMessage(), deps);
+
+    assert.equal(deps.resetPendingStepInput.calls.length, 0, "el pending se sigue creando recién con el próximo mensaje (tryHandleLocationSubflow), nunca acá con datos precargados");
+});
+
+test("the direct method selector is shown the same way with or without organizationId on the active conversation", async () => {
+    const { deps, sendCalls } = baseDeps({
+        findActiveConversation: spy({ id: "conv1", userId: "user_123" }), // sin organizationId
+        handleConversationInput: spy(LOCATION_PROMPT_RESULT),
         findReusableLocation: spy(REUSABLE_LOCATION),
     });
 
     await processInboundMessage(imageMessage(), deps);
 
     assert.equal(deps.findReusableLocation.calls.length, 0);
+    assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_METHOD_PROMPT_TEXT);
+});
+
+test("no pending is created when the engine advances to a step other than LOCATION", async () => {
+    const { deps } = baseDeps({
+        findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }),
+        handleConversationInput: spy({ conversationId: "conv1", prompt: { stepId: "SOME_NEXT_STEP", type: "QUESTION", inputType: "SHORT_TEXT", text: "Siguiente pregunta del motor." } }),
+    });
+
+    await processInboundMessage(imageMessage(), deps);
+
+    assert.equal(deps.resetPendingStepInput.calls.length, 0);
 });
 
 test("a valid image on the IMAGE_URL step uploads it and advances the engine with the Cloudinary secure_url", async () => {
