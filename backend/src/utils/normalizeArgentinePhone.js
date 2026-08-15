@@ -49,3 +49,20 @@ export function isSameArgentinePhone(phoneA, phoneB) {
     const normalizedB = normalizeArgentinePhoneForMatching(phoneB);
     return Boolean(normalizedA) && normalizedA === normalizedB;
 }
+
+// Fase — cambio de número de WhatsApp autorizado. A diferencia de
+// normalizeArgentinePhoneForMatching (que reduce a un número "significativo"
+// de 10 dígitos SIN el 9 de móvil, sólo para COMPARAR si dos teléfonos son
+// el mismo), esta función arma el waId COMPLETO en el formato exacto que
+// Meta usa y que ya escriben WhatsappOrganizerLink.waId/ConversationState.channelRef
+// en producción (ej. "5491122334455") — 54 + 9 + el mismo número
+// significativo de 10 dígitos. Reutiliza la MISMA extracción de dígitos
+// significativos (nunca duplica esa lógica de parseo): si
+// normalizeArgentinePhoneForMatching no puede interpretar el número con
+// certeza, esto tampoco puede — nunca arma un waId a partir de una
+// interpretación ambigua, nunca "adivina" el 9 de móvil si el número
+// original no permitía confirmarlo.
+export function buildArgentineWhatsappId(rawPhone) {
+    const significant = normalizeArgentinePhoneForMatching(rawPhone);
+    return significant ? `549${significant}` : null;
+}

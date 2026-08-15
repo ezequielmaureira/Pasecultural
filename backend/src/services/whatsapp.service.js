@@ -332,6 +332,116 @@ export async function sendWhatsappHelloWorldTemplate({ to }) {
 }
 
 // ==================================================================
+// Envío de template GENÉRICO — Fase "cambio de número de WhatsApp".
+// sendWhatsappTextMessage (más arriba) SÓLO funciona dentro de la ventana
+// de 24hs de WhatsApp, contada desde el ÚLTIMO mensaje que esa persona le
+// mandó a este número de negocio. Un número que nunca escribió antes (el
+// caso real del código OTP hacia un WhatsApp NUEVO, y el mensaje de
+// bienvenida inmediatamente después) NUNCA tiene esa ventana abierta —
+// cualquier mensaje ahí es "iniciado por el negocio" y Meta lo RECHAZA
+// salvo que sea un message template ya aprobado. Esta función es la única
+// forma genérica de mandar un template con variables reales en el cuerpo
+// (a diferencia de sendWhatsappHelloWorldTemplate, que no tiene ninguna);
+// nunca asume que un template con determinado nombre existe/está aprobado
+// — eso lo valida Meta en el momento del envío, y esta función nunca
+// oculta ese rechazo (ver postToGraphApi, que ya no lanza por un rechazo
+// de Meta, sólo devuelve {success:false, error}).
+export async function sendWhatsappTemplateMessage({ to, templateName, languageCode, bodyParameters = [] }) {
+    return postToGraphApi({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "template",
+        template: {
+            name: templateName,
+            language: { code: languageCode },
+            // Sólo se arma el componente "body" cuando hay variables reales
+            // que mandar — un template sin variables (como hello_world) no
+            // necesita `components` en absoluto.
+            ...(bodyParameters.length > 0
+                ? { components: [{ type: "body", parameters: bodyParameters.map((text) => ({ type: "text", text })) }] }
+                : {}),
+        },
+    });
+}
+
+// Mismo patrón LAZY que getWhatsappVerifyToken/getWhatsappAccessToken: el
+// nombre/idioma del template de autenticación (OTP) NO se hardcodea —
+// depende de qué plantilla se haya creado y aprobado en el panel de Meta
+// (ver informe de entrega para el diseño exacto sugerido). Si falta
+// configurar, el envío del código debe fallar de forma clara y controlada
+// — NUNCA simular que el código se mandó.
+let cachedOtpTemplateName;
+export function getWhatsappOtpTemplateName() {
+    if (cachedOtpTemplateName) return cachedOtpTemplateName;
+    const value = process.env.WHATSAPP_OTP_TEMPLATE_NAME;
+    if (!value || !value.trim()) {
+        throw new Error("Falta configurar la variable de entorno WHATSAPP_OTP_TEMPLATE_NAME (plantilla de Meta para el código de verificación).");
+    }
+    cachedOtpTemplateName = value.trim();
+    return cachedOtpTemplateName;
+}
+
+let cachedOtpTemplateLanguage;
+export function getWhatsappOtpTemplateLanguage() {
+    if (cachedOtpTemplateLanguage) return cachedOtpTemplateLanguage;
+    const value = process.env.WHATSAPP_OTP_TEMPLATE_LANGUAGE;
+    if (!value || !value.trim()) {
+        throw new Error("Falta configurar la variable de entorno WHATSAPP_OTP_TEMPLATE_LANGUAGE.");
+    }
+    cachedOtpTemplateLanguage = value.trim();
+    return cachedOtpTemplateLanguage;
+}
+
+// Envía el código de 6 dígitos como template de autenticación — nunca como
+// texto libre (sendWhatsappTextMessage), ver el comentario de
+// sendWhatsappTemplateMessage. Si las variables de entorno no están
+// configuradas todavía (plantilla no creada/aprobada en Meta), lanza un
+// Error simple ANTES de intentar ningún request — mismo criterio que
+// getWhatsappAccessToken: error de configuración, no una respuesta de Meta.
+export async function sendWhatsappOtpTemplate({ to, code }) {
+    const templateName = getWhatsappOtpTemplateName();
+    const languageCode = getWhatsappOtpTemplateLanguage();
+    return sendWhatsappTemplateMessage({ to, templateName, languageCode, bodyParameters: [code] });
+}
+
+// Mismo criterio LAZY, para el mensaje de bienvenida posterior a una
+// migración exitosa. A diferencia del OTP, este mensaje es best-effort
+// (nunca bloquea ni revierte una migración ya confirmada) — ver
+// whatsappNumberChange.service.js. Devuelve `null` (no lanza) si falta
+// configurar, para que el caller pueda tratarlo como "no se pudo enviar,
+// pero no es un error fatal" sin un try/catch extra.
+let cachedWelcomeTemplateName;
+export function getWhatsappWelcomeTemplateName() {
+    if (cachedWelcomeTemplateName) return cachedWelcomeTemplateName;
+    const value = process.env.WHATSAPP_WELCOME_TEMPLATE_NAME;
+    cachedWelcomeTemplateName = value && value.trim() ? value.trim() : null;
+    return cachedWelcomeTemplateName;
+}
+
+let cachedWelcomeTemplateLanguage;
+export function getWhatsappWelcomeTemplateLanguage() {
+    if (cachedWelcomeTemplateLanguage) return cachedWelcomeTemplateLanguage;
+    const value = process.env.WHATSAPP_WELCOME_TEMPLATE_LANGUAGE;
+    cachedWelcomeTemplateLanguage = value && value.trim() ? value.trim() : null;
+    return cachedWelcomeTemplateLanguage;
+}
+
+// {success:false, error:"WELCOME_TEMPLATE_NOT_CONFIGURED"} en vez de lanzar
+// — el caller (whatsappNumberChange.service.js) ya trata cualquier
+// {success:false} de este envío como "no bloquea la migración, sólo se
+// loguea", así que no hace falta un camino de error separado para "no
+// configurado" vs. "Meta lo rechazó".
+export async function sendWhatsappWelcomeTemplate({ to, firstName, organizationName }) {
+    const templateName = getWhatsappWelcomeTemplateName();
+    const languageCode = getWhatsappWelcomeTemplateLanguage();
+    if (!templateName || !languageCode) {
+        return { success: false, messageId: null, error: "WELCOME_TEMPLATE_NOT_CONFIGURED" };
+    }
+    return sendWhatsappTemplateMessage({ to, templateName, languageCode, bodyParameters: [firstName, organizationName] });
+}
+
+// ==================================================================
 // Respuesta automática mínima — Fase 2D. Sigue sin EventCreationEngine/
 // EventServicePort/Prisma: sólo decide "¿a este mensaje le corresponde
 // nuestra única respuesta fija?", nunca envía nada por sí misma (eso lo

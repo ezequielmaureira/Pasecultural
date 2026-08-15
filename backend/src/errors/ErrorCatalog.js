@@ -379,4 +379,66 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "WhatsApp organizer link attempted for a wa_id that got linked to a different organization between the challenge lookup and the commit (unique constraint race).",
         userMessage: "Ese WhatsApp ya está vinculado a otra organización.",
     },
+
+    // --- Cambio de número de WhatsApp autorizado ------------------------
+    WHATSAPP_NUMBER_CHANGE_FORBIDDEN: {
+        httpStatus: 403,
+        logMessage: "WhatsApp number change attempted by a user who does not own the given organization.",
+        userMessage: "No tenés permiso para modificar el WhatsApp de esta organización.",
+    },
+    WHATSAPP_NUMBER_CHANGE_ORGANIZATION_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "WhatsApp number change attempted without an organizationId.",
+        userMessage: "Falta indicar la organización.",
+    },
+    WHATSAPP_NUMBER_CHANGE_INVALID_NUMBER: {
+        httpStatus: 400,
+        logMessage: "WhatsApp number change requested with a phone number that could not be parsed unambiguously as an Argentine mobile number.",
+        userMessage: "Ingresá un número de WhatsApp argentino válido.",
+    },
+    WHATSAPP_NUMBER_CHANGE_SAME_NUMBER: {
+        httpStatus: 400,
+        logMessage: "WhatsApp number change requested with the same number that is already the organization's authorized WhatsApp.",
+        userMessage: "Ese ya es tu número de WhatsApp autorizado.",
+    },
+    WHATSAPP_NUMBER_CHANGE_RESEND_TOO_SOON: {
+        httpStatus: 429,
+        logMessage: "WhatsApp number change (re)send attempted before the resend cooldown elapsed.",
+        userMessage: "Esperá unos segundos antes de pedir otro código.",
+    },
+    WHATSAPP_NUMBER_CHANGE_SEND_FAILED: {
+        httpStatus: 502,
+        logMessage: "Meta Graph API rejected, failed to deliver, or is missing template configuration for the WhatsApp number-change OTP message.",
+        userMessage: "No pudimos enviar el código a ese WhatsApp. Probá de nuevo en unos minutos.",
+    },
+    WHATSAPP_NUMBER_CHANGE_NOT_FOUND: {
+        httpStatus: 404,
+        logMessage: "WhatsApp number change verification/resend attempted with no live challenge for this organization.",
+        userMessage: "No encontramos un cambio de número pendiente. Pedí un código nuevo.",
+    },
+    WHATSAPP_NUMBER_CHANGE_CODE_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "WhatsApp number change verification attempted without a well-formed 6-digit code.",
+        userMessage: "Ingresá el código de 6 dígitos.",
+    },
+    WHATSAPP_NUMBER_CHANGE_CODE_INVALID: {
+        httpStatus: 400,
+        logMessage: "WhatsApp number change verification attempted with a code that does not match the stored hash.",
+        userMessage: "El código ingresado es incorrecto.",
+    },
+    WHATSAPP_NUMBER_CHANGE_CODE_EXPIRED: {
+        httpStatus: 410,
+        logMessage: "WhatsApp number change verification attempted after the challenge's expiration.",
+        userMessage: "Ese código venció. Pedí uno nuevo.",
+    },
+    WHATSAPP_NUMBER_CHANGE_TOO_MANY_ATTEMPTS: {
+        httpStatus: 429,
+        logMessage: "WhatsApp number change verification attempted after exceeding the max allowed failed attempts for the current challenge.",
+        userMessage: "Superaste el máximo de intentos. Pedí un código nuevo.",
+    },
+    WHATSAPP_NUMBER_CHANGE_ALREADY_RESOLVED: {
+        httpStatus: 409,
+        logMessage: "WhatsApp number change verification attempted after the challenge was already consumed (or removed) by a concurrent request.",
+        userMessage: "Este cambio de número ya se resolvió. Si todavía lo necesitás, pedí un código nuevo.",
+    },
 });

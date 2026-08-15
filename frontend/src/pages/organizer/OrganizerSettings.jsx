@@ -7,6 +7,7 @@ import ImageUploader from "../../components/ui/ImageUploader.jsx";
 import { Field, inputClass, textareaClass } from "../../components/ui/FormField.jsx";
 import { apiFetch } from "../../lib/api.js";
 import { useToast } from "../../context/ToastContext.jsx";
+import WhatsappNumberChangeCard from "./WhatsappNumberChangeCard.jsx";
 
 function FieldSkeleton({ className = "" }) {
   return (
@@ -34,6 +35,7 @@ export default function OrganizerSettings() {
   const { getToken } = useAuth();
   const toast = useToast();
   const [org, setOrg] = useState(EMPTY_ORG);
+  const [orgId, setOrgId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -47,6 +49,7 @@ export default function OrganizerSettings() {
         const token = await getToken();
         const { organization } = await apiFetch("/api/organizations/me", { token });
         if (!cancelled && organization) {
+          setOrgId(organization.id);
           setOrg({
             logo: organization.logo || "",
             name: organization.name || "",
@@ -207,6 +210,8 @@ export default function OrganizerSettings() {
           </div>
         )}
       </Card>
+
+      {!loading && orgId && <WhatsappNumberChangeCard organizationId={orgId} organizationName={org.name} />}
 
       <Card title="Datos bancarios">
         {/* Todavía no hay integración real de cobro (ni Mercado Pago ni

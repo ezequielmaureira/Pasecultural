@@ -146,6 +146,9 @@ model User {
   // Cortesías que este usuario emitió como organizador (nunca como
   // comprador/destinatario — eso ya lo cubre salesAsBuyer).
   courtesyIssuances CourtesyIssuance[]
+  // Cambios de número de WhatsApp autorizado que este usuario inició desde
+  // el panel Web (nunca desde WhatsApp) — ver WhatsappNumberChangeChallenge.
+  whatsappNumberChangeRequests WhatsappNumberChangeChallenge[]
 }
 
 model Organization {
@@ -193,6 +196,10 @@ model Organization {
   whatsappLinkAttemptsAt DateTime?
 
   whatsappOrganizerLink WhatsappOrganizerLink?
+  // Cambio de número de WhatsApp autorizado EN CURSO para esta organización
+  // (a lo sumo uno a la vez) — ver WhatsappNumberChangeChallenge. Nunca es
+  // el vínculo ya verificado (eso es whatsappOrganizerLink de arriba).
+  whatsappNumberChangeChallenge WhatsappNumberChangeChallenge?
 }
 
 // Fase 2F — challenge efímero para vincular un wa_id a una organización.
@@ -240,6 +247,60 @@ model WhatsappOrganizerLink {
 
   @@index([waId])
   @@map("whatsapp_organizer_links")
+}
+
+enum WhatsappNumberChangePurpose {
+  CHANGE_WHATSAPP_NUMBER
+}
+
+// Cambio seguro del NÚMERO AUTORIZADO para administrar una organización por
+// WhatsApp (nunca Organization.phone, que es el teléfono público/de
+// contacto — ver whatsappNumberChange.service.js). Mismo criterio de "una
+// fila viva por clave, reemplazada bajo cooldown, borrada al resolverse"
+// que WhatsappLinkChallenge/WhatsappPendingOrganizationSelection — nunca un
+// status persistido para "expirado" (se compara expiresAt contra `now` en
+// el momento de usarlo), y nunca el código en texto plano (sólo codeHash).
+//
+// organizationId es @unique A PROPÓSITO (a diferencia de WhatsappLinkChallenge,
+// que indexaba por waId): acá el disparador SIEMPRE es un usuario Web ya
+// autenticado que ya sabe para qué organización está pidiendo el cambio
+// (nunca se infiere con findFirst) — como mucho un cambio pendiente por
+// organización a la vez, nunca dos challenges compitiendo por la misma.
+//
+// requestedByUserId es la fila interna de User (resuelta desde la sesión
+// Clerk autenticada, nunca del body) que inició el pedido — junto con
+// organizationId, es lo que permite reconfirmar identidad/organización
+// antes de migrar (nunca se confía únicamente en el código).
+//
+// oldWaId es una COPIA del WhatsappOrganizerLink.waId vigente al crear el
+// challenge (null si la organización todavía no tenía ningún número
+// autorizado) — un snapshot, no una referencia viva: es lo que permite, al
+// verificar, cerrar la conversación y limpiar selecciones pendientes de ESE
+// número puntual sin tener que volver a leerlo (y sin arriesgar que haya
+// cambiado en el medio).
+//
+// purpose es explícito (un solo valor hoy) para que un código de esta tabla
+// nunca pueda interpretarse como válido para otra operación futura que
+// también use códigos de 6 dígitos — la distinción es ESTRUCTURAL (una fila
+// de esta tabla sólo puede significar esto), no una comparación de valores
+// que alguien podría olvidarse de chequear.
+model WhatsappNumberChangeChallenge {
+  id                String                       @id @default(cuid())
+  organizationId    String                       @unique
+  organization      Organization                 @relation(fields: [organizationId], references: [id])
+  requestedByUserId String
+  requestedByUser   User                         @relation(fields: [requestedByUserId], references: [id])
+  purpose           WhatsappNumberChangePurpose  @default(CHANGE_WHATSAPP_NUMBER)
+  oldWaId           String?
+  newWaId           String
+  codeHash          String
+  attempts          Int                          @default(0)
+  expiresAt         DateTime
+  lastSentAt        DateTime
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
+
+  @@map("whatsapp_number_change_challenges")
 }
 
 enum WhatsappPendingSelectionStatus {

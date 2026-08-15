@@ -9,7 +9,15 @@ import {
     updateOrganizationStatus,
     deleteOrganization,
 } from "../controllers/organization.controller.js";
-import { getWhatsappLinkStatus, linkWhatsappOrganizer } from "../controllers/organizationWhatsapp.controller.js";
+import {
+    getWhatsappLinkStatus,
+    linkWhatsappOrganizer,
+    getWhatsappNumberChangeStatus,
+    requestWhatsappNumberChange,
+    verifyWhatsappNumberChange,
+    resendWhatsappNumberChangeOtp,
+    cancelWhatsappNumberChange,
+} from "../controllers/organizationWhatsapp.controller.js";
 import { requireRole } from "../middlewares/requireRole.js";
 
 const router = Router();
@@ -25,6 +33,17 @@ router.post("/", createOrganization);
 // puntual del usuario se resuelve adentro del service, nunca desde el body.
 router.get("/me/whatsapp-link", requireRole("ORGANIZER"), getWhatsappLinkStatus);
 router.post("/me/whatsapp-link", requireRole("ORGANIZER"), linkWhatsappOrganizer);
+
+// Cambio de número de WhatsApp autorizado — mismo sub-recurso "/me", mismo
+// requireRole("ORGANIZER"). organizationId SIEMPRE viaja explícito (body/
+// query) y SIEMPRE se revalida contra la sesión autenticada dentro de cada
+// service (ver whatsappNumberChange.service.js) — nunca se infiere con
+// findFirst, a diferencia del resto de las rutas /me de este router.
+router.get("/me/whatsapp-number", requireRole("ORGANIZER"), getWhatsappNumberChangeStatus);
+router.post("/me/whatsapp-number/change/request", requireRole("ORGANIZER"), requestWhatsappNumberChange);
+router.post("/me/whatsapp-number/change/verify", requireRole("ORGANIZER"), verifyWhatsappNumberChange);
+router.post("/me/whatsapp-number/change/resend", requireRole("ORGANIZER"), resendWhatsappNumberChangeOtp);
+router.post("/me/whatsapp-number/change/cancel", requireRole("ORGANIZER"), cancelWhatsappNumberChange);
 
 router.get("/", requireRole("DEVELOPER"), getOrganizations);
 router.get("/:id", requireRole("DEVELOPER"), getOrganizationById);
