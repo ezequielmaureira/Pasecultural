@@ -4,6 +4,7 @@ import {
     syncEventScheduleService,
     updateMyEventService,
     getEventWithDetailsById,
+    getMyOrganization,
 } from "../services/event.service.js";
 import { SOCIAL_NETWORKS } from "../utils/eventCategories.js";
 import { combineCalendarDateTime } from "../utils/calendarDate.js";
@@ -93,8 +94,24 @@ function buildLinksInput(draft) {
 // `null` reproduce el comportamiento legacy (Web, findFirst por clerkId);
 // un valor no-null exige pertenencia real dentro de cada service, ver
 // getMyOrganization en event.service.js.
+//
+// Fase 8.1 (perf) — `context` se resuelve UNA sola vez acá y se reenvía a
+// las 4 llamadas de abajo que lo aceptan (createEventService/
+// syncEventLinksService/syncEventScheduleService/updateMyEventService).
+// Antes, cada una de esas 4 volvía a llamar a getMyOrganization por su
+// cuenta — la MISMA validación (clerkId+organizationId, sin cambiar en
+// ningún momento dentro de esta función síncrona) repetida hasta 4 veces.
+// Cada service sigue validando que el contexto recibido coincide con lo que
+// ESA llamada puntual pide antes de confiar en él (ver resolveContext en
+// event.service.js) — nunca se debilitó ninguna autorización, sólo se dejó
+// de repetir una consulta cuyo resultado ya se conocía.
 export async function commit(clerkId, draftEvent, action, organizationId = null) {
     try {
+        const context = await getMyOrganization(clerkId, organizationId);
+        if (!context) {
+            throw new Error("NO_ORGANIZATION");
+        }
+
         let event = await createEventService(
             clerkId,
             {
@@ -105,7 +122,8 @@ export async function commit(clerkId, draftEvent, action, organizationId = null)
                 coverImage: draftEvent.coverImage,
                 location: buildLocationInput(draftEvent.location),
             },
-            organizationId
+            organizationId,
+            { context }
         );
 
         // Fase 3O — perf: acá nunca se usa el evento que devuelven estas dos
@@ -115,9 +133,15 @@ export async function commit(clerkId, draftEvent, action, organizationId = null)
         // Ver el comentario de cada service en event.service.js.
         const links = buildLinksInput(draftEvent);
         if (links.length > 0) {
-            await syncEventLinksService(clerkId, event.id, links, organizationId, { returnEvent: false });
+            await syncEventLinksService(clerkId, event.id, links, organizationId, { returnEvent: false, context });
         }
 
+        // Fase 8.2 (perf) — `skipDelete: true`: `event.id` se creó dos líneas
+        // más arriba, EN ESTA MISMA llamada a commit() — no puede existir
+        // ninguna función/tipo de entrada previa que
+        // eventFunction.deleteMany/ticketType.deleteMany fueran a encontrar.
+        // Ver el comentario completo junto a `skipDelete` en
+        // syncEventScheduleService (event.service.js).
         await syncEventScheduleService(
             clerkId,
             event.id,
@@ -126,11 +150,11 @@ export async function commit(clerkId, draftEvent, action, organizationId = null)
                 ticketTypes: buildTicketTypesInput(draftEvent),
             },
             organizationId,
-            { returnEvent: false }
+            { returnEvent: false, context, skipDelete: true }
         );
 
         if (action === "PUBLISH") {
-            event = await updateMyEventService(clerkId, event.id, { status: "PUBLISHED" }, organizationId);
+            event = await updateMyEventService(clerkId, event.id, { status: "PUBLISHED" }, organizationId, { context });
         } else {
             // FASE 3 (perf PREVIEW_DRAFT) — antes esto era getMyEventByIdService
             // (clerkId, event.id, organizationId), que vuelve a resolver

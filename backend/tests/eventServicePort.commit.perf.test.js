@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import prisma from "../src/config/prisma.js";
 import { commit } from "../src/conversation/EventServicePort.js";
-import { syncEventLinksService, syncEventScheduleService } from "../src/services/event.service.js";
+import { syncEventLinksService, syncEventScheduleService, updateMyEventService } from "../src/services/event.service.js";
 import { logger } from "../src/logging/logger.js";
 import { startWhatsappPerfTimer, enterWithActiveTimer } from "../src/utils/whatsappPerf.js";
 
@@ -364,9 +364,17 @@ testWithDb("syncEventScheduleService: default (sin opciones) sigue devolviendo e
 // (updateMyEventService) y todo lo previo a la bifurcación (createEventService/
 // syncEventLinksService/syncEventScheduleService) quedan intocados — se
 // verifica acá que su desglose de dbCalls es BYTE A BYTE igual al de antes.
+//
+// Fase 8.1/8.2 (perf) — actualiza los conteos de referencia de esta misma
+// sección: commit() ahora resuelve User+Organization UNA sola vez (en vez
+// de repetirlo en cada una de las 4 llamadas que encadena) y nunca ejecuta
+// eventFunction.deleteMany/ticketType.deleteMany sobre un evento recién
+// creado (ver skipDelete en syncEventScheduleService). Los números de abajo
+// (20->14, 15->11, 23->15) están recalculados a mano, operación por
+// operación, en el informe de entrega de esta fase — no son una suposición.
 // ==================================================================
 
-testWithDb("FASE 3.1) commit(DRAFT) with links: exactly 3 fewer operations than before (no self-heal findMany, no extra User/Organization.findUnique) — 23 -> 20", async () => {
+testWithDb("FASE 8.1/8.2) commit(DRAFT) with links: User+Organization se resuelven UNA sola vez y los deletes de agenda se saltean — 20 -> 14", async () => {
     const owner = await createUser();
     const org = await createOrganization(owner.id);
     let event;
@@ -375,10 +383,13 @@ testWithDb("FASE 3.1) commit(DRAFT) with links: exactly 3 fewer operations than 
         event = result.event;
         const { dbCalls } = result;
 
-        assert.equal(dbCalls.length, 20, `dbCallCount esperado 20, dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
-        assert.equal(countCalls(dbCalls, "User.findUnique"), 3, "createEventService + syncEventLinksService + syncEventScheduleService, ya no la lectura final");
-        assert.equal(countCalls(dbCalls, "Organization.findUnique"), 3);
-        assert.equal(countCalls(dbCalls, "Event.findUnique"), 4, "slug-check + 2 ownership checks compartidos + la lectura final (sin cambios)");
+        assert.equal(dbCalls.length, 14, `dbCallCount esperado 14, dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
+        assert.equal(countCalls(dbCalls, "User.findUnique"), 1, "un único getMyOrganization para TODO commit(), reutilizado por las 4 llamadas");
+        assert.equal(countCalls(dbCalls, "Organization.findUnique"), 1);
+        assert.equal(countCalls(dbCalls, "Event.findUnique"), 4, "slug-check + 2 ownership checks compartidos + la lectura final — sin cambios, 8.1/8.2 no tocan estos");
+        assert.equal(countCalls(dbCalls, "EventFunction.deleteMany"), 0, "evento recién creado en esta misma llamada: nunca puede tener funciones previas que borrar");
+        assert.equal(countCalls(dbCalls, "TicketType.deleteMany"), 0, "ídem para tipos de entrada");
+        assert.equal(countCalls(dbCalls, "EventLink.deleteMany"), 1, "el deleteMany de links NO forma parte de 8.2 — sigue ejecutándose sin cambios");
         assert.equal(countCalls(dbCalls, "Event.findMany"), 0, "el self-heal de archivado ya no se ejecuta para un evento recién creado");
         assert.equal(countCalls(dbCalls, "Event.create"), 1);
 
@@ -389,7 +400,7 @@ testWithDb("FASE 3.1) commit(DRAFT) with links: exactly 3 fewer operations than 
     }
 });
 
-testWithDb("FASE 3.2) commit(DRAFT) without links: exactly 3 fewer operations than before — 18 -> 15", async () => {
+testWithDb("FASE 8.1/8.2) commit(DRAFT) without links: mismo ahorro sin la rama de links — 15 -> 11", async () => {
     const owner = await createUser();
     const org = await createOrganization(owner.id);
     let event;
@@ -399,17 +410,19 @@ testWithDb("FASE 3.2) commit(DRAFT) without links: exactly 3 fewer operations th
         event = result.event;
         const { dbCalls } = result;
 
-        assert.equal(dbCalls.length, 15, `dbCallCount esperado 15, dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
-        assert.equal(countCalls(dbCalls, "User.findUnique"), 2, "createEventService + syncEventScheduleService únicamente (syncEventLinksService se saltea sin links)");
-        assert.equal(countCalls(dbCalls, "Organization.findUnique"), 2);
+        assert.equal(dbCalls.length, 11, `dbCallCount esperado 11, dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
+        assert.equal(countCalls(dbCalls, "User.findUnique"), 1, "un único getMyOrganization para TODO commit()");
+        assert.equal(countCalls(dbCalls, "Organization.findUnique"), 1);
         assert.equal(countCalls(dbCalls, "Event.findUnique"), 3, "slug-check + ownership de syncEventScheduleService + la lectura final");
+        assert.equal(countCalls(dbCalls, "EventFunction.deleteMany"), 0);
+        assert.equal(countCalls(dbCalls, "TicketType.deleteMany"), 0);
         assert.equal(countCalls(dbCalls, "Event.findMany"), 0);
     } finally {
         await cleanup({ eventIds: event ? [event.id] : [], organizationIds: [org.id], userIds: [owner.id] });
     }
 });
 
-testWithDb("FASE 3.3) commit(PUBLISH) stays byte-for-byte identical — mismo desglose de dbCalls que antes de este cambio, nada tocado en esa rama", async () => {
+testWithDb("FASE 8.1/8.2) commit(PUBLISH): mismo ahorro en la rama de publicación, ninguna validación de publicación se debilitó — 23 -> 15", async () => {
     const owner = await createUser();
     const org = await createOrganization(owner.id);
     let event;
@@ -418,11 +431,13 @@ testWithDb("FASE 3.3) commit(PUBLISH) stays byte-for-byte identical — mismo de
         event = result.event;
         const { dbCalls } = result;
 
-        assert.equal(dbCalls.length, 23, `PREVIEW_PUBLISH no debe cambiar de cantidad de operaciones, dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
-        assert.equal(countCalls(dbCalls, "User.findUnique"), 4, "createEventService + syncEventLinksService + syncEventScheduleService + updateMyEventService, sin cambios");
-        assert.equal(countCalls(dbCalls, "Organization.findUnique"), 4);
-        assert.equal(countCalls(dbCalls, "Event.findUnique"), 4);
-        assert.equal(countCalls(dbCalls, "Event.update"), 2, "recomputeEventSummary (dentro de la transacción) + la publicación real");
+        assert.equal(dbCalls.length, 15, `PREVIEW_PUBLISH esperado 15 operaciones (antes 23), dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
+        assert.equal(countCalls(dbCalls, "User.findUnique"), 1, "un único getMyOrganization para TODO commit(), incluyendo updateMyEventService");
+        assert.equal(countCalls(dbCalls, "Organization.findUnique"), 1);
+        assert.equal(countCalls(dbCalls, "Event.findUnique"), 4, "sin cambios — 8.1/8.2 no tocan updateMyEventService.findUnique(EVENT_DETAIL_INCLUDE), eso es 8.3, no autorizado todavía");
+        assert.equal(countCalls(dbCalls, "Event.update"), 2, "recomputeEventSummary (dentro de la transacción) + la publicación real — sin cambios");
+        assert.equal(countCalls(dbCalls, "EventFunction.deleteMany"), 0);
+        assert.equal(countCalls(dbCalls, "TicketType.deleteMany"), 0);
         assert.equal(countCalls(dbCalls, "Event.findMany"), 0, "PUBLISH nunca pasó por getMyEventByIdService, no había self-heal que quitar");
 
         assert.equal(event.status, "PUBLISHED");
@@ -448,5 +463,222 @@ testWithDb("FASE 3.4) commit(DRAFT) regression: el evento devuelto sigue trayend
         }
     } finally {
         await cleanup({ eventIds: event ? [event.id] : [], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+// ==================================================================
+// E. Fase 8.2 — skipDelete: default preservado (Web/edición) vs. explícito
+// (evento recién creado). Ambos casos probados en aislamiento, sin pasar
+// por commit(), llamando syncEventScheduleService directo como lo haría
+// cualquier caller real.
+// ==================================================================
+
+testWithDb("3) syncEventScheduleService con skipDelete:true NUNCA ejecuta deleteMany, aunque el evento ya tuviera funciones/tipos de entrada", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    let event;
+    try {
+        // buildDraft() por defecto ya deja el evento con 2 funciones + 2 ticketTypes.
+        event = await commit(owner.clerkId, buildDraft(), "DRAFT", org.id);
+
+        await withPerfEnv(() =>
+            withPerfLogCapture(async (calls) => {
+                const timer = startWhatsappPerfTimer();
+                enterWithActiveTimer(timer);
+
+                await syncEventScheduleService(
+                    owner.clerkId,
+                    event.id,
+                    {
+                        functions: [{ date: "2099-11-11T20:00:00-03:00", venue: "Lugar nuevo" }],
+                        ticketTypes: [{ name: "Nueva", price: 500, quantity: 10 }],
+                    },
+                    org.id,
+                    { returnEvent: false, skipDelete: true }
+                );
+
+                timer.finish({});
+                const dbCalls = calls.find((c) => c.message === "[WA_PERF]").context.dbCalls;
+                assert.equal(countCalls(dbCalls, "EventFunction.deleteMany"), 0, "skipDelete:true nunca debe disparar el deleteMany de funciones");
+                assert.equal(countCalls(dbCalls, "TicketType.deleteMany"), 0, "ídem tipos de entrada");
+            })
+        );
+
+        // Como no se borró nada, las 2 funciones originales de buildDraft()
+        // conviven con la nueva -> demuestra que skipDelete:true confía de
+        // verdad en la garantía del caller (nunca se usa así desde una
+        // edición real — sólo EventServicePort.commit() lo pasa, y sólo
+        // porque el evento se acaba de crear en la misma llamada).
+        const functions = await prisma.eventFunction.findMany({ where: { eventId: event.id } });
+        assert.equal(functions.length, 3, "2 originales + 1 nueva, porque nada se borró");
+    } finally {
+        await cleanup({ eventIds: event ? [event.id] : [], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("4) syncEventScheduleService SIN skipDelete (default) sigue borrando y reemplazando por completo la agenda existente", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    let event;
+    try {
+        event = await commit(owner.clerkId, buildDraft(), "DRAFT", org.id);
+
+        await withPerfEnv(() =>
+            withPerfLogCapture(async (calls) => {
+                const timer = startWhatsappPerfTimer();
+                enterWithActiveTimer(timer);
+
+                await syncEventScheduleService(
+                    owner.clerkId,
+                    event.id,
+                    {
+                        functions: [{ date: "2099-11-11T20:00:00-03:00", venue: "Lugar nuevo" }],
+                        ticketTypes: [{ name: "Única", price: 500, quantity: 10 }],
+                    },
+                    org.id,
+                    { returnEvent: false } // default: skipDelete queda false
+                );
+
+                timer.finish({});
+                const dbCalls = calls.find((c) => c.message === "[WA_PERF]").context.dbCalls;
+                assert.equal(countCalls(dbCalls, "EventFunction.deleteMany"), 1, "el default sigue borrando — comportamiento de Web/edición sin cambios");
+                assert.equal(countCalls(dbCalls, "TicketType.deleteMany"), 1);
+            })
+        );
+
+        const functions = await prisma.eventFunction.findMany({ where: { eventId: event.id } });
+        assert.equal(functions.length, 1, "reemplazo completo, nunca acumulación, cuando skipDelete no se pide explícitamente");
+    } finally {
+        await cleanup({ eventIds: event ? [event.id] : [], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+// ==================================================================
+// F. Fase 8.1 — Web sigue llamando estos services SIN `context`: cada
+// llamada paga su propia resolución de User+Organization, exactamente como
+// antes de esta fase. Ningún caller existente (event.controller.js) cambia
+// su forma de invocar estas funciones — el parámetro nuevo es puramente
+// aditivo.
+// ==================================================================
+
+testWithDb("5) llamadas estilo Web (sin context, sin skipDelete) se comportan exactamente como antes: resuelven su propio User+Organization y siguen reemplazando la agenda", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    let event;
+    try {
+        event = await commit(owner.clerkId, buildDraft(), "DRAFT", org.id);
+
+        await withPerfEnv(() =>
+            withPerfLogCapture(async (calls) => {
+                const timer = startWhatsappPerfTimer();
+                enterWithActiveTimer(timer);
+
+                // Exactamente como llamaría event.controller.js (Web): sin
+                // `context`, sin `skipDelete` — el 5º parámetro que agregó
+                // esta fase directamente OMITIDO, como cualquier caller que
+                // no sepa que existe.
+                await syncEventScheduleService(
+                    owner.clerkId,
+                    event.id,
+                    { functions: [{ date: "2099-12-01T20:00:00-03:00", venue: "Y" }], ticketTypes: [{ name: "Única", price: 100, quantity: 5 }] },
+                    org.id
+                );
+
+                timer.finish({});
+                const dbCalls = calls.find((c) => c.message === "[WA_PERF]").context.dbCalls;
+                assert.equal(countCalls(dbCalls, "User.findUnique"), 1, "Web sigue pagando su propia resolución, sin contexto compartido");
+                assert.equal(countCalls(dbCalls, "Organization.findUnique"), 1);
+                assert.equal(countCalls(dbCalls, "EventFunction.deleteMany"), 1, "Web sigue reemplazando la agenda completa, comportamiento sin cambios");
+                assert.equal(countCalls(dbCalls, "TicketType.deleteMany"), 1);
+            })
+        );
+    } finally {
+        await cleanup({ eventIds: event ? [event.id] : [], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+// ==================================================================
+// G. PUBLISH sigue validando — assertPublishable no se debilitó por
+// resolver el contexto una sola vez.
+// ==================================================================
+
+testWithDb("6) PUBLISH sigue rechazando un evento incompleto — assertPublishable (dentro de updateMyEventService) no se debilitó al reutilizar el contexto", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    let event;
+    try {
+        event = await commit(owner.clerkId, buildDraft(), "DRAFT", org.id);
+
+        // Simula un evento que llega a este punto sin nombre de lugar (nunca
+        // debería pasar por el flujo normal de WhatsApp/Web, pero
+        // assertPublishable es la última línea de defensa real antes de
+        // publicar — se prueba directo, manipulando el estado persistido,
+        // para aislar específicamente esta validación de las que ya corren
+        // antes en syncEventScheduleService).
+        await prisma.event.update({ where: { id: event.id }, data: { venueName: null } });
+
+        await assert.rejects(
+            () => updateMyEventService(owner.clerkId, event.id, { status: "PUBLISHED" }, org.id),
+            (error) => {
+                assert.equal(error.message, "LOCATION_MISSING_VENUE_NAME");
+                return true;
+            }
+        );
+
+        const reloaded = await prisma.event.findUnique({ where: { id: event.id } });
+        assert.equal(reloaded.status, "DRAFT", "un rechazo de publicación nunca debe dejar el evento marcado como publicado");
+    } finally {
+        await cleanup({ eventIds: event ? [event.id] : [], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+// ==================================================================
+// H. Seguridad — un contexto que no coincide con lo que la llamada puntual
+// pide NUNCA se reutiliza a ciegas: se descarta y se resuelve de nuevo
+// contra la base con el clerkId/organizationId REALES.
+// ==================================================================
+
+testWithDb("8a) un contexto de OTRO usuario (clerkId distinto) nunca se confía — se re-resuelve y opera bajo la organización REAL del clerkId pedido", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const attacker = await createUser();
+    const attackerOrg = await createOrganization(attacker.id);
+    let event;
+    try {
+        event = await commit(owner.clerkId, buildDraft(), "DRAFT", org.id);
+
+        // Contexto "forjado": pertenece a `attacker`/`attackerOrg`, no a
+        // `owner`/`org` — simula un caller que pasa un contexto que no le
+        // corresponde a ESTA llamada puntual.
+        const forgedContext = { user: attacker, organization: attackerOrg };
+
+        const result = await updateMyEventService(owner.clerkId, event.id, { status: "PUBLISHED" }, org.id, { context: forgedContext });
+
+        assert.ok(result, "debía descartar el contexto forjado, resolver de nuevo y completar la operación bajo el dueño real");
+        assert.equal(result.organizationId, org.id, "nunca debe terminar operando bajo la organización del contexto forjado");
+    } finally {
+        await cleanup({ eventIds: event ? [event.id] : [], organizationIds: [org.id, attackerOrg.id], userIds: [owner.id, attacker.id] });
+    }
+});
+
+testWithDb("8b) un contexto resuelto para OTRA organización del mismo usuario nunca se reutiliza — se re-resuelve para la organización realmente pedida", async () => {
+    const owner = await createUser();
+    const orgA = await createOrganization(owner.id);
+    const orgB = await createOrganization(owner.id);
+    let eventA, eventB;
+    try {
+        eventA = await commit(owner.clerkId, buildDraft(), "DRAFT", orgA.id);
+        eventB = await commit(owner.clerkId, buildDraft(), "DRAFT", orgB.id);
+
+        // Contexto legítimo, pero de la Organización A — la llamada de
+        // abajo pide explícitamente la Organización B.
+        const contextForA = { user: owner, organization: orgA };
+
+        const result = await updateMyEventService(owner.clerkId, eventB.id, { status: "PUBLISHED" }, orgB.id, { context: contextForA });
+
+        assert.ok(result, "debía descartar el contexto de A y resolver B de verdad");
+        assert.equal(result.organizationId, orgB.id, "nunca debe reusar el contexto de una organización distinta a la pedida");
+    } finally {
+        await cleanup({ eventIds: [eventA?.id, eventB?.id].filter(Boolean), organizationIds: [orgA.id, orgB.id], userIds: [owner.id] });
     }
 });

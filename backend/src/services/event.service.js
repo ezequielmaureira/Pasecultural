@@ -42,7 +42,16 @@ async function getUserByClerkId(clerkId) {
 // algo que el caller no pidió. findFirst queda reservado exclusivamente para
 // organizationId === null (comportamiento legacy, todavía el único que usa
 // la Web).
-async function getMyOrganization(clerkId, organizationId = null) {
+// Fase 8.1 (perf) — exportada para que EventServicePort.commit() pueda
+// resolver este mismo contexto UNA sola vez y reutilizarlo en las 4 llamadas
+// que encadena (createEventService/syncEventLinksService/
+// syncEventScheduleService/updateMyEventService), en vez de que cada una
+// vuelva a pagar esta misma consulta por su cuenta. Ningún otro caller
+// existente cambia: sigue siendo exactamente la misma función, con el mismo
+// comportamiento, para cualquiera que la llame directo (deleteMyEventService,
+// listArchivedEventsService, restoreEventService, o las 4 de arriba cuando
+// no reciben un contexto ya resuelto — ver resolveContext).
+export async function getMyOrganization(clerkId, organizationId = null) {
     const user = await getUserByClerkId(clerkId);
     if (!user) return null;
 
@@ -61,6 +70,31 @@ async function getMyOrganization(clerkId, organizationId = null) {
     if (!organization) return null;
 
     return { user, organization };
+}
+
+// Fase 8.1 (perf) — reutilización SEGURA de un contexto {user, organization}
+// ya resuelto por un caller que está orquestando varias llamadas seguidas
+// para el MISMO clerkId+organizationId dentro de una única operación
+// server-side (ver EventServicePort.commit). Nunca se confía a ciegas en
+// `providedContext`: sólo se reutiliza si coincide EXACTAMENTE con el
+// clerkId pedido en ESTA llamada puntual (via user.clerkId) y, cuando se
+// pidió un organizationId concreto, también con organization.id — cualquier
+// discrepancia (no debería ocurrir nunca en el uso real, pero un caller mal
+// escrito o un valor inesperado no puede colarse) descarta el contexto
+// recibido y vuelve a resolverlo contra la base, exactamente como si nunca
+// se hubiera pasado nada. Callers que no pasan `providedContext` (todo lo
+// que no sea EventServicePort.commit — Web sigue llamando estas funciones
+// sin este parámetro) se comportan IDÉNTICO a como lo hacían antes de esta
+// fase: una consulta real por llamada, sin cambios.
+async function resolveContext(clerkId, organizationId, providedContext) {
+    if (
+        providedContext &&
+        providedContext.user?.clerkId === clerkId &&
+        (!organizationId || providedContext.organization?.id === organizationId)
+    ) {
+        return providedContext;
+    }
+    return getMyOrganization(clerkId, organizationId);
 }
 
 function assertValidCoordinate(value, min, max, errorCode) {
@@ -187,8 +221,8 @@ async function buildEventData(input) {
     return data;
 }
 
-export const createEventService = async (clerkId, input, organizationId = null) => {
-    const context = await getMyOrganization(clerkId, organizationId);
+export const createEventService = async (clerkId, input, organizationId = null, { context: providedContext } = {}) => {
+    const context = await resolveContext(clerkId, organizationId, providedContext);
     if (!context) {
         throw new Error("NO_ORGANIZATION");
     }
@@ -319,8 +353,8 @@ function assertPublishable(event) {
     }
 }
 
-export const updateMyEventService = async (clerkId, id, input, organizationId = null) => {
-    const context = await getMyOrganization(clerkId, organizationId);
+export const updateMyEventService = async (clerkId, id, input, organizationId = null, { context: providedContext } = {}) => {
+    const context = await resolveContext(clerkId, organizationId, providedContext);
     if (!context) return null;
 
     const event = await prisma.event.findUnique({ where: { id }, include: EVENT_DETAIL_INCLUDE });
@@ -418,8 +452,19 @@ function recomputeEventSummary(functionsInput, ticketTypesInput) {
 // funciones/ticketTypes/asignaciones reales para incluir). Default `true`
 // preserva el comportamiento exacto para event.controller.js (Web), que sí
 // usa el evento devuelto.
-export const syncEventScheduleService = async (clerkId, eventId, input, organizationId = null, { returnEvent = true } = {}) => {
-    const context = await getMyOrganization(clerkId, organizationId);
+//
+// `skipDelete` (Fase 8.2 — perf): SOLO EventServicePort.commit() lo pasa en
+// `true`, y sólo porque en ese caller `eventId` se creó dos líneas antes, EN
+// LA MISMA llamada síncrona a commit() — ningún otro proceso puede conocer
+// todavía ese id (recién se generó, nunca se expuso), así que es
+// matemáticamente imposible que existan funciones/tipos de entrada previos
+// que este `eventFunction.deleteMany`/`ticketType.deleteMany` fueran a
+// encontrar. Default `false` preserva EXACTO el comportamiento para
+// cualquier otro caller (Web, `event.controller.js`, que reutiliza esta
+// misma función para REEMPLAZAR la agenda de un evento YA EXISTENTE — ahí
+// los deletes son necesarios de verdad y nunca se saltean).
+export const syncEventScheduleService = async (clerkId, eventId, input, organizationId = null, { returnEvent = true, context: providedContext, skipDelete = false } = {}) => {
+    const context = await resolveContext(clerkId, organizationId, providedContext);
     if (!context) return null;
 
     const event = await prisma.event.findUnique({ where: { id: eventId } });
@@ -500,8 +545,10 @@ export const syncEventScheduleService = async (clerkId, eventId, input, organiza
     }
 
     await prisma.$transaction(async (tx) => {
-        await tx.eventFunction.deleteMany({ where: { eventId } });
-        await tx.ticketType.deleteMany({ where: { eventId } });
+        if (!skipDelete) {
+            await tx.eventFunction.deleteMany({ where: { eventId } });
+            await tx.ticketType.deleteMany({ where: { eventId } });
+        }
 
         if (ticketTypeRows.length > 0) {
             await tx.ticketType.createMany({ data: ticketTypeRows });
@@ -554,8 +601,8 @@ function analyzeLink(link) {
 // sincronización de links en sí no cambia). Default `true` preserva EXACTO
 // el comportamiento anterior para el único otro caller (event.controller.js,
 // que sí usa el evento devuelto como respuesta HTTP).
-export const syncEventLinksService = async (clerkId, eventId, linksInput, organizationId = null, { returnEvent = true } = {}) => {
-    const context = await getMyOrganization(clerkId, organizationId);
+export const syncEventLinksService = async (clerkId, eventId, linksInput, organizationId = null, { returnEvent = true, context: providedContext } = {}) => {
+    const context = await resolveContext(clerkId, organizationId, providedContext);
     if (!context) return null;
 
     const event = await prisma.event.findUnique({ where: { id: eventId } });
