@@ -540,6 +540,65 @@ model WhatsappPendingStepInput {
   @@map("whatsapp_pending_step_inputs")
 }
 
+enum WhatsappInboundMessageClaimStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// Fase CIERRE (idempotencia de mensajes entrantes) — Meta entrega mensajes
+// "at-least-once": una falla de red, un timeout de nuestro lado devolviendo
+// el 200 tarde, o un simple reintento del panel de pruebas pueden hacer que
+// el MISMO wamid llegue más de una vez a receiveWhatsappWebhook. Esta tabla
+// es el único mecanismo de "¿ya procesé este wamid, o lo estoy procesando
+// ahora mismo?" — ver
+// services/whatsappInboundMessageClaim.service.js#claimInboundMessage,
+// único punto que la lee/escribe. NUNCA guarda el payload, el texto del
+// usuario, el teléfono ni contenido multimedia: sólo el identificador
+// técnico de Meta (wamid) y el estado del reclamo.
+//
+// wamid es @unique a propósito: el `create` inicial (ver el service) usa
+// esa restricción para reclamar atómicamente en UNA sola escritura, sin
+// ninguna lectura previa — el camino feliz (wamid nuevo) nunca paga el
+// costo de un SELECT antes de poder escribir.
+//
+// Ciclo de estados:
+//   PROCESSING -> COMPLETED  la entrega terminó con éxito; ese wamid nunca
+//                            vuelve a procesarse, ni aunque venza el lease.
+//   PROCESSING -> FAILED     la entrega tiró una excepción real; queda
+//                            reintentable DE INMEDIATO por una reentrega
+//                            posterior del mismo wamid (nunca hace falta
+//                            esperar a que venza leaseExpiresAt).
+//   PROCESSING (sin transición, leaseExpiresAt vencido) — el proceso murió
+//                            a mitad de camino (crash real, no una
+//                            excepción capturada) — también reintentable,
+//                            pero recién una vez pasado leaseExpiresAt, para
+//                            no robarle el reclamo a una entrega que sigue
+//                            legítimamente en curso.
+//
+// attempts cuenta cuántas veces se RECLAMÓ (create inicial + cada reclamo
+// ganador de un estado FAILED/PROCESSING-vencido) — nunca cuántas veces
+// Meta reentregó el webhook, que puede ser mayor (una reentrega que
+// encuentra el reclamo todavía vigente ni siquiera llega a tocar esta fila).
+//
+// Sin cron de limpieza en esta fase (fuera de alcance) — @@index([status,
+// leaseExpiresAt]) deja lista, sin escanear toda la tabla, la consulta que
+// una futura política de retención necesitaría (ej. "borrar COMPLETED/
+// FAILED de más de N días", o encontrar leases PROCESSING vencidos para
+// observabilidad).
+model WhatsappInboundMessageClaim {
+  id             String                             @id @default(cuid())
+  wamid          String                             @unique
+  status         WhatsappInboundMessageClaimStatus  @default(PROCESSING)
+  attempts       Int                                @default(1)
+  leaseExpiresAt DateTime
+  createdAt      DateTime                           @default(now())
+  updatedAt      DateTime                           @updatedAt
+
+  @@index([status, leaseExpiresAt])
+  @@map("whatsapp_inbound_message_claims")
+}
+
 // Una venta. Nace en PENDING (reserva) y pasa a CONFIRMED cuando se
 // confirma el pago (hoy: manual por el organizador; mañana: webhook de
 // Mercado Pago) — ver SaleService.confirmSale(). El stock disponible se

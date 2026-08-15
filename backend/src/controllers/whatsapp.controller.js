@@ -95,12 +95,36 @@ import {
 } from "../services/whatsappPendingStepInput.service.js";
 import { startWhatsappPerfTimer, enterWithActiveTimer } from "../utils/whatsappPerf.js";
 import { enterWithConversationStateRequestCache } from "../conversation/conversationStateRequestCache.js";
+import {
+    claimInboundMessage,
+    completeInboundMessageClaim,
+    failInboundMessageClaim,
+} from "../services/whatsappInboundMessageClaim.service.js";
 
 // El valor real de ConversationChannel para este canal (ver
 // prisma/schema.prisma `enum ConversationChannel { WEB WHATSAPP }`, ya usado
 // tal cual por conversation.controller.js para "WEB") — no se inventa un
 // literal nuevo.
 const WHATSAPP_CHANNEL = "WHATSAPP";
+
+// Fase CIERRE (idempotencia) — a diferencia de TODAS las demás dependencias
+// inyectables de processInboundMessage (que por default resuelven a su
+// implementación real, ver la firma de la función más abajo), estas tres
+// NUNCA deben tocar Prisma por default: hay más de una decena de archivos
+// de test de este controller (whatsapp.*.controller.test.js) que mockean
+// cada dependencia que efectivamente ejercitan, pero ninguno conoce esta
+// fase — si el default fuera el servicio real, CUALQUIERA de esos tests
+// dispararía una escritura Prisma real sin darse cuenta. Por eso el default
+// acá es un no-op inerte, y el servicio real (importado abajo) se cablea
+// EXPLÍCITAMENTE una sola vez, en el único punto de entrada de producción
+// real (ver receiveWhatsappWebhook, al final de este archivo) — exactamente
+// el mismo patrón de "nunca un default que toque Prisma por accidente" que
+// ya protege el resto del proyecto (ver tests/helpers/dbGuard.js).
+async function noopClaimInboundMessage() {
+    return { claimed: true };
+}
+async function noopCompleteInboundMessageClaim() {}
+async function noopFailInboundMessageClaim() {}
 
 // GET /api/whatsapp/webhook — mecanismo oficial de verificación de Meta
 // ("Paso 2. Configuración de producción" del panel de WhatsApp Cloud API).
@@ -1121,6 +1145,9 @@ export async function processInboundMessage(
         resetPendingStepInput: resetPendingStepInputDep = resetPendingStepInput,
         updatePendingStepInputStatus: updatePendingStepInputStatusDep = updatePendingStepInputStatus,
         deletePendingStepInput: deletePendingStepInputDep = deletePendingStepInput,
+        claimInboundMessage: claimInboundMessageDep = noopClaimInboundMessage,
+        completeInboundMessageClaim: completeInboundMessageClaimDep = noopCompleteInboundMessageClaim,
+        failInboundMessageClaim: failInboundMessageClaimDep = noopFailInboundMessageClaim,
     } = {}
 ) {
     // Bug fix (carga de imagen del evento): antes shouldAutoReply por sí
@@ -1177,10 +1204,52 @@ export async function processInboundMessage(
     // Map global. Web (conversation.controller.js) nunca llama a esto, así
     // que su comportamiento queda exactamente igual que antes.
     enterWithConversationStateRequestCache();
+
+    // Fase CIERRE — idempotencia: el wamid (message.messageId) es el ÚNICO
+    // identificador estable de reentrega que manda Meta — se reclama ACÁ,
+    // antes de tocar Prisma/Meta por cualquier otro motivo (findActiveConversation
+    // es el primer efecto secundario real de la rama de abajo). Ver
+    // services/whatsappInboundMessageClaim.service.js para el diseño
+    // completo del reclamo atómico.
+    //
+    // `dedupeActive` sólo es true cuando ESTA entrega ganó el reclamo — es
+    // la única condición bajo la cual el finally de más abajo debe tocar la
+    // tabla de idempotencia (nunca marcar completed/failed sobre un reclamo
+    // que no es nuestro). Dos casos la dejan en false a propósito, sin
+    // abortar el mensaje:
+    //   (a) mensaje sin wamid (anomalía — Meta siempre lo manda en un
+    //       mensaje real) — se procesa exactamente como si esta fase no
+    //       existiera, con una advertencia segura (nunca PII);
+    //   (b) el propio mecanismo de reclamo lanza un error inesperado (ej.
+    //       la tabla de idempotencia momentáneamente inalcanzable) — se
+    //       degrada a procesar sin deduplicar antes que bloquear un mensaje
+    //       real por una falla ajena a él.
+    const wamid = message.messageId;
+    let dedupeActive = false;
+    if (typeof wamid === "string" && wamid.length > 0) {
+        try {
+            const claim = await claimInboundMessageDep(wamid);
+            if (!claim.claimed) {
+                // Nunca texto/teléfono/payload — sólo el motivo técnico y el
+                // tipo de mensaje, igual que el resto de los logs de este
+                // archivo.
+                logger.info("[WA_DEDUP] DUPLICATE_IGNORED", { reason: claim.reason, messageType: message?.type });
+                return;
+            }
+            dedupeActive = true;
+        } catch (claimError) {
+            logger.error(claimError, { context: "whatsapp inbound dedupe: fallo al reclamar, se procesa sin deduplicar" });
+        }
+    } else {
+        logger.warn("WhatsApp inbound message sin wamid: se procesa sin deduplicar", { messageType: message?.type });
+    }
+    perf.mark("CLAIM_DEDUPE");
+
     let activeConversationId = null;
     const reply = (replyText, engineAction) =>
         sendBotReply({ sendText, to, from: message.from, messageId: message.messageId, text: replyText, engineAction, perf, conversationId: activeConversationId });
 
+    let processingFailed = false;
     try {
         const active = await findActiveConversation({ channel: WHATSAPP_CHANNEL, channelRef });
         activeConversationId = active?.id ?? null;
@@ -1651,7 +1720,31 @@ export async function processInboundMessage(
         perf.mark("CREATE_SELECTION");
         await reply(buildOrganizationSelectorText(candidates), "SELECTOR");
     } catch (error) {
+        processingFailed = true;
         logger.error(error, { context: "whatsapp organizer bot", inboundMessageId: message.messageId });
+    } finally {
+        // Fase CIERRE — el reclamo sólo se finaliza si ESTA entrega lo ganó
+        // (dedupeActive); nunca se toca la tabla de idempotencia por un
+        // mensaje sin wamid o cuyo reclamo falló al adquirirse (ver arriba).
+        // `finally` corre en TODOS los caminos de salida del try (los ~15
+        // `return;` internos incluidos, ver los sub-flujos de más arriba) —
+        // es lo que permite finalizar el reclamo sin tocar ninguno de esos
+        // returns existentes.
+        if (dedupeActive) {
+            try {
+                if (processingFailed) {
+                    await failInboundMessageClaimDep(wamid);
+                } else {
+                    await completeInboundMessageClaimDep(wamid);
+                }
+            } catch (finalizeError) {
+                // Nunca deja escapar: si ni siquiera se puede liberar/cerrar
+                // el reclamo, el peor caso es que quede PROCESSING hasta que
+                // venza el lease (ver CLAIM_LEASE_MS) — reintentable más
+                // tarde, nunca un mensaje perdido para siempre.
+                logger.error(finalizeError, { context: "whatsapp inbound dedupe: no se pudo finalizar el reclamo" });
+            }
+        }
     }
 }
 
@@ -1693,7 +1786,14 @@ export const receiveWhatsappWebhook = (req, res) => {
     // falle) el intento de responder. processInboundMessage ya nunca
     // lanza (ver su propio comentario), así que no hace falta un .catch()
     // adicional acá — sólo se dispara, nunca se espera.
-    void processInboundMessages(messages);
+    //
+    // Fase CIERRE — único lugar de todo el proyecto que cablea
+    // explícitamente el servicio REAL de idempotencia (ver el comentario
+    // junto a noopClaimInboundMessage más arriba, sección "por qué no es el
+    // default"). El resto de las ~15 dependencias de processInboundMessage
+    // sigue sin pasarse acá — cada una resuelve a su propio default real,
+    // exactamente como antes de esta fase.
+    void processInboundMessages(messages, { claimInboundMessage, completeInboundMessageClaim, failInboundMessageClaim });
 
     res.sendStatus(200);
 };
