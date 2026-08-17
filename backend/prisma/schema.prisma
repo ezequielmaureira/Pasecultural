@@ -857,6 +857,17 @@ model Sale {
   mercadoPagoPreferenceId String? @unique
   mercadoPagoInitPoint    String?
 
+  // MP-3 — id del payment de Mercado Pago que confirmó ESTA Sale. @unique:
+  // nunca dos Sale pueden terminar apuntando al mismo payment (si alguna
+  // vez ocurriera por un bug de correlación, Postgres lo rechaza con un
+  // conflicto en vez de dejarlo pasar silenciosamente — ver el informe de
+  // MP-3). Se escribe DENTRO de la misma transacción atómica que confirma
+  // la venta (confirmSaleService), nunca en un paso separado: así no puede
+  // quedar una Sale con el payment "reclamado" pero todavía sin confirmar.
+  // Null para toda venta manual (paymentMethod=MANUAL) y para cualquier
+  // Sale de Mercado Pago que todavía no fue confirmada.
+  mercadoPagoPaymentId String? @unique
+
   // Email de confirmación con los tickets (Resend) — nunca se manda dentro
   // de la transacción que confirma la venta (ver confirmSaleService), y
   // nunca más de una vez por venta aunque confirmSaleService se llame varias

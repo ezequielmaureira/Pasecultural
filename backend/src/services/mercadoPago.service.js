@@ -326,3 +326,66 @@ export async function createMercadoPagoPreference({
 
     return { success: true, preferenceId: payload.id, initPoint: payload.init_point };
 }
+
+// ==================================================================
+// MP-3 — consulta server-to-server de un payment (GET /v1/payments/{id}).
+// Verificado contra la documentación oficial vigente
+// (developers.mercadopago.com, referencia de Payments): SIEMPRE con el
+// access_token del VENDEDOR dueño del payment (nunca uno propio de
+// PaseCultural) — la API scoppea el recurso a la cuenta del token, así
+// que consultar con el token equivocado ya falla sola (404/403) en vez de
+// devolver datos de otro vendedor. Es la fuente autoritativa: el webhook
+// nunca confía en el status/monto que vengan de la notificación en sí
+// (ver mercadoPagoWebhook.service.js), sólo en esta respuesta.
+// ==================================================================
+
+const PAYMENTS_URL = "https://api.mercadopago.com/v1/payments";
+
+// No reintenta ante error transitorio, a propósito: si esta consulta falla
+// (red/timeout/5xx), el caller lo reporta como error transitorio al
+// controller (HTTP 500), y Mercado Pago reintenta la notificación entera
+// más tarde (documentado oficialmente) — no hace falta un reintento propio
+// acá adentro.
+export async function getMercadoPagoPayment({ accessToken, paymentId }) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), OAUTH_TIMEOUT_MS);
+
+    let response;
+    try {
+        response = await fetch(`${PAYMENTS_URL}/${encodeURIComponent(paymentId)}`, {
+            method: "GET",
+            headers: { Authorization: `Bearer ${accessToken}` },
+            signal: controller.signal,
+        });
+    } catch (error) {
+        return { success: false, error: error.name === "AbortError" ? "TIMEOUT" : "NETWORK_ERROR" };
+    } finally {
+        clearTimeout(timeoutId);
+    }
+
+    let payload = null;
+    try {
+        payload = await response.json();
+    } catch {
+        payload = null;
+    }
+
+    if (!response.ok) {
+        return { success: false, error: payload?.message ?? `HTTP_${response.status}`, httpStatus: response.status };
+    }
+
+    if (!payload?.id || !payload?.status) {
+        return { success: false, error: "INCOMPLETE_PAYMENT_RESPONSE" };
+    }
+
+    return {
+        success: true,
+        paymentId: String(payload.id),
+        status: payload.status,
+        statusDetail: payload.status_detail ?? null,
+        transactionAmount: payload.transaction_amount,
+        currencyId: payload.currency_id ?? null,
+        externalReference: payload.external_reference ?? null,
+        collectorId: payload.collector_id != null ? String(payload.collector_id) : null,
+    };
+}

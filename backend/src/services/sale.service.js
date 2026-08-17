@@ -351,7 +351,14 @@ async function buildConfirmedSaleResult(saleId) {
 // el comportamiento es exactamente el de siempre: sendSaleConfirmationEmail
 // se dispara igual que hoy, sin excepciones.
 export const confirmSaleService = async (clerkId, saleId, options = {}) => {
-    const { skipAutoEmail = false } = options;
+    // MP-3 — sólo lo pasa mercadoPagoWebhook.service.js, después de verificar
+    // el payment server-to-server. Null para los dos callers preexistentes
+    // (confirmSale/confirmSaleByBuyer, pago manual) — comportamiento exacto
+    // de siempre para ellos. @unique en Sale: si alguna vez dos Sale
+    // intentaran reclamar el mismo paymentId (no debería ser posible, ver
+    // el informe de MP-3), Postgres lo rechaza con un P2002 en vez de dejar
+    // pasar una inconsistencia silenciosa.
+    const { skipAutoEmail = false, mercadoPagoPaymentId = null } = options;
     logger.info("confirmSaleService entered", { clerkId, saleId });
     const organizerUser = await getUserByClerkId(clerkId);
     if (!organizerUser) {
@@ -428,6 +435,7 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
                 status: "CONFIRMED",
                 confirmedAt: new Date(),
                 confirmedBy: organizerUser.id,
+                mercadoPagoPaymentId,
             },
         });
         if (updated.count === 0) {
