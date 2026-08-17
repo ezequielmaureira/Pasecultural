@@ -222,3 +222,107 @@ export async function refreshMercadoPagoAccessToken(refreshToken) {
         refresh_token: refreshToken,
     });
 }
+
+// ==================================================================
+// MP-2 — Checkout Pro + Split Payment 1:1. Verificado contra la
+// documentación oficial vigente (developers.mercadopago.com, secciones
+// "Checkout Pro" y "Split de pagos / Split Payments 1:1"), nunca contra
+// blogs/tutoriales:
+//
+//   - Creación de preferencia: POST https://api.mercadopago.com/checkout/preferences,
+//     Authorization: Bearer <access_token DEL VENDEDOR, nunca uno propio de
+//     PaseCultural> — la documentación de integración de marketplace es
+//     explícita: "use the seller's access_token... in the backend or in
+//     the header of the request", obtenido por cada vendedor vía OAuth
+//     (exactamente la conexión de MP-1).
+//   - marketplace_fee: MONTO ABSOLUTO en la misma moneda del pago, NUNCA un
+//     porcentaje (confirmado con el ejemplo oficial: un item de 75.76 con
+//     "marketplace_fee": 10 significa 10 unidades de moneda, no 10%).
+//   - Reparto económico confirmado oficialmente: la comisión de Mercado
+//     Pago se descuenta primero de los fondos del VENDEDOR, y recién
+//     después se descuenta marketplace_fee del saldo restante — es decir,
+//     PaseCultural recibe el monto exacto de marketplace_fee sin importar
+//     cuánto cobre Mercado Pago por procesar el pago; el costo de
+//     procesamiento de Mercado Pago queda enteramente a cargo del
+//     organizador (ver el informe de entrega de MP-2, sección 2, para el
+//     detalle completo).
+//   - auto_return: único valor documentado, "approved".
+// ==================================================================
+
+const PREFERENCES_URL = "https://api.mercadopago.com/checkout/preferences";
+
+// No reintenta ante error transitorio (a diferencia de postToTokenEndpoint):
+// a diferencia del authorization code de OAuth, crear una preferencia no
+// consume ningún secreto de un solo uso — si esta llamada falla, el
+// caller (mercadoPagoCheckout.service.js) simplemente cancela la Sale
+// recién creada y el comprador puede reintentar la compra entera sin
+// ningún costo adicional. Ver el informe de entrega de MP-2 para por qué
+// esto es intencional y no un descuido.
+export async function createMercadoPagoPreference({
+    accessToken,
+    items,
+    payer,
+    externalReference,
+    marketplaceFee,
+    backUrls,
+    notificationUrl,
+    // MP-2.1 — array en el formato oficial ([{id:"ticket"}, ...]), nunca
+    // inventado acá: el caller (mercadoPagoCheckout.service.js) decide QUÉ
+    // excluir, este módulo sólo lo transporta tal cual dentro de
+    // payment_methods.excluded_payment_types.
+    excludedPaymentTypes,
+}) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), OAUTH_TIMEOUT_MS);
+
+    let response;
+    try {
+        response = await fetch(PREFERENCES_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({
+                items,
+                payer,
+                external_reference: externalReference,
+                marketplace_fee: marketplaceFee,
+                back_urls: backUrls,
+                auto_return: "approved",
+                notification_url: notificationUrl,
+                payment_methods:
+                    Array.isArray(excludedPaymentTypes) && excludedPaymentTypes.length > 0
+                        ? { excluded_payment_types: excludedPaymentTypes }
+                        : undefined,
+            }),
+            signal: controller.signal,
+        });
+    } catch (error) {
+        // Nunca se loguea acá — el caller decide qué loguear, y NUNCA el
+        // access_token del vendedor (ver mercadoPagoCheckout.service.js).
+        return { success: false, error: error.name === "AbortError" ? "TIMEOUT" : "NETWORK_ERROR" };
+    } finally {
+        clearTimeout(timeoutId);
+    }
+
+    let payload = null;
+    try {
+        payload = await response.json();
+    } catch {
+        payload = null;
+    }
+
+    if (!response.ok) {
+        return { success: false, error: payload?.message ?? payload?.error ?? `HTTP_${response.status}` };
+    }
+
+    if (!payload?.id || !payload?.init_point) {
+        // Defensivo — una respuesta 2xx sin `id`/`init_point` no sirve para
+        // redirigir al comprador a ningún lado; nunca se persiste una
+        // preferencia a medias.
+        return { success: false, error: "INCOMPLETE_PREFERENCE_RESPONSE" };
+    }
+
+    return { success: true, preferenceId: payload.id, initPoint: payload.init_point };
+}

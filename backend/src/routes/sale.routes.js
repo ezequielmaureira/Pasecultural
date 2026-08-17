@@ -14,6 +14,7 @@ import {
     resendSaleEmailByToken,
     getSalePdfByToken,
 } from "../controllers/sale.controller.js";
+import { createMercadoPagoCheckout } from "../controllers/mercadoPagoCheckout.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { requireRole } from "../middlewares/requireRole.js";
 import { rateLimit } from "../middlewares/rateLimit.js";
@@ -27,12 +28,23 @@ const recoverSearchRateLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 8 });
 const recoverResendCodeRateLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 5 });
 const recoverVerifyRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
 const resendEmailRateLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 5 });
+// MP-2 — a diferencia del resto de arriba, este endpoint no es "de
+// adivinanza": llama a la API de Mercado Pago por request, así que un
+// límite por IP es sobre todo para no dejarlo como un vector barato de
+// abuso/costo contra la cuenta de Mercado Pago del organizador (createSale
+// nunca tuvo este problema porque no habla con ningún tercero externo).
+const mercadoPagoCheckoutRateLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 10 });
 
 // Sin requireAuth a propósito: el comprador nunca necesita sesión de Clerk
 // para comprar (checkout invitado). El controller decide internamente si
 // hay una cuenta real logueada o si resuelve un comprador invitado por
 // email — ver sale.controller.js#createSale.
 router.post("/", createSale);
+
+// MP-2 — inicio real de una compra vía Mercado Pago (Checkout Pro + Split
+// Payment 1:1). Mismo criterio sin sesión que "/" — ver
+// mercadoPagoCheckout.controller.js.
+router.post("/mercadopago/checkout", mercadoPagoCheckoutRateLimit, createMercadoPagoCheckout);
 router.get("/mine", requireAuth, listSalesBuyer);
 router.get("/", requireRole("ORGANIZER"), listSalesOrganizer);
 // Confirm por parte del organizador (desde UI organizador / webhook)

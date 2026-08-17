@@ -789,6 +789,32 @@ model Sale {
   // esas ventas viejas ya entregaron sus tickets en su momento.
   publicRecoveryToken String? @unique
 
+  // MP-2.1 — reserva temporal de stock. NULL para ventas que nunca
+  // reservaron nada (filas anteriores a esta fase). Mientras
+  // status=PENDING Y stockReservedUntil > ahora, esta Sale cuenta como
+  // "indisponible" para functionCapacity.service.js#getUnavailableCount,
+  // exactamente igual que un Ticket ya emitido — así dos compradores nunca
+  // pueden reservar la misma última unidad al mismo tiempo (ver
+  // sale.service.js#createSaleForBuyer, bajo advisory lock). Vencida la
+  // reserva, deja de contar SOLA (nunca se escribe un status "EXPIRED" acá
+  // por un cron — mismo criterio que MercadoPagoOAuthState/
+  // WhatsappNumberChangeChallenge: expiresAt se compara contra `now` en el
+  // momento de usarlo, nunca un campo que haya que barrer).
+  stockReservedUntil DateTime?
+
+  // MP-2.1 — identificador opaco que se le manda a Mercado Pago como
+  // external_reference. Deliberadamente NO es publicRecoveryToken: ese
+  // campo es un bearer token que autoriza confirm-by-buyer/status/pdf/
+  // resend-email — mandárselo a un tercero (Mercado Pago, sus logs, su
+  // soporte) sería entregar una credencial de recuperación real a cambio
+  // de un simple id de correlación. Este campo, en cambio, no autoriza
+  // nada por sí mismo en ningún endpoint público: si alguna vez se
+  // filtrara desde el lado de Mercado Pago, no sirve para nada acá. Sólo
+  // tiene valor para paymentMethod=MERCADO_PAGO (generado en
+  // mercadoPagoCheckout.service.js, mismo generador — crypto.randomBytes
+  // — que el resto de los tokens públicos del proyecto).
+  mercadoPagoExternalReference String? @unique
+
   total Decimal @db.Decimal(10, 2)
 
   buyerId String
@@ -819,6 +845,17 @@ model Sale {
   confirmedAt DateTime?
   confirmedBy String?
   paymentRef  String?
+
+  // MP-2 — sólo tienen valor cuando paymentMethod = MERCADO_PAGO. La Sale
+  // sigue naciendo PENDING igual que siempre (ver el comment de arriba del
+  // modelo); esto es lo que la conecta con Checkout Pro sin tocar
+  // SaleStatus. mercadoPagoPreferenceId/mercadoPagoInitPoint se completan
+  // recién cuando Mercado Pago confirma la creación de la preferencia
+  // (mercadoPagoCheckout.service.js) — si esa llamada falla, la Sale se
+  // cancela y estos quedan null para siempre en esa fila.
+  checkoutIdempotencyKey String? @unique
+  mercadoPagoPreferenceId String? @unique
+  mercadoPagoInitPoint    String?
 
   // Email de confirmación con los tickets (Resend) — nunca se manda dentro
   // de la transacción que confirma la venta (ver confirmSaleService), y

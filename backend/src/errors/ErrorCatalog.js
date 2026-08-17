@@ -473,4 +473,31 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Mercado Pago rejected, failed, or returned an incomplete authorization-code exchange.",
         userMessage: "No pudimos completar la conexión con Mercado Pago. Probá de nuevo en unos minutos.",
     },
+
+    // --- Mercado Pago Checkout Pro + Split Payment (MP-2) ---
+    MERCADOPAGO_NOT_CONNECTED: {
+        httpStatus: 409,
+        logMessage: "Checkout attempted for an event whose organization has no Mercado Pago connection.",
+        userMessage: "Este organizador todavía no habilitó el cobro con Mercado Pago. Contactalo para completar tu compra.",
+    },
+    MERCADOPAGO_TOKEN_REFRESH_FAILED: {
+        httpStatus: 502,
+        logMessage: "Mercado Pago access token was expired/near expiry and the refresh attempt failed.",
+        userMessage: "No pudimos iniciar el pago con Mercado Pago. Probá de nuevo en unos minutos.",
+    },
+    MERCADOPAGO_ITEMS_MISMATCH: {
+        httpStatus: 500,
+        logMessage: "The sum of the items built for Mercado Pago does not match the Sale's own total — aborted before calling Mercado Pago.",
+        userMessage: "No pudimos procesar tu compra. Probá de nuevo.",
+    },
+    MERCADOPAGO_PREFERENCE_FAILED: {
+        httpStatus: 502,
+        logMessage: "Mercado Pago rejected, failed, or returned an incomplete Checkout Pro preference creation.",
+        userMessage: "No pudimos iniciar el pago con Mercado Pago. Probá de nuevo en unos minutos.",
+    },
+    MERCADOPAGO_CHECKOUT_ALREADY_ATTEMPTED: {
+        httpStatus: 409,
+        logMessage: "A checkout was already attempted (or is being attempted concurrently) with this idempotency key, with no usable preference to replay.",
+        userMessage: "Ya estamos procesando (o ya procesamos) este intento de compra. Si no avanzó, volvé a intentarlo desde el principio.",
+    },
 });

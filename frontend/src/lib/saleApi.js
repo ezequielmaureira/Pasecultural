@@ -60,6 +60,38 @@ export async function getSaleStatus(recoveryToken) {
     return apiFetch(`/api/sales/${recoveryToken}/status`);
 }
 
+// MP-2 — inicio real de una compra vía Mercado Pago (Checkout Pro + Split
+// Payment 1:1). Mismo criterio sin sesión que createSale; mismo shape de
+// body (firstName/lastName/email sueltos, buyerDocument) más
+// `idempotencyKey` (generado una vez por intento de compra en
+// PurchaseWizard, ver paymentGateway.js) para que un doble click o un
+// reintento de red nunca terminen creando dos ventas ni dos preferencias.
+// La respuesta { checkoutUrl, saleToken } nunca trae nada de Mercado Pago
+// más allá de la URL pública de checkout — ni tokens, ni datos del
+// organizador.
+export async function createMercadoPagoCheckout({
+    eventId,
+    functionId,
+    items,
+    firstName,
+    lastName,
+    email,
+    buyerDocument,
+    idempotencyKey,
+}) {
+    const requestBody = { eventId, functionId, items, firstName, lastName, email, buyerDocument, idempotencyKey };
+    console.log("saleApi.createMercadoPagoCheckout request body", {
+        ...requestBody,
+        buyerDocument: buyerDocument ? "[present]" : undefined,
+    });
+    const result = await apiFetch("/api/sales/mercadopago/checkout", {
+        method: "POST",
+        body: JSON.stringify(requestBody),
+    });
+    console.log("saleApi.createMercadoPagoCheckout response", { hasCheckoutUrl: Boolean(result?.checkoutUrl) });
+    return result;
+}
+
 // Pantalla pública "Recuperar mis entradas", paso 1 — sin sesión. Email+DNI
 // sólo LOCALIZAN una compra, nunca la revelan: la respuesta es siempre
 // genérica (el email tipeado, enmascarado), exista o no una compra real

@@ -17,4 +17,5 @@ export const DB_TEST_FILES = [
     "whatsappInboundMessageClaim.service.test.js",
     "whatsappNumberChange.service.test.js",
     "mercadoPagoConnection.service.test.js",
+    "mercadoPagoCheckout.service.test.js",
 ];

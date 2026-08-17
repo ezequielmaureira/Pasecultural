@@ -18,6 +18,61 @@ export function effectiveCapacity(assignment) {
 // acá en vez de repetir el mismo array.
 export const SOLD_TICKET_STATUSES = ["ACTIVE", "USED"];
 
+// MP-2.1 — advisory lock por (ticketTypeId, functionId), extraído de
+// confirmSaleService (sale.service.js) para que createSaleForBuyer pueda
+// tomar EXACTAMENTE el mismo lock al reservar stock, sin duplicar el SQL
+// crudo (con su comentario/gotcha) en dos lugares del mismo dominio.
+// Comportamiento sin cambios respecto de antes de esta extracción.
+//
+// El cast ::text es necesario: Prisma no puede deserializar el `void` que
+// devuelve pg_advisory_xact_lock. OJO: envolver esto en un CTE no
+// referenciado ("WITH locked AS (SELECT ...) SELECT 1") NO sirve — se
+// verificó empíricamente que Postgres puede no ejecutar ese CTE si su
+// resultado no se usa en la query externa, dejando el lock silenciosamente
+// sin tomar. El cast directo sobre la misma columna proyectada garantiza
+// que la función se evalúa. Se libera solo al terminar la transacción del
+// caller (commit o rollback) — `tx` DEBE ser el cliente de una
+// `prisma.$transaction(...)` en curso, nunca `prisma` directo.
+export async function acquireTicketTypeFunctionLock(tx, ticketTypeId, functionId) {
+  await tx.$queryRawUnsafe(
+    `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS locked`,
+    `${ticketTypeId}:${functionId}`
+  );
+}
+
+// MP-2.1 — cuánto de la capacidad está indisponible AHORA MISMO para un
+// tipo de entrada en una función puntual: tickets ya emitidos (ACTIVE/
+// USED, mismo criterio de siempre) MÁS lo que reservan las Sale PENDING
+// todavía vigentes (stockReservedUntil > `now`). Nunca cuenta:
+//   - reservas ya vencidas (stockReservedUntil <= now) — dejan de "pesar"
+//     solas, sin ningún barrido/cron que las marque;
+//   - Sale CANCELLED/EXPIRED — el filtro status:"PENDING" ya las excluye
+//     (SaleStatus de este proyecto no tiene REFUNDED/FAILED todavía; el
+//     día que exista un estado nuevo que tampoco deba reservar, alcanza
+//     con no incluirlo acá).
+// Comparar el resultado contra effectiveCapacity(assignment) es lo que
+// reemplaza a "sólo tickets vendidos" como el número autoritativo para
+// decidir si queda lugar para reservar — ver
+// sale.service.js#createSaleForBuyer, siempre bajo
+// acquireTicketTypeFunctionLock (nunca sin lock: dos lecturas concurrentes
+// de este número son exactamente la carrera que el lock existe para
+// cerrar).
+export async function getUnavailableCount(client, ticketTypeId, functionId, now = new Date()) {
+  const [soldCount, reservedAgg] = await Promise.all([
+    client.ticket.count({
+      where: { ticketTypeId, functionId, status: { in: SOLD_TICKET_STATUSES }, deletedAt: null },
+    }),
+    client.saleItem.aggregate({
+      where: {
+        ticketTypeId,
+        sale: { functionId, status: "PENDING", stockReservedUntil: { gt: now } },
+      },
+      _sum: { quantity: true },
+    }),
+  ]);
+  return soldCount + (reservedAgg._sum.quantity ?? 0);
+}
+
 // Estados que significan "esta entrada ya no da derecho a ingresar" — el
 // complemento exacto de SOLD_TICKET_STATUSES. Se usa sólo para el bloque
 // "Accesos" (Cancelada/Reintegrada), nunca para capacidad/stock.

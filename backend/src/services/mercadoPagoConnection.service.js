@@ -234,3 +234,33 @@ export async function refreshMercadoPagoConnectionTokens(organizationId) {
     logger.info("mercadopago oauth: credenciales renovadas", { organizationId });
     return { refreshed: true };
 }
+
+// ==================================================================
+// MP-2 — primer caller real de refreshMercadoPagoConnectionTokens (hasta
+// esta fase, implementada y probada de forma aislada, sin ningún llamador
+// en producción — ver el informe de entrega de MP-1). Resuelve el
+// access_token vigente y ya DESENCRIPTADO de la Organization dueña de un
+// evento, renovándolo primero si está vencido o a punto de vencer. Nunca
+// devuelve nada por fuera de este backend: el caller (mercadoPagoCheckout.
+// service.js) lo usa exclusivamente para el header Authorization del
+// request server-to-server a Mercado Pago, nunca lo incluye en ninguna
+// respuesta HTTP ni lo loguea.
+// ==================================================================
+
+const ACCESS_TOKEN_REFRESH_MARGIN_MS = 5 * 60 * 1000;
+
+export async function getValidMercadoPagoAccessTokenForOrganization(organizationId) {
+    let connection = await prisma.mercadoPagoConnection.findUnique({ where: { organizationId } });
+    if (!connection) throw new AppError(ErrorCodes.MERCADOPAGO_NOT_CONNECTED);
+
+    const msUntilExpiry = connection.accessTokenExpiresAt.getTime() - Date.now();
+    if (msUntilExpiry < ACCESS_TOKEN_REFRESH_MARGIN_MS) {
+        const refreshResult = await refreshMercadoPagoConnectionTokens(organizationId);
+        if (!refreshResult.refreshed) {
+            throw new AppError(ErrorCodes.MERCADOPAGO_TOKEN_REFRESH_FAILED);
+        }
+        connection = await prisma.mercadoPagoConnection.findUnique({ where: { organizationId } });
+    }
+
+    return decryptMercadoPagoSecret(connection.accessTokenEncrypted);
+}

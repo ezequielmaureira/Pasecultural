@@ -1,18 +1,20 @@
-import { createSale, confirmSaleByBuyer, getSaleStatus, redactTicketsForLog, redactSaleForLog } from "../saleApi.js";
+import { createMercadoPagoCheckout } from "../saleApi.js";
 
-// El Wizard de compra sólo conoce esta función — nunca los endpoints de
-// Sale por dentro, y nunca sesión de Clerk (el comprador es siempre
-// invitado hoy). Hoy "procesar el pago" significa crear la venta y
-// confirmarla (pago manual/simulado, sin Mercado Pago todavía). El día que
-// se integre Mercado Pago, esta es la ÚNICA función que cambia de
-// implementación (createSale -> redirigir a MP Checkout -> esperar el
-// webhook) — el Wizard sigue llamando a `processPayment` exacto igual.
+// El Wizard de compra sólo conoce esta función — nunca los endpoints por
+// dentro. MP-2: "procesar el pago" ahora significa crear el checkout de
+// Mercado Pago (Sale PENDING + preferencia de Checkout Pro con Split
+// Payment) y devolver la URL a la que el navegador tiene que navegar —
+// nunca confirma la compra acá, nunca hay tickets todavía. La
+// confirmación real llega en MP-3, server-to-server, vía webhook de
+// Mercado Pago (nunca desde este flujo ni desde el redirect del
+// comprador) — ver el informe de entrega de MP-2.
 //
-// `onSaleCreated` es opcional: le avisa al caller el publicRecoveryToken de
-// la venta apenas se crea (antes de confirmar), para que
-// `checkPaymentOutcome` pueda verificar exactamente ESA venta si
-// `confirmSaleByBuyer` se cae por timeout.
-export async function processPayment({ eventId, functionId, items, buyer }, { onSaleCreated } = {}) {
+// `idempotencyKey`: generado UNA vez por intento de compra en
+// PurchaseWizard (no por request) — el backend es idempotente para esa
+// clave, así que reintentarla (doble click, timeout de usePublishFlow,
+// reintento de red) nunca crea una segunda venta ni una segunda
+// preferencia.
+export async function processPayment({ eventId, functionId, items, buyer }, { idempotencyKey } = {}) {
     const requestBody = {
         eventId,
         functionId,
@@ -21,33 +23,15 @@ export async function processPayment({ eventId, functionId, items, buyer }, { on
         lastName: buyer?.lastName,
         email: buyer?.email,
         buyerDocument: buyer?.document,
+        idempotencyKey,
     };
-    console.log("paymentGateway.processPayment before createSale", {
+    console.log("paymentGateway.processPayment before createMercadoPagoCheckout", {
         ...requestBody,
         buyerDocument: requestBody.buyerDocument ? "[present]" : undefined,
     });
-    const sale = await createSale(requestBody);
-    console.log("paymentGateway.processPayment after createSale", { sale: redactSaleForLog(sale) });
-    onSaleCreated?.(sale.publicRecoveryToken);
-    const result = await confirmSaleByBuyer(sale.publicRecoveryToken);
-    console.log("paymentGateway.processPayment after confirmSaleByBuyer", {
-        saleId: sale.id,
-        result: { ...result, tickets: redactTicketsForLog(result?.tickets) },
+    const result = await createMercadoPagoCheckout(requestBody);
+    console.log("paymentGateway.processPayment after createMercadoPagoCheckout", {
+        hasCheckoutUrl: Boolean(result?.checkoutUrl),
     });
-    return result;
-}
-
-// Confirma, después de un timeout, si la compra se completó igual del lado
-// del servidor. Sin sesión no hay forma de listar "mis ventas" — por eso
-// depende siempre de `recoveryToken` (conocido porque este mismo navegador
-// la creó); si por lo que sea ni eso se llegó a conocer (createSale() nunca
-// respondió), no hay nada que verificar todavía.
-//
-// Cuando ya está CONFIRMED, /status trae también los tickets completos (ver
-// getSaleStatusService) — así la pantalla de éxito se ve igual sin importar
-// si el dato llegó directo de confirm-by-buyer o de esta recuperación.
-export async function checkPaymentOutcome({ recoveryToken }) {
-    if (!recoveryToken) return null;
-    const { status, tickets, buyerEmail, emailDeliveryStatus } = await getSaleStatus(recoveryToken);
-    return status === "CONFIRMED" ? { status, tickets: tickets ?? [], buyerEmail, emailDeliveryStatus } : null;
+    return result; // { checkoutUrl, saleToken }
 }

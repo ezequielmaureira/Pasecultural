@@ -5,8 +5,8 @@ import Spinner from "../../../components/ui/Spinner.jsx";
 import StepIndicator from "../../../components/ui/StepIndicator.jsx";
 import { usePublishFlow } from "../../../hooks/usePublishFlow.js";
 import { apiFetch } from "../../../lib/api.js";
-import { getSaleStatus, redactTicketsForLog } from "../../../lib/saleApi.js";
-import { processPayment, checkPaymentOutcome } from "../../../lib/payment/paymentGateway.js";
+import { getSaleStatus } from "../../../lib/saleApi.js";
+import { processPayment } from "../../../lib/payment/paymentGateway.js";
 import PurchaseOverlay from "./PurchaseOverlay.jsx";
 import SelectFunctionStep from "./steps/SelectFunctionStep.jsx";
 import SelectTicketsStep from "./steps/SelectTicketsStep.jsx";
@@ -65,15 +65,18 @@ function ticketOptionsFor(selectedFunction) {
 
 // Reemplaza por completo a Checkout.jsx/Payment.jsx. El pago en sí es una
 // caja negra para este componente — sólo llama a processPayment() (ver
-// lib/payment/paymentGateway.js). El día que se integre Mercado Pago,
-// cambia esa función; este Wizard no se toca.
+// lib/payment/paymentGateway.js). MP-2 cambió esa función (ahora crea un
+// checkout de Mercado Pago y redirige) sin tocar una sola línea de este
+// componente más allá de handleConfirmPurchase, exactamente como estaba
+// previsto.
 export default function PurchaseWizard() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const slug = searchParams.get("slug");
   // publicRecoveryToken de la venta en curso, viajando en la URL (no sólo
-  // en estado de React) — sobrevive a una recarga de página o, el día de
-  // mañana, a un redirect real de vuelta desde Mercado Pago. Nunca el `id`
+  // en estado de React) — sobrevive a una recarga de página o, desde MP-2,
+  // al redirect real de vuelta desde Mercado Pago (back_urls la incluyen,
+  // ver mercadoPagoCheckout.service.js en el backend). Nunca el `id`
   // interno del Sale (ver sale.service.js#getSaleStatusService).
   const resumeToken = searchParams.get("saleToken");
 
@@ -109,17 +112,24 @@ export default function PurchaseWizard() {
 
   const publishFlow = usePublishFlow();
 
-  // Id de la venta que ESTE montaje del componente creó recién, si alguna
-  // (ver onSaleCreated más abajo). handleConfirmPurchase ya tiene su propio
-  // mecanismo de espera/recuperación (usePublishFlow + checkPaymentOutcome)
-  // para la compra que está manejando en vivo; el efecto de recuperación de
-  // abajo es para retomar una venta que llegó por la URL desde afuera
-  // (recarga de página, o el día de mañana un redirect real de Mercado
-  // Pago) — nunca para la que el propio flujo en curso ya está siguiendo,
-  // o terminaría consultando y sondeando la misma venta dos veces en
-  // paralelo.
-  const ownTokenRef = useRef(null);
+  // Clave de idempotencia de un intento de compra en curso — una por click
+  // en "Confirmar compra" (no una por request): se genera lazy la primera
+  // vez y se reutiliza en los reintentos automáticos de usePublishFlow
+  // (timeout + checkOutcome), para que nunca terminen creando dos ventas
+  // ni dos preferencias por el mismo intento lógico. Un reintento manual
+  // después de un error real (el comprador vuelve a tocar "Confirmar") la
+  // resetea: eso sí cuenta como un intento nuevo. Ver
+  // lib/payment/paymentGateway.js.
+  const idempotencyKeyRef = useRef(null);
 
+  // Desde MP-2, este efecto también es lo que retoma una compra cuando el
+  // navegador vuelve de Checkout Pro (back_urls llevan ?saleToken=, ver
+  // mercadoPagoCheckout.service.js) — nunca antes: handleConfirmPurchase
+  // manda al comprador afuera de PaseCultural apenas tiene la URL de
+  // checkout, así que este mismo montaje del componente no sigue viva la
+  // compra que acaba de iniciar, sólo una que llega de afuera (recarga de
+  // página, o el regreso real desde Mercado Pago).
+  //
   // Todo el ciclo de consulta + polling vive en un solo efecto para poder
   // limpiar un único interval/flag al desmontar (o al re-disparar por
   // recoveryAttempt) sin dejar dos pollings corriendo en paralelo. La guarda
@@ -128,7 +138,7 @@ export default function PurchaseWizard() {
   // pasada limpia su propio interval y descarta cualquier respuesta tardía
   // antes de que la segunda (la que de verdad queda viva) arranque la suya.
   useEffect(() => {
-    if (!resumeToken || resumeToken === ownTokenRef.current) return undefined;
+    if (!resumeToken) return undefined;
 
     let cancelled = false;
     let intervalId = null;
@@ -375,9 +385,19 @@ export default function PurchaseWizard() {
 
   // Nunca pasa por Clerk: ni token, ni getAuth, ni isSignedIn. La identidad
   // del comprador es exactamente lo que completó en BuyerInfoStep.
+  //
+  // MP-2: processPayment() ya no confirma nada acá — crea el checkout de
+  // Mercado Pago y devuelve la URL a la que hay que navegar. Por eso
+  // checkOutcome es la MISMA `action`: el backend es idempotente para
+  // idempotencyKeyRef.current, así que si usePublishFlow.run() tiene que
+  // reintentar después de un timeout del lado del cliente, repetir la
+  // llamada nunca crea una segunda venta ni una segunda preferencia — o
+  // recibe de vuelta el mismo checkoutUrl de siempre, o termina de crearlo
+  // si el primer intento nunca había llegado a hacerlo.
   async function handleConfirmPurchase() {
     setPurchaseError("");
-    let createdToken = null;
+    if (!idempotencyKeyRef.current) idempotencyKeyRef.current = crypto.randomUUID();
+    const idempotencyKey = idempotencyKeyRef.current;
 
     const action = () => {
       console.log("PurchaseWizard.handleConfirmPurchase action starting", {
@@ -386,50 +406,27 @@ export default function PurchaseWizard() {
         items,
         buyer,
       });
-      return processPayment(
-        { eventId: event.id, functionId: selectedFunctionId, items, buyer },
-        {
-          onSaleCreated: (token) => {
-            createdToken = token;
-            // Marca esta venta como "propia" ANTES de reflejarla en la URL,
-            // para que el efecto de recuperación (que se dispara con el
-            // cambio de la URL) la reconozca y no la vuelva a consultar por
-            // su cuenta — handleConfirmPurchase ya la está siguiendo.
-            ownTokenRef.current = token;
-            const next = new URLSearchParams(searchParams);
-            next.set("saleToken", token);
-            setSearchParams(next, { replace: true });
-          },
-        }
-      );
+      return processPayment({ eventId: event.id, functionId: selectedFunctionId, items, buyer }, { idempotencyKey });
     };
 
-    const checkOutcome = () => checkPaymentOutcome({ recoveryToken: createdToken });
-
     try {
-      console.log("PurchaseWizard.handleConfirmPurchase before publishFlow.run", {
-        hasCreatedToken: Boolean(createdToken),
-        items,
-        buyer,
-      });
-      const result = await publishFlow.run(action, { checkOutcome, unresolvedMessage: UNRESOLVED_PURCHASE_MESSAGE });
+      const result = await publishFlow.run(action, { checkOutcome: action, unresolvedMessage: UNRESOLVED_PURCHASE_MESSAGE });
       console.log("PurchaseWizard.handleConfirmPurchase after publishFlow.run", {
-        hasCreatedToken: Boolean(createdToken),
-        result: { ...result, tickets: redactTicketsForLog(result?.tickets) },
+        hasCheckoutUrl: Boolean(result?.checkoutUrl),
       });
-      // result.tickets viene siempre que la venta terminó CONFIRMED, sea que
-      // processPayment() haya resuelto directo (confirm-by-buyer) o que se
-      // haya recuperado por timeout (checkPaymentOutcome -> GET /status,
-      // que ahora también devuelve los tickets una vez confirmada).
-      setPurchasedTickets(result?.tickets ?? []);
-      setPurchaseBuyerEmail(result?.buyerEmail ?? buyer.email ?? "");
-      setPurchaseEmailDeliveryStatus(result?.emailDeliveryStatus ?? null);
-      setPhase("success");
+      // Navegación real de nivel superior hacia Mercado Pago — nunca dentro
+      // de la llamada fetch, y nunca en un iframe. El comprador vuelve
+      // eventualmente por back_urls (?saleToken=...), que retoma el mismo
+      // polling de arriba; esta pantalla no confirma nada por su cuenta.
+      window.location.href = result.checkoutUrl;
     } catch (err) {
       console.error("PurchaseWizard.handleConfirmPurchase caught error", err);
       console.error(err.response);
       console.error(err.data);
       console.error(err.stack);
+      // Un reintento manual después de un error real es un intento nuevo:
+      // la próxima llamada genera una idempotencyKey distinta.
+      idempotencyKeyRef.current = null;
       setPurchaseError(err.message || "No pudimos procesar tu compra.");
       setPhase("purchase-error");
     }

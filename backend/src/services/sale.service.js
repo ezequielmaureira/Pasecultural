@@ -8,13 +8,35 @@ import { isValidEmail } from "../utils/validateEmail.js";
 import { normalizeBuyerDocument, isValidBuyerDocument } from "../utils/validateBuyerDocument.js";
 import { buildTicketNumber } from "../utils/ticketNumber.js";
 import { encryptSecret, decryptSecret } from "../config/qrEncryption.js";
-import { effectiveCapacity, SOLD_TICKET_STATUSES } from "./functionCapacity.service.js";
+import { effectiveCapacity, SOLD_TICKET_STATUSES, acquireTicketTypeFunctionLock, getUnavailableCount } from "./functionCapacity.service.js";
 import { logger } from "../logging/logger.js";
 import { sendSaleConfirmationEmail, getSaleEmailData } from "./email/sendSaleConfirmationEmail.service.js";
 import { buildTicketQrImages } from "./email/ticketQrImages.js";
 import { buildTicketsPdfBuffer } from "./email/ticketsPdf.js";
+import { round2 } from "../utils/money.js";
 
 const ACTIVE_TICKET_STATUSES = SOLD_TICKET_STATUSES;
+
+// MP-2.1 — cuánto dura una reserva de stock (Sale.stockReservedUntil)
+// mientras el comprador está en Checkout Pro. 15 minutos: pensado para
+// medios de pago INSTANTÁNEOS únicamente (tarjeta de crédito/débito,
+// dinero en cuenta) — MP-2.1 excluye explícitamente los medios de pago en
+// efectivo (Rapipago/Pago Fácil/etc, payment_type_id "ticket") de la
+// preferencia (ver mercadoPagoCheckout.service.js) precisamente porque la
+// documentación oficial de Mercado Pago confirma que esos pueden tardar
+// 3+ días hábiles en acreditarse — completamente incompatible con
+// cualquier TTL de reserva corto. Con sólo medios instantáneos
+// habilitados, 15 minutos da margen de sobra para completar el pago
+// (incluida una verificación 3-D Secure/OTP del banco, o corregir un
+// número de tarjeta mal tipeado) sin bloquear el stock más de lo
+// razonable para otros compradores. No es un número copiado del pedido
+// original sin pensar: se evaluó contra la única referencia temporal
+// comparable que ya existía en el proyecto (el authorization code de
+// OAuth de Mercado Pago vale 10 minutos, MP-1) y se decidió un poco más
+// largo a propósito, porque acá el reloj arranca ANTES de que el
+// comprador llegue a la pantalla de Mercado Pago (incluye la creación de
+// la preferencia y el redirect), no al llegar a ella.
+const STOCK_RESERVATION_TTL_MS = 15 * 60 * 1000;
 
 const SALE_LIST_INCLUDE = {
     buyer: { select: { id: true, firstName: true, lastName: true, email: true } },
@@ -43,10 +65,6 @@ async function getSoldCount(client, ticketTypeId, functionId) {
             deletedAt: null,
         },
     });
-}
-
-function round2(value) {
-    return Math.round(Number(value) * 100) / 100;
 }
 
 // El comprador NUNCA necesita autenticarse con Clerk para comprar — busca o
@@ -94,7 +112,24 @@ async function getOrCreateGuestBuyer({ firstName, lastName, email }) {
 // que courtesy.service.js la reutilice tal cual con su propio buyer ya
 // resuelto y `options` relajadas — nunca reimplementa esta validación.
 export async function createSaleForBuyer(buyer, input, options = {}) {
-    const { requireBuyerDocument = true, enforceMaxPerPurchase = true, origin = "SALE" } = options;
+    const {
+        requireBuyerDocument = true,
+        enforceMaxPerPurchase = true,
+        origin = "SALE",
+        // MP-2 — sólo lo pasa mercadoPagoCheckout.service.js. paymentMethod
+        // por default MANUAL preserva el comportamiento exacto de siempre
+        // para los dos callers preexistentes (createSaleService/
+        // createGuestSaleService sin options, y courtesy.service.js).
+        // checkoutIdempotencyKey es null salvo que el caller de MP-2 haya
+        // recibido uno del comprador — @unique en Sale, ver el informe de
+        // MP-2 para el mecanismo completo de protección contra doble submit.
+        paymentMethod = "MANUAL",
+        checkoutIdempotencyKey = null,
+        // MP-2.1 — idem, sólo lo pasa mercadoPagoCheckout.service.js
+        // (external_reference dedicado, nunca publicRecoveryToken — ver el
+        // informe de MP-2.1).
+        mercadoPagoExternalReference = null,
+    } = options;
     const event = await prisma.event.findUnique({ where: { id: input?.eventId } });
     if (!event) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
 
@@ -138,6 +173,9 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
     });
     const assignmentByTicketTypeId = new Map(assignments.map((a) => [a.ticketTypeId, a]));
 
+    // Validaciones/precio que NO dependen de disponibilidad en vivo
+    // (existe, está habilitado, respeta maxPerPurchase) — no hace falta
+    // ningún lock para esto, sólo leen el catálogo.
     const saleItemsData = [];
     for (const item of itemsInput) {
         const assignment = assignmentByTicketTypeId.get(item.ticketTypeId);
@@ -151,12 +189,6 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
             throw new AppError(ErrorCodes.MAX_PER_PURCHASE_EXCEEDED, { details: { ticketTypeId: item.ticketTypeId } });
         }
 
-        const capacity = effectiveCapacity(assignment);
-        const sold = await getSoldCount(prisma, item.ticketTypeId, eventFunction.id);
-        if (sold + item.quantity > capacity) {
-            throw new AppError(ErrorCodes.INSUFFICIENT_STOCK, { details: { ticketTypeId: item.ticketTypeId } });
-        }
-
         const unitPrice = round2(assignment.priceOverride ?? assignment.ticketType.price);
         const subtotal = round2(unitPrice * item.quantity);
         saleItemsData.push({ ticketTypeId: item.ticketTypeId, quantity: item.quantity, unitPrice, subtotal });
@@ -164,28 +196,74 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
 
     const total = round2(saleItemsData.reduce((sum, item) => sum + item.subtotal, 0));
 
-    const sale = await prisma.sale.create({
-        data: {
-            status: "PENDING",
-            origin,
-            buyerId: buyer.id,
-            eventId: event.id,
-            functionId: eventFunction.id,
-            total,
-            // Mismo generador que TicketQr.secretEncrypted usa para el secret
-            // del QR (crypto.randomBytes, no Math.random ni un cuid): esto va
-            // a viajar en la URL del comprador y funciona como bearer token
-            // para confirm-by-buyer/status, tiene que ser impredecible.
-            publicRecoveryToken: crypto.randomBytes(32).toString("base64url"),
-            // Ya normalizado (sin puntos/espacios/guiones) — nunca se guarda
-            // el valor crudo que escribió el comprador.
-            buyerDocument,
-            items: { create: saleItemsData },
-        },
-        include: SALE_LIST_INCLUDE,
+    const now = new Date();
+    // MP-2.1 — toda Sale reserva stock, no sólo las de Mercado Pago: una
+    // venta manual que por algún motivo tardara en confirmarse merece la
+    // misma protección. Para el camino manual (createSale ->
+    // confirm-by-buyer, hoy prácticamente inmediato) esto no cambia nada
+    // observable — confirma muy por dentro de los 15 minutos.
+    const stockReservedUntil = new Date(now.getTime() + STOCK_RESERVATION_TTL_MS);
+
+    // MP-2.1 — reserva atómica bajo advisory lock: mismo mecanismo que ya
+    // usaba confirmSaleService (ver acquireTicketTypeFunctionLock en
+    // functionCapacity.service.js), aplicado ahora también acá. Un lock
+    // por cada TicketType involucrado serializa ÚNICAMENTE los intentos
+    // que compiten por el mismo tipo de entrada — nunca bloquea compras de
+    // otros tipos de entrada o de otras funciones. Recién DESPUÉS de tomar
+    // el lock se vuelve a leer disponibilidad (getUnavailableCount:
+    // vendidas + reservas PENDING vigentes) y, si alcanza, se crea la Sale
+    // en la MISMA transacción — así ningún otro request puede leer
+    // disponibilidad "vieja" entre el chequeo y la creación (la carrera
+    // clásica SELECT -> comprobar -> INSERT queda cerrada: sólo un
+    // request a la vez puede estar "entre" el chequeo y el INSERT para un
+    // mismo ticketTypeId+functionId).
+    const sale = await prisma.$transaction(async (tx) => {
+        const uniqueTicketTypeIds = [...new Set(saleItemsData.map((item) => item.ticketTypeId))];
+        for (const ticketTypeId of uniqueTicketTypeIds) {
+            await acquireTicketTypeFunctionLock(tx, ticketTypeId, eventFunction.id);
+        }
+
+        for (const item of saleItemsData) {
+            const assignment = assignmentByTicketTypeId.get(item.ticketTypeId);
+            const capacity = effectiveCapacity(assignment);
+            const unavailable = await getUnavailableCount(tx, item.ticketTypeId, eventFunction.id, now);
+            if (unavailable + item.quantity > capacity) {
+                throw new AppError(ErrorCodes.INSUFFICIENT_STOCK, { details: { ticketTypeId: item.ticketTypeId } });
+            }
+        }
+
+        return tx.sale.create({
+            data: {
+                status: "PENDING",
+                origin,
+                paymentMethod,
+                checkoutIdempotencyKey,
+                mercadoPagoExternalReference,
+                stockReservedUntil,
+                buyerId: buyer.id,
+                eventId: event.id,
+                functionId: eventFunction.id,
+                total,
+                // Mismo generador que TicketQr.secretEncrypted usa para el secret
+                // del QR (crypto.randomBytes, no Math.random ni un cuid): esto va
+                // a viajar en la URL del comprador y funciona como bearer token
+                // para confirm-by-buyer/status, tiene que ser impredecible.
+                publicRecoveryToken: crypto.randomBytes(32).toString("base64url"),
+                // Ya normalizado (sin puntos/espacios/guiones) — nunca se guarda
+                // el valor crudo que escribió el comprador.
+                buyerDocument,
+                items: { create: saleItemsData },
+            },
+            include: SALE_LIST_INCLUDE,
+        });
     });
 
-    logger.info("Sale created (PENDING)", { saleId: sale.id, eventId: event.id, buyerId: buyer.id });
+    logger.info("Sale created (PENDING, stock reserved)", {
+        saleId: sale.id,
+        eventId: event.id,
+        buyerId: buyer.id,
+        stockReservedUntil,
+    });
     return sale;
 }
 
@@ -204,15 +282,18 @@ export const createSaleService = async (clerkId, input) => {
 };
 
 // Camino invitado — el único que usa el Wizard de compra público. `buyerInfo`
-// es { firstName, lastName, email }, nunca un token de Clerk.
-export const createGuestSaleService = async (buyerInfo, input) => {
+// es { firstName, lastName, email }, nunca un token de Clerk. `options` se
+// reenvía tal cual a createSaleForBuyer — createSale (pago manual) nunca la
+// pasa (paymentMethod/checkoutIdempotencyKey quedan en su default de
+// siempre); sólo mercadoPagoCheckout.service.js (MP-2) la usa.
+export const createGuestSaleService = async (buyerInfo, input, options = {}) => {
     // input.buyerDocument nunca se loguea crudo — sólo si vino presente.
     logger.info("createGuestSaleService entered", {
         buyerInfo,
         input: { ...input, buyerDocument: input?.buyerDocument ? "[present]" : undefined },
     });
     const buyer = await getOrCreateGuestBuyer(buyerInfo ?? {});
-    const sale = await createSaleForBuyer(buyer, input);
+    const sale = await createSaleForBuyer(buyer, input, options);
     logger.info("createGuestSaleService completed", { saleId: sale.id, buyerId: buyer.id, organizationId: sale.organizationId, eventId: sale.eventId });
     return sale;
 };
@@ -329,20 +410,13 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
         // 1) Advisory lock por cada (ticketType, function) involucrado: serializa
         // únicamente las confirmaciones que compiten por el mismo stock, sin
         // bloquear confirmaciones de otros tipos de entrada. Se libera solo al
-        // terminar la transacción (commit o rollback).
+        // terminar la transacción (commit o rollback). MP-2.1: extraído a
+        // functionCapacity.service.js#acquireTicketTypeFunctionLock (mismo
+        // SQL exacto, sin cambio de comportamiento) para que
+        // createSaleForBuyer pueda tomar el mismo lock al reservar stock.
         const uniqueTicketTypeIds = [...new Set(sale.items.map((item) => item.ticketTypeId))];
         for (const ticketTypeId of uniqueTicketTypeIds) {
-            // El cast ::text es necesario: Prisma no puede deserializar el
-            // `void` que devuelve pg_advisory_xact_lock. OJO: envolver esto en
-            // un CTE no referenciado ("WITH locked AS (SELECT ...) SELECT 1")
-            // NO sirve — se verificó empíricamente que Postgres puede no
-            // ejecutar ese CTE si su resultado no se usa en la query externa,
-            // dejando el lock silenciosamente sin tomar. El cast directo sobre
-            // la misma columna proyectada garantiza que la función se evalúa.
-            await tx.$queryRawUnsafe(
-                `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS locked`,
-                `${ticketTypeId}:${sale.functionId}`
-            );
+            await acquireTicketTypeFunctionLock(tx, ticketTypeId, sale.functionId);
         }
 
         // 2) Update condicional atómico PENDING -> CONFIRMED: si dos requests
