@@ -149,6 +149,9 @@ model User {
   // Cambios de número de WhatsApp autorizado que este usuario inició desde
   // el panel Web (nunca desde WhatsApp) — ver WhatsappNumberChangeChallenge.
   whatsappNumberChangeRequests WhatsappNumberChangeChallenge[]
+  // MP-1 — intentos de autorización OAuth de Mercado Pago que este usuario
+  // inició (ver MercadoPagoOAuthState).
+  mercadoPagoOAuthStatesRequested MercadoPagoOAuthState[]
 }
 
 model Organization {
@@ -200,6 +203,16 @@ model Organization {
   // (a lo sumo uno a la vez) — ver WhatsappNumberChangeChallenge. Nunca es
   // el vínculo ya verificado (eso es whatsappOrganizerLink de arriba).
   whatsappNumberChangeChallenge WhatsappNumberChangeChallenge?
+
+  // MP-1 — vinculación OAuth con la cuenta de Mercado Pago de ESTA
+  // organización (ver MercadoPagoConnection). A lo sumo una por
+  // organización. `mercadoPagoOAuthStates` son los intentos de
+  // autorización EN CURSO (nunca la conexión ya establecida) — puede haber
+  // más de uno vivo a la vez (ej. el organizador abre "Conectar Mercado
+  // Pago" en dos pestañas), a diferencia del cambio de número de WhatsApp,
+  // que sí exige un único intento pendiente.
+  mercadoPagoConnection  MercadoPagoConnection?
+  mercadoPagoOAuthStates MercadoPagoOAuthState[]
 }
 
 // Fase 2F — challenge efímero para vincular un wa_id a una organización.
@@ -335,6 +348,93 @@ model WhatsappPendingOrganizationSelection {
   updatedAt                DateTime                       @updatedAt
 
   @@map("whatsapp_pending_organization_selections")
+}
+
+// ==================================================================
+// MP-1 — onboarding OAuth de Mercado Pago (Organization ↔ OAuth ↔ Mercado
+// Pago). Esta fase ÚNICAMENTE conecta la cuenta: no hay preferencias de
+// pago, Checkout, Split Payment ni webhooks de cobro todavía — eso es
+// MP-2, sobre esta misma tabla, ver el informe de entrega de MP-1.
+// ==================================================================
+
+// Token efímero de protección CSRF para el flujo OAuth — NUNCA la conexión
+// ya establecida (eso es MercadoPagoConnection, más abajo). Mercado Pago
+// no valida el parámetro `state` de ninguna forma (confirmado contra su
+// documentación oficial: es responsabilidad exclusiva de la aplicación que
+// integra) — esta tabla es la única fuente de verdad de "qué Organization,
+// con qué usuario autenticado, inició este intento de autorización, y
+// sigue siendo válido".
+//
+// stateToken es el valor real que viaja como `state` en la authorization
+// URL: aleatorio de alta entropía (32 bytes vía crypto.randomBytes, ver
+// mercadoPagoConnection.service.js), @unique, sin ninguna otra función más
+// que autorizar ESTE callback puntual — mismo criterio que
+// Sale.publicRecoveryToken/EventScanner.invitationToken. Nunca se infiere
+// nada serializado adentro del propio token (nunca "organizationId
+// encodeado sin firmar"): la única forma de resolver a qué Organization
+// corresponde es esta fila.
+//
+// Se borra al consumirse (callback exitoso) o al descartarse — nunca un
+// status persistido para "expirado", se compara expiresAt contra `now` en
+// el momento de usarlo (mismo criterio que WhatsappLinkChallenge/
+// WhatsappNumberChangeChallenge). A diferencia de esas dos tablas,
+// organizationId NO es @unique acá: pueden convivir varios intentos de
+// autorización vivos para la misma Organization sin conflicto (ej. el
+// organizador abrió "Conectar Mercado Pago" en dos pestañas) — cada
+// stateToken es independiente y de un solo uso por sí mismo.
+model MercadoPagoOAuthState {
+  id                String       @id @default(cuid())
+  stateToken        String       @unique
+  organizationId    String
+  organization      Organization @relation(fields: [organizationId], references: [id])
+  requestedByUserId String
+  requestedByUser   User         @relation(fields: [requestedByUserId], references: [id])
+  expiresAt         DateTime
+  createdAt         DateTime     @default(now())
+
+  @@index([organizationId])
+  @@map("mercado_pago_oauth_states")
+}
+
+// La vinculación YA VERIFICADA entre una Organization y su cuenta de
+// Mercado Pago — a lo sumo una por Organization (organizationId @unique).
+// accessToken/refreshToken viajan SIEMPRE cifrados (AES-256-GCM, ver
+// config/mercadoPagoEncryption.js) — nunca en texto plano, nunca
+// devueltos por ningún endpoint (ver mercadoPagoConnection.service.js,
+// que expone exclusivamente campos no sensibles).
+//
+// mercadoPagoUserId es el `user_id` que Mercado Pago devuelve en la
+// respuesta OAuth (el "collector id" del vendedor) — no es secreto por sí
+// mismo, pero tampoco se expone al frontend en esta fase porque no aporta
+// valor todavía (queda disponible para MP-2, que sí lo va a necesitar para
+// armar pagos). publicKey/liveMode/scope se guardan por el mismo motivo:
+// vienen gratis en la MISMA respuesta que ya hay que persistir, y
+// evitan tener que rehacer todo el flujo OAuth en MP-2 sólo para
+// obtenerlos de nuevo — nunca se agregó un campo que la respuesta de
+// Mercado Pago no devuelva realmente.
+//
+// accessTokenExpiresAt se calcula al persistir (now + expires_in
+// segundos, hoy 180 días según la documentación oficial) — MP-1 no
+// refresca nada automáticamente (sin cron, ver el informe de entrega),
+// pero el campo queda listo para que MP-2 decida cuándo renovar.
+// refreshToken ROTA en cada renovación real (confirmado contra la
+// documentación oficial) — connectedAt se fija sólo la primera vez;
+// updatedAt (@updatedAt) refleja la última reconexión/renovación real.
+model MercadoPagoConnection {
+  id                     String       @id @default(cuid())
+  organizationId         String       @unique
+  organization           Organization @relation(fields: [organizationId], references: [id])
+  mercadoPagoUserId      String
+  publicKey              String?
+  accessTokenEncrypted   String
+  refreshTokenEncrypted  String
+  scope                  String?
+  liveMode               Boolean      @default(false)
+  accessTokenExpiresAt   DateTime
+  connectedAt            DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  @@map("mercado_pago_connections")
 }
 
 model Event {

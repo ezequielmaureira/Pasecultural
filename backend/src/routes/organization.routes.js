@@ -18,6 +18,7 @@ import {
     resendWhatsappNumberChangeOtp,
     cancelWhatsappNumberChange,
 } from "../controllers/organizationWhatsapp.controller.js";
+import { getMercadoPagoStatus, startMercadoPagoConnect } from "../controllers/organizationMercadoPago.controller.js";
 import { requireRole } from "../middlewares/requireRole.js";
 
 const router = Router();
@@ -44,6 +45,15 @@ router.post("/me/whatsapp-number/change/request", requireRole("ORGANIZER"), requ
 router.post("/me/whatsapp-number/change/verify", requireRole("ORGANIZER"), verifyWhatsappNumberChange);
 router.post("/me/whatsapp-number/change/resend", requireRole("ORGANIZER"), resendWhatsappNumberChangeOtp);
 router.post("/me/whatsapp-number/change/cancel", requireRole("ORGANIZER"), cancelWhatsappNumberChange);
+
+// MP-1 — onboarding OAuth de Mercado Pago, mismo sub-recurso "/me", mismo
+// requireRole("ORGANIZER"). organizationId viaja explícito (query) y
+// SIEMPRE se revalida contra la sesión autenticada dentro de cada service
+// (ver mercadoPagoConnection.service.js) — nunca se infiere con findFirst.
+// El callback público (Mercado Pago -> navegador del organizador) vive
+// aparte, en mercadoPago.routes.js, montado en /api/mercadopago.
+router.get("/me/mercadopago/status", requireRole("ORGANIZER"), getMercadoPagoStatus);
+router.get("/me/mercadopago/connect", requireRole("ORGANIZER"), startMercadoPagoConnect);
 
 router.get("/", requireRole("DEVELOPER"), getOrganizations);
 router.get("/:id", requireRole("DEVELOPER"), getOrganizationById);

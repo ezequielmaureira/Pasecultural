@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
-import { Check, Landmark } from "lucide-react";
+import { Check } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
 import ImageUploader from "../../components/ui/ImageUploader.jsx";
@@ -8,6 +8,7 @@ import { Field, inputClass, textareaClass } from "../../components/ui/FormField.
 import { apiFetch } from "../../lib/api.js";
 import { useToast } from "../../context/ToastContext.jsx";
 import WhatsappNumberChangeCard from "./WhatsappNumberChangeCard.jsx";
+import MercadoPagoConnectionCard from "./MercadoPagoConnectionCard.jsx";
 
 function FieldSkeleton({ className = "" }) {
   return (
@@ -213,23 +214,11 @@ export default function OrganizerSettings() {
 
       {!loading && orgId && <WhatsappNumberChangeCard organizationId={orgId} organizationName={org.name} />}
 
-      <Card title="Datos bancarios">
-        {/* Todavía no hay integración real de cobro (ni Mercado Pago ni
-            CBU/alias persistidos en el backend) — se muestra como
-            "Próximamente" en vez de un toggle que no conecta nada de
-            verdad y campos que no llegaban a guardarse. */}
-        <div className="flex items-center gap-4 rounded-lg border border-dashed border-white/10 p-4">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/5">
-            <Landmark className="h-5 w-5 text-slate-500" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-white">Cobros con Mercado Pago</p>
-            <p className="text-xs text-slate-500">
-              Próximamente vas a poder conectar tu cuenta y recibir el dinero de tus ventas acá.
-            </p>
-          </div>
-        </div>
-      </Card>
+      {/* MP-1 — onboarding OAuth de Mercado Pago (reemplaza el placeholder
+          "Próximamente" que había acá). Sólo conecta la cuenta: todavía no
+          hay configuración de comisión, movimientos, saldos ni checkout —
+          eso es MP-2. */}
+      {!loading && orgId && <MercadoPagoConnectionCard organizationId={orgId} />}
     </form>
   );
 }

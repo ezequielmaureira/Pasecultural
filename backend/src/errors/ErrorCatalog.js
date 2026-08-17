@@ -441,4 +441,36 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "WhatsApp number change verification attempted after the challenge was already consumed (or removed) by a concurrent request.",
         userMessage: "Este cambio de número ya se resolvió. Si todavía lo necesitás, pedí un código nuevo.",
     },
+
+    // --- Mercado Pago OAuth (MP-1 — onboarding, sin cobros todavía) -----
+    MERCADOPAGO_ORGANIZATION_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "Mercado Pago connection attempted without an organizationId.",
+        userMessage: "Falta indicar la organización.",
+    },
+    MERCADOPAGO_FORBIDDEN: {
+        httpStatus: 403,
+        logMessage: "Mercado Pago connection attempted by a user who does not own the given organization.",
+        userMessage: "No tenés permiso para conectar Mercado Pago en esta organización.",
+    },
+    MERCADOPAGO_STATE_INVALID: {
+        httpStatus: 400,
+        logMessage: "Mercado Pago OAuth callback received a state value that does not match any live authorization attempt (never existed, or already consumed).",
+        userMessage: "No pudimos validar la conexión con Mercado Pago. Volvé a intentarlo desde Configuración.",
+    },
+    MERCADOPAGO_STATE_EXPIRED: {
+        httpStatus: 410,
+        logMessage: "Mercado Pago OAuth callback received after the state's expiration window.",
+        userMessage: "El intento de conexión venció. Volvé a intentarlo desde Configuración.",
+    },
+    MERCADOPAGO_CODE_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "Mercado Pago OAuth callback received without an authorization code.",
+        userMessage: "No pudimos completar la conexión con Mercado Pago.",
+    },
+    MERCADOPAGO_EXCHANGE_FAILED: {
+        httpStatus: 502,
+        logMessage: "Mercado Pago rejected, failed, or returned an incomplete authorization-code exchange.",
+        userMessage: "No pudimos completar la conexión con Mercado Pago. Probá de nuevo en unos minutos.",
+    },
 });

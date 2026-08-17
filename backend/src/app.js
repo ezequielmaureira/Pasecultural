@@ -22,6 +22,7 @@ import developerTicketsRoutes from "./routes/developerTickets.routes.js";
 import developerScannersRoutes from "./routes/developerScanners.routes.js";
 import developerSalesRoutes from "./routes/developerSales.routes.js";
 import whatsappRoutes from "./routes/whatsapp.routes.js";
+import mercadoPagoRoutes from "./routes/mercadoPago.routes.js";
 import { errorHandler } from "./errors/index.js";
 
 const app = express();
@@ -95,6 +96,11 @@ app.use("/api/developer", developerSalesRoutes);
 // sesión de PaseCultural). No conecta EventCreationEngine/EventServicePort
 // todavía. Ver whatsapp.controller.js.
 app.use("/api/whatsapp", whatsappRoutes);
+// MP-1 — onboarding OAuth de Mercado Pago. Sólo el callback público
+// (GET /oauth/callback, Mercado Pago redirige acá el navegador del
+// organizador); los endpoints autenticados (status/connect) viven bajo
+// /api/organizations/me/mercadopago, ver organization.routes.js.
+app.use("/api/mercadopago", mercadoPagoRoutes);
 
 app.get("/debug/prisma-user", async (req, res) => {
     try {
