@@ -204,14 +204,18 @@ model Organization {
   // el vínculo ya verificado (eso es whatsappOrganizerLink de arriba).
   whatsappNumberChangeChallenge WhatsappNumberChangeChallenge?
 
-  // MP-1 — vinculación OAuth con la cuenta de Mercado Pago de ESTA
-  // organización (ver MercadoPagoConnection). A lo sumo una por
-  // organización. `mercadoPagoOAuthStates` son los intentos de
-  // autorización EN CURSO (nunca la conexión ya establecida) — puede haber
-  // más de uno vivo a la vez (ej. el organizador abre "Conectar Mercado
-  // Pago" en dos pestañas), a diferencia del cambio de número de WhatsApp,
-  // que sí exige un único intento pendiente.
-  mercadoPagoConnection  MercadoPagoConnection?
+  // MP-1 — vinculaciones OAuth con cuenta(s) de Mercado Pago de ESTA
+  // organización (ver MercadoPagoConnection). Lista, no un solo opcional:
+  // desde el bug fix de desconexión, cada conexión real (primera vez,
+  // reconexión, desconexión) es su propia fila — a lo sumo UNA con
+  // status:ACTIVE en un momento dado, pero puede haber varias DISCONNECTED
+  // históricas (nunca se sobreescriben ni se borran, ver el comentario en
+  // MercadoPagoConnection). `mercadoPagoOAuthStates` son los intentos de
+  // autorización EN CURSO (nunca una conexión ya establecida) — puede
+  // haber más de uno vivo a la vez (ej. el organizador abre "Conectar
+  // Mercado Pago" en dos pestañas), a diferencia del cambio de número de
+  // WhatsApp, que sí exige un único intento pendiente.
+  mercadoPagoConnections MercadoPagoConnection[]
   mercadoPagoOAuthStates MercadoPagoOAuthState[]
 }
 
@@ -396,44 +400,70 @@ model MercadoPagoOAuthState {
   @@map("mercado_pago_oauth_states")
 }
 
-// La vinculación YA VERIFICADA entre una Organization y su cuenta de
-// Mercado Pago — a lo sumo una por Organization (organizationId @unique).
+// La vinculación entre una Organization y una cuenta de Mercado Pago.
+//
+// Bug fix (desconexión de Mercado Pago) — organizationId DEJÓ de ser
+// @unique: antes había a lo sumo UNA fila por Organization para siempre
+// (upsert en el callback la sobreescribía en el lugar en cada reconexión,
+// tokens viejos incluidos). Eso rompía dos cosas: (1) un webhook TARDÍO de
+// un payment cobrado con la cuenta A ya no podía resolverse una vez que la
+// Organization se desconectaba y reconectaba con la cuenta B, porque el
+// access_token/mercadoPagoUserId de A ya no existían en ningún lado
+// (sobreescritos); (2) reconectar por error a una cuenta distinta (ver el
+// incidente real que motivó este cambio) no dejaba ningún rastro de la
+// cuenta anterior. Ahora cada conexión real (primera vez, reconexión,
+// desconexión) es su PROPIA fila — nunca se sobreescribe una fila
+// existente — así que el historial completo de credenciales queda
+// disponible para reconciliar pagos viejos. `status` reemplaza al
+// borrado/upsert: sólo puede haber, como mucho, UNA fila ACTIVE por
+// Organization en un momento dado (garantizado por un advisory lock de
+// Postgres al conectar/desconectar, ver mercadoPagoConnection.service.js —
+// mismo mecanismo que ya usa MP-2.1 para reservar stock, nunca un índice
+// único parcial hecho a mano). Filas DISCONNECTED se conservan tal cual
+// (mismos tokens cifrados) exclusivamente para que un webhook tardío de
+// esa cuenta pueda seguir resolviéndose — nunca se usan para cobrar nada
+// nuevo (getValidMercadoPagoAccessTokenForOrganization sólo mira ACTIVE).
+//
 // accessToken/refreshToken viajan SIEMPRE cifrados (AES-256-GCM, ver
 // config/mercadoPagoEncryption.js) — nunca en texto plano, nunca
 // devueltos por ningún endpoint (ver mercadoPagoConnection.service.js,
 // que expone exclusivamente campos no sensibles).
 //
 // mercadoPagoUserId es el `user_id` que Mercado Pago devuelve en la
-// respuesta OAuth (el "collector id" del vendedor) — no es secreto por sí
-// mismo, pero tampoco se expone al frontend en esta fase porque no aporta
-// valor todavía (queda disponible para MP-2, que sí lo va a necesitar para
-// armar pagos). publicKey/liveMode/scope se guardan por el mismo motivo:
-// vienen gratis en la MISMA respuesta que ya hay que persistir, y
-// evitan tener que rehacer todo el flujo OAuth en MP-2 sólo para
-// obtenerlos de nuevo — nunca se agregó un campo que la respuesta de
-// Mercado Pago no devuelva realmente.
+// respuesta OAuth (el "collector id" del vendedor) — no es secreto (es
+// sólo un identificador de cuenta, no una credencial), así que SÍ se
+// expone en el status para que el organizador pueda confirmar qué cuenta
+// quedó vinculada. publicKey/liveMode/scope se guardan porque vienen
+// gratis en la MISMA respuesta que ya hay que persistir.
 //
 // accessTokenExpiresAt se calcula al persistir (now + expires_in
-// segundos, hoy 180 días según la documentación oficial) — MP-1 no
-// refresca nada automáticamente (sin cron, ver el informe de entrega),
-// pero el campo queda listo para que MP-2 decida cuándo renovar.
-// refreshToken ROTA en cada renovación real (confirmado contra la
-// documentación oficial) — connectedAt se fija sólo la primera vez;
-// updatedAt (@updatedAt) refleja la última reconexión/renovación real.
+// segundos, hoy 180 días según la documentación oficial). refreshToken
+// ROTA en cada renovación real (confirmado contra la documentación
+// oficial) — connectedAt se fija al crear la fila (primera vez o
+// reconexión); updatedAt (@updatedAt) refleja la última renovación real.
+enum MercadoPagoConnectionStatus {
+  ACTIVE
+  DISCONNECTED
+}
+
 model MercadoPagoConnection {
-  id                     String       @id @default(cuid())
-  organizationId         String       @unique
-  organization           Organization @relation(fields: [organizationId], references: [id])
+  id                     String                      @id @default(cuid())
+  organizationId         String
+  organization           Organization                @relation(fields: [organizationId], references: [id])
   mercadoPagoUserId      String
   publicKey              String?
   accessTokenEncrypted   String
   refreshTokenEncrypted  String
   scope                  String?
-  liveMode               Boolean      @default(false)
+  liveMode               Boolean                     @default(false)
   accessTokenExpiresAt   DateTime
-  connectedAt            DateTime     @default(now())
-  updatedAt              DateTime     @updatedAt
+  status                 MercadoPagoConnectionStatus @default(ACTIVE)
+  connectedAt            DateTime                    @default(now())
+  disconnectedAt         DateTime?
+  updatedAt              DateTime                    @updatedAt
 
+  @@index([organizationId])
+  @@index([mercadoPagoUserId])
   @@map("mercado_pago_connections")
 }
 

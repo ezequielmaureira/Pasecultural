@@ -4,7 +4,8 @@ import { useSearchParams } from "react-router-dom";
 import { Landmark, CheckCircle2 } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
-import { getMercadoPagoStatus, startMercadoPagoConnect } from "../../lib/mercadoPagoApi.js";
+import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
+import { getMercadoPagoStatus, startMercadoPagoConnect, disconnectMercadoPagoConnection } from "../../lib/mercadoPagoApi.js";
 import { useToast } from "../../context/ToastContext.jsx";
 
 // MP-1 — onboarding OAuth de Mercado Pago. Reemplaza el placeholder
@@ -21,6 +22,9 @@ export default function MercadoPagoConnectionCard({ organizationId }) {
   const [statusError, setStatusError] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState("");
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [disconnectError, setDisconnectError] = useState("");
 
   async function loadStatus() {
     if (!organizationId) return;
@@ -79,6 +83,26 @@ export default function MercadoPagoConnectionCard({ organizationId }) {
     }
   }
 
+  // Bug fix (desconexión de Mercado Pago) — el backend nunca borra tokens
+  // en el acto de desconectar (ver mercadoPagoConnection.service.js): esta
+  // acción sólo libera la organización para poder conectar otra cuenta
+  // distinta, nunca afecta ventas ya confirmadas.
+  async function handleDisconnect() {
+    setDisconnecting(true);
+    setDisconnectError("");
+    try {
+      const token = await getToken();
+      await disconnectMercadoPagoConnection(token, organizationId);
+      setConfirmingDisconnect(false);
+      toast.success("Desconectamos Mercado Pago de esta organización.");
+      await loadStatus();
+    } catch (err) {
+      setDisconnectError(err.message || "No pudimos desconectar Mercado Pago.");
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
   const connected = status?.connected ?? false;
   const connectedDateLabel = status?.connectedAt
     ? new Date(status.connectedAt).toLocaleDateString("es-AR", { day: "2-digit", month: "long", year: "numeric" })
@@ -98,6 +122,11 @@ export default function MercadoPagoConnectionCard({ organizationId }) {
               <>
                 <p className="text-sm font-medium text-white">Estado: Conectado</p>
                 {connectedDateLabel && <p className="text-xs text-slate-500">Vinculado el {connectedDateLabel}</p>}
+                {/* Bug fix (identificar la cuenta conectada) — no es un dato
+                    sensible (id de cuenta, no una credencial): permite
+                    confirmar de un vistazo que la cuenta vinculada es la
+                    correcta, sin tener que consultar la base de datos. */}
+                {status?.mercadoPagoUserId && <p className="text-xs text-slate-500">Cuenta vinculada: {status.mercadoPagoUserId}</p>}
               </>
             ) : (
               <>
@@ -112,9 +141,26 @@ export default function MercadoPagoConnectionCard({ organizationId }) {
             Conectar Mercado Pago
           </Button>
         )}
+        {!loading && connected && (
+          <Button variant="secondary" size="sm" onClick={() => setConfirmingDisconnect(true)}>
+            Desconectar Mercado Pago
+          </Button>
+        )}
       </div>
       {statusError && <p className="mt-2 text-xs text-rose-400">{statusError}</p>}
       {connectError && <p className="mt-2 text-xs text-rose-400">{connectError}</p>}
+      {disconnectError && <p className="mt-2 text-xs text-rose-400">{disconnectError}</p>}
+      {confirmingDisconnect && (
+        <ConfirmDialog
+          title="¿Desconectar Mercado Pago?"
+          description="Vas a dejar de poder recibir nuevas ventas mediante Mercado Pago hasta que conectes otra cuenta. Las ventas ya confirmadas no se ven afectadas."
+          confirmLabel="Desconectar"
+          danger
+          loading={disconnecting}
+          onConfirm={handleDisconnect}
+          onClose={() => setConfirmingDisconnect(false)}
+        />
+      )}
     </Card>
   );
 }

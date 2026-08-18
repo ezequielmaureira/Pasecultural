@@ -18,7 +18,7 @@ import {
     resendWhatsappNumberChangeOtp,
     cancelWhatsappNumberChange,
 } from "../controllers/organizationWhatsapp.controller.js";
-import { getMercadoPagoStatus, startMercadoPagoConnect } from "../controllers/organizationMercadoPago.controller.js";
+import { getMercadoPagoStatus, startMercadoPagoConnect, disconnectMercadoPagoConnection } from "../controllers/organizationMercadoPago.controller.js";
 import { requireRole } from "../middlewares/requireRole.js";
 
 const router = Router();
@@ -54,6 +54,9 @@ router.post("/me/whatsapp-number/change/cancel", requireRole("ORGANIZER"), cance
 // aparte, en mercadoPago.routes.js, montado en /api/mercadopago.
 router.get("/me/mercadopago/status", requireRole("ORGANIZER"), getMercadoPagoStatus);
 router.get("/me/mercadopago/connect", requireRole("ORGANIZER"), startMercadoPagoConnect);
+// Bug fix (desconexión de Mercado Pago) — POST porque muta estado, mismo
+// criterio que /me/whatsapp-number/change/cancel.
+router.post("/me/mercadopago/disconnect", requireRole("ORGANIZER"), disconnectMercadoPagoConnection);
 
 router.get("/", requireRole("DEVELOPER"), getOrganizations);
 router.get("/:id", requireRole("DEVELOPER"), getOrganizationById);

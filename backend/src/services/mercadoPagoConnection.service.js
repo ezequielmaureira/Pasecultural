@@ -46,6 +46,27 @@ async function resolveOrganizationForOwnerOrThrow(clerkId, organizationId) {
 }
 
 // ==================================================================
+// Bug fix (desconexión de Mercado Pago) — advisory lock por Organization,
+// mismo mecanismo que acquireTicketTypeFunctionLock (functionCapacity.
+// service.js, MP-2.1): serializa ÚNICAMENTE los intentos de
+// conectar/desconectar que compiten por la MISMA Organization, nunca
+// bloquea otra Organization. Es lo único que garantiza "a lo sumo una fila
+// ACTIVE por Organization" ahora que organizationId dejó de ser @unique —
+// sin esto, dos callbacks OAuth concurrentes (o un connect y un disconnect
+// concurrentes) podrían dejar dos filas ACTIVE al mismo tiempo. DEBE
+// tomarse dentro de la MISMA transacción que hace el resto del trabajo
+// (`tx`, nunca `prisma` directo) — se libera solo al terminar esa
+// transacción (commit o rollback).
+// ==================================================================
+
+async function acquireMercadoPagoConnectionLock(tx, organizationId) {
+    await tx.$queryRawUnsafe(
+        `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS locked`,
+        `mercado_pago_connection:${organizationId}`
+    );
+}
+
+// ==================================================================
 // STATUS — GET .../mercadopago/status. Nunca devuelve accessToken,
 // refreshToken, ni mercadoPagoUserId/publicKey/scope (no aportan valor a
 // esta pantalla mínima, y evita exponer más superficie de la necesaria) —
@@ -56,15 +77,20 @@ async function resolveOrganizationForOwnerOrThrow(clerkId, organizationId) {
 export async function getMercadoPagoConnectionStatusService(clerkId, organizationId) {
     const { organization } = await resolveOrganizationForOwnerOrThrow(clerkId, organizationId);
 
-    const connection = await prisma.mercadoPagoConnection.findUnique({
-        where: { organizationId: organization.id },
-        select: { connectedAt: true, liveMode: true },
+    const connection = await prisma.mercadoPagoConnection.findFirst({
+        where: { organizationId: organization.id, status: "ACTIVE" },
+        select: { connectedAt: true, liveMode: true, mercadoPagoUserId: true },
     });
 
     return {
         connected: Boolean(connection),
         connectedAt: connection?.connectedAt ?? null,
         liveMode: connection?.liveMode ?? null,
+        // Bug fix (identificar la cuenta conectada) — no es secreto (es un
+        // id de cuenta, no una credencial): permite al organizador
+        // confirmar que la cuenta vinculada es la correcta sin tener que
+        // consultar la base de datos.
+        mercadoPagoUserId: connection?.mercadoPagoUserId ?? null,
     };
 }
 
@@ -167,35 +193,66 @@ export async function handleMercadoPagoOAuthCallbackService({ code, state }) {
 
     const accessTokenExpiresAt = new Date(now.getTime() + (exchange.expiresInSeconds ?? 0) * 1000);
 
-    // organizationId @unique en MercadoPagoConnection: un único `upsert`
-    // cubre tanto la primera conexión como una reconexión (código nuevo,
-    // tokens nuevos) — nunca un delete+create separado, nunca deja tokens
-    // viejos expuestos ni la organización sin conexión a mitad de camino.
-    await prisma.mercadoPagoConnection.upsert({
-        where: { organizationId },
-        update: {
-            mercadoPagoUserId: exchange.mercadoPagoUserId,
-            publicKey: exchange.publicKey,
-            accessTokenEncrypted: encryptMercadoPagoSecret(exchange.accessToken),
-            refreshTokenEncrypted: encryptMercadoPagoSecret(exchange.refreshToken),
-            scope: exchange.scope,
-            liveMode: exchange.liveMode,
-            accessTokenExpiresAt,
-        },
-        create: {
-            organizationId,
-            mercadoPagoUserId: exchange.mercadoPagoUserId,
-            publicKey: exchange.publicKey,
-            accessTokenEncrypted: encryptMercadoPagoSecret(exchange.accessToken),
-            refreshTokenEncrypted: encryptMercadoPagoSecret(exchange.refreshToken),
-            scope: exchange.scope,
-            liveMode: exchange.liveMode,
-            accessTokenExpiresAt,
-        },
+    // Bug fix (desconexión de Mercado Pago) — ya NO se hace upsert sobre
+    // una fila existente: eso sobreescribía en el lugar los tokens/
+    // mercadoPagoUserId de una conexión anterior, dejando irresoluble
+    // cualquier webhook tardío de un payment cobrado con la cuenta vieja
+    // (ver el comentario del modelo en schema.prisma). Ahora, dentro de UNA
+    // transacción bajo advisory lock (serializa sólo esta Organization):
+    // 1) cualquier fila ACTIVE existente pasa a DISCONNECTED (se conserva,
+    //    nunca se borra ni se pisa); 2) se crea una fila NUEVA, ACTIVE, con
+    //    los tokens de la cuenta recién autorizada. Cubre tanto la primera
+    //    conexión (0 filas ACTIVE para desactivar) como una reconexión.
+    await prisma.$transaction(async (tx) => {
+        await acquireMercadoPagoConnectionLock(tx, organizationId);
+        await tx.mercadoPagoConnection.updateMany({
+            where: { organizationId, status: "ACTIVE" },
+            data: { status: "DISCONNECTED", disconnectedAt: now },
+        });
+        await tx.mercadoPagoConnection.create({
+            data: {
+                organizationId,
+                mercadoPagoUserId: exchange.mercadoPagoUserId,
+                publicKey: exchange.publicKey,
+                accessTokenEncrypted: encryptMercadoPagoSecret(exchange.accessToken),
+                refreshTokenEncrypted: encryptMercadoPagoSecret(exchange.refreshToken),
+                scope: exchange.scope,
+                liveMode: exchange.liveMode,
+                accessTokenExpiresAt,
+                status: "ACTIVE",
+            },
+        });
     });
 
     logger.info("mercadopago oauth: conexión persistida", { organizationId });
     return { organizationId };
+}
+
+// ==================================================================
+// Bug fix (desconexión de Mercado Pago) — DISCONNECT, GET/POST
+// .../mercadopago/disconnect. Nunca borra la fila (ver el comentario del
+// modelo): sólo la marca DISCONNECTED, bajo el mismo advisory lock que el
+// callback, para que dos disconnects concurrentes (o un disconnect
+// concurrente con una reconexión) nunca dejen un estado inconsistente.
+// Idempotente por diseño: si ya no había ninguna fila ACTIVE, `updateMany`
+// afecta 0 filas y la operación igual termina en éxito — desconectar algo
+// que ya está desconectado nunca es un error.
+// ==================================================================
+
+export async function disconnectMercadoPagoConnectionService(clerkId, organizationId) {
+    const { organization } = await resolveOrganizationForOwnerOrThrow(clerkId, organizationId);
+    const now = new Date();
+
+    const result = await prisma.$transaction(async (tx) => {
+        await acquireMercadoPagoConnectionLock(tx, organization.id);
+        return tx.mercadoPagoConnection.updateMany({
+            where: { organizationId: organization.id, status: "ACTIVE" },
+            data: { status: "DISCONNECTED", disconnectedAt: now },
+        });
+    });
+
+    logger.info("mercadopago oauth: conexión desconectada", { organizationId: organization.id, hadActiveConnection: result.count > 0 });
+    return { disconnected: true };
 }
 
 // ==================================================================
@@ -208,20 +265,25 @@ export async function handleMercadoPagoOAuthCallbackService({ code, state }) {
 // separado.
 // ==================================================================
 
-export async function refreshMercadoPagoConnectionTokens(organizationId) {
-    const connection = await prisma.mercadoPagoConnection.findUnique({ where: { organizationId } });
-    if (!connection) return { refreshed: false, reason: "NOT_CONNECTED" };
-
+// Núcleo compartido: renueva UNA fila ya resuelta (por organización ACTIVE
+// o por id puntual, ver los dos wrappers de abajo) y persiste por `id`
+// (nunca por organizationId, que ya no identifica una fila única). Bug fix
+// (desconexión de Mercado Pago): extraído para que un webhook tardío
+// pueda renovar el access_token de una conexión YA DISCONNECTED (sigue
+// siendo un token legítimo de esa cuenta, sólo que ya no es la conexión
+// activa de la Organization) sin que eso la reactive ni la confunda con
+// la conexión ACTIVE actual.
+async function refreshConnectionRow(connection) {
     const refreshToken = decryptMercadoPagoSecret(connection.refreshTokenEncrypted);
     const result = await refreshMercadoPagoAccessToken(refreshToken).catch((error) => ({ success: false, error: error.message }));
     if (!result.success) {
-        logger.warn("mercadopago oauth: fallo al renovar credenciales", { organizationId, reason: result.error });
+        logger.warn("mercadopago oauth: fallo al renovar credenciales", { connectionId: connection.id, organizationId: connection.organizationId, reason: result.error });
         return { refreshed: false, reason: result.error };
     }
 
     const now = new Date();
     await prisma.mercadoPagoConnection.update({
-        where: { organizationId },
+        where: { id: connection.id },
         data: {
             accessTokenEncrypted: encryptMercadoPagoSecret(result.accessToken),
             refreshTokenEncrypted: encryptMercadoPagoSecret(result.refreshToken),
@@ -231,8 +293,26 @@ export async function refreshMercadoPagoConnectionTokens(organizationId) {
         },
     });
 
-    logger.info("mercadopago oauth: credenciales renovadas", { organizationId });
+    logger.info("mercadopago oauth: credenciales renovadas", { connectionId: connection.id, organizationId: connection.organizationId });
     return { refreshed: true };
+}
+
+export async function refreshMercadoPagoConnectionTokens(organizationId) {
+    const connection = await prisma.mercadoPagoConnection.findFirst({ where: { organizationId, status: "ACTIVE" } });
+    if (!connection) return { refreshed: false, reason: "NOT_CONNECTED" };
+    return refreshConnectionRow(connection);
+}
+
+// Bug fix (desconexión de Mercado Pago) — mismo mecanismo que arriba, pero
+// por `connectionId` puntual en vez de "la conexión ACTIVE de la
+// Organization": lo usa mercadoPagoWebhook.service.js para renovar la
+// MISMA fila que ya resolvió (que puede ser una conexión DISCONNECTED, si
+// el webhook llegó tarde), nunca la conexión ACTIVE actual de la
+// Organization (que podría ya ser de otra cuenta).
+export async function refreshMercadoPagoConnectionTokensById(connectionId) {
+    const connection = await prisma.mercadoPagoConnection.findUnique({ where: { id: connectionId } });
+    if (!connection) return { refreshed: false, reason: "NOT_CONNECTED" };
+    return refreshConnectionRow(connection);
 }
 
 // ==================================================================
@@ -250,7 +330,7 @@ export async function refreshMercadoPagoConnectionTokens(organizationId) {
 const ACCESS_TOKEN_REFRESH_MARGIN_MS = 5 * 60 * 1000;
 
 export async function getValidMercadoPagoAccessTokenForOrganization(organizationId) {
-    let connection = await prisma.mercadoPagoConnection.findUnique({ where: { organizationId } });
+    let connection = await prisma.mercadoPagoConnection.findFirst({ where: { organizationId, status: "ACTIVE" } });
     if (!connection) throw new AppError(ErrorCodes.MERCADOPAGO_NOT_CONNECTED);
 
     const msUntilExpiry = connection.accessTokenExpiresAt.getTime() - Date.now();
@@ -259,7 +339,36 @@ export async function getValidMercadoPagoAccessTokenForOrganization(organization
         if (!refreshResult.refreshed) {
             throw new AppError(ErrorCodes.MERCADOPAGO_TOKEN_REFRESH_FAILED);
         }
-        connection = await prisma.mercadoPagoConnection.findUnique({ where: { organizationId } });
+        connection = await prisma.mercadoPagoConnection.findFirst({ where: { organizationId, status: "ACTIVE" } });
+    }
+
+    return decryptMercadoPagoSecret(connection.accessTokenEncrypted);
+}
+
+// Bug fix (desconexión de Mercado Pago) — variante para
+// mercadoPagoWebhook.service.js: resuelve el access_token vigente de una
+// fila PUNTUAL ya identificada (por id, sin importar su status ACTIVE/
+// DISCONNECTED), nunca "la conexión ACTIVE actual de la Organization". Es
+// la pieza que cierra el escenario "cuenta A → desconectar → conectar
+// cuenta B → llega tarde el webhook del payment de A": el webhook ya
+// resolvió cuál fila corresponde a A (por mercadoPagoUserId, ver
+// mercadoPagoWebhook.service.js) — usar acá
+// getValidMercadoPagoAccessTokenForOrganization en su lugar habría vuelto
+// a resolver "la ACTIVE de esa Organization", que para ese momento ya
+// podría ser la cuenta B, y el pago de A se hubiera intentado consultar
+// con el token de B (o directamente hubiera fallado con
+// MERCADOPAGO_NOT_CONNECTED si B nunca se conectó).
+export async function getValidMercadoPagoAccessTokenForConnection(connectionId) {
+    let connection = await prisma.mercadoPagoConnection.findUnique({ where: { id: connectionId } });
+    if (!connection) throw new AppError(ErrorCodes.MERCADOPAGO_NOT_CONNECTED);
+
+    const msUntilExpiry = connection.accessTokenExpiresAt.getTime() - Date.now();
+    if (msUntilExpiry < ACCESS_TOKEN_REFRESH_MARGIN_MS) {
+        const refreshResult = await refreshMercadoPagoConnectionTokensById(connectionId);
+        if (!refreshResult.refreshed) {
+            throw new AppError(ErrorCodes.MERCADOPAGO_TOKEN_REFRESH_FAILED);
+        }
+        connection = await prisma.mercadoPagoConnection.findUnique({ where: { id: connectionId } });
     }
 
     return decryptMercadoPagoSecret(connection.accessTokenEncrypted);

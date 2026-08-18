@@ -5,6 +5,7 @@ import prisma from "../src/config/prisma.js";
 import { createMercadoPagoCheckoutService } from "../src/services/mercadoPagoCheckout.service.js";
 import { processMercadoPagoWebhookNotification } from "../src/services/mercadoPagoWebhook.service.js";
 import { encryptMercadoPagoSecret, decryptMercadoPagoSecret } from "../src/config/mercadoPagoEncryption.js";
+import { disconnectMercadoPagoConnectionService } from "../src/services/mercadoPagoConnection.service.js";
 
 // MP-3 — CRUD + transacciones + concurrencia real, no expresable como
 // funciones puras: se prueba contra Postgres real (backend/.env.test).
@@ -18,6 +19,12 @@ process.env.MERCADOPAGO_CLIENT_SECRET = "test-client-secret";
 process.env.MERCADOPAGO_REDIRECT_URI = "https://api.pasecultural.test/api/mercadopago/oauth/callback";
 process.env.MERCADOPAGO_TOKEN_SECRET_KEY = Buffer.alloc(32, 3).toString("base64");
 process.env.FRONTEND_URL = "https://pasecultural.test";
+// Pre-existente, no relacionado a este bug fix: confirmSaleService (llamado
+// por processMercadoPagoWebhookNotification al aprobar un payment) emite
+// Ticket/TicketQr real, que exige TICKET_QR_SECRET_KEY — backend/.env.test
+// no la trae (no se toca ese archivo). Mismo criterio que la línea de
+// arriba: una clave de prueba fija, sólo para este proceso de test.
+process.env.TICKET_QR_SECRET_KEY = Buffer.alloc(32, 6).toString("base64");
 
 function uniqueSuffix() {
     return randomUUID().slice(0, 8);
@@ -648,7 +655,7 @@ testWithDb("19) an expired access token is refreshed before querying the payment
     const connection = await createMpConnection(org.id);
     const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
     const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
-    await prisma.mercadoPagoConnection.update({ where: { organizationId: org.id }, data: { accessTokenExpiresAt: new Date(Date.now() - 60 * 1000) } });
+    await prisma.mercadoPagoConnection.update({ where: { id: connection.id }, data: { accessTokenExpiresAt: new Date(Date.now() - 60 * 1000) } });
 
     const payment = paymentPayload(sale, connection);
     let refreshCalled = false;
@@ -667,6 +674,99 @@ testWithDb("19) an expired access token is refreshed before querying the payment
         const outcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: payment.id, bodyUserId: connection.mercadoPagoUserId });
         assert.equal(refreshCalled, true);
         assert.equal(outcome.action, "confirmed");
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+// ==================================================================
+// Bug fix (desconexión de Mercado Pago) — escenario explícito del pedido:
+// cuenta A conectada, se cobra un checkout, se desconecta A, se conecta
+// una cuenta B distinta para la MISMA organización, y recién ENTONCES
+// llega el webhook (tardío) del payment de A. Debe confirmar la Sale
+// usando EXCLUSIVAMENTE el access_token de A — nunca el de B, y nunca
+// queda irresoluble sólo porque la organización ya está en otra cuenta.
+// ==================================================================
+
+testWithDb("account A -> disconnect -> account B connected -> a late webhook for A's payment resolves and confirms using A's token, never B's", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const connectionA = await createMpConnection(org.id, { accessTokenEncrypted: encryptMercadoPagoSecret("ACCESS-A") });
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+
+    // El payment se generó mientras A estaba conectada — collector_id
+    // pertenece a A.
+    const payment = paymentPayload(sale, connectionA);
+
+    // Ahora, ANTES de que llegue el webhook: se desconecta A y se conecta
+    // B para la misma organización.
+    await disconnectMercadoPagoConnectionService(owner.clerkId, org.id);
+    const connectionB = await createMpConnection(org.id, { accessTokenEncrypted: encryptMercadoPagoSecret("ACCESS-B") });
+
+    // mockPaymentGet sólo reenvía `url` al handler (nunca `options`, ver su
+    // definición) — hace falta el Authorization real, así que acá se usa
+    // mockMpFetch directo, igual que el test 19 de este mismo archivo.
+    let capturedAuthHeader;
+    const restore = mockMpFetch(async (url, options) => {
+        if (!String(url).includes("/v1/payments/")) throw new Error(`unexpected fetch call to ${url}`);
+        capturedAuthHeader = options.headers.Authorization;
+        return jsonResponse(200, payment);
+    });
+    try {
+        // bodyUserId es la pista de enrutamiento real que trae la
+        // notificación de Mercado Pago — sigue siendo el user_id de A,
+        // exactamente como llegaría de verdad para este payment.
+        const outcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: payment.id, bodyUserId: connectionA.mercadoPagoUserId });
+
+        assert.equal(capturedAuthHeader, "Bearer ACCESS-A", "debe consultar el payment con el token de A, nunca con el de B (activo ahora)");
+        assert.notEqual(capturedAuthHeader, "Bearer ACCESS-B");
+        assert.equal(outcome.ok, true);
+        assert.equal(outcome.action, "confirmed");
+
+        const confirmed = await prisma.sale.findUnique({ where: { id: sale.id } });
+        assert.equal(confirmed.status, "CONFIRMED");
+        assert.equal(confirmed.mercadoPagoPaymentId, String(payment.id));
+
+        const tickets = await prisma.ticket.findMany({ where: { saleId: sale.id } });
+        assert.equal(tickets.length, 1, "el comprador de A recibe su entrada aunque A ya no esté conectada");
+
+        // B nunca se toca: ni su token, ni su status.
+        const freshB = await prisma.mercadoPagoConnection.findUnique({ where: { id: connectionB.id } });
+        assert.equal(freshB.status, "ACTIVE");
+        assert.equal(decryptMercadoPagoSecret(freshB.accessTokenEncrypted), "ACCESS-B");
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("account A -> disconnect -> account B connected -> a NEW checkout for the same organization always uses B's token, never A's", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    await createMpConnection(org.id, { accessTokenEncrypted: encryptMercadoPagoSecret("ACCESS-A") });
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+
+    await disconnectMercadoPagoConnectionService(owner.clerkId, org.id);
+    await createMpConnection(org.id, { accessTokenEncrypted: encryptMercadoPagoSecret("ACCESS-B") });
+
+    let capturedAuthHeader;
+    const restore = mockMpFetch(async (url, options) => {
+        if (String(url).includes("/checkout/preferences")) {
+            capturedAuthHeader = options.headers.Authorization;
+            return jsonResponse(201, { id: "PREF-postB", init_point: "https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=postB" });
+        }
+        throw new Error(`unexpected fetch call to ${url}`);
+    });
+    try {
+        const result = await createMercadoPagoCheckoutService(
+            { firstName: "Nadia", lastName: "Compradora", email: `buyer_${uniqueSuffix()}@example.com` },
+            { eventId: event.id, functionId: eventFunction.id, items: [{ ticketTypeId: ticketType.id, quantity: 1 }], buyerDocument: "30111222" },
+            randomUUID()
+        );
+        assert.ok(result.checkoutUrl);
+        assert.equal(capturedAuthHeader, "Bearer ACCESS-B");
     } finally {
         restore();
         await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });

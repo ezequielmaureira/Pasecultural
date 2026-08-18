@@ -1,7 +1,7 @@
 import prisma from "../config/prisma.js";
 import { logger } from "../logging/logger.js";
 import { getMercadoPagoPayment } from "./mercadoPago.service.js";
-import { getValidMercadoPagoAccessTokenForOrganization } from "./mercadoPagoConnection.service.js";
+import { getValidMercadoPagoAccessTokenForConnection } from "./mercadoPagoConnection.service.js";
 import { confirmSaleService } from "./sale.service.js";
 import { round2 } from "../utils/money.js";
 
@@ -82,7 +82,15 @@ export async function processMercadoPagoWebhookNotification({ type, dataId, body
         return { ok: true, action: "unresolvable", reason: "NO_CANDIDATE_CONNECTION" };
     }
 
-    const accessToken = await getValidMercadoPagoAccessTokenForOrganization(connection.organizationId);
+    // Bug fix (desconexión de Mercado Pago) — SIEMPRE el token de ESTA
+    // fila `connection` ya resuelta (por mercadoPagoUserId o por la Sale
+    // ya vinculada), NUNCA "la conexión ACTIVE actual de la Organization":
+    // si la Organization desconectó esta cuenta y conectó otra distinta
+    // entre el cobro y este webhook, la ACTIVE actual ya no es la cuenta
+    // que hizo este payment — usar getValidMercadoPagoAccessTokenForOrganization
+    // acá reintroduciría exactamente el bug que este cambio corrige (ver
+    // mercadoPagoConnection.service.js).
+    const accessToken = await getValidMercadoPagoAccessTokenForConnection(connection.id);
     const payment = await getMercadoPagoPayment({ accessToken, paymentId: normalizedPaymentId });
 
     if (!payment.success) {

@@ -7,6 +7,7 @@ import {
     startMercadoPagoConnectService,
     handleMercadoPagoOAuthCallbackService,
     refreshMercadoPagoConnectionTokens,
+    disconnectMercadoPagoConnectionService,
 } from "../src/services/mercadoPagoConnection.service.js";
 import { requireRole } from "../src/middlewares/requireRole.js";
 
@@ -106,7 +107,7 @@ testWithDb("1/2) an authorized owner can query the status, and an unconnected or
     const org = await createOrganization(owner.id);
     try {
         const status = await getMercadoPagoConnectionStatusService(owner.clerkId, org.id);
-        assert.deepEqual(status, { connected: false, connectedAt: null, liveMode: null });
+        assert.deepEqual(status, { connected: false, connectedAt: null, liveMode: null, mercadoPagoUserId: null });
     } finally {
         await cleanup({ organizationIds: [org.id], userIds: [owner.id] });
     }
@@ -405,7 +406,7 @@ testWithDb("14) a successful OAuth exchange persists an encrypted connection", a
         const state = new URL(authorizationUrl).searchParams.get("state");
         await handleMercadoPagoOAuthCallbackService({ code: "AUTH_CODE", state });
 
-        const connection = await prisma.mercadoPagoConnection.findUnique({ where: { organizationId: org.id } });
+        const connection = await prisma.mercadoPagoConnection.findFirst({ where: { organizationId: org.id } });
         assert.ok(connection);
         assert.notEqual(connection.accessTokenEncrypted, "APP_USR-PLAINTEXT-MARKER");
         assert.notEqual(connection.refreshTokenEncrypted, "TG-PLAINTEXT-MARKER");
@@ -440,7 +441,7 @@ testWithDb("15/16) a Mercado Pago rejection fails in a controlled way, and no to
             }
         );
 
-        const connection = await prisma.mercadoPagoConnection.findUnique({ where: { organizationId: org.id } });
+        const connection = await prisma.mercadoPagoConnection.findFirst({ where: { organizationId: org.id } });
         assert.equal(connection, null, "un intercambio fallido nunca debe dejar una conexión persistida");
     } finally {
         restore();
@@ -449,27 +450,225 @@ testWithDb("15/16) a Mercado Pago rejection fails in a controlled way, and no to
 });
 
 // ==================================================================
-// 17) reconectar la misma Organization no crea duplicados.
+// 17) reconectar la misma Organization — bug fix (desconexión de Mercado
+// Pago): YA NO sobreescribe la fila existente (eso perdía para siempre el
+// mercadoPagoUserId/tokens de la cuenta anterior, rompiendo cualquier
+// webhook tardío de un payment cobrado con ella). Ahora la reconexión deja
+// DOS filas: la primera pasa a DISCONNECTED (conservada tal cual), la
+// segunda queda ACTIVE con la cuenta nueva — nunca más de una ACTIVE al
+// mismo tiempo.
 // ==================================================================
 
-testWithDb("17) reconnecting the same organization updates the single existing row instead of duplicating it", async () => {
+testWithDb("17) reconnecting the same organization keeps the previous connection as DISCONNECTED instead of overwriting it", async () => {
     const owner = await createUser();
     const org = await createOrganization(owner.id);
-    const restore = mockMpExchangeSuccess({ access_token: "APP_USR-first", refresh_token: "TG-first" });
+    const restore = mockMpExchangeSuccess({ access_token: "APP_USR-first", refresh_token: "TG-first", user_id: 111111 });
     try {
         const first = await startMercadoPagoConnectService(owner.clerkId, org.id);
         const firstState = new URL(first.authorizationUrl).searchParams.get("state");
         await handleMercadoPagoOAuthCallbackService({ code: "AUTH_CODE_1", state: firstState });
 
         restore();
-        const restoreSecond = mockMpExchangeSuccess({ access_token: "APP_USR-second", refresh_token: "TG-second" });
+        const restoreSecond = mockMpExchangeSuccess({ access_token: "APP_USR-second", refresh_token: "TG-second", user_id: 222222 });
         const second = await startMercadoPagoConnectService(owner.clerkId, org.id);
         const secondState = new URL(second.authorizationUrl).searchParams.get("state");
         await handleMercadoPagoOAuthCallbackService({ code: "AUTH_CODE_2", state: secondState });
         restoreSecond();
 
+        const connections = await prisma.mercadoPagoConnection.findMany({ where: { organizationId: org.id }, orderBy: { connectedAt: "asc" } });
+        assert.equal(connections.length, 2, "la reconexión debe crear una fila nueva, nunca pisar la anterior");
+
+        const [older, newer] = connections;
+        assert.equal(older.mercadoPagoUserId, "111111");
+        assert.equal(older.status, "DISCONNECTED");
+        assert.ok(older.disconnectedAt, "la fila vieja debe quedar marcada con cuándo se desactivó");
+
+        assert.equal(newer.mercadoPagoUserId, "222222");
+        assert.equal(newer.status, "ACTIVE");
+        assert.equal(newer.disconnectedAt, null);
+
+        // Sólo una ACTIVE a la vez.
+        const activeCount = connections.filter((c) => c.status === "ACTIVE").length;
+        assert.equal(activeCount, 1);
+    } finally {
+        await cleanup({ organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+// ==================================================================
+// Bug fix (desconexión de Mercado Pago) — DISCONNECT.
+// ==================================================================
+
+async function connectOrg(clerkId, organizationId, overrides = {}) {
+    const restore = mockMpExchangeSuccess(overrides);
+    const { authorizationUrl } = await startMercadoPagoConnectService(clerkId, organizationId);
+    const state = new URL(authorizationUrl).searchParams.get("state");
+    await handleMercadoPagoOAuthCallbackService({ code: `AUTH_CODE_${uniqueSuffix()}`, state });
+    restore();
+}
+
+testWithDb("disconnect: marks the active connection DISCONNECTED, never deletes it, and never returns a token", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    try {
+        await connectOrg(owner.clerkId, org.id);
+
+        const result = await disconnectMercadoPagoConnectionService(owner.clerkId, org.id);
+        assert.deepEqual(result, { disconnected: true });
+        assert.ok(!JSON.stringify(result).toLowerCase().includes("token"), "la respuesta nunca debe incluir ningún token");
+
+        const connection = await prisma.mercadoPagoConnection.findFirst({ where: { organizationId: org.id } });
+        assert.ok(connection, "la fila se conserva — nunca se borra");
+        assert.equal(connection.status, "DISCONNECTED");
+        assert.ok(connection.disconnectedAt);
+
+        const status = await getMercadoPagoConnectionStatusService(owner.clerkId, org.id);
+        assert.deepEqual(status, { connected: false, connectedAt: null, liveMode: null, mercadoPagoUserId: null });
+    } finally {
+        await cleanup({ organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("disconnect: a user who does not own the organization is forbidden, and the connection stays untouched", async () => {
+    const owner = await createUser();
+    const stranger = await createUser();
+    const org = await createOrganization(owner.id);
+    try {
+        await connectOrg(owner.clerkId, org.id);
+
+        await assert.rejects(
+            () => disconnectMercadoPagoConnectionService(stranger.clerkId, org.id),
+            (error) => {
+                assert.equal(error.code, "MERCADOPAGO_FORBIDDEN");
+                return true;
+            }
+        );
+
+        const connection = await prisma.mercadoPagoConnection.findFirst({ where: { organizationId: org.id } });
+        assert.equal(connection.status, "ACTIVE", "un intento no autorizado nunca debe desconectar nada");
+    } finally {
+        await cleanup({ organizationIds: [org.id], userIds: [owner.id, stranger.id] });
+    }
+});
+
+testWithDb("disconnect: an organizationId that does not belong to the caller (wrong organization) is forbidden", async () => {
+    const owner = await createUser();
+    const otherOwner = await createUser();
+    const org = await createOrganization(owner.id);
+    const otherOrg = await createOrganization(otherOwner.id);
+    try {
+        await connectOrg(otherOwner.clerkId, otherOrg.id);
+
+        // El dueño de `org` intenta desconectar `otherOrg` — nunca alcanza
+        // con estar autenticado como ORGANIZER: tiene que ser dueño de ESA
+        // Organization puntual.
+        await assert.rejects(
+            () => disconnectMercadoPagoConnectionService(owner.clerkId, otherOrg.id),
+            (error) => {
+                assert.equal(error.code, "MERCADOPAGO_FORBIDDEN");
+                return true;
+            }
+        );
+
+        const otherConnection = await prisma.mercadoPagoConnection.findFirst({ where: { organizationId: otherOrg.id } });
+        assert.equal(otherConnection.status, "ACTIVE");
+    } finally {
+        await cleanup({ organizationIds: [org.id, otherOrg.id], userIds: [owner.id, otherOwner.id] });
+    }
+});
+
+testWithDb("disconnect: repeating it on an already-disconnected organization is idempotent, never an error", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    try {
+        await connectOrg(owner.clerkId, org.id);
+
+        const first = await disconnectMercadoPagoConnectionService(owner.clerkId, org.id);
+        const second = await disconnectMercadoPagoConnectionService(owner.clerkId, org.id);
+        assert.deepEqual(first, { disconnected: true });
+        assert.deepEqual(second, { disconnected: true });
+
         const connections = await prisma.mercadoPagoConnection.findMany({ where: { organizationId: org.id } });
-        assert.equal(connections.length, 1, "nunca debe haber más de una fila por organización");
+        assert.equal(connections.length, 1, "un segundo disconnect nunca debe crear ni duplicar filas");
+        assert.equal(connections[0].status, "DISCONNECTED");
+    } finally {
+        await cleanup({ organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("disconnect: an organization that was never connected can still be 'disconnected' without error", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    try {
+        const result = await disconnectMercadoPagoConnectionService(owner.clerkId, org.id);
+        assert.deepEqual(result, { disconnected: true });
+
+        const connections = await prisma.mercadoPagoConnection.findMany({ where: { organizationId: org.id } });
+        assert.equal(connections.length, 0, "nunca se crea una fila sólo por desconectar algo que no existía");
+    } finally {
+        await cleanup({ organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("disconnect: two concurrent disconnect requests never leave an inconsistent state", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    try {
+        await connectOrg(owner.clerkId, org.id);
+
+        const results = await Promise.allSettled([
+            disconnectMercadoPagoConnectionService(owner.clerkId, org.id),
+            disconnectMercadoPagoConnectionService(owner.clerkId, org.id),
+        ]);
+        // Ambos terminan en éxito (idempotente) — nunca uno de los dos
+        // lanza ni deja la fila a medio actualizar.
+        assert.ok(results.every((r) => r.status === "fulfilled"), "ningún disconnect concurrente debe rechazar");
+
+        const connections = await prisma.mercadoPagoConnection.findMany({ where: { organizationId: org.id } });
+        assert.equal(connections.length, 1);
+        assert.equal(connections[0].status, "DISCONNECTED");
+    } finally {
+        await cleanup({ organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("disconnect: disconnecting organization A never touches organization B's connection", async () => {
+    const owner = await createUser();
+    const orgA = await createOrganization(owner.id);
+    const orgB = await createOrganization(owner.id);
+    try {
+        await connectOrg(owner.clerkId, orgA.id);
+        await connectOrg(owner.clerkId, orgB.id);
+
+        await disconnectMercadoPagoConnectionService(owner.clerkId, orgA.id);
+
+        const connectionA = await prisma.mercadoPagoConnection.findFirst({ where: { organizationId: orgA.id } });
+        const connectionB = await prisma.mercadoPagoConnection.findFirst({ where: { organizationId: orgB.id } });
+        assert.equal(connectionA.status, "DISCONNECTED");
+        assert.equal(connectionB.status, "ACTIVE", "desconectar A nunca debe afectar a B");
+    } finally {
+        await cleanup({ organizationIds: [orgA.id, orgB.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("disconnect then reconnect: the organization can connect a different account afterwards, and status reflects the new one", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    try {
+        await connectOrg(owner.clerkId, org.id, { user_id: 111111 });
+        await disconnectMercadoPagoConnectionService(owner.clerkId, org.id);
+
+        let status = await getMercadoPagoConnectionStatusService(owner.clerkId, org.id);
+        assert.equal(status.connected, false);
+
+        await connectOrg(owner.clerkId, org.id, { user_id: 222222 });
+
+        status = await getMercadoPagoConnectionStatusService(owner.clerkId, org.id);
+        assert.equal(status.connected, true);
+        assert.equal(status.mercadoPagoUserId, "222222");
+
+        const connections = await prisma.mercadoPagoConnection.findMany({ where: { organizationId: org.id } });
+        assert.equal(connections.length, 2, "la cuenta vieja se conserva, DISCONNECTED, junto a la nueva ACTIVE");
     } finally {
         await cleanup({ organizationIds: [org.id], userIds: [owner.id] });
     }
@@ -497,7 +696,7 @@ testWithDb("18) the callback can never be used to connect Mercado Pago to a diff
         const result = await handleMercadoPagoOAuthCallbackService({ code: "AUTH_CODE", state });
         assert.equal(result.organizationId, orgA.id);
 
-        const connectionB = await prisma.mercadoPagoConnection.findUnique({ where: { organizationId: orgB.id } });
+        const connectionB = await prisma.mercadoPagoConnection.findFirst({ where: { organizationId: orgB.id } });
         assert.equal(connectionB, null, "orgB nunca debe verse afectada por un callback que corresponde a orgA");
     } finally {
         restore();
@@ -551,14 +750,14 @@ testWithDb("refreshMercadoPagoConnectionTokens rotates both tokens atomically an
         await handleMercadoPagoOAuthCallbackService({ code: "AUTH_CODE", state });
         restoreInitial();
 
-        const before = await prisma.mercadoPagoConnection.findUnique({ where: { organizationId: org.id } });
+        const before = await prisma.mercadoPagoConnection.findFirst({ where: { organizationId: org.id } });
 
         const restoreRefresh = mockMpExchangeSuccess({ access_token: "APP_USR-rotated", refresh_token: "TG-rotated" });
         const result = await refreshMercadoPagoConnectionTokens(org.id);
         restoreRefresh();
 
         assert.equal(result.refreshed, true);
-        const after = await prisma.mercadoPagoConnection.findUnique({ where: { organizationId: org.id } });
+        const after = await prisma.mercadoPagoConnection.findFirst({ where: { organizationId: org.id } });
         assert.notEqual(after.accessTokenEncrypted, before.accessTokenEncrypted);
         assert.notEqual(after.refreshTokenEncrypted, before.refreshTokenEncrypted);
         assert.ok(!after.accessTokenEncrypted.includes("rotated"));
@@ -621,7 +820,7 @@ testWithDb("a transient failure on the first exchange attempt is retried transpa
         assert.equal(result.organizationId, org.id);
         assert.equal(calls, 2, "el primer intento falló transitoriamente, el segundo (reintento interno) tuvo éxito");
 
-        const connection = await prisma.mercadoPagoConnection.findUnique({ where: { organizationId: org.id } });
+        const connection = await prisma.mercadoPagoConnection.findFirst({ where: { organizationId: org.id } });
         assert.ok(connection, "la conexión debe quedar persistida a pesar del primer intento fallido");
 
         // El state ya se consumió con esta única invocación — no queda

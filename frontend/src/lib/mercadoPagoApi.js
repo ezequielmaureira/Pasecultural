@@ -15,3 +15,14 @@ export async function getMercadoPagoStatus(token, organizationId) {
 export async function startMercadoPagoConnect(token, organizationId) {
     return apiFetch(`/api/organizations/me/mercadopago/connect?organizationId=${encodeURIComponent(organizationId)}`, { token });
 }
+
+// Bug fix (desconexión de Mercado Pago) — desconecta la cuenta vinculada a
+// esta organización. El backend nunca borra ni devuelve tokens acá: sólo
+// {disconnected:true}.
+export async function disconnectMercadoPagoConnection(token, organizationId) {
+    return apiFetch("/api/organizations/me/mercadopago/disconnect", {
+        token,
+        method: "POST",
+        body: JSON.stringify({ organizationId }),
+    });
+}

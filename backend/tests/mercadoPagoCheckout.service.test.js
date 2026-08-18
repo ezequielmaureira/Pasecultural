@@ -5,6 +5,7 @@ import prisma from "../src/config/prisma.js";
 import { createMercadoPagoCheckoutService } from "../src/services/mercadoPagoCheckout.service.js";
 import { createSaleForBuyer, confirmSaleService } from "../src/services/sale.service.js";
 import { encryptMercadoPagoSecret } from "../src/config/mercadoPagoEncryption.js";
+import { disconnectMercadoPagoConnectionService } from "../src/services/mercadoPagoConnection.service.js";
 
 // MP-2 — CRUD + transacciones + concurrencia real (Sale/TicketType/
 // MercadoPagoConnection), no expresable como funciones puras: se prueba
@@ -18,6 +19,12 @@ process.env.MERCADOPAGO_CLIENT_ID = "test-client-id";
 process.env.MERCADOPAGO_CLIENT_SECRET = "test-client-secret";
 process.env.MERCADOPAGO_REDIRECT_URI = "https://api.pasecultural.test/api/mercadopago/oauth/callback";
 process.env.MERCADOPAGO_TOKEN_SECRET_KEY = Buffer.alloc(32, 9).toString("base64");
+// Pre-existente, no relacionado a este bug fix: confirmSaleService (ver
+// tests de confirmación end-to-end en este archivo) emite Ticket/TicketQr
+// real, que exige TICKET_QR_SECRET_KEY — backend/.env.test no la trae (no
+// se toca ese archivo). Mismo criterio que la línea de arriba: una clave
+// de prueba fija, sólo para este proceso de test.
+process.env.TICKET_QR_SECRET_KEY = Buffer.alloc(32, 5).toString("base64");
 process.env.FRONTEND_URL = "https://pasecultural.test";
 
 function uniqueSuffix() {
@@ -217,6 +224,66 @@ testWithDb("2) an organization with no Mercado Pago connection cannot start a ch
 });
 
 // ==================================================================
+// Bug fix (desconexión de Mercado Pago) — una organización que SÍ estuvo
+// conectada pero se desconectó debe fallar exactamente igual que una que
+// nunca se conectó (MERCADOPAGO_NOT_CONNECTED), nunca colgar una Sale, y
+// nunca usar la fila DISCONNECTED para cobrar.
+// ==================================================================
+
+testWithDb("a disconnected organization cannot start a new checkout, and no Sale is left behind", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+
+    await disconnectMercadoPagoConnectionService(owner.clerkId, org.id);
+
+    await assert.rejects(
+        () => createMercadoPagoCheckoutService(BUYER, saleInput({ ...ticketType, eventId: event.id, functionId: eventFunction.id }), randomUUID()),
+        (error) => {
+            assert.equal(error.code, "MERCADOPAGO_NOT_CONNECTED");
+            return true;
+        }
+    );
+
+    const salesCount = await prisma.sale.count({ where: { eventId: event.id } });
+    assert.equal(salesCount, 0, "una conexión DISCONNECTED nunca debe habilitar un checkout nuevo");
+
+    await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+});
+
+testWithDb("checkout works again after reconnecting a new account, using the new connection's token, never the disconnected one's", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const oldConnection = await createMpConnection(org.id, { accessTokenEncrypted: encryptMercadoPagoSecret("ACCESS-old-disconnected") });
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+
+    await disconnectMercadoPagoConnectionService(owner.clerkId, org.id);
+    await createMpConnection(org.id, { accessTokenEncrypted: encryptMercadoPagoSecret("ACCESS-new-active") });
+
+    let capturedAuthHeader;
+    const restore = mockMpFetch(async (url, options) => {
+        if (String(url).includes("/checkout/preferences")) {
+            capturedAuthHeader = options.headers.Authorization;
+            return jsonResponse(201, { id: "PREF-reconnect", init_point: "https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=reconnect" });
+        }
+        throw new Error(`unexpected fetch call to ${url}`);
+    });
+
+    try {
+        const result = await createMercadoPagoCheckoutService(BUYER, saleInput({ ...ticketType, eventId: event.id, functionId: eventFunction.id }), randomUUID());
+        assert.ok(result.checkoutUrl);
+        assert.equal(capturedAuthHeader, "Bearer ACCESS-new-active", "debe usar el token de la conexión ACTIVE nueva, nunca el de la vieja DISCONNECTED");
+
+        const stillDisconnected = await prisma.mercadoPagoConnection.findUnique({ where: { id: oldConnection.id } });
+        assert.equal(stillDisconnected.status, "DISCONNECTED", "la fila vieja nunca se toca al crear un checkout nuevo");
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+// ==================================================================
 // 3/4/27) Se usan las credenciales de la Organization DUEÑA del evento,
 // nunca las de otra — aislamiento completo entre dos organizaciones
 // conectadas simultáneamente.
@@ -253,8 +320,8 @@ testWithDb("3/4/27) uses the access_token of the event's OWNING organization, ne
         // Prueba directa de aislamiento: reconstruimos qué token le
         // correspondía a cada organización y confirmamos que el que viajó
         // es EXACTAMENTE el de orgA.
-        const freshA = await prisma.mercadoPagoConnection.findUnique({ where: { organizationId: orgA.id } });
-        const freshB = await prisma.mercadoPagoConnection.findUnique({ where: { organizationId: orgB.id } });
+        const freshA = await prisma.mercadoPagoConnection.findFirst({ where: { organizationId: orgA.id } });
+        const freshB = await prisma.mercadoPagoConnection.findFirst({ where: { organizationId: orgB.id } });
         assert.notEqual(freshA.accessTokenEncrypted, freshB.accessTokenEncrypted);
     } finally {
         restore();
@@ -524,7 +591,7 @@ testWithDb("21/22) an expired access token is refreshed via MP-1's infrastructur
         assert.ok(!JSON.stringify(result).includes("NEW-ACCESS-TOKEN"));
         assert.ok(!JSON.stringify(result).includes("NEW-REFRESH-TOKEN"));
 
-        const connection = await prisma.mercadoPagoConnection.findUnique({ where: { organizationId: org.id } });
+        const connection = await prisma.mercadoPagoConnection.findFirst({ where: { organizationId: org.id } });
         assert.ok(connection.accessTokenExpiresAt.getTime() > Date.now(), "la conexión debe quedar con el nuevo vencimiento persistido");
     } finally {
         restore();
