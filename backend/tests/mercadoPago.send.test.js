@@ -6,6 +6,8 @@ import {
     buildMercadoPagoAuthorizationUrl,
     exchangeMercadoPagoAuthorizationCode,
     refreshMercadoPagoAccessToken,
+    searchMercadoPagoMerchantOrdersByPreferenceId,
+    searchMercadoPagoPaymentsByExternalReference,
 } from "../src/services/mercadoPago.service.js";
 
 // mercadoPago.service.js lee MERCADOPAGO_CLIENT_ID/CLIENT_SECRET/REDIRECT_URI
@@ -341,4 +343,180 @@ test("no successful or failed exchange/refresh result ever leaks client_secret",
         restoreFail();
     }
     assert.ok(!JSON.stringify(failResult).includes("test-client-secret"));
+});
+
+// ==================================================================
+// Herramienta de diagnóstico (Developer, sólo lectura) —
+// searchMercadoPagoMerchantOrdersByPreferenceId / searchMercadoPagoPaymentsByExternalReference.
+// Nivel puro: sin DB, sólo fetch mockeado — la resolución de credencial
+// (Organization dueña, ACTIVE) se prueba aparte, con DB real, en
+// tests/mercadoPagoDiagnostics.service.test.js.
+// ==================================================================
+
+// Payload crudo "realista" — incluye TODO lo que Mercado Pago podría
+// devolver de más (payer, card, authorization_code) para probar que la
+// sanitización lo descarta, no que "no vino" en el mock.
+function rawPaymentWithSensitiveExtras(overrides = {}) {
+    return {
+        id: 999111222,
+        status: "rejected",
+        status_detail: "cc_rejected_insufficient_amount",
+        transaction_amount: 5000,
+        currency_id: "ARS",
+        payment_method_id: "visa",
+        payment_type_id: "credit_card",
+        collector_id: 123456789,
+        external_reference: "ext-ref-abc",
+        live_mode: false,
+        date_created: "2026-08-19T10:00:00.000Z",
+        date_approved: null,
+        // Todo lo de acá abajo NUNCA debe sobrevivir la sanitización.
+        payer: { email: "comprador@example.com", identification: { type: "DNI", number: "30111222" } },
+        card: { first_six_digits: "411111", last_four_digits: "1111", cardholder: { name: "NADIA COMPRADORA" } },
+        authorization_code: "AUTH123456",
+        issuer_id: "999",
+        point_of_interaction: { transaction_data: { qr_code: "secret-looking-data" } },
+        access_token: "APP_USR-should-never-appear",
+        metadata: { some: "thing" },
+        ...overrides,
+    };
+}
+
+const DIAGNOSTIC_PAYMENT_WHITELIST = [
+    "id",
+    "status",
+    "statusDetail",
+    "transactionAmount",
+    "currencyId",
+    "paymentMethodId",
+    "paymentTypeId",
+    "collectorId",
+    "externalReference",
+    "liveMode",
+    "dateCreated",
+    "dateApproved",
+];
+
+test("searchMercadoPagoPaymentsByExternalReference builds the exact official search URL and sends the given accessToken", async () => {
+    let capturedUrl;
+    let capturedAuthHeader;
+    const restore = mockFetchOnce(async (url, options) => {
+        capturedUrl = String(url);
+        capturedAuthHeader = options.headers.Authorization;
+        return jsonResponse(200, { results: [] });
+    });
+    try {
+        await searchMercadoPagoPaymentsByExternalReference({ accessToken: "ACCESS-XYZ", externalReference: "ext-ref-abc" });
+        assert.equal(capturedUrl, "https://api.mercadopago.com/v1/payments/search?external_reference=ext-ref-abc");
+        assert.equal(capturedAuthHeader, "Bearer ACCESS-XYZ");
+    } finally {
+        restore();
+    }
+});
+
+test("searchMercadoPagoPaymentsByExternalReference sanitizes every result to exactly the diagnostic whitelist, dropping payer/card/authorization_code/access_token", async () => {
+    const restore = mockFetchOnce(async () => jsonResponse(200, { results: [rawPaymentWithSensitiveExtras()] }));
+    let result;
+    try {
+        result = await searchMercadoPagoPaymentsByExternalReference({ accessToken: "ACCESS-XYZ", externalReference: "ext-ref-abc" });
+    } finally {
+        restore();
+    }
+    assert.equal(result.success, true);
+    assert.equal(result.payments.length, 1);
+
+    const payment = result.payments[0];
+    assert.deepEqual(Object.keys(payment).sort(), [...DIAGNOSTIC_PAYMENT_WHITELIST].sort());
+
+    const serialized = JSON.stringify(result);
+    assert.ok(!serialized.includes("comprador@example.com"));
+    assert.ok(!serialized.includes("30111222"));
+    assert.ok(!serialized.includes("411111"));
+    assert.ok(!serialized.includes("NADIA COMPRADORA"));
+    assert.ok(!serialized.includes("AUTH123456"));
+    assert.ok(!serialized.includes("secret-looking-data"));
+    assert.ok(!serialized.includes("APP_USR-should-never-appear"));
+    // Busca las CLAVES JSON reales (no un substring cualquiera —
+    // "payment_type_id":"credit_card" es un valor legítimo de la
+    // whitelist y contiene "card" como substring, sin ser el objeto
+    // sensible `card` que se quiere descartar).
+    assert.ok(!/"payer"\s*:|"card"\s*:|"authorization_code"\s*:|"access_token"\s*:|"metadata"\s*:/i.test(serialized));
+});
+
+test("searchMercadoPagoMerchantOrdersByPreferenceId builds the exact official search URL", async () => {
+    let capturedUrl;
+    const restore = mockFetchOnce(async (url) => {
+        capturedUrl = String(url);
+        return jsonResponse(200, { elements: [] });
+    });
+    try {
+        await searchMercadoPagoMerchantOrdersByPreferenceId({ accessToken: "ACCESS-XYZ", preferenceId: "PREF-123" });
+        assert.equal(capturedUrl, "https://api.mercadopago.com/merchant_orders/search?preference_id=PREF-123");
+    } finally {
+        restore();
+    }
+});
+
+test("searchMercadoPagoMerchantOrdersByPreferenceId sanitizes the order AND every embedded payment to the whitelist", async () => {
+    const restore = mockFetchOnce(async () =>
+        jsonResponse(200, {
+            elements: [
+                {
+                    id: 555,
+                    status: "closed",
+                    preference_id: "PREF-123",
+                    external_reference: "ext-ref-abc",
+                    paid_amount: 0,
+                    total_amount: 5000,
+                    cancelled: false,
+                    // Campo sensible a nivel merchant_order — también debe descartarse.
+                    payer: { email: "comprador@example.com" },
+                    payments: [rawPaymentWithSensitiveExtras()],
+                },
+            ],
+        })
+    );
+    let result;
+    try {
+        result = await searchMercadoPagoMerchantOrdersByPreferenceId({ accessToken: "ACCESS-XYZ", preferenceId: "PREF-123" });
+    } finally {
+        restore();
+    }
+    assert.equal(result.success, true);
+    assert.equal(result.merchantOrders.length, 1);
+
+    const order = result.merchantOrders[0];
+    assert.deepEqual(Object.keys(order).sort(), ["cancelled", "externalReference", "id", "paidAmount", "payments", "preferenceId", "status", "totalAmount"]);
+    assert.deepEqual(Object.keys(order.payments[0]).sort(), [...DIAGNOSTIC_PAYMENT_WHITELIST].sort());
+
+    const serialized = JSON.stringify(result);
+    assert.ok(!serialized.includes("comprador@example.com"));
+    assert.ok(!serialized.includes("AUTH123456"));
+    assert.ok(!serialized.includes("APP_USR-should-never-appear"));
+});
+
+test("searchMercadoPagoPaymentsByExternalReference reports a controlled failure on a non-2xx response, without throwing", async () => {
+    const restore = mockFetchOnce(async () => jsonResponse(401, { message: "invalid access token" }));
+    let result;
+    try {
+        result = await searchMercadoPagoPaymentsByExternalReference({ accessToken: "ACCESS-XYZ", externalReference: "ext-ref-abc" });
+    } finally {
+        restore();
+    }
+    assert.equal(result.success, false);
+    assert.equal(result.httpStatus, 401);
+});
+
+test("searchMercadoPagoMerchantOrdersByPreferenceId reports a controlled failure on a network error, without throwing", async () => {
+    const restore = mockFetchOnce(async () => {
+        throw new Error("ECONNRESET");
+    });
+    let result;
+    try {
+        result = await searchMercadoPagoMerchantOrdersByPreferenceId({ accessToken: "ACCESS-XYZ", preferenceId: "PREF-123" });
+    } finally {
+        restore();
+    }
+    assert.equal(result.success, false);
+    assert.equal(result.error, "NETWORK_ERROR");
 });

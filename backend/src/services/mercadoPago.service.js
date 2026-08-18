@@ -389,3 +389,128 @@ export async function getMercadoPagoPayment({ accessToken, paymentId }) {
         collectorId: payload.collector_id != null ? String(payload.collector_id) : null,
     };
 }
+
+// ==================================================================
+// Herramienta de diagnóstico (Developer, sólo lectura) — permite
+// investigar un intento de Checkout Pro que falló ANTES de generar un
+// webhook (nunca hay payment_id todavía, así que getMercadoPagoPayment de
+// arriba no sirve como punto de entrada). Verificado contra la
+// documentación oficial vigente (developers.mercadopago.com):
+//
+//   - GET https://api.mercadopago.com/merchant_orders/search?preference_id=...
+//     Devuelve las merchant_orders asociadas a una preferencia — cada una
+//     trae su propio array `payments` (con status/status_detail), aunque
+//     el pago nunca haya llegado a confirmarse por webhook.
+//   - GET https://api.mercadopago.com/v1/payments/search?external_reference=...
+//     Devuelve los payments asociados a nuestro external_reference propio.
+//
+// Los dos son GET, ninguno escribe nada en Mercado Pago. Ambos quedan
+// automáticamente acotados a la cuenta dueña del accessToken usado (mismo
+// scoping que getMercadoPagoPayment) — el caller (developerSales.service.js)
+// es responsable de resolver ese accessToken como la conexión ACTIVE de la
+// Organization dueña de la Sale, nunca una credencial global ni de otra
+// Organization.
+//
+// sanitizeDiagnosticPayment es la ÚNICA fuente de qué campos de un payment
+// salen de este archivo hacia el resto de la app: whitelist explícita
+// (nunca spread del payload crudo), así payer/tarjeta/authorization_code/
+// cualquier campo sensible que Mercado Pago devuelva JAMÁS puede filtrarse
+// por accidente, ni siquiera si Mercado Pago agrega campos nuevos a futuro.
+// ==================================================================
+
+const MERCHANT_ORDERS_SEARCH_URL = "https://api.mercadopago.com/merchant_orders/search";
+const PAYMENTS_SEARCH_URL = "https://api.mercadopago.com/v1/payments/search";
+
+function sanitizeDiagnosticPayment(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    return {
+        id: raw.id != null ? String(raw.id) : null,
+        status: raw.status ?? null,
+        statusDetail: raw.status_detail ?? null,
+        transactionAmount: typeof raw.transaction_amount === "number" ? raw.transaction_amount : null,
+        currencyId: raw.currency_id ?? null,
+        paymentMethodId: raw.payment_method_id ?? null,
+        paymentTypeId: raw.payment_type_id ?? null,
+        collectorId: raw.collector_id != null ? String(raw.collector_id) : null,
+        externalReference: raw.external_reference ?? null,
+        liveMode: typeof raw.live_mode === "boolean" ? raw.live_mode : null,
+        dateCreated: raw.date_created ?? null,
+        dateApproved: raw.date_approved ?? null,
+    };
+}
+
+export async function searchMercadoPagoMerchantOrdersByPreferenceId({ accessToken, preferenceId }) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), OAUTH_TIMEOUT_MS);
+
+    let response;
+    try {
+        response = await fetch(`${MERCHANT_ORDERS_SEARCH_URL}?preference_id=${encodeURIComponent(preferenceId)}`, {
+            method: "GET",
+            headers: { Authorization: `Bearer ${accessToken}` },
+            signal: controller.signal,
+        });
+    } catch (error) {
+        return { success: false, error: error.name === "AbortError" ? "TIMEOUT" : "NETWORK_ERROR" };
+    } finally {
+        clearTimeout(timeoutId);
+    }
+
+    let payload = null;
+    try {
+        payload = await response.json();
+    } catch {
+        payload = null;
+    }
+
+    if (!response.ok) {
+        return { success: false, error: payload?.message ?? `HTTP_${response.status}`, httpStatus: response.status };
+    }
+
+    const elements = Array.isArray(payload?.elements) ? payload.elements : [];
+    return {
+        success: true,
+        merchantOrders: elements.map((order) => ({
+            id: order?.id != null ? String(order.id) : null,
+            status: order?.status ?? null,
+            preferenceId: order?.preference_id ?? null,
+            externalReference: order?.external_reference ?? null,
+            paidAmount: typeof order?.paid_amount === "number" ? order.paid_amount : null,
+            totalAmount: typeof order?.total_amount === "number" ? order.total_amount : null,
+            cancelled: typeof order?.cancelled === "boolean" ? order.cancelled : null,
+            payments: Array.isArray(order?.payments) ? order.payments.map(sanitizeDiagnosticPayment) : [],
+        })),
+    };
+}
+
+export async function searchMercadoPagoPaymentsByExternalReference({ accessToken, externalReference }) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), OAUTH_TIMEOUT_MS);
+
+    let response;
+    try {
+        response = await fetch(`${PAYMENTS_SEARCH_URL}?external_reference=${encodeURIComponent(externalReference)}`, {
+            method: "GET",
+            headers: { Authorization: `Bearer ${accessToken}` },
+            signal: controller.signal,
+        });
+    } catch (error) {
+        return { success: false, error: error.name === "AbortError" ? "TIMEOUT" : "NETWORK_ERROR" };
+    } finally {
+        clearTimeout(timeoutId);
+    }
+
+    let payload = null;
+    try {
+        payload = await response.json();
+    } catch {
+        payload = null;
+    }
+
+    if (!response.ok) {
+        return { success: false, error: payload?.message ?? `HTTP_${response.status}`, httpStatus: response.status };
+    }
+
+    const results = Array.isArray(payload?.results) ? payload.results : [];
+    return { success: true, payments: results.map(sanitizeDiagnosticPayment) };
+}

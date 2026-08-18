@@ -2,6 +2,9 @@ import prisma from "../config/prisma.js";
 import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { normalizeBuyerDocument } from "../utils/validateBuyerDocument.js";
+import { decryptMercadoPagoSecret } from "../config/mercadoPagoEncryption.js";
+import { searchMercadoPagoMerchantOrdersByPreferenceId, searchMercadoPagoPaymentsByExternalReference } from "./mercadoPago.service.js";
+import { logger } from "../logging/logger.js";
 
 // Developer → Ventas — platform-wide a propósito, sólo lectura. No
 // reutiliza listSalesOrganizerService (organizer-scoped vía
@@ -161,5 +164,93 @@ export const getDeveloperSaleService = async (saleId) => {
             ticketNumber: ticket.ticketNumber,
             status: ticket.status,
         })),
+    };
+};
+
+// ==================================================================
+// Diagnóstico de Mercado Pago (Developer, SOLO LECTURA) — para investigar
+// un intento de Checkout Pro real que falló antes de generar webhook, sin
+// crear una compra nueva. Nunca confirma la Sale, nunca crea Ticket, nunca
+// toca stock, nunca escribe en MercadoPagoConnection ni en ningún otro
+// lado — a propósito NO reusa getValidMercadoPagoAccessTokenForOrganization
+// (mercadoPagoConnection.service.js), que SÍ puede renovar y PERSISTIR un
+// access_token nuevo si está por vencer: acá se resuelve la conexión
+// ACTIVE y se decripta el token tal cual está, sin ningún efecto
+// secundario — si Mercado Pago lo rechaza por vencido, esta herramienta
+// sólo informa el fallo, nunca renueva nada.
+//
+// La credencial usada es SIEMPRE la conexión ACTIVE de la Organization
+// dueña del evento de ESTA Sale — nunca una credencial global de la app ni
+// la de otra Organization (mismo criterio de scoping que MP-2/MP-3).
+// ==================================================================
+
+export const getMercadoPagoSaleDiagnosticsService = async (saleId) => {
+    const sale = await prisma.sale.findUnique({
+        where: { id: saleId },
+        select: {
+            id: true,
+            status: true,
+            total: true,
+            paymentMethod: true,
+            mercadoPagoPreferenceId: true,
+            mercadoPagoExternalReference: true,
+            mercadoPagoPaymentId: true,
+            event: { select: { organizationId: true } },
+        },
+    });
+    if (!sale) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
+
+    const saleView = {
+        id: sale.id,
+        status: sale.status,
+        total: Number(sale.total),
+        mercadoPagoPreferenceId: sale.mercadoPagoPreferenceId,
+        mercadoPagoExternalReference: sale.mercadoPagoExternalReference,
+        mercadoPagoPaymentId: sale.mercadoPagoPaymentId,
+    };
+
+    if (sale.paymentMethod !== "MERCADO_PAGO") {
+        return { sale: saleView, connection: { resolved: false, reason: "NOT_MERCADOPAGO_SALE" }, merchantOrders: [], payments: [] };
+    }
+    if (!sale.mercadoPagoPreferenceId && !sale.mercadoPagoExternalReference) {
+        return { sale: saleView, connection: { resolved: false, reason: "NO_MERCADOPAGO_IDENTIFIERS" }, merchantOrders: [], payments: [] };
+    }
+
+    const connection = await prisma.mercadoPagoConnection.findFirst({
+        where: { organizationId: sale.event.organizationId, status: "ACTIVE" },
+        select: { mercadoPagoUserId: true, accessTokenEncrypted: true },
+    });
+    if (!connection) {
+        return { sale: saleView, connection: { resolved: false, reason: "NOT_CONNECTED" }, merchantOrders: [], payments: [] };
+    }
+
+    const accessToken = decryptMercadoPagoSecret(connection.accessTokenEncrypted);
+
+    const [merchantOrderResult, paymentsResult] = await Promise.all([
+        sale.mercadoPagoPreferenceId
+            ? searchMercadoPagoMerchantOrdersByPreferenceId({ accessToken, preferenceId: sale.mercadoPagoPreferenceId })
+            : Promise.resolve({ success: false, error: "NO_PREFERENCE_ID" }),
+        sale.mercadoPagoExternalReference
+            ? searchMercadoPagoPaymentsByExternalReference({ accessToken, externalReference: sale.mercadoPagoExternalReference })
+            : Promise.resolve({ success: false, error: "NO_EXTERNAL_REFERENCE" }),
+    ]);
+
+    // Nunca se loguea accessToken/refreshToken ni ningún dato de payer —
+    // sólo metadata de diagnóstico del propio proceso (mismo criterio que
+    // el resto de los services de Mercado Pago).
+    logger.info("mercadopago diagnostics: consulta de sólo lectura realizada", {
+        saleId,
+        organizationId: sale.event.organizationId,
+        merchantOrderSuccess: merchantOrderResult.success,
+        paymentsSuccess: paymentsResult.success,
+    });
+
+    return {
+        sale: saleView,
+        connection: { resolved: true, mercadoPagoUserId: connection.mercadoPagoUserId },
+        merchantOrders: merchantOrderResult.success ? merchantOrderResult.merchantOrders : [],
+        merchantOrderError: merchantOrderResult.success ? null : merchantOrderResult.error,
+        payments: paymentsResult.success ? paymentsResult.payments : [],
+        paymentsError: paymentsResult.success ? null : paymentsResult.error,
     };
 };
