@@ -13,9 +13,18 @@ import { round2 } from "../utils/money.js";
 // para el razonamiento completo de seguridad.
 
 const APPROVED_STATUS = "approved";
-// Terminal, negativo, definitivo — nunca va a convertirse en approved
-// después: libera la reserva de inmediato (ver §12 del informe).
-const TERMINAL_NEGATIVE_STATUSES = new Set(["rejected", "cancelled"]);
+// Bug fix (reintentos de Checkout Pro) — terminal SÓLO para ESTE intento de
+// pago puntual, NUNCA para la Sale: Checkout Pro ofrece "pagar con otro
+// medio" sobre la MISMA preference/external_reference después de un
+// rechazo, así que un rejected/cancelled individual nunca debe cancelar la
+// Sale ni liberar su reserva de stock — eso rompía exactamente el caso
+// real rejected→approved (el buyer pagaba de verdad en el segundo intento
+// y la Sale ya estaba CANCELLED, sin ticket). La Sale sigue PENDING y
+// sigue pudiendo recibir un payment distinto después. El único mecanismo
+// de abandono real sigue siendo el TTL de stockReservedUntil que ya existe
+// (ver STOCK_RESERVATION_TTL_MS, sale.service.js) — nunca se inventó uno
+// nuevo acá.
+const PAYMENT_ATTEMPT_FAILED_STATUSES = new Set(["rejected", "cancelled"]);
 // Reversión sobre un pago que YA fue aprobado — MP-3 no deshace nada (fuera
 // de alcance, ver el informe), sólo deja constancia.
 const REVERSAL_STATUSES = new Set(["refunded", "charged_back"]);
@@ -181,21 +190,24 @@ export async function processMercadoPagoWebhookNotification({ type, dataId, body
         return { ok: true, action: "unresolvable", reason: `SALE_STATUS_${sale.status}` };
     }
 
-    if (TERMINAL_NEGATIVE_STATUSES.has(payment.status)) {
-        // Pago definitivamente no exitoso — libera la reserva de inmediato,
-        // no hace falta esperar el TTL. Mismo patrón atómico
-        // (updateMany...status:"PENDING") que ya usa
-        // mercadoPagoCheckout.service.js para el fallo de creación de
-        // preferencia — nunca compite con una confirmación legítima en
-        // curso porque ambas exigen status:"PENDING" en el WHERE.
-        const released = await prisma.sale.updateMany({ where: { id: sale.id, status: "PENDING" }, data: { status: "CANCELLED" } });
-        logger.info("mercadopago webhook: payment con estado terminal negativo, reserva liberada", {
+    if (PAYMENT_ATTEMPT_FAILED_STATUSES.has(payment.status)) {
+        // Bug fix (reintentos de Checkout Pro) — este intento puntual
+        // falló, pero la Sale sigue PENDING y su reserva de stock (TTL,
+        // ver sale.service.js) queda exactamente igual: nunca se escribe
+        // nada acá. Checkout Pro puede seguir ofreciendo "pagar con otro
+        // medio" sobre la MISMA preference/external_reference, y un
+        // payment distinto (nuevo dataId) puede llegar aprobado después —
+        // ese caso se resuelve normalmente la próxima vez que entra este
+        // mismo external_reference. Idempotente por construcción: no
+        // muta nada, así que da igual cuántas veces se repita esta misma
+        // notificación.
+        logger.info("mercadopago webhook: intento de pago individual terminó negativo, la Sale sigue PENDING", {
             saleId: sale.id,
             paymentId: normalizedPaymentId,
             paymentStatus: payment.status,
-            released: released.count > 0,
+            saleStatus: sale.status,
         });
-        return { ok: true, action: "reservation_freed", saleId: sale.id };
+        return { ok: true, action: "payment_attempt_failed", saleId: sale.id };
     }
 
     if (payment.status !== APPROVED_STATUS) {

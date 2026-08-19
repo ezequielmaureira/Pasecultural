@@ -411,12 +411,17 @@ testWithDb("9) a pending payment leaves the Sale PENDING, unconfirmed", async ()
 });
 
 // ==================================================================
-// 10/11) payment rejected/cancelled -> la Sale se cancela de inmediato,
-// liberando la reserva sin esperar el TTL.
+// Bug fix (reintentos de Checkout Pro) — 10/11) un payment rejected/
+// cancelled INDIVIDUAL nunca cancela la Sale ni libera su reserva: es
+// terminal sólo para ESE intento, nunca para la Sale, porque Checkout Pro
+// puede seguir ofreciendo "pagar con otro medio" sobre la MISMA
+// preference/external_reference. Caso real que motivó este fix: rejected
+// → (mismo external_reference) approved, y la Sale ya estaba CANCELLED,
+// sin ticket — ver los tests siguientes para la reproducción completa.
 // ==================================================================
 
 for (const status of ["rejected", "cancelled"]) {
-    testWithDb(`10/11) a ${status} payment cancels the Sale immediately, freeing the stock reservation`, async () => {
+    testWithDb(`10/11) a ${status} payment never cancels the Sale nor releases its stock reservation`, async () => {
         const owner = await createUser();
         const org = await createOrganization(owner.id);
         const connection = await createMpConnection(org.id);
@@ -428,21 +433,165 @@ for (const status of ["rejected", "cancelled"]) {
         try {
             const outcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: payment.id, bodyUserId: connection.mercadoPagoUserId });
             assert.equal(outcome.ok, true);
-            assert.equal(outcome.action, "reservation_freed");
+            assert.equal(outcome.action, "payment_attempt_failed");
 
-            const cancelled = await prisma.sale.findUnique({ where: { id: sale.id } });
-            assert.equal(cancelled.status, "CANCELLED");
+            const stillPending = await prisma.sale.findUnique({ where: { id: sale.id } });
+            assert.equal(stillPending.status, "PENDING", "la Sale nunca debe cancelarse por un intento individual");
+            assert.equal(
+                stillPending.stockReservedUntil.getTime(),
+                sale.stockReservedUntil.getTime(),
+                "la reserva de stock nunca debe tocarse por un intento individual"
+            );
 
-            // La liberación es inmediata — otra Sale ya puede reservar esa
-            // misma unidad sin esperar el TTL de 15 minutos.
-            const second = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
-            assert.ok(second.id);
+            // La reserva SIGUE vigente — otra Sale por la misma (única)
+            // unidad debe rechazarse por falta de stock, exactamente lo
+            // opuesto al bug (que la liberaba de inmediato).
+            await assert.rejects(
+                () => setupPendingSale({ event, eventFunction, ticketType, quantity: 1 }),
+                (error) => {
+                    assert.equal(error.code, "INSUFFICIENT_STOCK");
+                    return true;
+                }
+            );
         } finally {
             restore();
             await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
         }
     });
 }
+
+testWithDb("a rejected payment notified twice (retry/redelivery) is idempotent: never mutates the Sale either time", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const connection = await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+
+    const payment = paymentPayload(sale, connection, { status: "rejected" });
+    const restore = mockPaymentGet(async () => jsonResponse(200, payment));
+    try {
+        const first = await processMercadoPagoWebhookNotification({ type: "payment", dataId: payment.id, bodyUserId: connection.mercadoPagoUserId });
+        const second = await processMercadoPagoWebhookNotification({ type: "payment", dataId: payment.id, bodyUserId: connection.mercadoPagoUserId });
+
+        assert.equal(first.action, "payment_attempt_failed");
+        assert.equal(second.action, "payment_attempt_failed");
+
+        const stillPending = await prisma.sale.findUnique({ where: { id: sale.id } });
+        assert.equal(stillPending.status, "PENDING");
+        assert.equal(stillPending.stockReservedUntil.getTime(), sale.stockReservedUntil.getTime());
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("rejected -> approved with the same external_reference: confirms the Sale with exactly one Ticket (reproduces the real reported bug end to end)", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const connection = await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+
+    const rejectedPayment = paymentPayload(sale, connection, { status: "rejected", id: 174601635408 });
+    const restoreRejected = mockPaymentGet(async () => jsonResponse(200, rejectedPayment));
+    try {
+        const rejectedOutcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: rejectedPayment.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(rejectedOutcome.action, "payment_attempt_failed");
+    } finally {
+        restoreRejected();
+    }
+
+    // Segundo intento, mismo external_reference, payment_id DISTINTO —
+    // exactamente el escenario real: "pagar con otro medio" dentro del
+    // mismo Checkout Pro.
+    const approvedPayment = paymentPayload(sale, connection, { status: "approved", id: 173671402439 });
+    const restoreApproved = mockPaymentGet(async () => jsonResponse(200, approvedPayment));
+    try {
+        const approvedOutcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: approvedPayment.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(approvedOutcome.ok, true);
+        assert.equal(approvedOutcome.action, "confirmed");
+
+        const confirmed = await prisma.sale.findUnique({ where: { id: sale.id } });
+        assert.equal(confirmed.status, "CONFIRMED");
+        assert.equal(confirmed.mercadoPagoPaymentId, String(approvedPayment.id));
+
+        const tickets = await prisma.ticket.findMany({ where: { saleId: sale.id } });
+        assert.equal(tickets.length, 1, "exactamente un Ticket, ni cero ni duplicado");
+    } finally {
+        restoreApproved();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("rejected -> rejected -> approved (dos rechazos antes del éxito): confirma la Sale con exactamente un Ticket", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const connection = await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+
+    for (const paymentId of [111111111, 222222222]) {
+        const rejectedPayment = paymentPayload(sale, connection, { status: "rejected", id: paymentId });
+        const restore = mockPaymentGet(async () => jsonResponse(200, rejectedPayment));
+        try {
+            const outcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: rejectedPayment.id, bodyUserId: connection.mercadoPagoUserId });
+            assert.equal(outcome.action, "payment_attempt_failed");
+        } finally {
+            restore();
+        }
+    }
+
+    const approvedPayment = paymentPayload(sale, connection, { status: "approved", id: 333333333 });
+    const restoreApproved = mockPaymentGet(async () => jsonResponse(200, approvedPayment));
+    try {
+        const outcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: approvedPayment.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(outcome.action, "confirmed");
+
+        const confirmed = await prisma.sale.findUnique({ where: { id: sale.id } });
+        assert.equal(confirmed.status, "CONFIRMED");
+
+        const tickets = await prisma.ticket.findMany({ where: { saleId: sale.id } });
+        assert.equal(tickets.length, 1);
+    } finally {
+        restoreApproved();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("approved -> a late/out-of-order rejected for a different payment never un-confirms an already-CONFIRMED Sale", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const connection = await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+
+    const approvedPayment = paymentPayload(sale, connection, { status: "approved", id: 444444444 });
+    const restoreApproved = mockPaymentGet(async () => jsonResponse(200, approvedPayment));
+    try {
+        const outcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: approvedPayment.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(outcome.action, "confirmed");
+    } finally {
+        restoreApproved();
+    }
+
+    // Notificación tardía/fuera de orden de un intento ANTERIOR (rejected)
+    // que llega DESPUÉS de que el segundo intento ya confirmó la Sale.
+    const staleRejectedPayment = paymentPayload(sale, connection, { status: "rejected", id: 555555555 });
+    const restoreRejected = mockPaymentGet(async () => jsonResponse(200, staleRejectedPayment));
+    try {
+        const outcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: staleRejectedPayment.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(outcome.ok, true);
+
+        const stillConfirmed = await prisma.sale.findUnique({ where: { id: sale.id } });
+        assert.equal(stillConfirmed.status, "CONFIRMED", "un rejected tardío de otro intento nunca debe des-confirmar la Sale");
+
+        const tickets = await prisma.ticket.findMany({ where: { saleId: sale.id } });
+        assert.equal(tickets.length, 1, "nunca debe duplicar ni borrar el ticket ya emitido");
+    } finally {
+        restoreRejected();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
 
 // ==================================================================
 // 12/13) payment refunded/charged_back sobre una Sale YA confirmada ->
