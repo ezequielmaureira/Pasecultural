@@ -6,6 +6,8 @@ import { createMercadoPagoCheckoutService } from "../src/services/mercadoPagoChe
 import { processMercadoPagoWebhookNotification } from "../src/services/mercadoPagoWebhook.service.js";
 import { encryptMercadoPagoSecret, decryptMercadoPagoSecret } from "../src/config/mercadoPagoEncryption.js";
 import { disconnectMercadoPagoConnectionService } from "../src/services/mercadoPagoConnection.service.js";
+import { decryptSecret } from "../src/config/qrEncryption.js";
+import { scanTicketService, confirmScanService } from "../src/services/scanner.service.js";
 
 // MP-3 — CRUD + transacciones + concurrencia real, no expresable como
 // funciones puras: se prueba contra Postgres real (backend/.env.test).
@@ -79,6 +81,12 @@ async function createEventWithTicketType(organizationId, createdBy, { price = 10
 }
 
 async function cleanup({ eventIds = [], organizationIds = [], userIds = [] }) {
+    // MP-5 — test 26/28 son los primeros de este archivo que llaman al
+    // Scanner (scanTicketService/confirmScanService), que siempre escribe
+    // un ScanAttempt. scan_attempts.ticketId es ON DELETE SET NULL (no
+    // bloquea el deleteMany de tickets de más abajo), pero igual se limpia
+    // acá para no dejar filas huérfanas entre corridas de test.
+    await prisma.scanAttempt.deleteMany({ where: { eventId: { in: eventIds } } });
     await prisma.saleItem.deleteMany({ where: { sale: { eventId: { in: eventIds } } } });
     await prisma.ticketQr.deleteMany({ where: { ticket: { eventId: { in: eventIds } } } });
     await prisma.ticket.deleteMany({ where: { eventId: { in: eventIds } } });
@@ -595,11 +603,13 @@ testWithDb("approved -> a late/out-of-order rejected for a different payment nev
 
 // ==================================================================
 // 12/13) payment refunded/charged_back sobre una Sale YA confirmada ->
-// nunca vuelve a confirmar, nunca duplica efectos, sólo deja constancia.
+// nunca vuelve a confirmar la Sale, nunca duplica/emite Tickets, invalida
+// (REFUNDED) los Tickets ACTIVE de esa Sale, y repetir la misma
+// notificación (retry/redelivery) es idempotente (MP-5).
 // ==================================================================
 
 for (const status of ["refunded", "charged_back"]) {
-    testWithDb(`12/13) a ${status} notification on an already-confirmed Sale never re-confirms or duplicates effects`, async () => {
+    testWithDb(`12/13) a ${status} notification on an already-confirmed Sale invalidates its Tickets (REFUNDED), never re-confirms, never duplicates, and is idempotent on retry`, async () => {
         const owner = await createUser();
         const org = await createOrganization(owner.id);
         const connection = await createMpConnection(org.id);
@@ -615,24 +625,171 @@ for (const status of ["refunded", "charged_back"]) {
             restore();
         }
 
+        const ticketBefore = await prisma.ticket.findFirst({ where: { saleId: sale.id } });
+        assert.equal(ticketBefore.status, "ACTIVE");
+
         const reversedPayment = { ...approvedPayment, status };
         restore = mockPaymentGet(async () => jsonResponse(200, reversedPayment));
         try {
             const outcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: reversedPayment.id, bodyUserId: connection.mercadoPagoUserId });
             assert.equal(outcome.ok, true);
             assert.equal(outcome.action, "reversal_acknowledged");
+            assert.equal(outcome.ticketsRefunded, 1, "un Ticket ACTIVE pasa a REFUNDED");
 
             const untouched = await prisma.sale.findUnique({ where: { id: sale.id } });
-            assert.equal(untouched.status, "CONFIRMED", "MP-3 nunca deshace una confirmación ya hecha");
+            assert.equal(untouched.status, "CONFIRMED", "MP-5 nunca toca Sale.status, sólo invalida el Ticket");
+
+            const ticketAfter = await prisma.ticket.findUnique({ where: { id: ticketBefore.id } });
+            assert.equal(ticketAfter.status, "REFUNDED");
 
             const ticketCount = await prisma.ticket.count({ where: { saleId: sale.id } });
-            assert.equal(ticketCount, 1, "nunca se duplican tickets por una reversión");
+            assert.equal(ticketCount, 1, "nunca se duplican ni emiten tickets nuevos por una reversión");
+
+            // Duplicado/redelivery del MISMO webhook -> idempotente: no hay
+            // ningún Ticket ACTIVE más para tocar, así que la segunda vuelta
+            // no muta nada (ni error, ni un segundo "REFUNDED" sobre otro
+            // ticket inexistente).
+            const outcomeRepeat = await processMercadoPagoWebhookNotification({
+                type: "payment",
+                dataId: reversedPayment.id,
+                bodyUserId: connection.mercadoPagoUserId,
+            });
+            assert.equal(outcomeRepeat.ok, true);
+            assert.equal(outcomeRepeat.action, "reversal_acknowledged");
+            assert.equal(outcomeRepeat.ticketsRefunded, 0, "la segunda notificación no encuentra ningún Ticket ACTIVE");
+
+            const ticketAfterRepeat = await prisma.ticket.findUnique({ where: { id: ticketBefore.id } });
+            assert.equal(ticketAfterRepeat.status, "REFUNDED");
+            const ticketCountAfterRepeat = await prisma.ticket.count({ where: { saleId: sale.id } });
+            assert.equal(ticketCountAfterRepeat, 1);
         } finally {
             restore();
             await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
         }
     });
 }
+
+// ==================================================================
+// 26) un refund/chargeback sobre una Sale nunca toca el Ticket de otra
+// Sale distinta (misma función/evento) — aislamiento.
+// ==================================================================
+
+testWithDb("26) a refund/chargeback for one Sale never touches another Sale's Ticket", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const connection = await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id, { quantity: 100 });
+    const saleA = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+    const saleB = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+
+    const paymentA = paymentPayload(saleA, connection, { status: "approved", id: 700000001 });
+    const paymentB = paymentPayload(saleB, connection, { status: "approved", id: 700000002 });
+    let restore = mockPaymentGet(async (url) => {
+        if (String(url).includes(String(paymentA.id))) return jsonResponse(200, paymentA);
+        if (String(url).includes(String(paymentB.id))) return jsonResponse(200, paymentB);
+        throw new Error(`unexpected payment id lookup: ${url}`);
+    });
+    try {
+        await processMercadoPagoWebhookNotification({ type: "payment", dataId: paymentA.id, bodyUserId: connection.mercadoPagoUserId });
+        await processMercadoPagoWebhookNotification({ type: "payment", dataId: paymentB.id, bodyUserId: connection.mercadoPagoUserId });
+    } finally {
+        restore();
+    }
+
+    const reversedA = { ...paymentA, status: "refunded" };
+    restore = mockPaymentGet(async () => jsonResponse(200, reversedA));
+    try {
+        const outcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: reversedA.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(outcome.ticketsRefunded, 1);
+
+        const ticketA = await prisma.ticket.findFirst({ where: { saleId: saleA.id } });
+        assert.equal(ticketA.status, "REFUNDED");
+
+        const ticketB = await prisma.ticket.findFirst({ where: { saleId: saleB.id } });
+        assert.equal(ticketB.status, "ACTIVE", "la Sale B nunca debe verse afectada por la reversión de la Sale A");
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+// ==================================================================
+// 27) un payment refunded/charged_back cuyo external_reference no
+// corresponde a ninguna Sale sigue siendo ignorado — las protecciones de
+// correlación existentes (SALE_NOT_FOUND) no cambian para estos estados.
+// ==================================================================
+
+testWithDb("27) a refunded payment whose external_reference matches no Sale is ignored, same protection as any other status", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const connection = await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+
+    const payment = paymentPayload(sale, connection, { status: "refunded", external_reference: "this-does-not-match-any-sale" });
+    const restore = mockPaymentGet(async () => jsonResponse(200, payment));
+    try {
+        const outcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: payment.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(outcome.action, "unresolvable");
+        assert.equal(outcome.reason, "SALE_NOT_FOUND");
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+// ==================================================================
+// 28) un Ticket REFUNDED es rechazado por el Scanner exactamente igual que
+// uno CANCELLED — tanto en la vista previa (scanTicketService) como en la
+// confirmación real de ingreso (confirmScanService) — y nunca crea CheckIn.
+// ==================================================================
+
+testWithDb("28) a REFUNDED ticket is rejected by the Scanner (preview and confirm) and never creates a CheckIn", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const connection = await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+
+    const approvedPayment = paymentPayload(sale, connection, { status: "approved" });
+    let restore = mockPaymentGet(async () => jsonResponse(200, approvedPayment));
+    try {
+        await processMercadoPagoWebhookNotification({ type: "payment", dataId: approvedPayment.id, bodyUserId: connection.mercadoPagoUserId });
+    } finally {
+        restore();
+    }
+
+    const reversedPayment = { ...approvedPayment, status: "refunded" };
+    restore = mockPaymentGet(async () => jsonResponse(200, reversedPayment));
+    try {
+        await processMercadoPagoWebhookNotification({ type: "payment", dataId: reversedPayment.id, bodyUserId: connection.mercadoPagoUserId });
+    } finally {
+        restore();
+    }
+
+    const ticket = await prisma.ticket.findFirst({ where: { saleId: sale.id }, include: { qr: true } });
+    assert.equal(ticket.status, "REFUNDED");
+    const token = `${ticket.id}.${decryptSecret(ticket.qr.secretEncrypted)}`;
+
+    // No hace falta una fila EventScanner real: resolveScannerAccess toma
+    // el camino rápido (cero queries) cuando el eventId pedido coincide con
+    // el del "ancla" de la sesión — mismo shape que req.scanner ya trae.
+    const scannerContext = { id: "test-scanner", eventId: event.id, gate: null, firstName: "Test", lastName: "Scanner", name: "Test Scanner" };
+
+    const preview = await scanTicketService(scannerContext, { eventId: event.id, functionId: eventFunction.id, token });
+    assert.equal(preview.status, "CANCELLED", "la vista previa rechaza un Ticket REFUNDED igual que uno CANCELLED");
+
+    const confirmation = await confirmScanService(scannerContext, { eventId: event.id, functionId: eventFunction.id, token });
+    assert.equal(confirmation.status, "CANCELLED", "la confirmación de ingreso también lo rechaza");
+
+    const checkInCount = await prisma.checkIn.count({ where: { ticketId: ticket.id } });
+    assert.equal(checkInCount, 0, "un Ticket REFUNDED nunca genera un CheckIn — nunca ingresa");
+
+    const ticketStillRefunded = await prisma.ticket.findUnique({ where: { id: ticket.id } });
+    assert.equal(ticketStillRefunded.status, "REFUNDED", "el intento de escaneo no cambia el status del ticket");
+
+    await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+});
 
 // ==================================================================
 // 14/15/16) external_reference / amount / currency incorrectos -> rechazo

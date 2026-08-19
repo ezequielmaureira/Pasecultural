@@ -163,16 +163,34 @@ export async function processMercadoPagoWebhookNotification({ type, dataId, body
         return { ok: true, action: "unresolvable", reason: "ORGANIZATION_MISMATCH" };
     }
 
-    // Reversión sobre una venta ya confirmada — no se deshace nada (fuera
-    // de alcance de MP-3, ver §13/§16 del informe), sólo se deja
-    // constancia para una fase futura.
+    // MP-5 — reversión sobre un payment ya aprobado: nunca se deshace el
+    // cobro en sí (Mercado Pago ya lo hizo), nunca se toca Sale.status ni
+    // stock (fuera de alcance, ver informe de entrega de MP-5), pero SÍ se
+    // invalida el acceso al evento: los Ticket ACTIVE de esta Sale pasan a
+    // REFUNDED, que el Scanner ya rechaza exactamente igual que CANCELLED
+    // (resolveScanOutcome, scanner.service.js — sin cambios ahí). Sólo
+    // aplica si la Sale llegó a confirmarse; si nunca se confirmó no hay
+    // Ticket que invalidar. El updateMany condicionado a status: "ACTIVE"
+    // es el mismo patrón atómico que el resto del archivo — por eso una
+    // notificación repetida (retry/redelivery, o refunded seguido de
+    // charged_back para el mismo payment) nunca vuelve a tocar nada: la
+    // segunda vez no encuentra ningún Ticket ACTIVE para actualizar.
     if (REVERSAL_STATUSES.has(payment.status)) {
+        let ticketsRefunded = 0;
+        if (sale.status === "CONFIRMED") {
+            const updated = await prisma.ticket.updateMany({
+                where: { saleId: sale.id, status: "ACTIVE" },
+                data: { status: "REFUNDED" },
+            });
+            ticketsRefunded = updated.count;
+        }
         logger.error(new Error(`mercadopago webhook: payment revertido (${payment.status}) recibido`), {
             saleId: sale.id,
             paymentId: normalizedPaymentId,
             saleStatus: sale.status,
+            ticketsRefunded,
         });
-        return { ok: true, action: "reversal_acknowledged", saleId: sale.id };
+        return { ok: true, action: "reversal_acknowledged", saleId: sale.id, ticketsRefunded };
     }
 
     if (sale.status === "CONFIRMED") {
