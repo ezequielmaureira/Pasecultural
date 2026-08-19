@@ -43,7 +43,7 @@ export function getMercadoPagoWebhookSecret() {
     return cachedSecret;
 }
 
-function parseXSignatureHeader(xSignatureHeader) {
+export function parseXSignatureHeader(xSignatureHeader) {
     if (!xSignatureHeader || typeof xSignatureHeader !== "string") return null;
 
     const parts = {};

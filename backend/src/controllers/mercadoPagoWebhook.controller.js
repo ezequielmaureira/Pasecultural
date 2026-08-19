@@ -1,6 +1,10 @@
 import { AppError } from "../errors/AppError.js";
 import { logger } from "../logging/logger.js";
-import { getMercadoPagoWebhookSecret, verifyMercadoPagoWebhookSignature } from "../config/mercadoPagoWebhookSignature.js";
+import {
+    getMercadoPagoWebhookSecret,
+    verifyMercadoPagoWebhookSignature,
+    parseXSignatureHeader,
+} from "../config/mercadoPagoWebhookSignature.js";
 import { processMercadoPagoWebhookNotification } from "../services/mercadoPagoWebhook.service.js";
 
 // MP-3 — POST /api/mercadopago/webhook. PÚBLICO a propósito (Mercado Pago
@@ -53,7 +57,22 @@ export const handleMercadoPagoWebhook = async (req, res) => {
             secret,
         });
         if (!validSignature) {
-            logger.warn("mercadopago webhook: firma inválida");
+            // Diagnóstico MP-3 (auditoría de ráfagas de firma inválida) — sólo
+            // metadata no sensible, para poder correlacionar de dónde vienen
+            // estas requests sin exponer x-signature/v1/ts/secret. No influye
+            // en absoluto en el resultado de la validación de arriba.
+            logger.warn("mercadopago webhook: firma inválida", {
+                type: req.body?.type ?? req.query?.type ?? null,
+                action: req.body?.action ?? req.query?.action ?? null,
+                dataIdFromQuery: dataIdFromQuery ?? null,
+                dataIdFromBody: bodyDataId ?? null,
+                queryKeys: Object.keys(req.query ?? {}),
+                xRequestId: xRequestId ?? null,
+                userAgent: req.headers["user-agent"] ?? null,
+                contentType: req.headers["content-type"] ?? null,
+                hasSignature: Boolean(xSignature),
+                signatureFormatValid: parseXSignatureHeader(xSignature) !== null,
+            });
             return res.status(401).json({ received: false, error: "INVALID_SIGNATURE" });
         }
 
