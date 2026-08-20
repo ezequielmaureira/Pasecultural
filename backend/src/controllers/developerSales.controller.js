@@ -7,8 +7,16 @@ import { listDeveloperSalesService, getDeveloperSaleService, getMercadoPagoSaleD
 // requireRole("DEVELOPER") ya alcanza (ver developerSales.routes.js).
 export const listDeveloperSales = async (req, res, next) => {
     try {
-        const { page, limit, search, organizationId, eventId, status } = req.query;
-        const result = await listDeveloperSalesService({ page, limit, search, organizationId, eventId, status });
+        const { page, limit, search, organizationId, eventId, status, needsReconciliation } = req.query;
+        const result = await listDeveloperSalesService({
+            page,
+            limit,
+            search,
+            organizationId,
+            eventId,
+            status,
+            needsReconciliation: needsReconciliation === "true",
+        });
         res.status(200).json(result);
     } catch (error) {
         next(AppError.from(error));

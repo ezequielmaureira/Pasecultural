@@ -33,13 +33,25 @@ function parseLimit(rawLimit) {
     return Math.min(limit, MAX_LIMIT);
 }
 
-function buildWhere({ search, organizationId, eventId, status }) {
+function buildWhere({ search, organizationId, eventId, status, needsReconciliation }) {
     const where = { origin: "SALE", deletedAt: null };
     const and = [];
 
     if (organizationId) where.event = { organizationId };
     if (eventId) where.eventId = eventId;
     if (SALE_STATUS_VALUES.has(status)) where.status = status;
+
+    // "Requiere conciliación" (MP-6, ver auditoría): Mercado Pago aprobó un
+    // pago que confirmSaleService no pudo cumplir por falta de stock — la
+    // Sale quedó PENDING con `paymentRef` seteado al paymentId (ver
+    // mercadoPagoWebhook.service.js, catch de INSUFFICIENT_STOCK). Es
+    // EXACTAMENTE esta condición, sin SaleStatus nuevo ni campo nuevo.
+    // Pisa cualquier `status` recibido a propósito: el filtro sólo tiene
+    // sentido acotado a PENDING, nunca combinado con otro status.
+    if (needsReconciliation === true) {
+        where.status = "PENDING";
+        where.paymentRef = { not: null };
+    }
 
     const term = search?.trim();
     if (term) {
@@ -80,6 +92,7 @@ export const listDeveloperSalesService = async (filters = {}) => {
                 status: true,
                 total: true,
                 createdAt: true,
+                paymentRef: true,
                 event: { select: { id: true, title: true, organization: { select: { id: true, name: true } } } },
                 buyer: { select: { firstName: true, lastName: true } },
                 _count: { select: { tickets: true } },
@@ -96,6 +109,12 @@ export const listDeveloperSalesService = async (filters = {}) => {
         ticketsCount: sale._count.tickets,
         total: Number(sale.total),
         createdAt: sale.createdAt,
+        paymentRef: sale.paymentRef,
+        // Derivado, no persistido — misma condición que buildWhere de
+        // arriba (status=PENDING AND paymentRef != null). Se manda ya
+        // resuelto para que el frontend no tenga que reimplementar la
+        // regla para distinguir esta fila de un PENDING normal.
+        needsReconciliation: sale.status === "PENDING" && sale.paymentRef != null,
     }));
 
     return {
@@ -117,6 +136,7 @@ export const getDeveloperSaleService = async (saleId) => {
             createdAt: true,
             confirmedAt: true,
             buyerDocument: true,
+            paymentRef: true,
             event: { select: { id: true, title: true, organization: { select: { id: true, name: true } } } },
             function: { select: { id: true, date: true, venue: true } },
             buyer: { select: { firstName: true, lastName: true, email: true } },
@@ -144,6 +164,9 @@ export const getDeveloperSaleService = async (saleId) => {
         total: Number(sale.total),
         createdAt: sale.createdAt,
         confirmedAt: sale.confirmedAt,
+        paymentRef: sale.paymentRef,
+        // Misma derivación que listDeveloperSalesService — ver ese comentario.
+        needsReconciliation: sale.status === "PENDING" && sale.paymentRef != null,
         event: { id: sale.event.id, title: sale.event.title },
         organization: sale.event.organization,
         function: sale.function,

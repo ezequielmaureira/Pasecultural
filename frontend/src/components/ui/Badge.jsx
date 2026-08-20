@@ -10,12 +10,13 @@ const TONE_CLASSES = {
   info: "bg-sky-500/10 text-sky-400",
 };
 
-export default function Badge({ tone = "neutral", children, className = "" }) {
+export default function Badge({ tone = "neutral", children, className = "", ...rest }) {
   return (
     <span
       className={`inline-flex w-fit shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-medium ${
         TONE_CLASSES[tone] ?? TONE_CLASSES.neutral
       } ${className}`}
+      {...rest}
     >
       {children}
     </span>

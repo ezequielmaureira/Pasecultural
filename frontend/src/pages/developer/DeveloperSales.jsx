@@ -106,12 +106,22 @@ function SaleDrawer({ sale, loading, error, onClose }) {
             <div className="grid grid-cols-2 gap-4 rounded-xl border border-white/10 bg-white/5 p-4">
               <div>
                 <p className="text-xs text-slate-500">Estado</p>
-                <Badge tone={STATUS_TONE[sale.status] ?? "neutral"}>{STATUS_LABEL[sale.status] ?? sale.status}</Badge>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Badge tone={STATUS_TONE[sale.status] ?? "neutral"}>{STATUS_LABEL[sale.status] ?? sale.status}</Badge>
+                  {sale.needsReconciliation && <Badge tone="danger">Requiere conciliación</Badge>}
+                </div>
               </div>
               <InfoRow label="Total" value={formatCurrencyARS(sale.total)} />
               <InfoRow label="Fecha de creación" value={formatDateTime(sale.createdAt)} />
               <InfoRow label="Confirmada" value={sale.confirmedAt ? formatDateTime(sale.confirmedAt) : null} />
+              <InfoRow label="Payment ID (Mercado Pago)" value={sale.paymentRef} />
             </div>
+            {sale.needsReconciliation && (
+              <p className="mt-3 rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+                Mercado Pago informó este pago como aprobado, pero PaseCultural no pudo emitir las entradas por falta
+                de stock. Requiere conciliación manual.
+              </p>
+            )}
           </div>
 
           <div>
@@ -194,6 +204,10 @@ export default function DeveloperSales() {
   const [organizationId, setOrganizationId] = useState("");
   const [eventId, setEventId] = useState("");
   const [status, setStatus] = useState("");
+  // MP-6 (ver auditoría) — mutuamente excluyente con `status`: la
+  // condición server-side ya fuerza status=PENDING (developerSales.service.js),
+  // así que elegir un status manual desactiva este filtro y viceversa.
+  const [needsReconciliation, setNeedsReconciliation] = useState(false);
   const [page, setPage] = useState(1);
 
   const [organizations, setOrganizations] = useState([]);
@@ -278,6 +292,7 @@ export default function DeveloperSales() {
         organizationId: organizationId || undefined,
         eventId: eventId || undefined,
         status: status || undefined,
+        needsReconciliation: needsReconciliation || undefined,
       });
       if (requestId !== salesRequestIdRef.current) return;
       setItems(result.items ?? []);
@@ -288,7 +303,7 @@ export default function DeveloperSales() {
     } finally {
       if (requestId === salesRequestIdRef.current) setLoading(false);
     }
-  }, [getToken, page, debouncedSearch, organizationId, eventId, status]);
+  }, [getToken, page, debouncedSearch, organizationId, eventId, status, needsReconciliation]);
 
   // Sin debounce propio acá: organización/evento/estado/página ya llegan
   // resueltos (el único delay es el de `debouncedSearch`, arriba), así que
@@ -317,13 +332,21 @@ export default function DeveloperSales() {
     })();
   }, [selectedSaleId, getToken]);
 
-  function updateFilter(setter) {
-    return (value) => {
-      setter(value);
-      setPage(1);
-    };
+  // Mutuamente excluyentes (ver estado de arriba): elegir un status manual
+  // desactiva "Requiere conciliación" y viceversa.
+  function handleStatusChange(value) {
+    setStatus(value);
+    setNeedsReconciliation(false);
+    setPage(1);
   }
-  const handleStatusChange = updateFilter(setStatus);
+  function handleReconciliationToggle() {
+    setNeedsReconciliation((prev) => {
+      const next = !prev;
+      if (next) setStatus("");
+      return next;
+    });
+    setPage(1);
+  }
 
   function handleSearchChange(value) {
     setSearch(value);
@@ -351,7 +374,7 @@ export default function DeveloperSales() {
     setDetailError(false);
   }
 
-  const hasFiltersActive = Boolean(search.trim() || organizationId || eventId || status);
+  const hasFiltersActive = Boolean(search.trim() || organizationId || eventId || status || needsReconciliation);
 
   return (
     <div className="flex flex-col gap-6">
@@ -414,6 +437,23 @@ export default function DeveloperSales() {
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Estado</p>
           <FilterPills options={STATUS_FILTERS} value={status} onChange={handleStatusChange} />
         </div>
+
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Filtros especiales</p>
+          <button
+            type="button"
+            aria-pressed={needsReconciliation}
+            onClick={handleReconciliationToggle}
+            title="Pagos aprobados por Mercado Pago que no pudieron confirmarse por falta de stock"
+            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors duration-150 ${
+              needsReconciliation
+                ? "bg-rose-500/10 text-rose-300"
+                : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
+            }`}
+          >
+            Requiere conciliación
+          </button>
+        </div>
       </div>
 
       <div className="rounded-xl border border-white/10 bg-[#0B1120]">
@@ -443,7 +483,14 @@ export default function DeveloperSales() {
                     <td className="max-w-[180px] truncate px-6 py-4 text-slate-300">{sale.event.title}</td>
                     <td className="max-w-[160px] truncate px-6 py-4 text-slate-300">{sale.buyer.name ?? "Sin nombre"}</td>
                     <td className="px-6 py-4">
-                      <Badge tone={STATUS_TONE[sale.status] ?? "neutral"}>{STATUS_LABEL[sale.status] ?? sale.status}</Badge>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge tone={STATUS_TONE[sale.status] ?? "neutral"}>{STATUS_LABEL[sale.status] ?? sale.status}</Badge>
+                        {sale.needsReconciliation && (
+                          <Badge tone="danger" title="Pago aprobado por Mercado Pago sin stock para confirmar la venta">
+                            Conciliación
+                          </Badge>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-slate-300">{sale.ticketsCount}</td>
                     <td className="px-6 py-4 text-slate-300">{formatCurrencyARS(sale.total)}</td>

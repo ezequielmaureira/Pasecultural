@@ -35,3 +35,12 @@ export function getEmailConfig() {
         frontendUrl: getRequiredEnv("FRONTEND_URL").replace(/\/+$/, ""),
     };
 }
+
+// Casilla interna que recibe la alerta de "Mercado Pago aprobó un pago que
+// PaseCultural no pudo cumplir por falta de stock" (ver
+// mercadoPagoWebhook.service.js y sendMercadoPagoReconciliationAlert.service.js).
+// Mismo criterio LAZY que el resto de este archivo — sólo se exige al
+// momento de mandar esa alerta puntual, nunca al arrancar el servidor.
+export function getReconciliationAlertEmail() {
+    return getRequiredEnv("MERCADOPAGO_RECONCILIATION_ALERT_EMAIL");
+}

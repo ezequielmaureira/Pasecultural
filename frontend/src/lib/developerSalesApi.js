@@ -4,7 +4,10 @@ import { apiFetch } from "./api.js";
 // exclusivo DEVELOPER (ver backend/src/services/developerSales.service.js).
 // Mismo patrón que developerScannersApi.js: sólo se agregan al querystring
 // los filtros presentes.
-export async function listDeveloperSales(token, { page, limit, search, organizationId, eventId, status } = {}) {
+export async function listDeveloperSales(
+    token,
+    { page, limit, search, organizationId, eventId, status, needsReconciliation } = {}
+) {
     const params = new URLSearchParams();
     if (page) params.set("page", page);
     if (limit) params.set("limit", limit);
@@ -12,6 +15,7 @@ export async function listDeveloperSales(token, { page, limit, search, organizat
     if (organizationId) params.set("organizationId", organizationId);
     if (eventId) params.set("eventId", eventId);
     if (status) params.set("status", status);
+    if (needsReconciliation) params.set("needsReconciliation", "true");
     const query = params.toString() ? `?${params.toString()}` : "";
     return apiFetch(`/api/developer/sales${query}`, { token });
 }

@@ -3,6 +3,7 @@ import { logger } from "../logging/logger.js";
 import { getMercadoPagoPayment } from "./mercadoPago.service.js";
 import { getValidMercadoPagoAccessTokenForConnection } from "./mercadoPagoConnection.service.js";
 import { confirmSaleService } from "./sale.service.js";
+import { sendMercadoPagoReconciliationAlert } from "./email/sendMercadoPagoReconciliationAlert.service.js";
 import { round2 } from "../utils/money.js";
 
 // MP-3 — la notificación de Mercado Pago NUNCA es la fuente de verdad: sólo
@@ -309,13 +310,49 @@ export async function processMercadoPagoWebhookNotification({ type, dataId, body
             // `paymentRef` (campo ya existente en el schema desde antes de
             // MP-1, nunca usado hasta ahora) para que sea localizable en
             // una reconciliación manual futura, SIN inventar ningún estado
-            // nuevo en SaleStatus.
-            await prisma.sale.update({ where: { id: sale.id }, data: { paymentRef: normalizedPaymentId } }).catch(() => {});
+            // nuevo en SaleStatus. La condición de reconciliación que usa
+            // Developer > Ventas es exactamente `status=PENDING AND
+            // paymentRef != null` (ver developerSales.service.js) — por eso
+            // este update ya NO traga su error en silencio (auditoría,
+            // "Corregir persistencia de paymentRef"): si falla, hace falta
+            // saberlo explícito en vez de asumir que el caso quedó marcado.
+            let paymentRefPersisted = true;
+            try {
+                await prisma.sale.update({ where: { id: sale.id }, data: { paymentRef: normalizedPaymentId } });
+            } catch (updateError) {
+                paymentRefPersisted = false;
+                logger.error(updateError, {
+                    context:
+                        "mercadopago webhook: no se pudo persistir paymentRef tras INSUFFICIENT_STOCK — el caso queda sin marca de reconciliación en Developer > Ventas, sólo en logs/alerta",
+                    saleId: sale.id,
+                    paymentId: normalizedPaymentId,
+                });
+            }
+
             logger.error(error, {
                 context: "mercadopago webhook: payment aprobado pero sin stock disponible al confirmar — requiere reconciliación manual",
                 saleId: sale.id,
                 paymentId: normalizedPaymentId,
+                paymentRefPersisted,
             });
+
+            // Best-effort, nunca lanza (ver sendMercadoPagoReconciliationAlert):
+            // ni un fallo de Resend ni la falta de MERCADOPAGO_RECONCILIATION_ALERT_EMAIL
+            // pueden hacer fallar este webhook — el log de arriba ya deja
+            // constancia del incidente aunque la alerta no salga.
+            const alertResult = await sendMercadoPagoReconciliationAlert({
+                saleId: sale.id,
+                paymentId: normalizedPaymentId,
+                eventId: sale.eventId,
+            });
+            if (!alertResult.sent) {
+                logger.error(new Error("mercadopago webhook: no se pudo enviar la alerta interna de reconciliación"), {
+                    saleId: sale.id,
+                    paymentId: normalizedPaymentId,
+                    reason: alertResult.reason,
+                });
+            }
+
             return { ok: true, action: "approved_but_no_stock", saleId: sale.id };
         }
         if (error?.code === "P2002") {

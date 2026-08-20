@@ -1173,6 +1173,11 @@ testWithDb("23) stock exhausted by the time the webhook arrives: never oversells
     const paymentA = paymentPayload(saleA, connection);
     restore = mockPaymentGet(async () => jsonResponse(200, paymentA));
     try {
+        // MERCADOPAGO_RECONCILIATION_ALERT_EMAIL nunca se define en este
+        // archivo de test — sendMercadoPagoReconciliationAlert() falla acá
+        // adentro (env var faltante) en TODOS los tests de este bloque, así
+        // que esta aserción también prueba, de paso, que un fallo de la
+        // alerta interna (best-effort) nunca hace fallar el webhook.
         const outcomeA = await processMercadoPagoWebhookNotification({ type: "payment", dataId: paymentA.id, bodyUserId: connection.mercadoPagoUserId });
         assert.equal(outcomeA.ok, true);
         assert.equal(outcomeA.action, "approved_but_no_stock");
@@ -1214,6 +1219,61 @@ testWithDb("24) no access_token/refresh_token/webhook secret ever appears in the
         assert.ok(!serialized.toLowerCase().includes("access"));
         assert.ok(!serialized.toLowerCase().includes("refresh"));
         assert.ok(!serialized.toLowerCase().includes("secret"));
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+// ==================================================================
+// 25) MP-6 (auditoría "pago aprobado sin stock") — reenvío del mismo
+// webhook mientras sigue sin haber stock: por diseño no se agrega
+// deduplicación de alertas (ver auditoría, "Alertas duplicadas"), pero el
+// resultado de negocio SÍ tiene que seguir siendo idempotente: misma
+// Sale PENDING, mismo paymentRef, cero tickets, sin excepción no
+// controlada por el fallback try/catch nuevo alrededor del update de
+// paymentRef y del envío de la alerta.
+// ==================================================================
+
+testWithDb("25) a redelivered webhook for the same approved-but-no-stock payment stays idempotent", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const connection = await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id, { quantity: 1 });
+
+    const saleA = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+    await prisma.sale.update({ where: { id: saleA.id }, data: { stockReservedUntil: new Date(Date.now() - 60 * 1000) } });
+
+    const saleB = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+    const paymentB = paymentPayload(saleB, connection);
+    let restore = mockPaymentGet(async () => jsonResponse(200, paymentB));
+    try {
+        const outcomeB = await processMercadoPagoWebhookNotification({ type: "payment", dataId: paymentB.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(outcomeB.action, "confirmed");
+    } finally {
+        restore();
+    }
+
+    const paymentA = paymentPayload(saleA, connection);
+    restore = mockPaymentGet(async () => jsonResponse(200, paymentA));
+    try {
+        const firstOutcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: paymentA.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(firstOutcome.action, "approved_but_no_stock");
+
+        // Mercado Pago reenvía la misma notificación (redelivery genuina o
+        // reenvío manual desde su dashboard) — la Sale sigue PENDING con
+        // stock agotado, así que confirmSaleService vuelve a tirar
+        // INSUFFICIENT_STOCK.
+        const secondOutcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: paymentA.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(secondOutcome.ok, true);
+        assert.equal(secondOutcome.action, "approved_but_no_stock");
+
+        const finalA = await prisma.sale.findUnique({ where: { id: saleA.id } });
+        assert.equal(finalA.status, "PENDING");
+        assert.equal(finalA.paymentRef, String(paymentA.id), "el segundo intento vuelve a escribir el mismo paymentId, sin corromper el anterior");
+
+        const ticketCountA = await prisma.ticket.count({ where: { saleId: saleA.id } });
+        assert.equal(ticketCountA, 0, "el reenvío nunca genera tickets ni sobrevende");
     } finally {
         restore();
         await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
