@@ -300,10 +300,18 @@ testWithDb("checkout works again after reconnecting a new account, using the new
     await createMpConnection(org.id, { accessTokenEncrypted: encryptMercadoPagoSecret("ACCESS-new-active") });
 
     let capturedAuthHeader;
+    // mercadoPagoPreferenceId es @unique (schema.prisma) — un literal fijo
+    // acá choca contra cualquier fila vieja que haya quedado con ese mismo
+    // valor (ej. una corrida anterior interrumpida antes de su cleanup),
+    // igual que ya evita mockPreferenceSuccessOnly() más arriba.
+    const preferenceSuffix = uniqueSuffix();
     const restore = mockMpFetch(async (url, options) => {
         if (String(url).includes("/checkout/preferences")) {
             capturedAuthHeader = options.headers.Authorization;
-            return jsonResponse(201, { id: "PREF-reconnect", init_point: "https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=reconnect" });
+            return jsonResponse(201, {
+                id: `PREF-reconnect-${preferenceSuffix}`,
+                init_point: `https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=reconnect-${preferenceSuffix}`,
+            });
         }
         throw new Error(`unexpected fetch call to ${url}`);
     });
