@@ -3,7 +3,11 @@ import { logger } from "../logging/logger.js";
 import { getMercadoPagoPayment } from "./mercadoPago.service.js";
 import { getValidMercadoPagoAccessTokenForConnection } from "./mercadoPagoConnection.service.js";
 import { confirmSaleService } from "./sale.service.js";
-import { sendMercadoPagoReconciliationAlert, sendMercadoPagoReversalAlert } from "./email/sendMercadoPagoReconciliationAlert.service.js";
+import {
+    sendMercadoPagoReconciliationAlert,
+    sendMercadoPagoReversalAlert,
+    sendMercadoPagoCredentialUnresolvableAlert,
+} from "./email/sendMercadoPagoReconciliationAlert.service.js";
 import { round2 } from "../utils/money.js";
 
 // MP-3 — la notificación de Mercado Pago NUNCA es la fuente de verdad: sólo
@@ -100,7 +104,52 @@ export async function processMercadoPagoWebhookNotification({ type, dataId, body
     // que hizo este payment — usar getValidMercadoPagoAccessTokenForOrganization
     // acá reintroduciría exactamente el bug que este cambio corrige (ver
     // mercadoPagoConnection.service.js).
-    const accessToken = await getValidMercadoPagoAccessTokenForConnection(connection.id);
+    //
+    // Auditoría "reversión tardía con conexión OAuth muerta" — este
+    // try/catch NO decide por sí mismo si el fallo es permanente o
+    // transitorio: el código actual de refresh (mercadoPago.service.js /
+    // mercadoPagoConnection.service.js) descarta esa distinción antes de
+    // llegar a este punto (el motivo original — invalid_grant, timeout,
+    // 5xx, etc. — nunca se adjunta al AppError que se lanza), así que NO
+    // hay información confiable acá para inventar una heurística sin
+    // arriesgar cortar reintentos legítimos ante una caída transitoria de
+    // Mercado Pago. Por eso: se loguea, se intenta una alerta best-effort
+    // (sólo si el payment ya estaba vinculado a una Sale — nunca se
+    // afirma "es un refund/chargeback", sólo que no se pudo verificar), y
+    // se vuelve a lanzar EXACTAMENTE la misma excepción — la política
+    // HTTP (500 -> Mercado Pago reintenta) queda intacta, sin cambios.
+    let accessToken;
+    try {
+        accessToken = await getValidMercadoPagoAccessTokenForConnection(connection.id);
+    } catch (credentialError) {
+        logger.error(credentialError, {
+            context:
+                "mercadopago webhook: no se pudo obtener una credencial válida para reconsultar el payment — se preserva el reintento (500), no se toca Sale/Ticket",
+            paymentId: normalizedPaymentId,
+            connectionId: connection.id,
+            connectionStatus: connection.status,
+            saleId: alreadyLinked?.id ?? null,
+        });
+        if (alreadyLinked) {
+            const alertResult = await sendMercadoPagoCredentialUnresolvableAlert({
+                saleId: alreadyLinked.id,
+                paymentId: normalizedPaymentId,
+                eventId: alreadyLinked.eventId,
+                organizationId: connection.organizationId,
+                connectionId: connection.id,
+                connectionStatus: connection.status,
+                reason: credentialError?.code ?? "UNKNOWN",
+            });
+            if (!alertResult.sent) {
+                logger.error(new Error("mercadopago webhook: no se pudo enviar la alerta de credencial no verificable"), {
+                    saleId: alreadyLinked.id,
+                    paymentId: normalizedPaymentId,
+                    reason: alertResult.reason,
+                });
+            }
+        }
+        throw credentialError;
+    }
     const payment = await getMercadoPagoPayment({ accessToken, paymentId: normalizedPaymentId });
 
     if (!payment.success) {
@@ -113,6 +162,32 @@ export async function processMercadoPagoWebhookNotification({ type, dataId, body
             reason: payment.error,
             transient,
         });
+        // No transitorio (401/403/etc.) + este payment ya estaba vinculado
+        // a una Sale: la credencial histórica ya no permite revalidarlo, y
+        // reintentar con la misma credencial no va a cambiar nada — 200,
+        // sin tocar tickets/Sale, pero con alerta (antes quedaba
+        // silencioso, ver auditoría). Nunca se confía en el body para esta
+        // decisión: sólo se llega acá porque la reconsulta autoritativa
+        // FALLÓ, nunca porque se haya leído ningún dato financiero del
+        // webhook en sí.
+        if (!transient && alreadyLinked) {
+            const alertResult = await sendMercadoPagoCredentialUnresolvableAlert({
+                saleId: alreadyLinked.id,
+                paymentId: normalizedPaymentId,
+                eventId: alreadyLinked.eventId,
+                organizationId: connection.organizationId,
+                connectionId: connection.id,
+                connectionStatus: connection.status,
+                reason: payment.error,
+            });
+            if (!alertResult.sent) {
+                logger.error(new Error("mercadopago webhook: no se pudo enviar la alerta de credencial no verificable"), {
+                    saleId: alreadyLinked.id,
+                    paymentId: normalizedPaymentId,
+                    reason: alertResult.reason,
+                });
+            }
+        }
         return transient
             ? { ok: false, action: "transient_error", reason: payment.error }
             : { ok: true, action: "unresolvable", reason: payment.error };

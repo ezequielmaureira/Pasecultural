@@ -163,3 +163,92 @@ export function buildMercadoPagoReversalAlertEmail({ type, saleId, paymentId, ev
 
     return { subject, html, text };
 }
+
+// Alerta interna de "no pudimos verificar autoritativamente este payment
+// porque la credencial histórica de Mercado Pago de esta Organization ya
+// no es utilizable" — ver mercadoPagoWebhook.service.js (auditoría de
+// reversión tardía con conexión OAuth muerta). A propósito NO afirma que
+// el payment haya sido refunded/charged_back: eso requeriría la
+// reconsulta server-to-server que justamente no pudo hacerse — sólo avisa
+// que una Sale con tickets potencialmente ACTIVE quedó sin poder
+// revalidarse, y que los tickets NO se tocaron (nunca se invalida en base
+// al body de la notificación, sólo en base a una reconsulta exitosa).
+export function buildMercadoPagoCredentialUnresolvableAlertEmail({
+    saleId,
+    paymentId,
+    eventId,
+    organizationId,
+    connectionId,
+    connectionStatus,
+    reason,
+}) {
+    const subject = `[PaseCultural] Mercado Pago - Verificación no disponible (Sale ${saleId})`;
+    const occurredAt = new Date().toISOString();
+
+    const rows = [
+        ["Sale ID", saleId],
+        ["Payment ID (Mercado Pago)", String(paymentId)],
+        ["Event ID", eventId],
+        ...(organizationId ? [["Organization ID", organizationId]] : []),
+        ...(connectionId ? [["MercadoPagoConnection ID", connectionId]] : []),
+        ...(connectionStatus ? [["Connection status", connectionStatus]] : []),
+        ["Motivo técnico", String(reason ?? "desconocido")],
+        ["Momento de la alerta", occurredAt],
+    ];
+
+    const html = `<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(subject)}</title>
+  </head>
+  <body style="margin:0;padding:0;background-color:#f3f4f6;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f4f6;padding:24px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:560px;max-width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;">
+            <tr>
+              <td style="background-color:#7c2d12;padding:16px 24px;">
+                <span style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:bold;color:#ffffff;">
+                  ⚠ Verificación no disponible — PaseCultural
+                </span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111827;line-height:1.6;">
+                <p style="margin:0 0 16px;">
+                  Se recibió una notificación de Mercado Pago relacionada con una venta existente, pero PaseCultural
+                  <strong>no pudo verificar autoritativamente</strong> el estado del payment porque la credencial
+                  histórica de Mercado Pago ya no es utilizable. <strong>No se modificaron los tickets.</strong>
+                  Requiere revisión manual.
+                </p>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;border-collapse:collapse;">
+                  ${rows
+                      .map(
+                          ([labelText, value]) =>
+                              `<tr><td style="padding:6px 0;color:#6b7280;">${escapeHtml(labelText)}</td><td style="padding:6px 0;"><code>${escapeHtml(String(value))}</code></td></tr>`
+                      )
+                      .join("")}
+                </table>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+    const text = [
+        "PaseCultural — Verificación no disponible",
+        "",
+        "Se recibió una notificación de Mercado Pago relacionada con una venta existente, pero PaseCultural no pudo",
+        "verificar autoritativamente el estado del payment porque la credencial histórica de Mercado Pago ya no es",
+        "utilizable. No se modificaron los tickets. Requiere revisión manual.",
+        "",
+        ...rows.map(([labelText, value]) => `${labelText}: ${value}`),
+    ].join("\n");
+
+    return { subject, html, text };
+}

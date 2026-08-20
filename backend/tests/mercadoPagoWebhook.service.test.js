@@ -1286,3 +1286,222 @@ testWithDb("25) a redelivered webhook for the same approved-but-no-stock payment
         await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
     }
 });
+
+// ==================================================================
+// 29-33) Auditoría "reversión tardía con conexión OAuth muerta" —
+// MERCADOPAGO_RECONCILIATION_ALERT_EMAIL nunca se define en este archivo,
+// así que en TODOS estos tests las alertas nuevas fallan puertas adentro
+// (env var faltante) — de paso, cada uno prueba que un fallo de esa
+// alerta best-effort nunca cambia la política HTTP/de reintento decidida
+// por el error original.
+// ==================================================================
+
+testWithDb("29) DISCONNECTED connection with a still-valid access token keeps resolving reversals normally", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const connection = await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+
+    const approvedPayment = paymentPayload(sale, connection, { status: "approved" });
+    let restore = mockPaymentGet(async () => jsonResponse(200, approvedPayment));
+    try {
+        const first = await processMercadoPagoWebhookNotification({ type: "payment", dataId: approvedPayment.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(first.action, "confirmed");
+    } finally {
+        restore();
+    }
+
+    // El organizador desconecta -- status DISCONNECTED, tokens intactos.
+    await prisma.mercadoPagoConnection.update({ where: { id: connection.id }, data: { status: "DISCONNECTED", disconnectedAt: new Date() } });
+
+    const reversedPayment = { ...approvedPayment, status: "refunded" };
+    restore = mockPaymentGet(async () => jsonResponse(200, reversedPayment));
+    try {
+        const outcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: reversedPayment.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(outcome.action, "reversal_acknowledged", "DISCONNECTED por sí mismo no debe impedir la reconsulta");
+        assert.equal(outcome.ticketsRefunded, 1);
+
+        const ticket = await prisma.ticket.findFirst({ where: { saleId: sale.id } });
+        assert.equal(ticket.status, "REFUNDED");
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("30) DISCONNECTED connection whose access token expired but whose refresh token still works keeps resolving reversals normally", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const connection = await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+
+    const approvedPayment = paymentPayload(sale, connection, { status: "approved" });
+    let restore = mockPaymentGet(async () => jsonResponse(200, approvedPayment));
+    try {
+        const first = await processMercadoPagoWebhookNotification({ type: "payment", dataId: approvedPayment.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(first.action, "confirmed");
+    } finally {
+        restore();
+    }
+
+    await prisma.mercadoPagoConnection.update({
+        where: { id: connection.id },
+        data: { status: "DISCONNECTED", disconnectedAt: new Date(), accessTokenExpiresAt: new Date(Date.now() - 60 * 1000) },
+    });
+
+    const reversedPayment = { ...approvedPayment, status: "charged_back" };
+    let refreshCalled = false;
+    restore = mockMpFetch(async (url, options) => {
+        if (String(url).includes("/oauth/token")) {
+            refreshCalled = true;
+            return jsonResponse(200, { access_token: "NEW-TOKEN-DISCONNECTED", refresh_token: "NEW-REFRESH-DISCONNECTED", user_id: 1, expires_in: 15552000 });
+        }
+        if (String(url).includes("/v1/payments/")) {
+            assert.equal(options.headers.Authorization, "Bearer NEW-TOKEN-DISCONNECTED");
+            return jsonResponse(200, reversedPayment);
+        }
+        throw new Error(`unexpected fetch call to ${url}`);
+    });
+    try {
+        const outcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: reversedPayment.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(refreshCalled, true, "el refresh debe intentarse sobre la fila DISCONNECTED, sin reactivarla");
+        assert.equal(outcome.action, "reversal_acknowledged");
+        assert.equal(outcome.ticketsRefunded, 1);
+
+        const ticket = await prisma.ticket.findFirst({ where: { saleId: sale.id } });
+        assert.equal(ticket.status, "REFUNDED");
+
+        const connectionAfter = await prisma.mercadoPagoConnection.findUnique({ where: { id: connection.id } });
+        assert.equal(connectionAfter.status, "DISCONNECTED", "refrescar el token nunca reactiva la conexión");
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("31) a permanently dead historical credential (refresh rejected) on an already-linked Sale never touches tickets and preserves the retry/500 behavior", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const connection = await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+
+    const payment = paymentPayload(sale, connection);
+    let restore = mockPaymentGet(async () => jsonResponse(200, payment));
+    try {
+        const first = await processMercadoPagoWebhookNotification({ type: "payment", dataId: payment.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(first.action, "confirmed");
+    } finally {
+        restore();
+    }
+    const ticketBefore = await prisma.ticket.findFirst({ where: { saleId: sale.id } });
+    assert.equal(ticketBefore.status, "ACTIVE");
+
+    // El organizador desconecta, y tiempo después el access token vence y
+    // Mercado Pago rechaza el refresh token (invalid_grant) -- credencial
+    // genuinamente muerta, no sólo DISCONNECTED localmente.
+    await prisma.mercadoPagoConnection.update({
+        where: { id: connection.id },
+        data: { status: "DISCONNECTED", disconnectedAt: new Date(), accessTokenExpiresAt: new Date(Date.now() - 60 * 1000) },
+    });
+
+    restore = mockMpFetch(async (url) => {
+        if (String(url).includes("/oauth/token")) {
+            return jsonResponse(400, { error: "invalid_grant", message: "invalid_grant" });
+        }
+        throw new Error(`unexpected fetch call to ${url}`);
+    });
+    try {
+        // No podemos saber si esta notificación tardía era en realidad un
+        // refunded/charged_back -- ni siquiera llegamos a reconsultar el
+        // payment. El comportamiento correcto y seguro es propagar la
+        // excepción tal cual (el controller, no ejercitado en este test,
+        // la traduce en 500 exactamente igual que cualquier otro error no
+        // previsto) -- nunca inventar un 200 "resuelto" para algo que no
+        // se pudo verificar.
+        await assert.rejects(
+            () => processMercadoPagoWebhookNotification({ type: "payment", dataId: payment.id, bodyUserId: connection.mercadoPagoUserId }),
+            (err) => err?.code === "MERCADOPAGO_TOKEN_REFRESH_FAILED"
+        );
+
+        const ticketAfter = await prisma.ticket.findUnique({ where: { id: ticketBefore.id } });
+        assert.equal(ticketAfter.status, "ACTIVE", "nunca se invalida un ticket sin haber podido reconsultar el payment autoritativamente");
+
+        const saleAfter = await prisma.sale.findUnique({ where: { id: sale.id } });
+        assert.equal(saleAfter.status, "CONFIRMED", "la Sale nunca se toca cuando la credencial no puede verificarse");
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("32) GET payment returning 401 for an already-linked Sale (token revoked out-of-band) never touches tickets, stays 200/unresolvable", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const connection = await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+
+    const payment = paymentPayload(sale, connection);
+    let restore = mockPaymentGet(async () => jsonResponse(200, payment));
+    try {
+        const first = await processMercadoPagoWebhookNotification({ type: "payment", dataId: payment.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(first.action, "confirmed");
+    } finally {
+        restore();
+    }
+    const ticketBefore = await prisma.ticket.findFirst({ where: { saleId: sale.id } });
+
+    await prisma.mercadoPagoConnection.update({ where: { id: connection.id }, data: { status: "DISCONNECTED", disconnectedAt: new Date() } });
+
+    // accessTokenExpiresAt local sigue "vigente" (no dispara refresh), pero
+    // Mercado Pago rechaza el token igual -- ej. el organizador lo revocó
+    // desde su propia cuenta de MP, fuera de nuestro botón "Desconectar".
+    restore = mockPaymentGet(async () => jsonResponse(401, { message: "invalid access token" }));
+    try {
+        const outcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: payment.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(outcome.ok, true);
+        assert.equal(outcome.action, "unresolvable");
+
+        const ticketAfter = await prisma.ticket.findUnique({ where: { id: ticketBefore.id } });
+        assert.equal(ticketAfter.status, "ACTIVE");
+        const saleAfter = await prisma.sale.findUnique({ where: { id: sale.id } });
+        assert.equal(saleAfter.status, "CONFIRMED");
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("33) a transient failure fetching the payment (5xx) for an already-linked Sale still returns transient_error and never touches tickets", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const connection = await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+
+    const payment = paymentPayload(sale, connection);
+    let restore = mockPaymentGet(async () => jsonResponse(200, payment));
+    try {
+        const first = await processMercadoPagoWebhookNotification({ type: "payment", dataId: payment.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(first.action, "confirmed");
+    } finally {
+        restore();
+    }
+    const ticketBefore = await prisma.ticket.findFirst({ where: { saleId: sale.id } });
+
+    restore = mockPaymentGet(async () => jsonResponse(503, { message: "Service Unavailable" }));
+    try {
+        const outcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: payment.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(outcome.ok, false, "un fallo transitorio debe seguir devolviendo ok:false para que el controller responda 500 y Mercado Pago reintente");
+        assert.equal(outcome.action, "transient_error");
+
+        const ticketAfter = await prisma.ticket.findUnique({ where: { id: ticketBefore.id } });
+        assert.equal(ticketAfter.status, "ACTIVE", "un fallo transitorio nunca debe tocar tickets ni tratarse como credencial permanentemente muerta");
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
