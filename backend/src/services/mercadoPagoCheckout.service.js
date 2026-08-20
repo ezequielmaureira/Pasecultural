@@ -66,7 +66,14 @@ function isCheckoutIdempotencyKeyConflict(error) {
 // cuánto quiere comprar.
 // idempotencyKey: opcional, generado por el frontend UNA vez por intento de
 // compra (no por request) — ver el informe de entrega, sección Idempotencia.
-export async function createMercadoPagoCheckoutService(buyerInfo, saleInput, idempotencyKey) {
+// expectedTotals: { ticketsSubtotal, serviceFee, total } | null — ronda de
+// endurecimiento. Lo que el comprador vio y confirmó en SummaryStep, NUNCA
+// autoritativo (nunca se usa para calcular nada acá ni en
+// createSaleForBuyer) — sólo se reenvía tal cual para que
+// createSaleForBuyer lo COMPARE contra su propio cálculo recién hecho,
+// antes de reservar stock o crear la Sale. Si no vino, el comportamiento
+// es exactamente el de antes de esta ronda (sin este chequeo).
+export async function createMercadoPagoCheckoutService(buyerInfo, saleInput, idempotencyKey, expectedTotals = null) {
     // 1) Replay idempotente — antes de tocar cualquier otra cosa. Un mismo
     // checkoutIdempotencyKey nunca crea una segunda Sale ni una segunda
     // preferencia, sea por doble click, reintento de React o de la red.
@@ -75,7 +82,13 @@ export async function createMercadoPagoCheckoutService(buyerInfo, saleInput, ide
         if (existing) {
             if (existing.status === "PENDING" && existing.mercadoPagoInitPoint) {
                 logger.info("mercadopago checkout: replay idempotente", { saleId: existing.id });
-                return { checkoutUrl: existing.mercadoPagoInitPoint, saleToken: existing.publicRecoveryToken };
+                return {
+                    checkoutUrl: existing.mercadoPagoInitPoint,
+                    saleToken: existing.publicRecoveryToken,
+                    ticketsSubtotal: existing.ticketsSubtotal == null ? null : Number(existing.ticketsSubtotal),
+                    serviceFee: existing.serviceFee == null ? null : Number(existing.serviceFee),
+                    total: Number(existing.total),
+                };
             }
             // Ya existe una fila para este intento pero no hay ningún
             // checkout usable para devolver: o sigue en construcción por
@@ -120,6 +133,11 @@ export async function createMercadoPagoCheckoutService(buyerInfo, saleInput, ide
             // ventas MANUAL ni a Cortesías (ver createSaleForBuyer,
             // sale.service.js).
             applyServiceFee: true,
+            // Ronda de endurecimiento — se reenvía tal cual, sin tocar.
+            // createSaleForBuyer es quien compara y decide (lanza
+            // SERVICE_FEE_CHANGED si no coincide) — acá nunca se
+            // interpreta ni se usa para nada más.
+            expectedTotals,
         });
     } catch (error) {
         if (isCheckoutIdempotencyKeyConflict(error)) {
@@ -228,5 +246,14 @@ export async function createMercadoPagoCheckoutService(buyerInfo, saleInput, ide
     });
 
     logger.info("mercadopago checkout: preferencia creada", { saleId: sale.id, organizationId: event.organizationId });
-    return { checkoutUrl: preference.initPoint, saleToken: sale.publicRecoveryToken };
+    return {
+        checkoutUrl: preference.initPoint,
+        saleToken: sale.publicRecoveryToken,
+        // Ronda de endurecimiento — el desglose autoritativo ya
+        // fotografiado en la Sale, para que el frontend pueda mostrarlo
+        // (ej. justo antes de redirigir) sin tener que volver a estimarlo.
+        ticketsSubtotal: sale.ticketsSubtotal == null ? null : Number(sale.ticketsSubtotal),
+        serviceFee: sale.serviceFee == null ? null : Number(sale.serviceFee),
+        total: Number(sale.total),
+    };
 }

@@ -14,7 +14,10 @@ import { createMercadoPagoCheckout } from "../saleApi.js";
 // clave, así que reintentarla (doble click, timeout de usePublishFlow,
 // reintento de red) nunca crea una segunda venta ni una segunda
 // preferencia.
-export async function processPayment({ eventId, functionId, items, buyer }, { idempotencyKey } = {}) {
+// confirmedTotals: { ticketsSubtotal, serviceFee, total } | undefined — lo
+// que el comprador vio en SummaryStep (ver PurchaseWizard.jsx). Se reenvía
+// tal cual, nunca se recalcula acá — ver saleApi.js#createMercadoPagoCheckout.
+export async function processPayment({ eventId, functionId, items, buyer }, { idempotencyKey, confirmedTotals } = {}) {
     const requestBody = {
         eventId,
         functionId,
@@ -24,6 +27,9 @@ export async function processPayment({ eventId, functionId, items, buyer }, { id
         email: buyer?.email,
         buyerDocument: buyer?.document,
         idempotencyKey,
+        confirmedTicketsSubtotal: confirmedTotals?.ticketsSubtotal,
+        confirmedServiceFee: confirmedTotals?.serviceFee,
+        confirmedTotal: confirmedTotals?.total,
     };
     console.log("paymentGateway.processPayment before createMercadoPagoCheckout", {
         ...requestBody,
@@ -33,5 +39,5 @@ export async function processPayment({ eventId, functionId, items, buyer }, { id
     console.log("paymentGateway.processPayment after createMercadoPagoCheckout", {
         hasCheckoutUrl: Boolean(result?.checkoutUrl),
     });
-    return result; // { checkoutUrl, saleToken }
+    return result; // { checkoutUrl, saleToken, ticketsSubtotal, serviceFee, total }
 }

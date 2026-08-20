@@ -13,7 +13,7 @@ import {
     resendConfirmationEmailByTokenService,
     getSalePdfByTokenService,
 } from "../services/sale.service.js";
-import { getActiveServiceFeeTiers } from "../services/serviceFee.service.js";
+import { getActiveServiceFeeTiers, computeServiceFeeTiersVersion } from "../services/serviceFee.service.js";
 import { resendSaleConfirmationEmailService } from "../services/email/sendSaleConfirmationEmail.service.js";
 import {
     requestSaleRecoveryCodeService,
@@ -250,6 +250,13 @@ export const getPublicServiceFeeTiers = async (req, res, next) => {
                 maxAmount: tier.maxAmount == null ? null : Number(tier.maxAmount),
                 feeAmount: Number(tier.feeAmount),
             })),
+            // Ronda de endurecimiento — hash de contenido, sólo diagnóstico/
+            // uso futuro (ver computeServiceFeeTiersVersion,
+            // serviceFee.service.js). La protección real del checkout
+            // compara el desglose calculado, no este valor. Deliberadamente
+            // NUNCA se expone acá: id/updatedAt/updatedByUserId de cada
+            // rango (eso es sólo para Developer > Configuración).
+            configVersion: computeServiceFeeTiersVersion(tiers),
         });
     } catch (error) {
         next(AppError.from(error));

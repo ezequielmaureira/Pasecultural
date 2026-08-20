@@ -21,4 +21,5 @@ export const DB_TEST_FILES = [
     "mercadoPagoWebhook.service.test.js",
     "mercadoPagoDiagnostics.service.test.js",
     "developerSales.service.test.js",
+    "developerServiceFee.service.test.js",
 ];

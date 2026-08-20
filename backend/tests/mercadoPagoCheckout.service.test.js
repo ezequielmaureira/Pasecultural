@@ -6,6 +6,7 @@ import { createMercadoPagoCheckoutService } from "../src/services/mercadoPagoChe
 import { createSaleForBuyer, confirmSaleService } from "../src/services/sale.service.js";
 import { encryptMercadoPagoSecret } from "../src/config/mercadoPagoEncryption.js";
 import { disconnectMercadoPagoConnectionService } from "../src/services/mercadoPagoConnection.service.js";
+import { replaceServiceFeeTiers } from "../src/services/serviceFee.service.js";
 
 // MP-2 — CRUD + transacciones + concurrencia real (Sale/TicketType/
 // MercadoPagoConnection), no expresable como funciones puras: se prueba
@@ -159,6 +160,37 @@ function saleInput(ticketType, { quantity = 2 } = {}) {
         items: [{ ticketTypeId: ticketType.id, quantity }],
         buyerDocument: "30111222",
     };
+}
+
+// Ronda de endurecimiento — service_fee_tiers es una tabla GLOBAL (no
+// aislada por test como el resto de las fixtures de este archivo, que
+// siempre usan sufijos únicos). Este helper graba el contenido exacto de
+// antes de mutar y lo restaura siempre en un finally, para que ningún otro
+// test de este mismo archivo (ni de developerServiceFee.service.test.js)
+// encuentre la tabla en un estado distinto al que tenía al arrancar.
+// tiersInput=null simula "sin configuración" (deleteMany real, nunca
+// expresable con replaceServiceFeeTiers, que exige al menos un rango).
+async function withServiceFeeTiers(tiersInput, fn) {
+    const originalRows = await prisma.serviceFeeTier.findMany({ orderBy: { minAmount: "asc" } });
+    const originalInput = originalRows.map((t) => ({
+        minAmount: Number(t.minAmount),
+        maxAmount: t.maxAmount == null ? null : Number(t.maxAmount),
+        feeAmount: Number(t.feeAmount),
+    }));
+    if (tiersInput === null) {
+        await prisma.serviceFeeTier.deleteMany({});
+    } else {
+        await replaceServiceFeeTiers(tiersInput, null);
+    }
+    try {
+        return await fn();
+    } finally {
+        if (originalInput.length > 0) {
+            await replaceServiceFeeTiers(originalInput, null);
+        } else {
+            await prisma.serviceFeeTier.deleteMany({});
+        }
+    }
 }
 
 // ==================================================================
@@ -1012,6 +1044,214 @@ testWithDb("mixed cart (two ticket types, two different prices) via Mercado Pago
         assert.equal(feeLine.quantity, 1);
         const itemsSum = capturedBody.items.reduce((sum, item) => sum + item.unit_price * item.quantity, 0);
         assert.equal(itemsSum, Number(sale.total));
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+// ==================================================================
+// Ronda de endurecimiento — protección optimista contra la carrera "el
+// comprador vio un resumen, pero el precio de una entrada y/o los rangos
+// de comisión cambiaron antes de que confirmara la compra" (ver
+// createSaleForBuyer, sale.service.js — expectedTotals). El backend NUNCA
+// confía en lo que manda el frontend: sólo lo COMPARA contra el cálculo
+// propio, y si no coincide, corta ANTES de crear Sale, reserva de stock o
+// preferencia — nunca redirige a Mercado Pago con un importe distinto al
+// que el comprador confirmó ver.
+// ==================================================================
+
+function mockMpFetchMustNotBeCalled() {
+    return mockMpFetch(async (url) => {
+        throw new Error(`Mercado Pago nunca debe llamarse en este escenario (se llamó a ${url})`);
+    });
+}
+
+testWithDb("expectedTotals matching the authoritative calculation lets the checkout proceed normally, and the response includes ticketsSubtotal/serviceFee/total", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id, { price: 8000 });
+
+    const restore = mockPreferenceSuccessOnly();
+    try {
+        // price 8000 -> [5000,10000) -> $500/entrada (reglas iniciales de
+        // la migración), quantity 1: ticketsSubtotal 8000, serviceFee 500,
+        // total 8500 — exactamente lo que el comprador vería en el resumen
+        // si no cambió nada.
+        const input = saleInput({ ...ticketType, eventId: event.id, functionId: eventFunction.id }, { quantity: 1 });
+        const result = await createMercadoPagoCheckoutService(BUYER, input, randomUUID(), {
+            ticketsSubtotal: 8000,
+            serviceFee: 500,
+            total: 8500,
+        });
+
+        assert.ok(result.checkoutUrl);
+        assert.equal(result.ticketsSubtotal, 8000);
+        assert.equal(result.serviceFee, 500);
+        assert.equal(result.total, 8500);
+
+        const sale = await prisma.sale.findUnique({ where: { publicRecoveryToken: result.saleToken } });
+        assert.equal(sale.status, "PENDING");
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("a service-fee tier change between summary and checkout returns SERVICE_FEE_CHANGED, creates no Sale/reservation/preference, and a retry with the fresh breakdown succeeds", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id, { price: 8000 });
+
+    await withServiceFeeTiers(
+        [
+            { minAmount: 0, maxAmount: 5000, feeAmount: 150 },
+            // Rango que le corresponde a price=8000 cambiado de $500 a
+            // $700 — simula un DEVELOPER editando Configuración mientras
+            // el comprador ya tenía el resumen abierto.
+            { minAmount: 5000, maxAmount: 10000, feeAmount: 700 },
+            { minAmount: 10000, maxAmount: 50000, feeAmount: 1000 },
+            { minAmount: 50000, maxAmount: null, feeAmount: 2000 },
+        ],
+        async () => {
+            const input = saleInput({ ...ticketType, eventId: event.id, functionId: eventFunction.id }, { quantity: 1 });
+            // Lo que el comprador confirmó ver ANTES del cambio de rangos.
+            const staleExpectedTotals = { ticketsSubtotal: 8000, serviceFee: 500, total: 8500 };
+
+            const restoreMustNotCall = mockMpFetchMustNotBeCalled();
+            let freshBreakdown;
+            try {
+                await assert.rejects(
+                    () => createMercadoPagoCheckoutService(BUYER, input, randomUUID(), staleExpectedTotals),
+                    (error) => {
+                        assert.equal(error.code, "SERVICE_FEE_CHANGED");
+                        assert.deepEqual(error.details, { ticketsSubtotal: 8000, serviceFee: 700, total: 8700 });
+                        freshBreakdown = error.details;
+                        return true;
+                    }
+                );
+
+                const salesCount = await prisma.sale.count({ where: { eventId: event.id } });
+                assert.equal(salesCount, 0, "un desglose desactualizado nunca debe dejar ninguna Sale colgada");
+            } finally {
+                restoreMustNotCall();
+            }
+
+            const restoreOk = mockPreferenceSuccessOnly();
+            try {
+                const retryIdempotencyKey = randomUUID();
+                const result = await createMercadoPagoCheckoutService(BUYER, input, retryIdempotencyKey, {
+                    ticketsSubtotal: freshBreakdown.ticketsSubtotal,
+                    serviceFee: freshBreakdown.serviceFee,
+                    total: freshBreakdown.total,
+                });
+                assert.ok(result.checkoutUrl, "reintentar con el desglose autoritativo actualizado debe funcionar correctamente");
+                assert.equal(result.ticketsSubtotal, 8000);
+                assert.equal(result.serviceFee, 700);
+                assert.equal(result.total, 8700);
+
+                const sale = await prisma.sale.findUnique({ where: { publicRecoveryToken: result.saleToken } });
+                assert.equal(sale.status, "PENDING");
+                assert.equal(Number(sale.serviceFee), 700);
+            } finally {
+                restoreOk();
+            }
+        }
+    );
+
+    await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+});
+
+testWithDb("a ticket price change (not a tier change) between summary and checkout is detected the same way, via SERVICE_FEE_CHANGED", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id, { price: 8000 });
+
+    // El organizador sube el precio de la entrada de 8000 a 9000 mientras
+    // el comprador ya tenía el resumen abierto — nunca toca la tabla de
+    // rangos de comisión, sólo TicketType.price.
+    await prisma.ticketType.update({ where: { id: ticketType.id }, data: { price: 9000 } });
+
+    const restoreMustNotCall = mockMpFetchMustNotBeCalled();
+    try {
+        const input = saleInput({ ...ticketType, eventId: event.id, functionId: eventFunction.id }, { quantity: 1 });
+        await assert.rejects(
+            () => createMercadoPagoCheckoutService(BUYER, input, randomUUID(), { ticketsSubtotal: 8000, serviceFee: 500, total: 8500 }),
+            (error) => {
+                assert.equal(error.code, "SERVICE_FEE_CHANGED");
+                // 9000 sigue en [5000,10000) -> mismo $500/entrada; sólo
+                // cambió el precio de la entrada, no la comisión.
+                assert.deepEqual(error.details, { ticketsSubtotal: 9000, serviceFee: 500, total: 9500 });
+                return true;
+            }
+        );
+
+        const salesCount = await prisma.sale.count({ where: { eventId: event.id } });
+        assert.equal(salesCount, 0);
+    } finally {
+        restoreMustNotCall();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("a missing service-fee configuration fails safely (SERVICE_FEE_CONFIG_MISSING) before creating any Sale, reservation, or preference", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id, { price: 8000 });
+
+    await withServiceFeeTiers(null, async () => {
+        const restoreMustNotCall = mockMpFetchMustNotBeCalled();
+        try {
+            const input = saleInput({ ...ticketType, eventId: event.id, functionId: eventFunction.id }, { quantity: 1 });
+            await assert.rejects(
+                () => createMercadoPagoCheckoutService(BUYER, input, randomUUID()),
+                (error) => {
+                    assert.equal(error.code, "SERVICE_FEE_CONFIG_MISSING");
+                    return true;
+                }
+            );
+            const salesCount = await prisma.sale.count({ where: { eventId: event.id } });
+            assert.equal(salesCount, 0, "sin configuración de comisión válida, nunca debe quedar ninguna Sale colgada");
+        } finally {
+            restoreMustNotCall();
+        }
+    });
+
+    await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+});
+
+testWithDb("a $0-priced ticket keeps a $0 fee through a real Mercado Pago checkout, regardless of the configured tiers", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id, { price: 0, ticketTypeName: "Gratis" });
+
+    let capturedBody;
+    const restore = mockMpFetch(async (url, options) => {
+        if (String(url).includes("/checkout/preferences")) {
+            capturedBody = JSON.parse(options.body);
+            return jsonResponse(201, { id: "PREF-free", init_point: "https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=free" });
+        }
+        throw new Error(`unexpected fetch call to ${url}`);
+    });
+
+    try {
+        const input = saleInput({ ...ticketType, eventId: event.id, functionId: eventFunction.id }, { quantity: 2 });
+        const result = await createMercadoPagoCheckoutService(BUYER, input, randomUUID());
+
+        const sale = await prisma.sale.findUnique({ where: { publicRecoveryToken: result.saleToken } });
+        assert.equal(Number(sale.ticketsSubtotal), 0);
+        assert.equal(Number(sale.serviceFee), 0, "un precio $0 nunca debe generar comisión, sin importar los rangos configurados");
+        assert.equal(Number(sale.total), 0);
+
+        // Ninguna línea de comisión cuando es $0 — no tiene sentido
+        // mandarle a Mercado Pago un ítem separado de importe $0.
+        const feeLine = capturedBody.items.find((i) => i.title === "Comisión de servicio PaseCultural");
+        assert.equal(feeLine, undefined);
     } finally {
         restore();
         await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });

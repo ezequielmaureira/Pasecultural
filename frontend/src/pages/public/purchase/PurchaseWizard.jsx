@@ -106,6 +106,16 @@ export default function PurchaseWizard() {
   // Resend falló, no hay que prometerle al comprador algo que no pasó.
   const [purchaseBuyerEmail, setPurchaseBuyerEmail] = useState("");
   const [purchaseEmailDeliveryStatus, setPurchaseEmailDeliveryStatus] = useState(null);
+  // Ronda de endurecimiento — distinto de purchaseError: se llena cuando el
+  // backend responde SERVICE_FEE_CHANGED (ver createSaleForBuyer,
+  // sale.service.js) con el desglose AUTORITATIVO actualizado
+  // (ticketsSubtotal/serviceFee/total). Mientras está seteado, SummaryStep
+  // muestra esos números en vez de la estimación cliente y un aviso de que
+  // el precio cambió — nunca redirige solo a Mercado Pago con otro importe,
+  // siempre vuelve a "summary" a pedir una reconfirmación explícita. Se
+  // limpia si el comprador cambia la selección de entradas (otra selección
+  // ya no corresponde a este desglose).
+  const [priceChangeNotice, setPriceChangeNotice] = useState(null);
 
   // Ciclo de vida de recuperar una venta ya creada por su saleToken (URL):
   // "idle" (nada que recuperar) | "checking" (primera consulta en curso) |
@@ -390,6 +400,14 @@ export default function PurchaseWizard() {
   const serviceFeeTotal = lineItems.reduce((sum, item) => sum + item.serviceFeeSubtotal, 0);
   const total = ticketsSubtotal + serviceFeeTotal;
 
+  // Mientras haya un priceChangeNotice activo, estos son los números que se
+  // muestran y los que se reenvían como confirmedTotals — son el desglose
+  // AUTORITATIVO que el backend ya recalculó, más actualizado que la
+  // estimación cliente de arriba (ver comentario de priceChangeNotice).
+  const displayedTicketsSubtotal = priceChangeNotice ? priceChangeNotice.ticketsSubtotal : ticketsSubtotal;
+  const displayedServiceFeeTotal = priceChangeNotice ? priceChangeNotice.serviceFee : serviceFeeTotal;
+  const displayedTotal = priceChangeNotice ? priceChangeNotice.total : total;
+
   const steps = buildSteps(event.functions.length > 1);
   const stepIdByLabel = Object.fromEntries(steps.map((s) => [s.label, s.id]));
   const currentStepId =
@@ -407,6 +425,8 @@ export default function PurchaseWizard() {
       ...prev,
       [ticketTypeId]: Math.min(maxSelectable, Math.max(0, (prev[ticketTypeId] ?? 0) + delta)),
     }));
+    // Otra selección ya no corresponde al desglose que el backend rechazó.
+    setPriceChangeNotice(null);
   }
 
   // Nunca pasa por Clerk: ni token, ni getAuth, ni isSignedIn. La identidad
@@ -424,6 +444,14 @@ export default function PurchaseWizard() {
     setPurchaseError("");
     if (!idempotencyKeyRef.current) idempotencyKeyRef.current = crypto.randomUUID();
     const idempotencyKey = idempotencyKeyRef.current;
+    // Lo que el comprador vio confirmado en SummaryStep — NUNCA autoritativo
+    // (ver saleApi.js#createMercadoPagoCheckout). Sólo sirve para que el
+    // backend detecte si cambió mientras estaba en el Wizard.
+    const confirmedTotals = {
+      ticketsSubtotal: displayedTicketsSubtotal,
+      serviceFee: displayedServiceFeeTotal,
+      total: displayedTotal,
+    };
 
     const action = () => {
       console.log("PurchaseWizard.handleConfirmPurchase action starting", {
@@ -432,7 +460,7 @@ export default function PurchaseWizard() {
         items,
         buyer,
       });
-      return processPayment({ eventId: event.id, functionId: selectedFunctionId, items, buyer }, { idempotencyKey });
+      return processPayment({ eventId: event.id, functionId: selectedFunctionId, items, buyer }, { idempotencyKey, confirmedTotals });
     };
 
     try {
@@ -450,9 +478,28 @@ export default function PurchaseWizard() {
       console.error(err.response);
       console.error(err.data);
       console.error(err.stack);
-      // Un reintento manual después de un error real es un intento nuevo:
-      // la próxima llamada genera una idempotencyKey distinta.
+      // Cualquier error (incluido SERVICE_FEE_CHANGED) invalida el intento
+      // en curso: el próximo click genera una idempotencyKey distinta.
       idempotencyKeyRef.current = null;
+
+      // Ronda de endurecimiento — el precio/comisión cambió entre el
+      // resumen y la creación del checkout (ver SERVICE_FEE_CHANGED,
+      // sale.service.js). El backend NO creó Sale, reserva de stock ni
+      // preferencia: nunca hay que redirigir a Mercado Pago acá. En vez de
+      // ir a "purchase-error", se vuelve a "summary" con el desglose
+      // autoritativo actualizado (err.errors) para que el comprador lo vea
+      // y confirme de nuevo explícitamente.
+      if (err.code === "SERVICE_FEE_CHANGED" && err.errors) {
+        console.warn("PurchaseWizard.handleConfirmPurchase: la comisión/precio cambió, volviendo a Resumen", err.errors);
+        setPriceChangeNotice({
+          ticketsSubtotal: Number(err.errors.ticketsSubtotal),
+          serviceFee: Number(err.errors.serviceFee),
+          total: Number(err.errors.total),
+        });
+        setPhase("summary");
+        return;
+      }
+
       setPurchaseError(err.message || "No pudimos procesar tu compra.");
       setPhase("purchase-error");
     }
@@ -498,9 +545,10 @@ export default function PurchaseWizard() {
           event={event}
           selectedFunction={selectedFunction}
           lineItems={lineItems}
-          ticketsSubtotal={ticketsSubtotal}
-          serviceFeeTotal={serviceFeeTotal}
-          total={total}
+          ticketsSubtotal={displayedTicketsSubtotal}
+          serviceFeeTotal={displayedServiceFeeTotal}
+          total={displayedTotal}
+          priceChanged={Boolean(priceChangeNotice)}
           onBack={() => setPhase("tickets")}
           onContinue={() => setPhase("buyer-info")}
         />

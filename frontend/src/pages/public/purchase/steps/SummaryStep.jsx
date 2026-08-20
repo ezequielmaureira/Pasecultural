@@ -4,13 +4,35 @@ import Button from "../../../../components/ui/Button.jsx";
 import { currency } from "../../../organizer/eventWizard/model.js";
 import { formatEventDateTime, formatEventLocation } from "../../../../lib/eventFormat.js";
 
-export default function SummaryStep({ event, selectedFunction, lineItems, ticketsSubtotal, serviceFeeTotal, total, onBack, onContinue }) {
+export default function SummaryStep({
+  event,
+  selectedFunction,
+  lineItems,
+  ticketsSubtotal,
+  serviceFeeTotal,
+  total,
+  priceChanged = false,
+  onBack,
+  onContinue,
+}) {
   return (
     <Card>
       <div className="flex flex-col gap-1 pb-4 text-center">
         <h2 className="text-lg font-bold text-white">Resumen de compra</h2>
         <p className="text-sm text-slate-400">Revisá los detalles de tu compra</p>
       </div>
+
+      {/* Ronda de endurecimiento — se muestra cuando el intento anterior de
+          checkout volvió con SERVICE_FEE_CHANGED: el precio/comisión ya
+          cambió (ver createSaleForBuyer, sale.service.js) y los números de
+          acá abajo son el desglose actualizado que mandó el backend, no la
+          estimación original. Nunca se redirige solo a Mercado Pago en este
+          caso — el comprador tiene que confirmar de nuevo. */}
+      {priceChanged && (
+        <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+          El precio cambió desde que revisaste el resumen. Confirmá el nuevo total para continuar.
+        </div>
+      )}
 
       <div className="mb-4 flex gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
         <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-white/5">

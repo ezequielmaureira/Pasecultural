@@ -28,7 +28,7 @@ CREATE TABLE "service_fee_tiers" (
 );
 
 -- AddForeignKey
-ALTER TABLE "service_fee_tiers" ADD CONSTRAINT "service_fee_tiers_updatedByUserId_fkey" FOREIGN KEY ("updatedByUserId") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "service_fee_tiers" ADD CONSTRAINT "service_fee_tiers_updatedByUserId_fkey" FOREIGN KEY ("updatedByUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- CreateIndex
 CREATE INDEX "service_fee_tiers_updatedByUserId_idx" ON "service_fee_tiers"("updatedByUserId");

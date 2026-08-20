@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import prisma from "../config/prisma.js";
 import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
@@ -171,4 +172,28 @@ export async function replaceServiceFeeTiers(tiersInput, updatedByUserId) {
     });
 
     logger.info("service fee tiers replaced", { updatedByUserId, tierCount: sortedTiers.length });
+}
+
+// Ronda de endurecimiento — hash de contenido, no un contador ni un
+// timestamp: identifica de forma estable un conjunto de rangos por su
+// VALOR (dos guardados que terminan con exactamente los mismos rangos dan
+// el mismo hash, aunque hayan sido filas distintas en la base — coherente
+// con que Sale/SaleItem tampoco referencian ninguna fila de acá por id,
+// ver el comentario del modelo en schema.prisma). Expuesto en el endpoint
+// público (getPublicServiceFeeTiers) para diagnóstico/uso futuro — la
+// protección optimista real del checkout (ver createSaleForBuyer) compara
+// el desglose calculado (ticketsSubtotal/serviceFee/total), no este hash,
+// porque un cambio de configuración que no afecta a ESTA compra puntual
+// (ej. se tocó sólo el rango de $1.000.000+) no debería bloquearla.
+// `tiers` se recibe YA ordenado por minAmount (getActiveServiceFeeTiers).
+export function computeServiceFeeTiersVersion(tiers) {
+    const canonical = tiers
+        .map((t) => {
+            const min = round2(Number(t.minAmount));
+            const max = t.maxAmount == null ? "open" : round2(Number(t.maxAmount));
+            const fee = round2(Number(t.feeAmount));
+            return `${min}:${max}:${fee}`;
+        })
+        .join("|");
+    return crypto.createHash("sha256").update(canonical).digest("hex");
 }

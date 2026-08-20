@@ -137,6 +137,16 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
         // únicamente la suma de SaleItem.subtotal, sin comisión. Ver
         // serviceFee.service.js para el cálculo en sí.
         applyServiceFee = false,
+        // Ronda de endurecimiento — protección OPTIMISTA contra la carrera
+        // "el comprador vio un resumen, pero el precio de una entrada y/o
+        // los rangos de comisión cambiaron antes de que confirmara la
+        // compra". null (default) preserva el comportamiento exacto de
+        // siempre para los dos callers preexistentes — sólo
+        // mercadoPagoCheckout.service.js pasa esto, y sólo cuando el
+        // comprador mandó los tres números. NUNCA es la fuente de verdad:
+        // sólo se COMPARA contra el cálculo autoritativo de abajo, nunca
+        // se usa para calcular nada.
+        expectedTotals = null,
     } = options;
     const event = await prisma.event.findUnique({ where: { id: input?.eventId } });
     if (!event) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
@@ -237,6 +247,36 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
     // sigue siendo exactamente ticketsSubtotal, sin cambios.
     const serviceFeeTotal = serviceFeeTiers ? round2(saleItemsData.reduce((sum, item) => sum + (item.serviceFeeSubtotal ?? 0), 0)) : null;
     const total = serviceFeeTiers ? round2(ticketsSubtotal + serviceFeeTotal) : ticketsSubtotal;
+
+    // Ronda de endurecimiento — protección optimista: comparación exacta
+    // contra lo que el comprador confirmó ver en el Wizard, ANTES de tocar
+    // stock o crear cualquier fila. Cubre AMBAS causas posibles de un
+    // desglose desactualizado (no sólo comisión, pese al nombre del
+    // código de error): un organizador que cambió el precio de una
+    // entrada, o un Developer que cambió los rangos de comisión — ambas
+    // terminan afectando ticketsSubtotal/serviceFee/total, así que
+    // comparar los tres alcanza para las dos. `expectedTotals` NUNCA se
+    // usa para calcular nada, sólo para esta comparación — si no vino (o
+    // vino incompleto), no hay nada que comparar y se sigue exactamente
+    // como antes de este cambio (mismo comportamiento para MANUAL/
+    // Courtesy, que nunca lo pasan).
+    if (expectedTotals) {
+        const expectedTicketsSubtotal = round2(Number(expectedTotals.ticketsSubtotal));
+        const expectedServiceFee = round2(Number(expectedTotals.serviceFee));
+        const expectedTotal = round2(Number(expectedTotals.total));
+        const canCompare = Number.isFinite(expectedTicketsSubtotal) && Number.isFinite(expectedServiceFee) && Number.isFinite(expectedTotal);
+
+        if (canCompare && (expectedTicketsSubtotal !== ticketsSubtotal || expectedServiceFee !== (serviceFeeTotal ?? 0) || expectedTotal !== total)) {
+            logger.warn("createSaleForBuyer: el desglose confirmado por el comprador ya no coincide con el cálculo autoritativo", {
+                eventId: event.id,
+                expected: { ticketsSubtotal: expectedTicketsSubtotal, serviceFee: expectedServiceFee, total: expectedTotal },
+                authoritative: { ticketsSubtotal, serviceFee: serviceFeeTotal, total },
+            });
+            throw new AppError(ErrorCodes.SERVICE_FEE_CHANGED, {
+                details: { ticketsSubtotal, serviceFee: serviceFeeTotal, total },
+            });
+        }
+    }
 
     const now = new Date();
     // MP-2.1 — toda Sale reserva stock, no sólo las de Mercado Pago: una

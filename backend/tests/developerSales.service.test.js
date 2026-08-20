@@ -64,6 +64,14 @@ async function createSale({ event, eventFunction, buyer, status = "PENDING", pay
     });
 }
 
+// Ronda de endurecimiento — MP-6 agregó ticketsSubtotal/serviceFee (Sale) y
+// serviceFeeUnit/serviceFeeSubtotal (SaleItem), todos NULL para MANUAL/
+// Courtesy y para cualquier Sale anterior a esa migración (nunca hay
+// backfill retroactivo, ver el comentario de la migración). createSale de
+// arriba ya construye exactamente esa forma (no setea ninguno de esos
+// campos) — se reusa tal cual acá, más un SaleItem explícito con los
+// mismos cuatro campos en NULL.
+
 async function cleanup({ eventIds = [], organizationIds = [], userIds = [] }) {
     await prisma.saleItem.deleteMany({ where: { sale: { eventId: { in: eventIds } } } });
     await prisma.ticket.deleteMany({ where: { eventId: { in: eventIds } } });
@@ -121,6 +129,65 @@ testWithDb("needsReconciliation filter returns only PENDING sales with a payment
         assert.equal(normalDetail.paymentRef, null);
         assert.equal(normalDetail.needsReconciliation, false);
     } finally {
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id, buyer.id] });
+    }
+});
+
+// ==================================================================
+// Ronda de endurecimiento — ventas históricas (anteriores a MP-6) o
+// MANUAL/Courtesy: ticketsSubtotal/serviceFee (Sale) y serviceFeeUnit/
+// serviceFeeSubtotal (SaleItem) NULL, nunca backfillados. Developer >
+// Ventas debe poder listarlas y ver su detalle sin romperse ni inventar un
+// desglose de comisión que nunca existió — sólo total (y subtotal/
+// unitPrice por ítem) siguen disponibles como siempre.
+// ==================================================================
+
+testWithDb("historical sales with NULL ticketsSubtotal/serviceFee/serviceFeeUnit/serviceFeeSubtotal list and render safely in Developer > Ventas, without asserting a breakdown that doesn't exist", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const { event, eventFunction } = await createEventWithFunction(org.id, owner.id);
+    const buyer = await createGuestBuyer();
+    const ticketType = await prisma.ticketType.create({
+        data: { eventId: event.id, name: "General", price: 15000, quantity: 100, maxPerPurchase: 10 },
+    });
+
+    const historicalSale = await createSale({ event, eventFunction, buyer, status: "CONFIRMED", total: 15000 });
+    const saleItem = await prisma.saleItem.create({
+        data: {
+            saleId: historicalSale.id,
+            ticketTypeId: ticketType.id,
+            quantity: 1,
+            unitPrice: 15000,
+            subtotal: 15000,
+            // serviceFeeUnit/serviceFeeSubtotal se dejan sin setear a
+            // propósito: NULL, exactamente como cualquier fila anterior a
+            // esta migración (ver el comentario de la migración).
+        },
+    });
+
+    try {
+        const listed = await listDeveloperSalesService({ eventId: event.id });
+        const listedSale = listed.items.find((item) => item.id === historicalSale.id);
+        assert.ok(listedSale);
+        assert.equal(listedSale.ticketsSubtotal, null, "una venta histórica nunca debe inventar un ticketsSubtotal que no fotografió al momento de la compra");
+        assert.equal(listedSale.serviceFee, null);
+        assert.equal(listedSale.total, 15000, "el total sí sigue disponible siempre, histórico o no");
+
+        const detail = await getDeveloperSaleService(historicalSale.id);
+        assert.equal(detail.ticketsSubtotal, null);
+        assert.equal(detail.serviceFee, null);
+        assert.equal(detail.total, 15000);
+
+        const detailItem = detail.items.find((item) => item.id === saleItem.id);
+        assert.ok(detailItem);
+        assert.equal(detailItem.serviceFeeUnit, null, "un SaleItem histórico nunca debe inventar una comisión unitaria que no existió");
+        assert.equal(detailItem.serviceFeeSubtotal, null);
+        assert.equal(detailItem.unitPrice, 15000, "unitPrice/subtotal siguen disponibles siempre, no dependen de la comisión");
+        assert.equal(detailItem.subtotal, 15000);
+    } finally {
+        // cleanup() ya borra SaleItem/Sale por eventId, y TicketType cae en
+        // cascada al borrar el Event (onDelete: Cascade) — nada que limpiar
+        // aparte acá.
         await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id, buyer.id] });
     }
 });

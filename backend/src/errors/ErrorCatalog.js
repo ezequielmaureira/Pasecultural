@@ -512,4 +512,16 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "The proposed service fee tier set failed validation (negative amounts, overlaps, gaps, inverted range, missing/duplicate open-ended tier, or empty set).",
         userMessage: "La configuración de comisión tiene errores. Revisá los rangos e intentá de nuevo.",
     },
+    // Protección optimista (ronda de endurecimiento) — el desglose que el
+    // comprador confirmó en el Wizard (ticketsSubtotal/serviceFee/total)
+    // ya no coincide con el cálculo autoritativo recién hecho (precio de
+    // alguna entrada y/o rangos de comisión cambiaron entre el resumen y
+    // este request). Se aborta ANTES de reservar stock o crear la Sale —
+    // ver createSaleForBuyer, sale.service.js. `details` siempre lleva el
+    // desglose autoritativo fresco: { ticketsSubtotal, serviceFee, total }.
+    SERVICE_FEE_CHANGED: {
+        httpStatus: 409,
+        logMessage: "The buyer-confirmed price breakdown from the summary screen no longer matches the authoritative server-side calculation — ticket price and/or service fee tiers changed between summary and checkout. Aborted before creating any Sale, stock reservation, or Mercado Pago preference.",
+        userMessage: "El precio cambió desde que revisaste el resumen. Confirmá el nuevo total para continuar.",
+    },
 });

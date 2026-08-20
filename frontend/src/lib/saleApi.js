@@ -69,6 +69,14 @@ export async function getSaleStatus(recoveryToken) {
 // La respuesta { checkoutUrl, saleToken } nunca trae nada de Mercado Pago
 // más allá de la URL pública de checkout — ni tokens, ni datos del
 // organizador.
+// MP-6 (ronda de endurecimiento) — confirmedTicketsSubtotal/confirmedServiceFee/
+// confirmedTotal: el desglose que el comprador vio y confirmó en
+// SummaryStep. NUNCA autoritativo (el backend siempre recalcula desde
+// cero) — sólo sirve para que el backend compare y detecte si el precio de
+// alguna entrada y/o la comisión cambiaron mientras el comprador estaba en
+// el Wizard, antes de crear cualquier cosa (ver createSaleForBuyer,
+// sale.service.js). Opcionales: si no vienen, el backend simplemente no
+// hace esa comparación (mismo comportamiento que antes de esta ronda).
 export async function createMercadoPagoCheckout({
     eventId,
     functionId,
@@ -78,8 +86,23 @@ export async function createMercadoPagoCheckout({
     email,
     buyerDocument,
     idempotencyKey,
+    confirmedTicketsSubtotal,
+    confirmedServiceFee,
+    confirmedTotal,
 }) {
-    const requestBody = { eventId, functionId, items, firstName, lastName, email, buyerDocument, idempotencyKey };
+    const requestBody = {
+        eventId,
+        functionId,
+        items,
+        firstName,
+        lastName,
+        email,
+        buyerDocument,
+        idempotencyKey,
+        confirmedTicketsSubtotal,
+        confirmedServiceFee,
+        confirmedTotal,
+    };
     console.log("saleApi.createMercadoPagoCheckout request body", {
         ...requestBody,
         buyerDocument: buyerDocument ? "[present]" : undefined,
