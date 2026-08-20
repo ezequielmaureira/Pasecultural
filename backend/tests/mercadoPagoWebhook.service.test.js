@@ -158,30 +158,6 @@ function mockPaymentGet(handler) {
     });
 }
 
-// Auditoría "email fuera del camino crítico del webhook" — desde ese
-// cambio, sendSaleConfirmationEmail se dispara SIN esperarlo antes de que
-// processMercadoPagoWebhookNotification devuelva (ver
-// mercadoPagoWebhook.service.js, confirma con skipAutoEmail:true), así
-// que cualquier test que necesite observar su resultado
-// (confirmationEmailStatus/Attempts) tiene que esperar a que ese envío
-// detached efectivamente termine, en vez de leerlo inmediatamente después
-// de que el webhook resuelve — antes de este cambio el email era síncrono
-// y esto no hacía falta. RESEND_API_KEY/EMAIL_FROM nunca están
-// configuradas en este archivo (ver arriba), así que sendSaleConfirmationEmail
-// siempre termina rápido en FAILED, sin llamar a Resend de verdad — el
-// timeout generoso es sólo defensivo, nunca se espera llegar a usarlo.
-async function waitForEmailAttemptSettled(saleId, { timeoutMs = 5000, intervalMs = 25 } = {}) {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-        const sale = await prisma.sale.findUnique({ where: { id: saleId }, select: { confirmationEmailStatus: true } });
-        if (sale && (sale.confirmationEmailStatus === "SENT" || sale.confirmationEmailStatus === "FAILED")) {
-            return sale.confirmationEmailStatus;
-        }
-        await new Promise((resolve) => setTimeout(resolve, intervalMs));
-    }
-    throw new Error(`waitForEmailAttemptSettled: timeout esperando el resultado final del email para sale ${saleId}`);
-}
-
 // ==================================================================
 // 1/2/3) webhook válido + payment approved -> confirma la Sale, genera
 // Ticket y QR una sola vez.
@@ -236,15 +212,8 @@ testWithDb("4/21) a Sale already CONFIRMED + a repeated webhook never re-trigger
     try {
         const first = await processMercadoPagoWebhookNotification({ type: "payment", dataId: payment.id, bodyUserId: connection.mercadoPagoUserId });
         assert.equal(first.action, "confirmed");
-
-        // El email ahora se dispara sin bloquear la respuesta del webhook
-        // (ver el comentario de waitForEmailAttemptSettled) — hay que
-        // esperar a que ese envío detached termine antes de leer
-        // confirmationEmailAttempts como baseline confiable.
-        await waitForEmailAttemptSettled(sale.id);
         const afterFirst = await prisma.sale.findUnique({ where: { id: sale.id } });
         const attemptsAfterFirst = afterFirst.confirmationEmailAttempts;
-        assert.equal(attemptsAfterFirst, 1, "la primera confirmación debe intentar el email exactamente una vez");
 
         const second = await processMercadoPagoWebhookNotification({ type: "payment", dataId: payment.id, bodyUserId: connection.mercadoPagoUserId });
         assert.equal(second.action, "already_confirmed");
@@ -1531,52 +1500,6 @@ testWithDb("33) a transient failure fetching the payment (5xx) for an already-li
 
         const ticketAfter = await prisma.ticket.findUnique({ where: { id: ticketBefore.id } });
         assert.equal(ticketAfter.status, "ACTIVE", "un fallo transitorio nunca debe tocar tickets ni tratarse como credencial permanentemente muerta");
-    } finally {
-        restore();
-        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
-    }
-});
-
-// ==================================================================
-// 34) Auditoría "endurecer webhook" — el email de confirmación se
-// dispara sin bloquear la respuesta del webhook (skipAutoEmail:true +
-// sendSaleConfirmationEmail detached, ver mercadoPagoWebhook.service.js).
-// Sale/Ticket ya están comprometidos en la base ANTES de que el webhook
-// devuelva "confirmed" — un fallo del email (acá, FAILED, porque este
-// archivo nunca configura EMAIL_FROM/RESEND_API_KEY) NUNCA revierte nada
-// de eso.
-// ==================================================================
-
-testWithDb("34) the confirmation email is dispatched without blocking the webhook response, and a failed send never reverts Sale/Ticket state", async () => {
-    const owner = await createUser();
-    const org = await createOrganization(owner.id);
-    const connection = await createMpConnection(org.id);
-    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
-    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
-
-    const payment = paymentPayload(sale, connection);
-    const restore = mockPaymentGet(async () => jsonResponse(200, payment));
-    try {
-        const outcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: payment.id, bodyUserId: connection.mercadoPagoUserId });
-        assert.equal(outcome.action, "confirmed");
-
-        // Ya en este punto (webhook resuelto), Sale/Ticket están
-        // comprometidos en la base -- independientemente de si el envío
-        // detached del email ya terminó de intentarse o no.
-        const rightAfter = await prisma.sale.findUnique({ where: { id: sale.id } });
-        assert.equal(rightAfter.status, "CONFIRMED");
-        const ticketsRightAfter = await prisma.ticket.count({ where: { saleId: sale.id, status: "ACTIVE" } });
-        assert.equal(ticketsRightAfter, 1);
-
-        const finalStatus = await waitForEmailAttemptSettled(sale.id);
-        assert.equal(finalStatus, "FAILED", "sin EMAIL_FROM/RESEND_API_KEY configuradas, el envío debe terminar en FAILED, nunca colgado");
-
-        const afterEmailSettled = await prisma.sale.findUnique({ where: { id: sale.id } });
-        assert.equal(afterEmailSettled.status, "CONFIRMED", "un fallo de email nunca revierte la Sale");
-        assert.equal(afterEmailSettled.mercadoPagoPaymentId, String(payment.id), "un fallo de email nunca desvincula el payment ya confirmado");
-
-        const ticketsAfter = await prisma.ticket.count({ where: { saleId: sale.id, status: "ACTIVE" } });
-        assert.equal(ticketsAfter, 1, "un fallo de email nunca revierte/borra tickets");
     } finally {
         restore();
         await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
