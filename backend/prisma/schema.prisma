@@ -152,6 +152,10 @@ model User {
   // MP-1 — intentos de autorización OAuth de Mercado Pago que este usuario
   // inició (ver MercadoPagoOAuthState).
   mercadoPagoOAuthStatesRequested MercadoPagoOAuthState[]
+  // MP-6 — trazabilidad de quién guardó por última vez cada rango de
+  // ServiceFeeTier (ver ese modelo más abajo). Sólo DEVELOPER puede llegar
+  // a aparecer acá (requireRole en developerServiceFee.routes.js).
+  serviceFeeTiersUpdated ServiceFeeTier[]
 }
 
 model Organization {
@@ -845,7 +849,29 @@ model Sale {
   // — que el resto de los tokens públicos del proyecto).
   mercadoPagoExternalReference String? @unique
 
+  // MP-6 — `total` sigue siendo, exactamente como siempre, el monto real
+  // que paga/pagó el comprador (lo que valida el webhook contra
+  // payment.transaction_amount — ver mercadoPagoWebhook.service.js, sin
+  // cambios ahí). Lo único que cambia es CÓMO se calcula desde MP-6 en
+  // adelante: para paymentMethod=MERCADO_PAGO, total = ticketsSubtotal +
+  // serviceFee (comisión de servicio SUMADA, nunca descontada del precio
+  // del organizador — ver createSaleForBuyer, sale.service.js). Para
+  // MANUAL/Courtesy, total sigue siendo únicamente la suma de
+  // SaleItem.subtotal, sin comisión — comportamiento sin cambios.
   total Decimal @db.Decimal(10, 2)
+
+  // MP-6 — snapshot inmutable de la comisión de servicio aplicada a ESTA
+  // venta en el momento del checkout, congelado para siempre (nunca se
+  // recalcula si después cambian los rangos vigentes desde Developer >
+  // Configuración — ver ServiceFeeTier). NULL para toda Sale que nunca
+  // tuvo comisión: ventas MANUAL, Courtesy, y cualquier Sale de Mercado
+  // Pago anterior a esta migración (nunca se hace backfill retroactivo —
+  // esas filas ya cobraron/entregaron en su momento con el modelo
+  // anterior). Cuando ambos tienen valor, total = ticketsSubtotal +
+  // serviceFee siempre — invariante verificado en el checkout antes de
+  // persistir (ver mercadoPagoCheckout.service.js).
+  ticketsSubtotal Decimal? @db.Decimal(10, 2)
+  serviceFee      Decimal? @db.Decimal(10, 2)
 
   buyerId String
   buyer   User   @relation(fields: [buyerId], references: [id])
@@ -1026,7 +1052,67 @@ model SaleItem {
   unitPrice Decimal @db.Decimal(10, 2)
   subtotal  Decimal @db.Decimal(10, 2)
 
+  // MP-6 — comisión de servicio aplicada a ESTE tipo de entrada, a este
+  // precio unitario, en el momento del checkout (congelada igual que
+  // unitPrice/subtotal — nunca se recalcula después). serviceFeeUnit es el
+  // importe fijo por unidad (según el rango vigente al momento de la
+  // compra para unitPrice); serviceFeeSubtotal = serviceFeeUnit × quantity.
+  // NULL para todo lo que nunca tuvo comisión (MANUAL, Courtesy, filas
+  // anteriores a esta migración) — mismo criterio que Sale.ticketsSubtotal/
+  // serviceFee.
+  serviceFeeUnit     Decimal? @db.Decimal(10, 2)
+  serviceFeeSubtotal Decimal? @db.Decimal(10, 2)
+
   @@map("sale_items")
+}
+
+// MP-6 — configuración autoritativa server-side de la comisión de
+// servicio de PaseCultural para Mercado Pago (backend/src/services/
+// serviceFee.service.js es la ÚNICA fuente de verdad que la lee/calcula;
+// ningún otro código repite estos importes). Reemplaza por completo al
+// PLATFORM_FEE_PERCENTAGE fijo del 10% (eliminado) — la comisión ya NO se
+// descuenta del precio del organizador, se SUMA como un importe fijo por
+// entrada según en qué rango cae su precio unitario.
+//
+// Modelo: un conjunto de rangos [minAmount, maxAmount) contiguos, sin
+// huecos ni superposiciones, con exactamente un último rango
+// maxAmount=null (sin límite superior) — validado en
+// serviceFee.service.js#validateServiceFeeTiersInput antes de persistir
+// (nunca se confía en que la fila ya guardada sea válida sin
+// revalidarla). El precio $0 NUNCA consulta esta tabla — está
+// hardcodeado en calculateServiceFeeForUnitPrice (comisión $0 siempre),
+// así que ninguna configuración acá puede convertir una entrada gratuita
+// en una venta paga por accidente.
+//
+// Guardar cambia el conjunto COMPLETO de forma atómica (delete-all +
+// create, una sola transacción — ver replaceServiceFeeTiers): nunca hace
+// falta preservar el `id` de un rango entre ediciones, ninguna otra tabla
+// referencia esta fila por id — Sale/SaleItem guardan el IMPORTE ya
+// calculado (snapshot), nunca una referencia a qué fila de acá se usó,
+// exactamente el mismo criterio que SaleItem.unitPrice nunca referencia a
+// TicketType.price. Por eso cambiar los rangos desde Developer nunca
+// afecta ventas ya confirmadas.
+model ServiceFeeTier {
+  id String @id @default(cuid())
+
+  minAmount Decimal  @db.Decimal(10, 2)
+  // NULL = sin límite superior — exactamente un rango (el último, de mayor
+  // precio) debe tenerlo así.
+  maxAmount Decimal? @db.Decimal(10, 2)
+  feeAmount Decimal  @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Quién guardó esta fila por última vez — nullable porque las 4 filas
+  // que trae la migración inicial (ver migration.sql) no las guardó
+  // ningún DEVELOPER real, se insertan directamente en la migración para
+  // que la comisión esté operativa desde el primer deploy, sin depender
+  // de un seed manual.
+  updatedByUserId String?
+  updatedBy       User?   @relation(fields: [updatedByUserId], references: [id])
+
+  @@map("service_fee_tiers")
 }
 
 // Un ticket = una entrada individual escaneable. Se generan recién al

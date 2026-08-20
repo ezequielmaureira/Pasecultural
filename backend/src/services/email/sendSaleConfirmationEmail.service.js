@@ -96,6 +96,9 @@ export async function getSaleEmailData(saleId) {
             id: true,
             status: true,
             publicRecoveryToken: true,
+            total: true,
+            ticketsSubtotal: true,
+            serviceFee: true,
             buyer: { select: { firstName: true, email: true } },
             event: { select: { title: true } },
             function: { select: { date: true, venue: true } },
@@ -138,6 +141,12 @@ export async function getSaleEmailData(saleId) {
         eventTitle,
         venue,
         functionDate,
+        total: Number(sale.total),
+        // MP-6 — NULL para MANUAL/Courtesy y para Sale de Mercado Pago
+        // anteriores a esta migración — buildSaleConfirmationEmail sólo
+        // muestra el desglose cuando ambos están presentes.
+        ticketsSubtotal: sale.ticketsSubtotal == null ? null : Number(sale.ticketsSubtotal),
+        serviceFee: sale.serviceFee == null ? null : Number(sale.serviceFee),
         tickets,
     };
 }
@@ -222,6 +231,9 @@ export async function sendSaleConfirmationEmail(saleId, { force = false } = {}) 
                 buyerFirstName: data.buyerFirstName,
                 eventTitle: data.eventTitle,
                 tickets: data.tickets,
+                total: data.total,
+                ticketsSubtotal: data.ticketsSubtotal,
+                serviceFee: data.serviceFee,
                 recoverPurchaseUrl,
                 replyTo,
             },

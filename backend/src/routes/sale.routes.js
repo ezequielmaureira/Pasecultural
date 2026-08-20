@@ -13,6 +13,7 @@ import {
     verifySaleRecoveryCode,
     resendSaleEmailByToken,
     getSalePdfByToken,
+    getPublicServiceFeeTiers,
 } from "../controllers/sale.controller.js";
 import { createMercadoPagoCheckout } from "../controllers/mercadoPagoCheckout.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
@@ -45,6 +46,11 @@ router.post("/", createSale);
 // Payment 1:1). Mismo criterio sin sesión que "/" — ver
 // mercadoPagoCheckout.controller.js.
 router.post("/mercadopago/checkout", mercadoPagoCheckoutRateLimit, createMercadoPagoCheckout);
+
+// MP-6 — público, sin sesión: reglas de comisión vigentes, para que el
+// Wizard pueda mostrar una estimación antes del checkout. Ver
+// sale.controller.js#getPublicServiceFeeTiers.
+router.get("/service-fee-tiers", getPublicServiceFeeTiers);
 router.get("/mine", requireAuth, listSalesBuyer);
 router.get("/", requireRole("ORGANIZER"), listSalesOrganizer);
 // Confirm por parte del organizador (desde UI organizador / webhook)

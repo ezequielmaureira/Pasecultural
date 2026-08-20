@@ -37,7 +37,10 @@ const NAV_BY_ROLE = {
     },
     { label: "Scanners", icon: ScanLine, path: "/developer/scanners", end: true },
     { label: "Ventas", icon: LineChart, path: "/developer/ventas", end: true },
-    { label: "Configuración", icon: Settings },
+    // MP-6 — antes un placeholder deshabilitado (sin `path`, ver
+    // DisabledNavItem más abajo); activado con la primera sección real:
+    // comisión de servicio (ver pages/developer/DeveloperSettings.jsx).
+    { label: "Configuración", icon: Settings, path: "/developer/configuracion", end: true },
     {
       label: "Base de Datos",
       icon: Database,

@@ -8,7 +8,7 @@ import { rateLimit } from "../src/middlewares/rateLimit.js";
 // aislada, sin Express real y sin tocar Prisma — importar el router
 // completo arrastraría @prisma/client transitivamente (vía el controller
 // y el service) sólo para probar aritmética de un contador en memoria.
-// Pura, sin DB — mismo criterio que platformFee.test.js.
+// Pura, sin DB — mismo criterio que argentinaProvinces.test.js.
 
 function fakeReq(ip) {
     return { ip };

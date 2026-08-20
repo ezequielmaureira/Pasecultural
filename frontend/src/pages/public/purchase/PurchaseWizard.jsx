@@ -6,6 +6,8 @@ import StepIndicator from "../../../components/ui/StepIndicator.jsx";
 import { usePublishFlow } from "../../../hooks/usePublishFlow.js";
 import { apiFetch } from "../../../lib/api.js";
 import { getSaleStatus } from "../../../lib/saleApi.js";
+import { getPublicServiceFeeTiers } from "../../../lib/serviceFeeApi.js";
+import { estimateServiceFeeForUnitPrice } from "../../../lib/serviceFee.js";
 import { processPayment } from "../../../lib/payment/paymentGateway.js";
 import PurchaseOverlay from "./PurchaseOverlay.jsx";
 import SelectFunctionStep from "./steps/SelectFunctionStep.jsx";
@@ -83,6 +85,13 @@ export default function PurchaseWizard() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [event, setEvent] = useState(null);
+  // MP-6 — reglas de comisión vigentes, sólo para mostrar una ESTIMACIÓN
+  // en SummaryStep antes de pagar (ver lib/serviceFee.js). El cálculo
+  // AUTORITATIVO final lo hace siempre el backend al crear el checkout —
+  // si esta carga falla o todavía no llegó, la estimación de comisión
+  // simplemente muestra $0 hasta que esté disponible, nunca bloquea la
+  // compra.
+  const [serviceFeeTiers, setServiceFeeTiers] = useState([]);
 
   // "function" | "tickets" | "summary" | "buyer-info" | "success" | "purchase-error"
   const [phase, setPhase] = useState("tickets");
@@ -232,6 +241,13 @@ export default function PurchaseWizard() {
     setLoadError("");
     try {
       const { event: data } = await apiFetch(`/api/events/public/${slug}`);
+      // Best-effort: si esta llamada falla, la estimación de comisión
+      // simplemente queda en $0 hasta que se pueda cargar — nunca bloquea
+      // ni retrasa la carga del evento en sí (que es lo único
+      // imprescindible para seguir).
+      getPublicServiceFeeTiers()
+        .then(setServiceFeeTiers)
+        .catch((err) => console.error("No se pudieron cargar las reglas de comisión", err));
       if (!data) {
         setLoadError("Este evento no existe o ya no está disponible.");
         return;
@@ -354,15 +370,25 @@ export default function PurchaseWizard() {
     .map(([ticketTypeId, quantity]) => ({ ticketTypeId, quantity }));
   const lineItems = items.map(({ ticketTypeId, quantity }) => {
     const option = ticketOptions.find((o) => o.ticketTypeId === ticketTypeId);
+    const unitPrice = option?.price ?? 0;
+    // MP-6 — estimación de comisión de servicio por tipo de entrada, sólo
+    // para mostrarla acá antes de pagar (ver SummaryStep) — el importe
+    // real que se cobra siempre lo calcula y fotografía el backend al
+    // crear el checkout (createSaleForBuyer, sale.service.js).
+    const serviceFeeUnit = estimateServiceFeeForUnitPrice(unitPrice, serviceFeeTiers);
     return {
       ticketTypeId,
       name: option?.name ?? "",
       quantity,
-      unitPrice: option?.price ?? 0,
-      subtotal: (option?.price ?? 0) * quantity,
+      unitPrice,
+      subtotal: unitPrice * quantity,
+      serviceFeeUnit,
+      serviceFeeSubtotal: serviceFeeUnit * quantity,
     };
   });
-  const total = lineItems.reduce((sum, item) => sum + item.subtotal, 0);
+  const ticketsSubtotal = lineItems.reduce((sum, item) => sum + item.subtotal, 0);
+  const serviceFeeTotal = lineItems.reduce((sum, item) => sum + item.serviceFeeSubtotal, 0);
+  const total = ticketsSubtotal + serviceFeeTotal;
 
   const steps = buildSteps(event.functions.length > 1);
   const stepIdByLabel = Object.fromEntries(steps.map((s) => [s.label, s.id]));
@@ -472,6 +498,8 @@ export default function PurchaseWizard() {
           event={event}
           selectedFunction={selectedFunction}
           lineItems={lineItems}
+          ticketsSubtotal={ticketsSubtotal}
+          serviceFeeTotal={serviceFeeTotal}
           total={total}
           onBack={() => setPhase("tickets")}
           onContinue={() => setPhase("buyer-info")}

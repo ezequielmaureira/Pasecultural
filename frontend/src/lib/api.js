@@ -46,10 +46,16 @@ export async function apiFetch(path, { token, timeoutMs = DEFAULT_TIMEOUT_MS, ..
   if (!res.ok) {
     let message = `Error ${res.status} al llamar ${path}`;
     let code;
+    let errors;
     try {
       const body = await res.json();
       if (body?.message) message = body.message;
       code = body?.error?.code;
+      // MP-6 — lista de violaciones puntuales (ej. validación de rangos de
+      // comisión, ver AppError#details) para cuando un caller necesita
+      // mostrarlas una por una, no sólo el mensaje genérico — `undefined`
+      // si el backend no mandó `details` para este error.
+      errors = body?.error?.errors;
     } catch {
       // respuesta sin body JSON, se mantiene el mensaje genérico
     }
@@ -59,6 +65,7 @@ export async function apiFetch(path, { token, timeoutMs = DEFAULT_TIMEOUT_MS, ..
     // cuando un caller necesita distinguir el motivo exacto, no sólo
     // mostrar el mensaje — `undefined` si el backend no lo mandó.
     error.code = code;
+    error.errors = errors;
     throw error;
   }
 

@@ -25,6 +25,7 @@ import DeveloperEvents from "./pages/developer/DeveloperEvents.jsx";
 import DeveloperTickets from "./pages/developer/DeveloperTickets.jsx";
 import DeveloperScanners from "./pages/developer/DeveloperScanners.jsx";
 import DeveloperSales from "./pages/developer/DeveloperSales.jsx";
+import DeveloperSettings from "./pages/developer/DeveloperSettings.jsx";
 import ScannerShell from "./pages/scanner/ScannerShell.jsx";
 import ScannerHome from "./pages/scanner/ScannerHome.jsx";
 import ScannerInvitationClaim from "./pages/scanner/ScannerInvitationClaim.jsx";
@@ -129,6 +130,7 @@ export default function App() {
                 <Route path="/developer/entradas" element={<DeveloperTickets />} />
                 <Route path="/developer/scanners" element={<DeveloperScanners />} />
                 <Route path="/developer/ventas" element={<DeveloperSales />} />
+                <Route path="/developer/configuracion" element={<DeveloperSettings />} />
                 <Route path="/developer/base-de-datos" element={<DeveloperDatabase />} />
               </Route>
 

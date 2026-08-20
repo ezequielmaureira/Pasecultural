@@ -91,6 +91,8 @@ export const listDeveloperSalesService = async (filters = {}) => {
                 id: true,
                 status: true,
                 total: true,
+                ticketsSubtotal: true,
+                serviceFee: true,
                 createdAt: true,
                 paymentRef: true,
                 event: { select: { id: true, title: true, organization: { select: { id: true, name: true } } } },
@@ -108,6 +110,12 @@ export const listDeveloperSalesService = async (filters = {}) => {
         buyer: { name: [sale.buyer.firstName, sale.buyer.lastName].filter(Boolean).join(" ").trim() || null },
         ticketsCount: sale._count.tickets,
         total: Number(sale.total),
+        // MP-6 — NULL para MANUAL/Courtesy y para Sale de Mercado Pago
+        // anteriores a esta migración (nunca hay backfill retroactivo) —
+        // el frontend lo trata como "sin desglose de comisión disponible",
+        // nunca asume $0.
+        ticketsSubtotal: sale.ticketsSubtotal == null ? null : Number(sale.ticketsSubtotal),
+        serviceFee: sale.serviceFee == null ? null : Number(sale.serviceFee),
         createdAt: sale.createdAt,
         paymentRef: sale.paymentRef,
         // Derivado, no persistido — misma condición que buildWhere de
@@ -133,6 +141,8 @@ export const getDeveloperSaleService = async (saleId) => {
             id: true,
             status: true,
             total: true,
+            ticketsSubtotal: true,
+            serviceFee: true,
             createdAt: true,
             confirmedAt: true,
             buyerDocument: true,
@@ -146,6 +156,8 @@ export const getDeveloperSaleService = async (saleId) => {
                     quantity: true,
                     unitPrice: true,
                     subtotal: true,
+                    serviceFeeUnit: true,
+                    serviceFeeSubtotal: true,
                     ticketType: { select: { id: true, name: true } },
                 },
             },
@@ -162,6 +174,9 @@ export const getDeveloperSaleService = async (saleId) => {
         id: sale.id,
         status: sale.status,
         total: Number(sale.total),
+        // MP-6 — ver comentario equivalente en listDeveloperSalesService.
+        ticketsSubtotal: sale.ticketsSubtotal == null ? null : Number(sale.ticketsSubtotal),
+        serviceFee: sale.serviceFee == null ? null : Number(sale.serviceFee),
         createdAt: sale.createdAt,
         confirmedAt: sale.confirmedAt,
         paymentRef: sale.paymentRef,
@@ -181,6 +196,8 @@ export const getDeveloperSaleService = async (saleId) => {
             quantity: item.quantity,
             unitPrice: Number(item.unitPrice),
             subtotal: Number(item.subtotal),
+            serviceFeeUnit: item.serviceFeeUnit == null ? null : Number(item.serviceFeeUnit),
+            serviceFeeSubtotal: item.serviceFeeSubtotal == null ? null : Number(item.serviceFeeSubtotal),
         })),
         tickets: sale.tickets.map((ticket) => ({
             id: ticket.id,

@@ -348,6 +348,15 @@ export async function processMercadoPagoWebhookNotification({ type, dataId, body
     // económicas EXACTAS antes de confirmar nada. Mismo criterio de
     // redondeo que el resto del proyecto (round2, ver utils/money.js) —
     // nunca una comparación flotante directa.
+    //
+    // MP-6 — auditado y confirmado sin cambios: sale.total YA es el
+    // snapshot inmutable de ticketsSubtotal + serviceFee, fotografiado al
+    // crear la Sale (ver createSaleForBuyer, sale.service.js) y nunca
+    // recalculado después. Esta comparación siempre validó "lo que el
+    // comprador tenía que pagar en total" — sigue siendo exactamente eso,
+    // reglas de comisión vigentes al momento del checkout, nunca las
+    // vigentes al momento de este webhook. Cero acoplamiento nuevo acá con
+    // ServiceFeeTier/serviceFee.service.js.
     const expectedAmount = round2(sale.total);
     const paidAmount = round2(payment.transactionAmount);
     if (paidAmount !== expectedAmount) {

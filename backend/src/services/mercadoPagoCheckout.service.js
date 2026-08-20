@@ -5,7 +5,6 @@ import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { createGuestSaleService } from "./sale.service.js";
 import { getValidMercadoPagoAccessTokenForOrganization } from "./mercadoPagoConnection.service.js";
 import { createMercadoPagoPreference } from "./mercadoPago.service.js";
-import { calculatePlatformFee } from "../config/platformFee.js";
 import { round2 } from "../utils/money.js";
 import { logger } from "../logging/logger.js";
 
@@ -116,6 +115,11 @@ export async function createMercadoPagoCheckoutService(buyerInfo, saleInput, ide
             paymentMethod: "MERCADO_PAGO",
             checkoutIdempotencyKey: idempotencyKey || null,
             mercadoPagoExternalReference,
+            // MP-6 — único caller que pasa esto en true: la comisión de
+            // servicio SÓLO aplica al checkout de Mercado Pago, nunca a
+            // ventas MANUAL ni a Cortesías (ver createSaleForBuyer,
+            // sale.service.js).
+            applyServiceFee: true,
         });
     } catch (error) {
         if (isCheckoutIdempotencyKeyConflict(error)) {
@@ -136,12 +140,37 @@ export async function createMercadoPagoCheckoutService(buyerInfo, saleInput, ide
         currency_id: "ARS",
     }));
 
+    // MP-6 — comisión de servicio como línea SEPARADA y visible dentro de
+    // la propia preferencia (nunca prorrateada dentro del precio de cada
+    // entrada, nunca sumada en silencio): el comprador tiene que poder ver
+    // en Checkout Pro cuánto corresponde a las entradas y cuánto a la
+    // comisión, exactamente igual que en el resumen del Wizard. serviceFee
+    // ya viene fotografiado en la Sale (ver createSaleForBuyer) — nunca se
+    // recalcula acá con las reglas vigentes en este momento. Sólo se
+    // agrega la línea si el importe es > 0 (sólo puede ser 0 si TODAS las
+    // entradas de esta compra son gratuitas) — nunca se manda una línea de
+    // $0 a Mercado Pago.
+    const serviceFeeAmount = round2(Number(sale.serviceFee ?? 0));
+    if (serviceFeeAmount > 0) {
+        items.push({
+            id: "service-fee",
+            title: "Comisión de servicio PaseCultural",
+            quantity: 1,
+            unit_price: serviceFeeAmount,
+            currency_id: "ARS",
+        });
+    }
+
     // Invariante defensivo: la suma de lo que se le va a mandar a Mercado
-    // Pago tiene que coincidir EXACTO con sale.total. Estructuralmente no
-    // debería poder fallar nunca (items sale de la misma Sale que ya
-    // calculó total), pero si alguna vez no coincidiera, se aborta ANTES
-    // de llamar a Mercado Pago — nunca se cobra un monto distinto al que
-    // ya se le mostró al comprador.
+    // Pago (entradas + comisión) tiene que coincidir EXACTO con sale.total
+    // — el total final ya fotografiado (ticketsSubtotal + serviceFee, ver
+    // createSaleForBuyer), que es lo mismo que después valida el webhook.
+    // Estructuralmente no debería poder fallar nunca (items e importe de
+    // comisión salen de la misma Sale que ya calculó total), pero si
+    // alguna vez no coincidiera, se aborta ANTES de llamar a Mercado Pago
+    // — nunca se cobra un monto distinto al que ya se le mostró al
+    // comprador, y nunca se duplica la comisión (aparece una única vez,
+    // como un único ítem, dentro de este mismo total).
     const itemsTotal = round2(items.reduce((sum, item) => sum + round2(item.unit_price * item.quantity), 0));
     if (itemsTotal !== Number(sale.total)) {
         logger.error(new Error("mercadopago checkout: items total mismatch"), {
@@ -153,7 +182,13 @@ export async function createMercadoPagoCheckoutService(buyerInfo, saleInput, ide
         throw new AppError(ErrorCodes.MERCADOPAGO_ITEMS_MISMATCH);
     }
 
-    const platformFee = calculatePlatformFee(sale.total);
+    // MP-6 — marketplace_fee es EXACTAMENTE la comisión ya calculada y
+    // fotografiada en Sale.serviceFee — reemplaza a calculatePlatformFee
+    // (10% fijo del total, descontado del organizador — eliminado, ver
+    // config/platformFee.js). La comisión de Mercado Pago (nunca tocada
+    // acá) sigue descontándose de los fondos del organizador después de
+    // esto, exactamente como siempre.
+    const marketplaceFee = serviceFeeAmount;
 
     const backUrlParams = { slug: event.slug, saleToken: sale.publicRecoveryToken };
     const backUrls = {
@@ -171,7 +206,7 @@ export async function createMercadoPagoCheckoutService(buyerInfo, saleInput, ide
             email: buyerInfo?.email || undefined,
         },
         externalReference: sale.mercadoPagoExternalReference,
-        marketplaceFee: platformFee,
+        marketplaceFee,
         backUrls,
         notificationUrl: getMercadoPagoNotificationUrl() ?? undefined,
         excludedPaymentTypes: EXCLUDED_PAYMENT_TYPES,

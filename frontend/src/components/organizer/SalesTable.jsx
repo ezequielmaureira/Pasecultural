@@ -46,7 +46,25 @@ export default function SalesTable({ sales, loading = false, emptyMessage = "Tod
                 {[sale.buyer?.firstName, sale.buyer?.lastName].filter(Boolean).join(" ") || sale.buyer?.email || "—"}
               </td>
               <td className="max-w-[200px] truncate py-2.5 pr-3 text-slate-300">{sale.event?.title}</td>
-              <td className="py-2.5 pr-3 text-slate-300">{formatCurrencyARS(sale.total)}</td>
+              <td className="py-2.5 pr-3 text-slate-300">
+                {/* MP-6 — para una venta de Mercado Pago, `total` ya incluye
+                    la comisión de servicio (se SUMA, no se descuenta del
+                    organizador) — mostrar acá sólo eso induciría a pensar
+                    que el organizador cobra el total completo. Cuando hay
+                    desglose disponible (ticketsSubtotal != null), se
+                    muestra el valor de las entradas como monto principal
+                    — lo que realmente le corresponde al organizador — con
+                    la comisión aclarada debajo. Ventas MANUAL/Courtesy y
+                    ventas de MP anteriores a esta migración no tienen
+                    desglose (ticketsSubtotal null) — se muestran tal cual
+                    siempre se mostraron, sin cambios. */}
+                {formatCurrencyARS(sale.ticketsSubtotal ?? sale.total)}
+                {sale.ticketsSubtotal != null && sale.serviceFee > 0 && (
+                  <span className="block text-xs text-slate-500">
+                    + {formatCurrencyARS(sale.serviceFee)} comisión (total {formatCurrencyARS(sale.total)})
+                  </span>
+                )}
+              </td>
               <td className="py-2.5 pr-3">
                 <Badge tone={SALE_STATUS_TONE[sale.status] ?? "neutral"}>
                   {SALE_STATUS_LABEL[sale.status] ?? sale.status}

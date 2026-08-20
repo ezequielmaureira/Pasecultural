@@ -14,6 +14,7 @@ import { sendSaleConfirmationEmail, getSaleEmailData } from "./email/sendSaleCon
 import { buildTicketQrImages } from "./email/ticketQrImages.js";
 import { buildTicketsPdfBuffer } from "./email/ticketsPdf.js";
 import { round2 } from "../utils/money.js";
+import { getValidatedServiceFeeTiersOrThrow, calculateServiceFeeForUnitPrice } from "./serviceFee.service.js";
 
 const ACTIVE_TICKET_STATUSES = SOLD_TICKET_STATUSES;
 
@@ -129,6 +130,13 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
         // (external_reference dedicado, nunca publicRecoveryToken — ver el
         // informe de MP-2.1).
         mercadoPagoExternalReference = null,
+        // MP-6 — idem, sólo lo pasa mercadoPagoCheckout.service.js. `false`
+        // por default preserva el comportamiento exacto de siempre para
+        // los dos callers preexistentes (createSaleService/createGuestSaleService
+        // sin options, y courtesy.service.js): total sigue siendo
+        // únicamente la suma de SaleItem.subtotal, sin comisión. Ver
+        // serviceFee.service.js para el cálculo en sí.
+        applyServiceFee = false,
     } = options;
     const event = await prisma.event.findUnique({ where: { id: input?.eventId } });
     if (!event) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
@@ -173,6 +181,15 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
     });
     const assignmentByTicketTypeId = new Map(assignments.map((a) => [a.ticketTypeId, a]));
 
+    // MP-6 — se lee y revalida ANTES de tocar precios/stock, nunca dentro
+    // del advisory lock de más abajo (la comisión no compite por ningún
+    // recurso escaso, no hace falta serializarla contra nada): si no hay
+    // una configuración válida, se aborta acá mismo, sin haber creado
+    // ninguna Sale ni tocado ningún lock. Ver serviceFee.service.js —
+    // fallar fuerte acá es exactamente lo que evita un checkout con
+    // comisión $0 por accidente.
+    const serviceFeeTiers = applyServiceFee ? await getValidatedServiceFeeTiersOrThrow() : null;
+
     // Validaciones/precio que NO dependen de disponibilidad en vivo
     // (existe, está habilitado, respeta maxPerPurchase) — no hace falta
     // ningún lock para esto, sólo leen el catálogo.
@@ -191,10 +208,35 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
 
         const unitPrice = round2(assignment.priceOverride ?? assignment.ticketType.price);
         const subtotal = round2(unitPrice * item.quantity);
-        saleItemsData.push({ ticketTypeId: item.ticketTypeId, quantity: item.quantity, unitPrice, subtotal });
+        const itemData = { ticketTypeId: item.ticketTypeId, quantity: item.quantity, unitPrice, subtotal, serviceFeeUnit: null, serviceFeeSubtotal: null };
+
+        if (serviceFeeTiers) {
+            const serviceFeeUnit = calculateServiceFeeForUnitPrice(unitPrice, serviceFeeTiers);
+            if (serviceFeeUnit === null) {
+                // Precio positivo que no cae en ningún rango configurado —
+                // configuración incompleta (debería ser imposible si pasó
+                // validateServiceFeeTiersInput, pero nunca se asume: mismo
+                // criterio "fallar fuerte, nunca comisión $0 por accidente".
+                logger.error(new Error("service fee: el precio unitario de un item no cae en ningún rango configurado"), {
+                    ticketTypeId: item.ticketTypeId,
+                    unitPrice,
+                });
+                throw new AppError(ErrorCodes.SERVICE_FEE_CONFIG_MISSING);
+            }
+            itemData.serviceFeeUnit = serviceFeeUnit;
+            itemData.serviceFeeSubtotal = round2(serviceFeeUnit * item.quantity);
+        }
+
+        saleItemsData.push(itemData);
     }
 
-    const total = round2(saleItemsData.reduce((sum, item) => sum + item.subtotal, 0));
+    const ticketsSubtotal = round2(saleItemsData.reduce((sum, item) => sum + item.subtotal, 0));
+    // MP-6 — comisión de servicio SUMADA por encima del subtotal de
+    // entradas, nunca descontada de él (ver el comentario de Sale.total en
+    // schema.prisma). Para MANUAL/Courtesy (applyServiceFee=false), total
+    // sigue siendo exactamente ticketsSubtotal, sin cambios.
+    const serviceFeeTotal = serviceFeeTiers ? round2(saleItemsData.reduce((sum, item) => sum + (item.serviceFeeSubtotal ?? 0), 0)) : null;
+    const total = serviceFeeTiers ? round2(ticketsSubtotal + serviceFeeTotal) : ticketsSubtotal;
 
     const now = new Date();
     // MP-2.1 — toda Sale reserva stock, no sólo las de Mercado Pago: una
@@ -244,6 +286,8 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
                 eventId: event.id,
                 functionId: eventFunction.id,
                 total,
+                ticketsSubtotal: serviceFeeTiers ? ticketsSubtotal : null,
+                serviceFee: serviceFeeTiers ? serviceFeeTotal : null,
                 // Mismo generador que TicketQr.secretEncrypted usa para el secret
                 // del QR (crypto.randomBytes, no Math.random ni un cuid): esto va
                 // a viajar en la URL del comprador y funciona como bearer token

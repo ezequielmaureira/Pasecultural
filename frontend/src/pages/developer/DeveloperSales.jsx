@@ -111,7 +111,15 @@ function SaleDrawer({ sale, loading, error, onClose }) {
                   {sale.needsReconciliation && <Badge tone="danger">Requiere conciliación</Badge>}
                 </div>
               </div>
-              <InfoRow label="Total" value={formatCurrencyARS(sale.total)} />
+              {sale.ticketsSubtotal != null ? (
+                <>
+                  <InfoRow label="Entradas (organizador)" value={formatCurrencyARS(sale.ticketsSubtotal)} />
+                  <InfoRow label="Comisión de servicio" value={formatCurrencyARS(sale.serviceFee)} />
+                  <InfoRow label="Total pagado por el comprador" value={formatCurrencyARS(sale.total)} />
+                </>
+              ) : (
+                <InfoRow label="Total" value={formatCurrencyARS(sale.total)} />
+              )}
               <InfoRow label="Fecha de creación" value={formatDateTime(sale.createdAt)} />
               <InfoRow label="Confirmada" value={sale.confirmedAt ? formatDateTime(sale.confirmedAt) : null} />
               <InfoRow label="Payment ID (Mercado Pago)" value={sale.paymentRef} />
@@ -162,6 +170,11 @@ function SaleDrawer({ sale, loading, error, onClose }) {
                     <p className="text-xs text-slate-500">
                       {formatCurrencyARS(item.unitPrice)} c/u · Subtotal {formatCurrencyARS(item.subtotal)}
                     </p>
+                    {item.serviceFeeUnit != null && (
+                      <p className="text-xs text-slate-600">
+                        + {formatCurrencyARS(item.serviceFeeUnit)} comisión c/u · {formatCurrencyARS(item.serviceFeeSubtotal)} en total
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -493,7 +506,12 @@ export default function DeveloperSales() {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-slate-300">{sale.ticketsCount}</td>
-                    <td className="px-6 py-4 text-slate-300">{formatCurrencyARS(sale.total)}</td>
+                    <td className="px-6 py-4 text-slate-300">
+                      {formatCurrencyARS(sale.total)}
+                      {sale.serviceFee != null && sale.serviceFee > 0 && (
+                        <span className="block text-xs text-slate-500">incl. {formatCurrencyARS(sale.serviceFee)} comisión</span>
+                      )}
+                    </td>
                     <td className="px-6 py-4 text-slate-400">{formatDateTime(sale.createdAt)}</td>
                     <td className="px-6 py-4 text-right">
                       <button

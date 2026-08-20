@@ -184,7 +184,13 @@ testWithDb("1/16/17/18/19/28) a connected organization can start a checkout: PEN
         const sale = await prisma.sale.findUnique({ where: { publicRecoveryToken: result.saleToken } });
         assert.equal(sale.status, "PENDING");
         assert.equal(sale.paymentMethod, "MERCADO_PAGO");
-        assert.equal(Number(sale.total), 20000);
+        // MP-6 — precio unitario 10000 cae en el rango [10000, 50000) ->
+        // comisión $1000/entrada (reglas iniciales, ver la migración). 2
+        // entradas: subtotal 20000 + comisión 2000 = total 22000. La
+        // comisión se SUMA, nunca se descuenta del precio del organizador.
+        assert.equal(Number(sale.ticketsSubtotal), 20000);
+        assert.equal(Number(sale.serviceFee), 2000);
+        assert.equal(Number(sale.total), 22000);
         assert.ok(sale.mercadoPagoPreferenceId);
         assert.equal(sale.mercadoPagoInitPoint, result.checkoutUrl);
 
@@ -361,16 +367,26 @@ testWithDb("5/6/13/14) the backend recalculates price from the DB, ignores any c
         const result = await createMercadoPagoCheckoutService(BUYER, input, randomUUID());
 
         const sale = await prisma.sale.findUnique({ where: { publicRecoveryToken: result.saleToken } });
-        assert.equal(Number(sale.total), 22500, "3 * 7500, nunca el total mandado por el cliente");
+        // MP-6 — 3 * 7500, nunca el total mandado por el cliente. 7500 cae
+        // en el rango [5000, 10000) -> comisión $500/entrada -> 3 * 500 =
+        // 1500. total = ticketsSubtotal + serviceFee, siempre.
+        assert.equal(Number(sale.ticketsSubtotal), 22500);
+        assert.equal(Number(sale.serviceFee), 1500);
+        assert.equal(Number(sale.total), 24000, "22500 (entradas) + 1500 (comisión), nunca el total mandado por el cliente");
 
-        assert.equal(capturedBody.items.length, 1);
+        // La comisión viaja como un ítem SEPARADO (nunca prorrateada
+        // dentro del precio de cada entrada) — nunca duplicada.
+        assert.equal(capturedBody.items.length, 2);
         assert.equal(capturedBody.items[0].title, "Platea");
         assert.equal(capturedBody.items[0].quantity, 3);
         assert.equal(capturedBody.items[0].unit_price, 7500);
         assert.equal(capturedBody.items[0].currency_id, "ARS");
+        assert.equal(capturedBody.items[1].title, "Comisión de servicio PaseCultural");
+        assert.equal(capturedBody.items[1].quantity, 1);
+        assert.equal(capturedBody.items[1].unit_price, 1500);
 
         const itemsSum = capturedBody.items.reduce((sum, item) => sum + item.unit_price * item.quantity, 0);
-        assert.equal(itemsSum, Number(sale.total));
+        assert.equal(itemsSum, Number(sale.total), "la suma de los items de la preferencia debe coincidir exacto con el total esperado por el webhook");
     } finally {
         restore();
         await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
@@ -384,11 +400,18 @@ testWithDb("5/6/13/14) the backend recalculates price from the DB, ignores any c
 // 12) external_reference se prueba aparte, más abajo ("external_reference
 // sent to Mercado Pago is a dedicated, non-recovery token..." — MP-2.1
 // separó ese campo de publicRecoveryToken, ver el informe de MP-2.1).
-testWithDb("11) marketplace_fee is exactly 10% of the total as an absolute amount", async () => {
+//
+// MP-6 — reemplaza al 10% fijo (eliminado, ver config/platformFee.js):
+// marketplace_fee ahora es un importe FIJO por entrada según en qué rango
+// cae su precio unitario (nunca un porcentaje). unitPrice=8000 cae en
+// [5000, 10000) -> comisión $500/entrada — deliberadamente NO 10% de 8000
+// (que sería 800), para que el test no pueda "pasar por casualidad" si
+// alguien reintrodujera un cálculo porcentual por error.
+testWithDb("11) marketplace_fee is a flat per-ticket amount from the configured tiers, exactly equal to Sale.serviceFee — never a percentage", async () => {
     const owner = await createUser();
     const org = await createOrganization(owner.id);
     await createMpConnection(org.id);
-    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id, { price: 10000 });
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id, { price: 8000 });
 
     let capturedBody;
     const restore = mockMpFetch(async (url, options) => {
@@ -400,8 +423,15 @@ testWithDb("11) marketplace_fee is exactly 10% of the total as an absolute amoun
     });
 
     try {
-        await createMercadoPagoCheckoutService(BUYER, saleInput({ ...ticketType, eventId: event.id, functionId: eventFunction.id }, { quantity: 1 }), randomUUID());
-        assert.equal(capturedBody.marketplace_fee, 1000, "10% de 10000, monto absoluto");
+        const result = await createMercadoPagoCheckoutService(
+            BUYER,
+            saleInput({ ...ticketType, eventId: event.id, functionId: eventFunction.id }, { quantity: 1 }),
+            randomUUID()
+        );
+        const sale = await prisma.sale.findUnique({ where: { publicRecoveryToken: result.saleToken } });
+
+        assert.equal(capturedBody.marketplace_fee, 500, "$500 fijo (rango [5000,10000)), nunca 10% de 8000 (=800)");
+        assert.equal(capturedBody.marketplace_fee, Number(sale.serviceFee), "marketplace_fee debe ser EXACTAMENTE la comisión ya fotografiada en la Sale");
     } finally {
         restore();
         await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
@@ -896,6 +926,13 @@ testWithDb("confirmSaleService still works correctly after the advisory-lock ext
         });
         assert.equal(sale.status, "PENDING");
         assert.ok(sale.stockReservedUntil, "el camino manual también reserva stock, mismo mecanismo");
+        // MP-6 — el flujo MANUAL (createSaleForBuyer sin applyServiceFee)
+        // nunca aplica comisión de servicio — sólo Mercado Pago la aplica
+        // (ver mercadoPagoCheckout.service.js). total sigue siendo
+        // únicamente la suma de SaleItem.subtotal, sin cambios.
+        assert.equal(sale.ticketsSubtotal, null);
+        assert.equal(sale.serviceFee, null);
+        assert.equal(Number(sale.total), 3000);
 
         const result = await confirmSaleService(owner.clerkId, sale.id);
         assert.equal(result.sale.status, "CONFIRMED");
@@ -905,5 +942,78 @@ testWithDb("confirmSaleService still works correctly after the advisory-lock ext
         assert.equal(ticketCount, 1);
     } finally {
         await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id, buyerUser.id] });
+    }
+});
+
+// ==================================================================
+// MP-6 — compra mixta (dos tipos de entrada distintos, cada uno con su
+// propio precio) a través de Mercado Pago: la comisión se calcula POR
+// ITEM/precio unitario y se multiplica por su cantidad, nunca sobre el
+// subtotal global — ejemplo exacto de la auditoría (2 x $8.000 + 1 x
+// $60.000 -> subtotal $76.000, servicio $3.000, total $79.000).
+// ==================================================================
+
+testWithDb("mixed cart (two ticket types, two different prices) via Mercado Pago: fee is computed per item, never on the global subtotal", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    await createMpConnection(org.id);
+    const { event, eventFunction, ticketType: ticketTypeA } = await createEventWithTicketType(org.id, owner.id, { price: 8000, ticketTypeName: "General" });
+
+    const ticketTypeB = await prisma.ticketType.create({
+        data: { eventId: event.id, name: "VIP", price: 60000, quantity: 100, maxPerPurchase: 10 },
+    });
+    await prisma.functionTicketType.create({ data: { functionId: eventFunction.id, ticketTypeId: ticketTypeB.id, enabled: true } });
+
+    let capturedBody;
+    const restore = mockMpFetch(async (url, options) => {
+        if (String(url).includes("/checkout/preferences")) {
+            capturedBody = JSON.parse(options.body);
+            return jsonResponse(201, { id: "PREF-mixed", init_point: "https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=mixed" });
+        }
+        throw new Error(`unexpected fetch call to ${url}`);
+    });
+
+    try {
+        const input = {
+            eventId: event.id,
+            functionId: eventFunction.id,
+            items: [
+                { ticketTypeId: ticketTypeA.id, quantity: 2 },
+                { ticketTypeId: ticketTypeB.id, quantity: 1 },
+            ],
+            buyerDocument: "30111222",
+        };
+        const result = await createMercadoPagoCheckoutService(BUYER, input, randomUUID());
+        const sale = await prisma.sale.findUnique({
+            where: { publicRecoveryToken: result.saleToken },
+            include: { items: { orderBy: { unitPrice: "asc" } } },
+        });
+
+        assert.equal(Number(sale.ticketsSubtotal), 76000);
+        assert.equal(Number(sale.serviceFee), 3000);
+        assert.equal(Number(sale.total), 79000);
+
+        // Cada SaleItem conserva su propia comisión, no un promedio ni un
+        // prorrateo del total.
+        const itemA = sale.items.find((i) => i.ticketTypeId === ticketTypeA.id);
+        const itemB = sale.items.find((i) => i.ticketTypeId === ticketTypeB.id);
+        assert.equal(Number(itemA.serviceFeeUnit), 500);
+        assert.equal(Number(itemA.serviceFeeSubtotal), 1000);
+        assert.equal(Number(itemB.serviceFeeUnit), 2000);
+        assert.equal(Number(itemB.serviceFeeSubtotal), 2000);
+
+        // La preferencia manda 2 líneas de entradas + 1 única línea de
+        // comisión (nunca duplicada, nunca prorrateada dentro de cada
+        // entrada) — la suma coincide exacto con el total esperado.
+        assert.equal(capturedBody.items.length, 3);
+        const feeLine = capturedBody.items.find((i) => i.title === "Comisión de servicio PaseCultural");
+        assert.ok(feeLine);
+        assert.equal(feeLine.unit_price, 3000);
+        assert.equal(feeLine.quantity, 1);
+        const itemsSum = capturedBody.items.reduce((sum, item) => sum + item.unit_price * item.quantity, 0);
+        assert.equal(itemsSum, Number(sale.total));
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
     }
 });

@@ -48,7 +48,33 @@ function ticketTextBlock(ticket) {
 // `data` viene de getSaleEmailData() (ver sendSaleConfirmationEmail.service.js).
 // `qrContentIds` mapea ticket.id -> contentId, en el mismo orden que los
 // adjuntos inline que arma ese mismo service — nunca se recalcula acá.
-export function buildSaleConfirmationEmail({ buyerFirstName, eventTitle, tickets, recoverPurchaseUrl, replyTo }, qrContentIds) {
+// MP-6 — sólo se arma cuando hay desglose disponible (ticketsSubtotal Y
+// serviceFee no-null, ver getSaleEmailData): ventas MANUAL/Courtesy y
+// Sale de Mercado Pago anteriores a esta migración no lo tienen — para
+// esas se sigue mostrando el email exactamente como antes, sin sección de
+// importes. Nunca afirma nada sobre lo que recibe el organizador (este
+// email es para el COMPRADOR): sólo entradas + comisión = total pagado.
+function priceSummaryHtml({ ticketsSubtotal, serviceFee, total }) {
+    if (ticketsSubtotal == null || serviceFee == null) return "";
+    const formatted = (value) => `$${value.toLocaleString("es-AR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+    return `
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">
+                  <tr><td style="padding:4px 0;color:${TEXT_MUTED};">Entradas</td><td style="padding:4px 0;text-align:right;color:${TEXT_DARK};">${formatted(ticketsSubtotal)}</td></tr>
+                  <tr><td style="padding:4px 0;color:${TEXT_MUTED};">Comisión de servicio</td><td style="padding:4px 0;text-align:right;color:${TEXT_DARK};">${formatted(serviceFee)}</td></tr>
+                  <tr><td style="padding:6px 0 0;color:${TEXT_DARK};font-weight:bold;border-top:1px solid ${BORDER};">Total pagado</td><td style="padding:6px 0 0;text-align:right;color:${TEXT_DARK};font-weight:bold;border-top:1px solid ${BORDER};">${formatted(total)}</td></tr>
+                </table>`;
+}
+
+function priceSummaryText({ ticketsSubtotal, serviceFee, total }) {
+    if (ticketsSubtotal == null || serviceFee == null) return [];
+    const formatted = (value) => `$${value.toLocaleString("es-AR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+    return [`Entradas: ${formatted(ticketsSubtotal)}`, `Comisión de servicio: ${formatted(serviceFee)}`, `Total pagado: ${formatted(total)}`, ""];
+}
+
+export function buildSaleConfirmationEmail(
+    { buyerFirstName, eventTitle, tickets, total, ticketsSubtotal, serviceFee, recoverPurchaseUrl, replyTo },
+    qrContentIds
+) {
     const subject = `Tus entradas para ${eventTitle} | PaseCultural`;
     const preheader = "Tu compra fue confirmada. Guardá tus entradas para ingresar al evento.";
     const greetingName = buyerFirstName?.trim() ? escapeHtml(buyerFirstName.trim()) : "";
@@ -89,6 +115,8 @@ export function buildSaleConfirmationEmail({ buyerFirstName, eventTitle, tickets
                   Podés mostrarlas desde tu teléfono o descargar el PDF adjunto.
                 </p>
 
+                ${priceSummaryHtml({ ticketsSubtotal, serviceFee, total })}
+
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                   ${ticketsHtml}
                 </table>
@@ -125,6 +153,7 @@ export function buildSaleConfirmationEmail({ buyerFirstName, eventTitle, tickets
         `Hola${buyerFirstName?.trim() ? " " + buyerFirstName.trim() : ""}.`,
         `Estas son tus entradas para ${eventTitle}. Podés mostrarlas desde tu teléfono o descargar el PDF adjunto.`,
         "",
+        ...priceSummaryText({ ticketsSubtotal, serviceFee, total }),
         ...tickets.map(ticketTextBlock),
         "",
         "No compartas tus códigos QR: son personales e intransferibles.",

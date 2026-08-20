@@ -500,4 +500,16 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "A checkout was already attempted (or is being attempted concurrently) with this idempotency key, with no usable preference to replay.",
         userMessage: "Ya estamos procesando (o ya procesamos) este intento de compra. Si no avanzó, volvé a intentarlo desde el principio.",
     },
+
+    // --- Comisión de servicio (MP-6) ---
+    SERVICE_FEE_CONFIG_MISSING: {
+        httpStatus: 500,
+        logMessage: "No valid ServiceFeeTier configuration exists (empty, or fails validation) — refusing to create a Mercado Pago checkout with an accidental zero/undefined service fee.",
+        userMessage: "No pudimos procesar tu compra. Probá de nuevo.",
+    },
+    SERVICE_FEE_TIERS_INVALID: {
+        httpStatus: 400,
+        logMessage: "The proposed service fee tier set failed validation (negative amounts, overlaps, gaps, inverted range, missing/duplicate open-ended tier, or empty set).",
+        userMessage: "La configuración de comisión tiene errores. Revisá los rangos e intentá de nuevo.",
+    },
 });

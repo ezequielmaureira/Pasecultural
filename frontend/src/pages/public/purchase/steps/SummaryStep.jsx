@@ -4,7 +4,7 @@ import Button from "../../../../components/ui/Button.jsx";
 import { currency } from "../../../organizer/eventWizard/model.js";
 import { formatEventDateTime, formatEventLocation } from "../../../../lib/eventFormat.js";
 
-export default function SummaryStep({ event, selectedFunction, lineItems, total, onBack, onContinue }) {
+export default function SummaryStep({ event, selectedFunction, lineItems, ticketsSubtotal, serviceFeeTotal, total, onBack, onContinue }) {
   return (
     <Card>
       <div className="flex flex-col gap-1 pb-4 text-center">
@@ -40,9 +40,23 @@ export default function SummaryStep({ event, selectedFunction, lineItems, total,
         ))}
       </div>
 
-      <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-4">
-        <span className="text-sm font-semibold text-slate-300">Total</span>
-        <span className="text-xl font-bold text-violet-400">{currency(total)}</span>
+      {/* MP-6 — la comisión de servicio se SUMA por encima del precio de
+          las entradas, nunca se descuenta del organizador ni se esconde
+          dentro de un único número — se muestra siempre desglosada acá,
+          antes de continuar al pago. */}
+      <div className="mt-4 flex flex-col gap-2 border-t border-white/10 pt-4">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-slate-400">Entradas</span>
+          <span className="text-slate-300">{currency(ticketsSubtotal)}</span>
+        </div>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-slate-400">Comisión de servicio</span>
+          <span className="text-slate-300">{currency(serviceFeeTotal)}</span>
+        </div>
+        <div className="flex items-center justify-between pt-1">
+          <span className="text-sm font-semibold text-slate-300">Total</span>
+          <span className="text-xl font-bold text-violet-400">{currency(total)}</span>
+        </div>
       </div>
 
       <div className="mt-5 flex gap-3">

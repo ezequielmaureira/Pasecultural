@@ -13,6 +13,7 @@ import {
     resendConfirmationEmailByTokenService,
     getSalePdfByTokenService,
 } from "../services/sale.service.js";
+import { getActiveServiceFeeTiers } from "../services/serviceFee.service.js";
 import { resendSaleConfirmationEmailService } from "../services/email/sendSaleConfirmationEmail.service.js";
 import {
     requestSaleRecoveryCodeService,
@@ -227,6 +228,29 @@ export const getSalePdfByToken = async (req, res, next) => {
         res.setHeader("Content-Type", "application/pdf");
         res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
         res.send(pdfBuffer);
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
+
+// MP-6 — GET /api/sales/service-fee-tiers. Público, sin sesión: es lo que
+// el Wizard de compra usa para mostrar una ESTIMACIÓN de la comisión de
+// servicio antes de pagar (ver SummaryStep.jsx) — el cálculo AUTORITATIVO
+// sigue ocurriendo exclusivamente server-side al crear el checkout (ver
+// createSaleForBuyer, sale.service.js). No es información sensible: son
+// las mismas reglas que ya se le aplican a cualquier comprador, nunca un
+// dato personal ni una credencial. Shape mínimo a propósito (sin id/
+// updatedAt/updatedByUserId, eso es sólo para Developer > Configuración).
+export const getPublicServiceFeeTiers = async (req, res, next) => {
+    try {
+        const tiers = await getActiveServiceFeeTiers();
+        res.status(200).json({
+            tiers: tiers.map((tier) => ({
+                minAmount: Number(tier.minAmount),
+                maxAmount: tier.maxAmount == null ? null : Number(tier.maxAmount),
+                feeAmount: Number(tier.feeAmount),
+            })),
+        });
     } catch (error) {
         next(AppError.from(error));
     }
