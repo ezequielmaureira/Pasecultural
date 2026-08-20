@@ -3,6 +3,7 @@ import { logger } from "../logging/logger.js";
 import { getMercadoPagoPayment } from "./mercadoPago.service.js";
 import { getValidMercadoPagoAccessTokenForConnection } from "./mercadoPagoConnection.service.js";
 import { confirmSaleService } from "./sale.service.js";
+import { sendSaleConfirmationEmail } from "./email/sendSaleConfirmationEmail.service.js";
 import {
     sendMercadoPagoReconciliationAlert,
     sendMercadoPagoReversalAlert,
@@ -382,12 +383,48 @@ export async function processMercadoPagoWebhookNotification({ type, dataId, body
     }
 
     try {
-        const result = await confirmSaleService(organizer.clerkId, sale.id, { mercadoPagoPaymentId: normalizedPaymentId });
+        // Auditoría "email síncrono en el camino crítico del webhook" —
+        // skipAutoEmail:true (mismo flag que ya usa courtesy.service.js
+        // para su propio motivo) es lo que separa la confirmación
+        // financiera del envío del email SIN tocar el comportamiento por
+        // default de confirmSaleService para el resto de sus callers
+        // (sale.controller.js, courtesy.service.js con delivery≠SHARE)
+        // — ninguno de ellos pasa este flag, así que su email sigue
+        // siendo síncrono exactamente como siempre. Acá, en cambio, la
+        // transacción de Prisma (Sale CONFIRMED + Ticket/TicketQr) ya
+        // está commiteada cuando confirmSaleService devuelve — el email
+        // se dispara DESPUÉS, sin bloquear la respuesta al webhook.
+        const result = await confirmSaleService(organizer.clerkId, sale.id, {
+            mercadoPagoPaymentId: normalizedPaymentId,
+            skipAutoEmail: true,
+        });
         logger.info("mercadopago webhook: Sale confirmada", {
             saleId: sale.id,
             paymentId: normalizedPaymentId,
             ticketCount: result.tickets.length,
         });
+
+        // Deliberadamente NO se espera este envío antes de responderle a
+        // Mercado Pago (el timeout de Resend, sumado a la reconsulta
+        // server-to-server, podía acercarse a los ~22s que documenta MP
+        // para considerar la notificación recibida). No es un
+        // fire-and-forget inseguro: sendSaleConfirmationEmail ya persiste
+        // su propio estado durable en la Sale (confirmationEmailStatus/
+        // Attempts/LastAttemptAt — ver sendSaleConfirmationEmail.service.js)
+        // y ya reclama de forma atómica un SENDING colgado (>5 min) — si el
+        // proceso se cayera justo en esta ventana angosta (server
+        // persistente, no serverless), la fila queda PENDING/SENDING
+        // reclamable, y el reenvío manual ya existente (resendSaleConfirmationEmailService)
+        // la recupera sin duplicar ni perderse en silencio. El .catch()
+        // es sólo defensa adicional: la función documenta que nunca lanza.
+        sendSaleConfirmationEmail(sale.id).catch((err) => {
+            logger.error(err, {
+                context: "mercadopago webhook: el envío de email (fuera del camino crítico) terminó con una excepción no esperada",
+                saleId: sale.id,
+                paymentId: normalizedPaymentId,
+            });
+        });
+
         return { ok: true, action: "confirmed", saleId: sale.id };
     } catch (error) {
         if (error?.code === "SALE_ALREADY_PROCESSED") {

@@ -64,6 +64,20 @@ async function withWarnSpy(run) {
     }
 }
 
+// Auditoría "endurecer webhook" — mismo patrón que withWarnSpy, para el
+// log único de entrada y el log explícito de IPN legado (ambos
+// logger.info).
+async function withInfoSpy(run) {
+    const originalInfo = logger.info;
+    const calls = [];
+    logger.info = (message, context) => calls.push({ message, context });
+    try {
+        return await run(calls);
+    } finally {
+        logger.info = originalInfo;
+    }
+}
+
 function malformedSignatureHeader() {
     return "garbage-not-even-kv-pairs";
 }
@@ -253,4 +267,169 @@ test("6) a completely missing x-signature header still responds 401 MISSING_SIGN
     // Nunca debe haber disparado, en este caso, el log NUEVO de firma
     // inválida (son ramas distintas).
     assert.ok(!calls.some((c) => c.message === "mercadopago webhook: firma inválida"));
+});
+
+// ==================================================================
+// Auditoría "endurecer webhook" — 7) log único de entrada: un solo
+// logger.info al comienzo del controller, con metadata segura, nunca
+// x-signature/v1/secret/tokens.
+// ==================================================================
+test("7) the single entry log fires for every request with safe correlation metadata, never leaking x-signature/secret/tokens", async () => {
+    const configuredSecret = "diagnostics-test-secret-xyz";
+    const xSignature = wellFormedButWrongSignatureHeader({
+        dataId: "555000111",
+        requestId: "req-entry-log",
+        ts: "1710000000",
+        secret: "wrong-secret-not-the-configured-one",
+    });
+    const req = fakeReq({
+        headers: {
+            "x-signature": xSignature,
+            "x-request-id": "req-entry-log",
+            "user-agent": "MercadoPago Webhooks/1.0",
+            "content-type": "application/json",
+        },
+        query: { "data.id": "555000111", type: "payment" },
+        body: { data: { id: "555000111" }, type: "payment", action: "payment.updated" },
+    });
+    const { res } = fakeRes();
+
+    const calls = await withInfoSpy(async (calls) => {
+        await handleMercadoPagoWebhook(req, res);
+        return calls;
+    });
+
+    const entry = calls.find((c) => c.message === "mercadopago webhook: recibido");
+    assert.ok(entry, "esperaba el log único de entrada");
+    const serialized = JSON.stringify(entry);
+    assert.ok(!serialized.includes(xSignature), "el log de entrada no debe incluir el header x-signature completo");
+    assert.ok(!serialized.toLowerCase().includes(configuredSecret.toLowerCase()), "el log de entrada no debe incluir el secret");
+    assert.ok(!serialized.toLowerCase().includes("access_token"));
+    assert.ok(!serialized.toLowerCase().includes("refresh_token"));
+
+    assert.equal(entry.context.xRequestId, "req-entry-log");
+    assert.equal(entry.context.type, "payment");
+    assert.equal(entry.context.action, "payment.updated");
+    assert.equal(entry.context.dataIdFromQuery, "555000111");
+    assert.equal(entry.context.dataIdFromBody, "555000111");
+    assert.deepEqual(entry.context.queryKeys.sort(), ["data.id", "type"]);
+    assert.equal(entry.context.userAgent, "MercadoPago Webhooks/1.0");
+    assert.equal(entry.context.contentType, "application/json");
+    assert.equal(entry.context.format, "webhook_v2");
+});
+
+// ==================================================================
+// Auditoría "endurecer webhook" — 8/9) IPN legado (?id=...&topic=...,
+// sin x-signature): se reconoce explícitamente, nunca llega al service,
+// nunca es tratado como "firma inválida", ack 200 deliberado.
+// ==================================================================
+test("8) legacy IPN format (?id=...&topic=payment) is recognized explicitly, acked 200 with ignored_legacy_ipn, and never reaches the service", async () => {
+    const source = readFileSync(controllerPath, "utf8");
+    const legacyBranchIndex = source.indexOf('if (format === "ipn_legacy")');
+    const serviceCallIndex = source.indexOf("processMercadoPagoWebhookNotification({");
+    assert.ok(legacyBranchIndex !== -1, "no encontré la rama de IPN legado en el controller");
+    assert.ok(
+        legacyBranchIndex < serviceCallIndex,
+        "la rama de IPN legado debe aparecer, en el código fuente, antes del único llamado al service"
+    );
+
+    const req = fakeReq({
+        headers: { "user-agent": "MercadoPago Feed v2.0 payment" },
+        query: { id: "123456", topic: "payment" },
+    });
+    const { res, state } = fakeRes();
+
+    const calls = await withInfoSpy(async (calls) => {
+        await handleMercadoPagoWebhook(req, res);
+        return calls;
+    });
+
+    assert.equal(state.statusCode, 200);
+    assert.deepEqual(state.jsonBody, { received: true, action: "ignored_legacy_ipn" });
+
+    const entry = calls.find((c) => c.message === "mercadopago webhook: formato IPN legado detectado — no soportado, se descarta sin procesar");
+    assert.ok(entry, "esperaba el log explícito de IPN legado");
+    assert.equal(entry.context.topic, "payment");
+    assert.equal(entry.context.legacyId, "123456");
+    assert.equal(entry.context.userAgent, "MercadoPago Feed v2.0 payment");
+
+    // Nunca se lo confunde con firma inválida — son ramas y logs distintos.
+    assert.ok(!calls.some((c) => c.message === "mercadopago webhook: firma inválida"));
+});
+
+test("9) legacy IPN format for merchant_order is also recognized explicitly and acked 200 without ever processing a Sale", async () => {
+    const req = fakeReq({
+        headers: { "user-agent": "MercadoPago Feed v2.0 merchant_order" },
+        query: { id: "999999", topic: "merchant_order" },
+    });
+    const { res, state } = fakeRes();
+
+    const calls = await withInfoSpy(async (calls) => {
+        await handleMercadoPagoWebhook(req, res);
+        return calls;
+    });
+
+    assert.equal(state.statusCode, 200);
+    assert.deepEqual(state.jsonBody, { received: true, action: "ignored_legacy_ipn" });
+    const entry = calls.find((c) => c.message === "mercadopago webhook: formato IPN legado detectado — no soportado, se descarta sin procesar");
+    assert.ok(entry);
+    assert.equal(entry.context.topic, "merchant_order");
+});
+
+test("a modern Webhooks v2 request is never misclassified as legacy IPN, even if it happens to also carry topic/id", async () => {
+    const xSignature = wellFormedButWrongSignatureHeader({
+        dataId: "777",
+        requestId: "req-mixed",
+        ts: "1710000001",
+        secret: "wrong-secret",
+    });
+    const req = fakeReq({
+        headers: { "x-signature": xSignature, "x-request-id": "req-mixed" },
+        // A propósito trae AMBOS: data.id/type (moderno) y topic/id
+        // (legado) — el moderno debe ganar siempre.
+        query: { "data.id": "777", type: "payment", topic: "payment", id: "777" },
+    });
+    const { res, state } = fakeRes();
+
+    await withWarnSpy(async () => {
+        await withInfoSpy(async () => {
+            await handleMercadoPagoWebhook(req, res);
+        });
+    });
+
+    // Firma inválida (no es MISSING/ignored_legacy_ipn) confirma que pasó
+    // por el camino Webhooks v2, no por el de IPN legado.
+    assert.equal(state.statusCode, 401);
+    assert.deepEqual(state.jsonBody, { received: false, error: "INVALID_SIGNATURE" });
+});
+
+// ==================================================================
+// Auditoría "endurecer webhook" — 10) catch genérico con más contexto
+// (paymentId/x-request-id/type/formato) — verificado por inspección
+// estática, mismo criterio que el test 5: nunca se ejecuta el service
+// real en este archivo (evita tocar Prisma).
+// ==================================================================
+test("10) the generic catch block logs paymentId/x-request-id/type/format context, never a fabricated saleId", () => {
+    const source = readFileSync(controllerPath, "utf8");
+    const serviceCallIndex = source.indexOf("processMercadoPagoWebhookNotification({");
+    const catchIndex = source.indexOf("} catch (error) {", serviceCallIndex);
+    assert.ok(serviceCallIndex !== -1 && catchIndex !== -1, "no encontré el catch genérico después del llamado al service");
+
+    const catchBlock = source.slice(catchIndex);
+    assert.ok(catchBlock.includes("logger.error(appError, {"), "el catch genérico debe seguir logueando con logger.error");
+    assert.ok(catchBlock.includes("xRequestId,"), "el catch genérico debe incluir x-request-id");
+    assert.ok(catchBlock.includes("type,"), "el catch genérico debe incluir type");
+    assert.ok(catchBlock.includes("format,"), "el catch genérico debe incluir el formato detectado");
+    assert.ok(
+        catchBlock.includes("paymentId: dataIdFromQuery ?? bodyDataId ?? null,"),
+        "el catch genérico debe incluir paymentId, resuelto sin queries adicionales"
+    );
+    assert.ok(
+        !catchBlock.includes("saleId:"),
+        "el catch genérico no debe inventar un campo saleId que no tiene forma segura de conocer (la palabra puede aparecer en un comentario explicando por qué no se agrega, eso es intencional)"
+    );
+    assert.ok(
+        catchBlock.includes('return res.status(500).json({ received: true, action: "internal_error" });'),
+        "la respuesta 500 del catch genérico no debe cambiar"
+    );
 });
