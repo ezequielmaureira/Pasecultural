@@ -606,6 +606,13 @@ testWithDb("approved -> a late/out-of-order rejected for a different payment nev
 // nunca vuelve a confirmar la Sale, nunca duplica/emite Tickets, invalida
 // (REFUNDED) los Tickets ACTIVE de esa Sale, y repetir la misma
 // notificación (retry/redelivery) es idempotente (MP-5).
+//
+// Auditoría de webhooks — MERCADOPAGO_RECONCILIATION_ALERT_EMAIL nunca se
+// define en este archivo, así que sendMercadoPagoReversalAlert() falla
+// puertas adentro (env var faltante) en las dos llamadas de este mismo
+// test (la primera con ticketsRefunded=1, la segunda con 0) — de paso
+// prueba que un fallo de esa alerta best-effort nunca hace fallar el
+// webhook, y que se intenta enviar incluso cuando ticketsRefunded es 0.
 // ==================================================================
 
 for (const status of ["refunded", "charged_back"]) {

@@ -3,7 +3,7 @@ import { logger } from "../logging/logger.js";
 import { getMercadoPagoPayment } from "./mercadoPago.service.js";
 import { getValidMercadoPagoAccessTokenForConnection } from "./mercadoPagoConnection.service.js";
 import { confirmSaleService } from "./sale.service.js";
-import { sendMercadoPagoReconciliationAlert } from "./email/sendMercadoPagoReconciliationAlert.service.js";
+import { sendMercadoPagoReconciliationAlert, sendMercadoPagoReversalAlert } from "./email/sendMercadoPagoReconciliationAlert.service.js";
 import { round2 } from "../utils/money.js";
 
 // MP-3 — la notificación de Mercado Pago NUNCA es la fuente de verdad: sólo
@@ -191,6 +191,33 @@ export async function processMercadoPagoWebhookNotification({ type, dataId, body
             saleStatus: sale.status,
             ticketsRefunded,
         });
+
+        // Auditoría de webhooks (sección 12) — hasta ahora refunded/charged_back
+        // sólo quedaban en logs, sin ninguna alerta activa (a diferencia de
+        // INSUFFICIENT_STOCK). Puramente informativa: nunca toca Sale.status,
+        // stock, ni dispara ningún refund — la invalidación de arriba ya
+        // ocurrió, esto sólo avisa. Se intenta siempre, incluso si
+        // ticketsRefunded es 0 (reversión ya procesada antes, o Sale que
+        // nunca llegó a confirmarse) — y a propósito sin deduplicar: un
+        // reenvío de este mismo webhook puede volver a generar la alerta
+        // (ver sendMercadoPagoReversalAlert).
+        const reversalAlertResult = await sendMercadoPagoReversalAlert({
+            type: payment.status === "refunded" ? "REFUNDED" : "CHARGED_BACK",
+            saleId: sale.id,
+            paymentId: normalizedPaymentId,
+            eventId: sale.eventId,
+            organizationId: sale.event.organizationId,
+            ticketsAffected: ticketsRefunded,
+        });
+        if (!reversalAlertResult.sent) {
+            logger.error(new Error("mercadopago webhook: no se pudo enviar la alerta interna de reversión"), {
+                saleId: sale.id,
+                paymentId: normalizedPaymentId,
+                paymentStatus: payment.status,
+                reason: reversalAlertResult.reason,
+            });
+        }
+
         return { ok: true, action: "reversal_acknowledged", saleId: sale.id, ticketsRefunded };
     }
 
