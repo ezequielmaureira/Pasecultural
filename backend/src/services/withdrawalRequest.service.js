@@ -5,7 +5,7 @@ import { logger } from "../logging/logger.js";
 import { getUserByClerkId } from "../utils/getUserByClerkId.js";
 import { buildArgentineWhatsappId } from "../utils/normalizeArgentinePhone.js";
 import { getEmailConfig } from "../config/resend.js";
-import { sendOrganizerWithdrawalRequestAlert } from "./email/sendOrganizerWithdrawalRequestAlert.service.js";
+import { sendOrganizerNotification, OrganizerNotificationType } from "./email/sendOrganizerNotification.service.js";
 import { sendDeveloperAlert, DeveloperAlertType, tryClaimDeveloperAlertCooldown } from "./email/sendDeveloperAlert.service.js";
 import { getDeveloperAlertConfigOrDefaults } from "./developerAlertConfig.service.js";
 
@@ -60,7 +60,9 @@ export async function createWithdrawalRequestService(token, { reason, reasonNote
         where: { publicRecoveryToken: token },
         include: {
             event: { include: { organization: true } },
+            function: { select: { date: true, venue: true } },
             tickets: { where: { deletedAt: null }, select: { status: true } },
+            items: { select: { quantity: true, ticketType: { select: { name: true } } } },
         },
     });
     if (!sale || sale.deletedAt) throw new AppError(ErrorCodes.WITHDRAWAL_REQUEST_SALE_NOT_FOUND);
@@ -116,16 +118,25 @@ export async function createWithdrawalRequestService(token, { reason, reasonNote
         });
 
         // Best-effort de punta a punta — nunca puede revertir ni afectar
-        // la solicitud ya persistida arriba.
+        // la solicitud ya persistida arriba. OBLIGATORIA: nunca depende de
+        // OrganizerNotificationSettings (ver el informe de entrega,
+        // "Alertas obligatorias") — generalizada acá desde
+        // sendOrganizerWithdrawalRequestAlert.service.js (retirado).
         try {
             const { frontendUrl } = getEmailConfig();
             const organizerEmail = sale.event.organization.email;
             if (organizerEmail) {
-                const alertResult = await sendOrganizerWithdrawalRequestAlert({
+                const ticketCount = sale.items.reduce((sum, item) => sum + item.quantity, 0);
+                const ticketSummary = sale.items.map((item) => `${item.quantity}x ${item.ticketType.name}`).join(", ");
+                const alertResult = await sendOrganizerNotification(OrganizerNotificationType.WITHDRAWAL_REQUEST, {
                     to: organizerEmail,
                     eventTitle: sale.event.title,
+                    functionDate: sale.function.date,
+                    venue: sale.function.venue,
                     reason: sanitizedReason,
                     reasonNote: sanitizedNote,
+                    ticketCount,
+                    ticketSummary,
                     requestsUrl: `${frontendUrl}/organizador/solicitudes`,
                 });
                 if (!alertResult.sent) {

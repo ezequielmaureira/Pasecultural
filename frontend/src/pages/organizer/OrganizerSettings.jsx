@@ -9,6 +9,7 @@ import { apiFetch } from "../../lib/api.js";
 import { useToast } from "../../context/ToastContext.jsx";
 import WhatsappNumberChangeCard from "./WhatsappNumberChangeCard.jsx";
 import MercadoPagoConnectionCard from "./MercadoPagoConnectionCard.jsx";
+import OrganizerNotificationSettingsCard from "./OrganizerNotificationSettingsCard.jsx";
 
 function FieldSkeleton({ className = "" }) {
   return (
@@ -219,6 +220,8 @@ export default function OrganizerSettings() {
           hay configuración de comisión, movimientos, saldos ni checkout —
           eso es MP-2. */}
       {!loading && orgId && <MercadoPagoConnectionCard organizationId={orgId} />}
+
+      {!loading && orgId && <OrganizerNotificationSettingsCard />}
     </form>
   );
 }

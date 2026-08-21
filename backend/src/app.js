@@ -12,6 +12,7 @@ import conversationRoutes from "./routes/conversation.routes.js";
 import saleRoutes from "./routes/sale.routes.js";
 import courtesyRoutes from "./routes/courtesy.routes.js";
 import withdrawalRequestRoutes from "./routes/withdrawalRequest.routes.js";
+import organizerNotificationSettingsRoutes from "./routes/organizerNotificationSettings.routes.js";
 import ticketRoutes from "./routes/ticket.routes.js";
 import scannerRoutes from "./routes/scanner.routes.js";
 import scannerInvitationRoutes from "./routes/scannerInvitation.routes.js";
@@ -64,6 +65,11 @@ app.use("/api/courtesies", courtesyRoutes);
 // adentro para el panel Organizer/Developer. Ver
 // routes/withdrawalRequest.routes.js.
 app.use("/api/withdrawal-requests", withdrawalRequestRoutes);
+// Notificaciones Organizer — Dashboard Organizador > Configuración >
+// Notificaciones (GET/PUT /api/organizer/notification-settings). Prefijo
+// nuevo, sin router "/api/organizer" previo — mismo criterio que
+// "/api/developer" agrupa varios routers Developer bajo un prefijo común.
+app.use("/api/organizer", organizerNotificationSettingsRoutes);
 app.use("/api/tickets", ticketRoutes);
 app.use("/api/scanner", scannerRoutes);
 app.use("/api/scanner-invitations", scannerInvitationRoutes);

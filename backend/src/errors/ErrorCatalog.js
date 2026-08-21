@@ -585,4 +585,15 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "The proposed developer alert threshold configuration failed validation (non-positive threshold/window, or negative cooldown).",
         userMessage: "La configuración de alertas tiene errores. Revisá los valores e intentá de nuevo.",
     },
+
+    ORGANIZER_NOTIFICATION_SETTINGS_NO_ORGANIZATION: {
+        httpStatus: 409,
+        logMessage: "Organizer notification settings requested/updated by a user with no organization of their own.",
+        userMessage: "No encontramos una organización asociada a tu cuenta.",
+    },
+    ORGANIZER_NOTIFICATION_SETTINGS_INVALID: {
+        httpStatus: 400,
+        logMessage: "The proposed organizer notification settings failed validation (non-boolean flag, or non-positive/out-of-range numeric field).",
+        userMessage: "La configuración de notificaciones tiene errores. Revisá los valores e intentá de nuevo.",
+    },
 });

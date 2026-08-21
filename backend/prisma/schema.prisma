@@ -233,6 +233,13 @@ model Organization {
   // WhatsApp, que sí exige un único intento pendiente.
   mercadoPagoConnections MercadoPagoConnection[]
   mercadoPagoOAuthStates MercadoPagoOAuthState[]
+
+  // Notificaciones Organizer — preferencias configurables de ESTA
+  // organización (ver OrganizerNotificationSettings más abajo). Opcional:
+  // una organización sin fila todavía se interpreta como "todo apagado"
+  // (ver organizerNotificationSettings.service.js), nunca se siembra una
+  // fila por organización existente en la migración.
+  notificationSettings OrganizerNotificationSettings?
 }
 
 // Fase 2F — challenge efímero para vincular un wa_id a una organización.
@@ -1327,6 +1334,85 @@ model DeveloperAlertReversalEvent {
 
   @@index([organizationId, occurredAt])
   @@map("developer_alert_reversal_events")
+}
+
+// Notificaciones Organizer — Dashboard Organizador > Configuración >
+// Notificaciones. Preferencias CONFIGURABLES por el organizador, una fila
+// por Organization ("singleton" por organización, igual criterio que
+// DeveloperAlertConfig pero sin ser plataforma-wide). Las alertas
+// OBLIGATORIAS (solicitud de arrepentimiento, entradas agotadas, Mercado
+// Pago desconectado, problema de Mercado Pago que requiere intervención) NO
+// tienen columna acá — nunca se pueden desactivar, ni siquiera manipulando
+// esta fila directamente por API, así que no existe ningún flag que
+// controle su envío.
+//
+// Fila opcional: si una Organization nunca guardó preferencias, el código
+// la trata como "todo apagado" (ver
+// getOrganizerNotificationSettingsOrDefaults) — la migración NO siembra una
+// fila por organización existente, es innecesario y este mismo fallback ya
+// cumple el requisito de "defaults seguros" sin escribir nada.
+model OrganizerNotificationSettings {
+  id String @id @default(cuid())
+
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  // Venta CONFIRMED real (origin=SALE) de un evento de esta organización.
+  saleConfirmedEnabled Boolean @default(false)
+
+  // Hito de ventas — cada N entradas vendidas (origin=SALE) de TODA la
+  // organización (no por evento). N configurable, sin límite superior fijo.
+  salesMilestoneEnabled Boolean @default(false)
+  salesMilestoneCount   Int     @default(100)
+
+  // Stock bajo por porcentaje — por TicketType×EventFunction, sobre el
+  // mismo "disponible" autoritativo que ya usa la reserva de stock en el
+  // checkout (ver functionCapacity.service.js#getUnavailableCount).
+  lowStockEnabled Boolean @default(false)
+  lowStockPercent Int     @default(20)
+
+  // Recordatorio antes de una función — anticipación en horas.
+  eventReminderEnabled     Boolean @default(false)
+  eventReminderHoursBefore Int     @default(24)
+
+  // Comienzo/fin de una función — fin sólo aplica si EventFunction.endAt
+  // tiene valor (ver el informe de entrega, "hora de finalización").
+  eventStartEnabled Boolean @default(false)
+  eventEndEnabled   Boolean @default(false)
+
+  // Actividad de Scanner — hitos fijos de % de entradas ingresadas
+  // (CheckIn válido) sobre la capacidad de la función (25/50/75/90%, ver
+  // organizerNotifications.service.js). Sin número configurable a
+  // propósito — mismo criterio "sin interfaz enorme" pedido para este
+  // bloque.
+  scannerActivityEnabled Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("organizer_notification_settings")
+}
+
+// Notificaciones Organizer — ledger genérico de deduplicación "reclamado
+// una única vez", nunca una ventana de tiempo (a diferencia de
+// DeveloperAlertCooldown, que sí es un cooldown temporal — reusarla acá
+// para un reclamo definitivo sería una mezcla semántica incorrecta, ver el
+// informe de entrega). `key` identifica de forma estable QUÉ ocurrencia
+// puntual ya se notificó (ej. "sales-milestone:{organizationId}:200",
+// "event-start:{functionId}") — create() atómico: la primera llamada que
+// logra crear la fila es la única que manda el email, cualquier otra choca
+// con P2002 (@unique) y se trata como "ya reclamado", nunca como error.
+// Usada SÓLO por las notificaciones que de verdad lo necesitan (hitos de
+// venta, hitos de Scanner, recordatorio/inicio/fin de función,
+// reconexión de Mercado Pago requerida) — el resto de las notificaciones de
+// este bloque ya son idempotentes por construcción (ver el informe de
+// entrega, sección "Deduplicación") y no escriben acá.
+model OrganizerNotificationClaim {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  createdAt DateTime @default(now())
+
+  @@map("organizer_notification_claims")
 }
 
 // Un ticket = una entrada individual escaneable. Se generan recién al

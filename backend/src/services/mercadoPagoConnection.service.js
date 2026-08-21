@@ -7,6 +7,8 @@ import { encryptMercadoPagoSecret, decryptMercadoPagoSecret } from "../config/me
 import { buildMercadoPagoAuthorizationUrl, exchangeMercadoPagoAuthorizationCode, refreshMercadoPagoAccessToken } from "./mercadoPago.service.js";
 import { logger } from "../logging/logger.js";
 import { sendDeveloperAlert, DeveloperAlertType } from "./email/sendDeveloperAlert.service.js";
+import { sendOrganizerNotification, OrganizerNotificationType } from "./email/sendOrganizerNotification.service.js";
+import { tryClaimOrganizerNotification } from "./organizerNotificationSettings.service.js";
 
 // MP-1 — Organization ↔ OAuth ↔ Mercado Pago. Esta fase ÚNICAMENTE
 // conecta la cuenta (ver el informe de entrega): no crea preferencias de
@@ -307,6 +309,20 @@ export async function disconnectMercadoPagoConnectionService(clerkId, organizati
         if (!alertResult.sent) {
             logger.warn("disconnectMercadoPagoConnectionService: no se pudo enviar la alerta Developer de desconexión", { organizationId: organization.id, reason: alertResult.reason });
         }
+
+        // Notificaciones Organizer — OBLIGATORIA (ver el informe de
+        // entrega), nunca depende de OrganizerNotificationSettings. Mismo
+        // guard `updateResult.count > 0` de arriba: desconectar algo que ya
+        // estaba DISCONNECTED nunca manda un segundo email, gratis, sin
+        // ningún claim adicional (idéntico razonamiento que la Alerta
+        // Developer de la misma transición).
+        const organizerAlertResult = await sendOrganizerNotification(OrganizerNotificationType.MERCADOPAGO_DISCONNECTED, {
+            to: organization.email,
+            organizationName: organization.name,
+        });
+        if (!organizerAlertResult.sent) {
+            logger.warn("disconnectMercadoPagoConnectionService: no se pudo enviar la notificación Organizer de desconexión", { organizationId: organization.id, reason: organizerAlertResult.reason });
+        }
     }
 
     return { disconnected: true };
@@ -394,6 +410,43 @@ export async function getValidMercadoPagoAccessTokenForOrganization(organization
     if (msUntilExpiry < ACCESS_TOKEN_REFRESH_MARGIN_MS) {
         const refreshResult = await refreshMercadoPagoConnectionTokens(organizationId);
         if (!refreshResult.refreshed) {
+            // Notificaciones Organizer — OBLIGATORIA, sólo para el ÚNICO
+            // motivo demostrable de "el organizador necesita reconectar":
+            // "invalid_grant" es el código oficial de Mercado Pago para un
+            // refresh_token inválido/expirado/revocado (ver
+            // mercadoPago.service.js#refreshMercadoPagoAccessToken) — nunca
+            // para TIMEOUT/NETWORK_ERROR/5xx/INCOMPLETE_TOKEN_RESPONSE, que
+            // son transitorios o ambiguos y podrían resolverse solos en el
+            // próximo intento (ver el informe de entrega, sección "Casos MP
+            // que requieren intervención" — no se inventa una heurística
+            // para esos). Deliberadamente NO cambia
+            // MercadoPagoConnection.status acá (sigue ACTIVE): esto es sólo
+            // una notificación, nunca una acción sobre el OAuth existente.
+            // Deduplicado "una única vez por conexión" (nunca un cooldown
+            // repetible): cada reconexión real crea una fila NUEVA (ver el
+            // comentario del modelo en schema.prisma), así que un
+            // connectionId reclamado siempre corresponde a una credencial
+            // ya muerta, sin importar cuántos checkouts la sigan
+            // reintentando mientras tanto.
+            if (refreshResult.reason === "invalid_grant") {
+                try {
+                    const claimed = await tryClaimOrganizerNotification(`mp-reauth-needed:${connection.id}`);
+                    if (claimed) {
+                        const organization = await prisma.organization.findUnique({ where: { id: organizationId }, select: { email: true, name: true } });
+                        if (organization?.email) {
+                            const notifyResult = await sendOrganizerNotification(OrganizerNotificationType.MERCADOPAGO_REAUTH_NEEDED, {
+                                to: organization.email,
+                                organizationName: organization.name,
+                            });
+                            if (!notifyResult.sent) {
+                                logger.warn("getValidMercadoPagoAccessTokenForOrganization: no se pudo enviar la notificación de reconexión necesaria", { organizationId, connectionId: connection.id, reason: notifyResult.reason });
+                            }
+                        }
+                    }
+                } catch (err) {
+                    logger.error(err, { context: "getValidMercadoPagoAccessTokenForOrganization: fallo inesperado notificando reconexión necesaria (no afecta el error ya reportado al caller)", organizationId });
+                }
+            }
             throw new AppError(ErrorCodes.MERCADOPAGO_TOKEN_REFRESH_FAILED);
         }
         connection = await prisma.mercadoPagoConnection.findFirst({ where: { organizationId, status: "ACTIVE" } });

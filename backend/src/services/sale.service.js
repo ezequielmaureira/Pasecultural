@@ -17,6 +17,14 @@ import { round2 } from "../utils/money.js";
 import { getValidatedServiceFeeTiersOrThrow, calculateServiceFeeForUnitPrice } from "./serviceFee.service.js";
 import { sendDeveloperAlert, DeveloperAlertType, tryClaimDeveloperAlertCooldown } from "./email/sendDeveloperAlert.service.js";
 import { getDeveloperAlertConfigOrDefaults } from "./developerAlertConfig.service.js";
+import { sendOrganizerNotification, OrganizerNotificationType } from "./email/sendOrganizerNotification.service.js";
+import {
+    getOrganizerNotificationSettingsOrDefaults,
+    tryClaimOrganizerNotification,
+    computeCrossedStepMilestones,
+    hasCrossedThresholdDown,
+    hasJustSoldOut,
+} from "./organizerNotificationSettings.service.js";
 
 const ACTIVE_TICKET_STATUSES = SOLD_TICKET_STATUSES;
 
@@ -457,6 +465,7 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
         include: {
             items: { include: { ticketType: true } },
             event: { include: { organization: true } },
+            function: { select: { date: true, venue: true } },
         },
     });
     if (!sale || sale.deletedAt) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
@@ -534,9 +543,21 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
         // (incluye el update de status del paso 2).
         const assignments = await tx.functionTicketType.findMany({
             where: { functionId: sale.functionId, ticketTypeId: { in: uniqueTicketTypeIds } },
-            include: { ticketType: { select: { quantity: true, maxPerPurchase: true } } },
+            include: { ticketType: { select: { name: true, quantity: true, maxPerPurchase: true } } },
         });
         const assignmentByTicketTypeId = new Map(assignments.map((a) => [a.ticketTypeId, a]));
+
+        // Notificaciones Organizer — stock bajo/agotado (ver más abajo,
+        // después de la transacción): capturado ACÁ, todavía bajo el
+        // advisory lock por (ticketTypeId, functionId) tomado en el paso
+        // 1, para que "antes"/"después" sea correcto incluso si otra venta
+        // del MISMO tipo de entrada se confirma casi al mismo tiempo — un
+        // cálculo hecho DESPUÉS de liberado el lock podría leer stock que
+        // ya incluye esa otra venta y atribuir mal el cruce. `sold` acá es
+        // el mismo conteo ya autoritativo que la línea de abajo usa para
+        // decidir si la venta entra o no, así que no es una consulta
+        // nueva, sólo se retiene.
+        const stockSnapshots = [];
 
         for (const item of sale.items) {
             const assignment = assignmentByTicketTypeId.get(item.ticketTypeId);
@@ -552,6 +573,13 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
             if (sold + item.quantity > capacity) {
                 throw new AppError(ErrorCodes.INSUFFICIENT_STOCK, { details: { ticketTypeId: item.ticketTypeId } });
             }
+            stockSnapshots.push({
+                ticketTypeId: item.ticketTypeId,
+                ticketTypeName: assignment ? assignment.ticketType.name : item.ticketType.name,
+                capacity,
+                availableBefore: Math.max(capacity - sold, 0),
+                availableAfter: Math.max(capacity - sold - item.quantity, 0),
+            });
         }
 
         // 4) Generar Tickets + TicketQr, uno por unidad comprada — en batch
@@ -610,7 +638,7 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
         await tx.ticket.createMany({ data: ticketRows });
         await tx.ticketQr.createMany({ data: qrRows });
 
-        return { saleId: sale.id, tickets };
+        return { saleId: sale.id, tickets, stockSnapshots };
     });
 
     logger.info("Sale confirmed", {
@@ -699,6 +727,130 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
             }
         } catch (err) {
             logger.error(err, { context: "confirmSaleService: fallo inesperado evaluando alertas Developer (la venta ya confirmada arriba no se ve afectada)", saleId: sale.id });
+        }
+    }
+
+    // Notificaciones Organizer — mismo criterio best-effort/never-throw que
+    // el bloque de Alertas Developer de arriba (su propio try/catch, corre
+    // DESPUÉS del commit): un fallo acá nunca puede revertir ni afectar la
+    // venta ya confirmada. Sólo origin=SALE — una Cortesía nunca es una
+    // "venta confirmada" para el organizador (mismo criterio que Alertas
+    // Developer separa Cortesías de ventas reales, ver el informe de
+    // entrega).
+    //
+    // Idempotencia de "venta confirmada": NO usa ningún claim nuevo — la
+    // transacción de arriba ya solo llega hasta acá para la ÚNICA llamada
+    // que de verdad ganó la transición atómica PENDING -> CONFIRMED (una
+    // segunda llamada concurrente/repetida entra por la rama "ya estaba
+    // CONFIRMED" al principio de esta función y nunca llega a este bloque)
+    // — ver el informe de entrega, sección "Deduplicación".
+    if (sale.origin === "SALE") {
+        try {
+            const organizationId = sale.event.organizationId;
+            const organizationName = sale.event.organization.name;
+            const organizerEmail = sale.event.organization.email;
+            const settings = await getOrganizerNotificationSettingsOrDefaults(organizationId);
+            const totalQuantity = sale.items.reduce((sum, item) => sum + item.quantity, 0);
+            const ticketSummary = sale.items.map((item) => `${item.quantity}x ${item.ticketType.name}`).join(", ");
+
+            if (settings.saleConfirmedEnabled && organizerEmail) {
+                const notifyResult = await sendOrganizerNotification(OrganizerNotificationType.SALE_CONFIRMED, {
+                    to: organizerEmail,
+                    eventTitle: sale.event.title,
+                    functionDate: sale.function.date,
+                    venue: sale.function.venue,
+                    ticketCount: totalQuantity,
+                    ticketSummary,
+                    total: Number(sale.total),
+                });
+                if (!notifyResult.sent) {
+                    logger.warn("confirmSaleService: no se pudo enviar la notificación de venta confirmada", { saleId: sale.id, reason: notifyResult.reason });
+                }
+            }
+
+            // Hito de ventas — org-wide (todos los eventos de la
+            // organización, no sólo este), sobre entradas origin=SALE con
+            // estado "vendido" (SOLD_TICKET_STATUSES, mismo criterio que el
+            // resto de este archivo). Un único post-commit count() (mismo
+            // razonamiento de seguridad que FIRST_CONFIRMED_SALE más
+            // arriba: Postgres garantiza que cualquier commit anterior ya
+            // es visible acá) da el total ACTUAL; el total ANTES de esta
+            // venta se deriva restando totalQuantity, sin una segunda
+            // consulta. Una sola venta puede cruzar más de un múltiplo (ej.
+            // 80 -> 230 con salesMilestoneCount=100 cruza 100 Y 200) —
+            // cada múltiplo cruzado se reclama y notifica por separado,
+            // deduplicado de forma persistente vía
+            // OrganizerNotificationClaim (necesario acá: a diferencia de
+            // "venta confirmada", este número es compartido entre TODAS
+            // las ventas de la organización, que no están serializadas
+            // entre sí por ningún lock — dos ventas de tipos de entrada
+            // distintos sí pueden confirmarse en paralelo).
+            if (settings.salesMilestoneEnabled && organizerEmail && settings.salesMilestoneCount > 0) {
+                const soldCountAfter = await prisma.ticket.count({
+                    where: { status: { in: SOLD_TICKET_STATUSES }, origin: "SALE", event: { organizationId } },
+                });
+                const soldCountBefore = soldCountAfter - totalQuantity;
+                const crossedMilestones = computeCrossedStepMilestones(soldCountBefore, soldCountAfter, settings.salesMilestoneCount);
+                for (const milestone of crossedMilestones) {
+                    const claimed = await tryClaimOrganizerNotification(`sales-milestone:${organizationId}:${milestone}`);
+                    if (claimed) {
+                        const notifyResult = await sendOrganizerNotification(OrganizerNotificationType.SALES_MILESTONE, {
+                            to: organizerEmail,
+                            organizationName,
+                            milestone,
+                        });
+                        if (!notifyResult.sent) {
+                            logger.warn("confirmSaleService: no se pudo enviar la notificación de hito de ventas", { organizationId, milestone, reason: notifyResult.reason });
+                        }
+                    }
+                }
+            }
+
+            // Stock bajo (configurable) / Agotado (OBLIGATORIA, nunca
+            // depende de settings) — usa EXACTAMENTE los snapshots
+            // capturados dentro de la transacción de arriba (paso 3),
+            // todavía bajo el advisory lock por (ticketTypeId, functionId):
+            // calcularlo acá de nuevo, ya liberado el lock, podría leer
+            // stock que otra venta concurrente del MISMO tipo de entrada ya
+            // modificó, y atribuir mal (o duplicar) un cruce de umbral. Si
+            // más adelante el organizador aumenta la capacidad y el tipo de
+            // entrada vuelve a cruzar el umbral/agotarse, esto vuelve a
+            // avisar solo — no hay ningún estado persistido que lo impida
+            // (ver el informe de entrega, sección "Reposición de stock").
+            for (const { ticketTypeId, ticketTypeName, capacity, availableBefore, availableAfter } of result.stockSnapshots) {
+                if (hasJustSoldOut(availableBefore, availableAfter)) {
+                    const notifyResult = await sendOrganizerNotification(OrganizerNotificationType.SOLD_OUT, {
+                        to: organizerEmail,
+                        eventTitle: sale.event.title,
+                        ticketTypeName,
+                        functionDate: sale.function.date,
+                        venue: sale.function.venue,
+                    });
+                    if (!notifyResult.sent) {
+                        logger.warn("confirmSaleService: no se pudo enviar la notificación de entradas agotadas", { saleId: sale.id, ticketTypeId, reason: notifyResult.reason });
+                    }
+                }
+
+                if (settings.lowStockEnabled && organizerEmail && capacity > 0) {
+                    const thresholdCount = Math.floor((capacity * settings.lowStockPercent) / 100);
+                    if (hasCrossedThresholdDown(availableBefore, availableAfter, thresholdCount)) {
+                        const notifyResult = await sendOrganizerNotification(OrganizerNotificationType.LOW_STOCK, {
+                            to: organizerEmail,
+                            eventTitle: sale.event.title,
+                            ticketTypeName,
+                            functionDate: sale.function.date,
+                            venue: sale.function.venue,
+                            remaining: availableAfter,
+                            percent: settings.lowStockPercent,
+                        });
+                        if (!notifyResult.sent) {
+                            logger.warn("confirmSaleService: no se pudo enviar la notificación de stock bajo", { saleId: sale.id, ticketTypeId, reason: notifyResult.reason });
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            logger.error(err, { context: "confirmSaleService: fallo inesperado evaluando Notificaciones Organizer (la venta ya confirmada arriba no se ve afectada)", saleId: sale.id });
         }
     }
 

@@ -24,4 +24,5 @@ export const DB_TEST_FILES = [
     "developerServiceFee.service.test.js",
     "developerAlertConfig.crud.test.js",
     "withdrawalRequest.crud.test.js",
+    "organizerNotifications.crud.test.js",
 ];

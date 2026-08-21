@@ -4,6 +4,13 @@ import { decryptSecret } from "../config/qrEncryption.js";
 import { getFunctionCounters } from "./functionCapacity.service.js";
 import { resolveScannerAccess } from "./scannerAccess.service.js";
 import { logger } from "../logging/logger.js";
+import { getOrganizerNotificationSettingsOrDefaults, tryClaimOrganizerNotification } from "./organizerNotificationSettings.service.js";
+import { sendOrganizerNotification, OrganizerNotificationType } from "./email/sendOrganizerNotification.service.js";
+
+// Notificaciones Organizer — Scanner/Ingresos. Hitos FIJOS de % de entradas
+// ingresadas (nunca configurables por número — mismo criterio "sin
+// interfaz enorme" pedido para este bloque, ver el informe de entrega).
+const SCANNER_MILESTONE_PERCENTS = [25, 50, 75, 90];
 
 const RESULT_MESSAGES = {
     VALID: "Entrada válida.",
@@ -341,5 +348,77 @@ export const confirmScanService = async (scannerContext, input) => {
     }, TRANSACTION_OPTIONS);
 
     logger.info("Scan validated", { eventId, functionId, scannerId: access.id, result: result.status });
+
+    // Notificaciones Organizer — actividad de Scanner. Corre DESPUÉS del
+    // commit (mismo criterio best-effort/never-throw que confirmSaleService:
+    // nunca dentro de una transacción de Postgres, nunca puede convertir un
+    // ingreso ya confirmado arriba en un fallo) y SÓLO en el camino VALID —
+    // nunca en NOT_FOUND/WRONG_EVENT/CANCELLED/ALREADY_USED, que no son un
+    // ingreso real. Vuelve a resolver el ticket por separado (con `tx` ya
+    // cerrado) en vez de smuggle-ar metadata interna a través de `result`:
+    // `result.data` es el contrato público del scanner, nunca debe llevar
+    // organizationId ni nada que el frontend no necesite.
+    if (result.status === "VALID") {
+        try {
+            const scannedTicket = await prisma.ticket.findUnique({
+                where: { id: ticketId },
+                select: {
+                    functionId: true,
+                    event: { select: { title: true, organizationId: true } },
+                    function: { select: { date: true, venue: true } },
+                },
+            });
+            const organizationId = scannedTicket?.event.organizationId;
+            const settings = organizationId ? await getOrganizerNotificationSettingsOrDefaults(organizationId) : null;
+
+            if (settings?.scannerActivityEnabled) {
+                // A diferencia del stock (serializado por el advisory lock
+                // de confirmSaleService), varios scanners pueden confirmar
+                // ingresos de la MISMA función en paralelo sin ningún lock
+                // que los serialice entre sí — un cálculo de "antes/después"
+                // (checkedIn-1) leído DESPUÉS de que otros escaneos
+                // concurrentes ya commitearon podría saltarse un hito sin
+                // notificarlo nunca (ej. dos escaneos casi simultáneos que
+                // llevan de 0 a 2 ingresos, ninguno de los dos lee "exactamente
+                // 1" en su propio conteo). Por eso acá NO se calcula un
+                // "antes": se intenta reclamar TODO hito ya alcanzado al
+                // momento de este escaneo — OrganizerNotificationClaim
+                // (create atómico, @unique en `key`) es lo que garantiza que
+                // cada hito se notifique una única vez sin importar cuántos
+                // escaneos concurrentes lo detecten al mismo tiempo, y sin
+                // depender de que algún escaneo puntual haya visto el
+                // conteo "justo antes" de cruzarlo.
+                const counters = await getFunctionCounters(prisma, scannedTicket.functionId);
+                if (counters.capacity > 0) {
+                    const percentAfter = (counters.checkedIn / counters.capacity) * 100;
+                    const crossed = SCANNER_MILESTONE_PERCENTS.filter((m) => percentAfter >= m);
+
+                    if (crossed.length > 0) {
+                        const organization = await prisma.organization.findUnique({ where: { id: organizationId }, select: { email: true } });
+                        for (const milestone of crossed) {
+                            const claimed = await tryClaimOrganizerNotification(`scanner-milestone:${scannedTicket.functionId}:${milestone}`);
+                            if (claimed && organization?.email) {
+                                const notifyResult = await sendOrganizerNotification(OrganizerNotificationType.SCANNER_ACTIVITY_MILESTONE, {
+                                    to: organization.email,
+                                    eventTitle: scannedTicket.event.title,
+                                    venue: scannedTicket.function.venue,
+                                    functionDate: scannedTicket.function.date,
+                                    percent: milestone,
+                                    checkedIn: counters.checkedIn,
+                                    capacity: counters.capacity,
+                                });
+                                if (!notifyResult.sent) {
+                                    logger.warn("confirmScanService: no se pudo enviar la notificación de hito de Scanner", { functionId: scannedTicket.functionId, milestone, reason: notifyResult.reason });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            logger.error(err, { context: "confirmScanService: fallo inesperado evaluando Notificaciones Organizer (el ingreso ya confirmado arriba no se ve afectado)", ticketId });
+        }
+    }
+
     return result;
 };
