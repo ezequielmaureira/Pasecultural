@@ -747,7 +747,6 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
     if (sale.origin === "SALE") {
         try {
             const organizationId = sale.event.organizationId;
-            const organizationName = sale.event.organization.name;
             const organizerEmail = sale.event.organization.email;
             const settings = await getOrganizerNotificationSettingsOrDefaults(organizationId);
             const totalQuantity = sale.items.reduce((sum, item) => sum + item.quantity, 0);
@@ -768,39 +767,45 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
                 }
             }
 
-            // Hito de ventas — org-wide (todos los eventos de la
-            // organización, no sólo este), sobre entradas origin=SALE con
-            // estado "vendido" (SOLD_TICKET_STATUSES, mismo criterio que el
-            // resto de este archivo). Un único post-commit count() (mismo
-            // razonamiento de seguridad que FIRST_CONFIRMED_SALE más
-            // arriba: Postgres garantiza que cualquier commit anterior ya
-            // es visible acá) da el total ACTUAL; el total ANTES de esta
-            // venta se deriva restando totalQuantity, sin una segunda
-            // consulta. Una sola venta puede cruzar más de un múltiplo (ej.
-            // 80 -> 230 con salesMilestoneCount=100 cruza 100 Y 200) —
-            // cada múltiplo cruzado se reclama y notifica por separado,
-            // deduplicado de forma persistente vía
-            // OrganizerNotificationClaim (necesario acá: a diferencia de
-            // "venta confirmada", este número es compartido entre TODAS
-            // las ventas de la organización, que no están serializadas
-            // entre sí por ningún lock — dos ventas de tipos de entrada
-            // distintos sí pueden confirmarse en paralelo).
+            // Hito de ventas — POR EVENTO (nunca sumado entre eventos de la
+            // misma organización, aunque X sea una preferencia a nivel
+            // organización — pedido explícito: dos eventos de la misma
+            // organización acumulan el hito cada uno por separado). Sigue
+            // contando sólo entradas origin=SALE en estado "vendido"
+            // (SOLD_TICKET_STATUSES, mismo criterio que el resto de este
+            // archivo — Cortesías NUNCA suman acá, sin cambios respecto de
+            // la versión anterior). Un único post-commit count() acotado a
+            // eventId (mismo razonamiento de seguridad que
+            // FIRST_CONFIRMED_SALE más arriba: Postgres garantiza que
+            // cualquier commit anterior ya es visible acá) da el total
+            // ACTUAL de ESTE evento; el total ANTES de esta venta se deriva
+            // restando totalQuantity, sin una segunda consulta. Una sola
+            // venta puede cruzar más de un múltiplo del mismo evento (ej.
+            // 80 -> 230 con salesMilestoneCount=100 cruza 100 Y 200) — cada
+            // múltiplo cruzado se reclama y notifica por separado,
+            // deduplicado de forma persistente vía OrganizerNotificationClaim
+            // con key organización+evento+hito (necesario acá: a diferencia
+            // de "venta confirmada", este número es compartido entre TODAS
+            // las ventas de ESE evento, que no están serializadas entre sí
+            // por ningún lock — dos ventas de tipos de entrada distintos
+            // del mismo evento sí pueden confirmarse en paralelo).
             if (settings.salesMilestoneEnabled && organizerEmail && settings.salesMilestoneCount > 0) {
                 const soldCountAfter = await prisma.ticket.count({
-                    where: { status: { in: SOLD_TICKET_STATUSES }, origin: "SALE", event: { organizationId } },
+                    where: { status: { in: SOLD_TICKET_STATUSES }, origin: "SALE", eventId: sale.eventId },
                 });
                 const soldCountBefore = soldCountAfter - totalQuantity;
                 const crossedMilestones = computeCrossedStepMilestones(soldCountBefore, soldCountAfter, settings.salesMilestoneCount);
                 for (const milestone of crossedMilestones) {
-                    const claimed = await tryClaimOrganizerNotification(`sales-milestone:${organizationId}:${milestone}`);
+                    const claimed = await tryClaimOrganizerNotification(`sales-milestone:${organizationId}:${sale.eventId}:${milestone}`);
                     if (claimed) {
                         const notifyResult = await sendOrganizerNotification(OrganizerNotificationType.SALES_MILESTONE, {
                             to: organizerEmail,
-                            organizationName,
+                            eventTitle: sale.event.title,
                             milestone,
+                            soldCount: soldCountAfter,
                         });
                         if (!notifyResult.sent) {
-                            logger.warn("confirmSaleService: no se pudo enviar la notificación de hito de ventas", { organizationId, milestone, reason: notifyResult.reason });
+                            logger.warn("confirmSaleService: no se pudo enviar la notificación de hito de ventas", { eventId: sale.eventId, milestone, reason: notifyResult.reason });
                         }
                     }
                 }

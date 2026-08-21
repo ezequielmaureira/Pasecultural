@@ -81,12 +81,19 @@ export function buildSaleConfirmedEmail({ eventTitle, functionDate, venue, ticke
     });
 }
 
-export function buildSalesMilestoneEmail({ organizationName, milestone }) {
+// Por EVENTO (nunca sumado entre eventos de la misma organización, ver el
+// comentario en sale.service.js) — el email tiene que dejar clarísimo DE
+// QUÉ evento se trata, nunca sólo un número suelto de la organización.
+export function buildSalesMilestoneEmail({ eventTitle, milestone, soldCount }) {
     return buildOrganizerNotificationEmail({
         badge: "📈 Hito de ventas",
-        title: `¡Llegaste a ${milestone} entradas vendidas!`,
-        intro: `Tu organización <strong>${escapeHtml(organizationName)}</strong> superó las <strong>${milestone}</strong> entradas vendidas en total.`,
-        rows: [["Hito alcanzado", `${milestone} entradas`]],
+        title: `${eventTitle} llegó a ${milestone} entradas vendidas`,
+        intro: `Tu evento <strong>${escapeHtml(eventTitle)}</strong> superó las <strong>${milestone}</strong> entradas vendidas.`,
+        rows: [
+            ["Evento", eventTitle],
+            ["Hito alcanzado", `${milestone} entradas`],
+            ["Vendidas hasta ahora", soldCount],
+        ],
     });
 }
 

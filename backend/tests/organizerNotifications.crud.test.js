@@ -265,10 +265,11 @@ testWithDb("sale-confirmed ON: a real CONFIRMED sale sends exactly one notificat
 
 // --- Hito de ventas ---
 
-testWithDb("sales milestone: crossing the configured count sends one notification, claimed persistently (never twice)", async () => {
+testWithDb("sales milestone: crossing the configured count sends one notification, claimed persistently (never twice), and never sums across events", async () => {
     const owner = await createUser();
     const org = await createOrganization(owner.id);
     const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id, { quantity: 20 });
+    const eventB = await createEventWithTicketType(org.id, owner.id, { quantity: 20 });
     const restoreEnv = withMockedResendEnv();
     const restoreFetch = mockResendFetchSuccessOnly();
     try {
@@ -278,20 +279,31 @@ testWithDb("sales milestone: crossing the configured count sends one notificatio
             eventReminderHoursBefore: 24, eventStartEnabled: false, eventEndEnabled: false, scannerActivityEnabled: false,
         });
 
-        // Primera venta: 4 entradas — no cruza el hito de 5 todavía.
+        // Primera venta: 4 entradas del evento A — no cruza el hito de 5 todavía.
         await buySale({ event, eventFunction, ticketType, organizerClerkId: owner.clerkId, quantity: 4 });
-        const claimAfterFirst = await prisma.organizerNotificationClaim.findUnique({ where: { key: `sales-milestone:${org.id}:5` } });
+        const claimAfterFirst = await prisma.organizerNotificationClaim.findUnique({ where: { key: `sales-milestone:${org.id}:${event.id}:5` } });
         assert.equal(claimAfterFirst, null, "4 entradas vendidas no debe cruzar un hito de 5");
 
-        // Segunda venta: +2 (total 6) — cruza el hito de 5.
+        // Segunda venta: +2 del MISMO evento A (total 6) — cruza el hito de 5.
         await buySale({ event, eventFunction, ticketType, organizerClerkId: owner.clerkId, quantity: 2 });
-        const claimAfterSecond = await prisma.organizerNotificationClaim.findUnique({ where: { key: `sales-milestone:${org.id}:5` } });
-        assert.ok(claimAfterSecond, "6 entradas vendidas debe haber cruzado y reclamado el hito de 5");
+        const claimAfterSecond = await prisma.organizerNotificationClaim.findUnique({ where: { key: `sales-milestone:${org.id}:${event.id}:5` } });
+        assert.ok(claimAfterSecond, "6 entradas vendidas del evento A debe haber cruzado y reclamado el hito de 5 de ESE evento");
+
+        // Evento B, misma organización: 4 entradas — el hito de 5 de A NO
+        // debe "adelantarle" nada a B. Nunca se suman entre eventos.
+        await buySale({ event: eventB.event, eventFunction: eventB.eventFunction, ticketType: eventB.ticketType, organizerClerkId: owner.clerkId, quantity: 4 });
+        const claimBAfterFirst = await prisma.organizerNotificationClaim.findUnique({ where: { key: `sales-milestone:${org.id}:${eventB.event.id}:5` } });
+        assert.equal(claimBAfterFirst, null, "el evento B no debe heredar el hito ya cruzado por el evento A");
+
+        // Evento B: +2 (total 6 de B) — recién ahora cruza SU PROPIO hito de 5.
+        await buySale({ event: eventB.event, eventFunction: eventB.eventFunction, ticketType: eventB.ticketType, organizerClerkId: owner.clerkId, quantity: 2 });
+        const claimBAfterSecond = await prisma.organizerNotificationClaim.findUnique({ where: { key: `sales-milestone:${org.id}:${eventB.event.id}:5` } });
+        assert.ok(claimBAfterSecond, "el evento B debe cruzar su propio hito de forma independiente del evento A");
     } finally {
         restoreFetch();
         restoreEnv();
-        await prisma.organizerNotificationClaim.deleteMany({ where: { key: `sales-milestone:${org.id}:5` } });
-        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+        await prisma.organizerNotificationClaim.deleteMany({ where: { key: { in: [`sales-milestone:${org.id}:${event.id}:5`, `sales-milestone:${org.id}:${eventB.event.id}:5`] } } });
+        await cleanup({ eventIds: [event.id, eventB.event.id], organizationIds: [org.id], userIds: [owner.id] });
     }
 });
 
