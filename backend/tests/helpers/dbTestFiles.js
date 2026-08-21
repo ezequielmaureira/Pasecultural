@@ -22,4 +22,5 @@ export const DB_TEST_FILES = [
     "mercadoPagoDiagnostics.service.test.js",
     "developerSales.service.test.js",
     "developerServiceFee.service.test.js",
+    "developerAlertConfig.crud.test.js",
 ];

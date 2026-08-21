@@ -9,6 +9,8 @@ import {
     sendMercadoPagoCredentialUnresolvableAlert,
 } from "./email/sendMercadoPagoReconciliationAlert.service.js";
 import { round2 } from "../utils/money.js";
+import { sendDeveloperAlert, DeveloperAlertType, tryClaimDeveloperAlertCooldown } from "./email/sendDeveloperAlert.service.js";
+import { getDeveloperAlertConfigOrDefaults } from "./developerAlertConfig.service.js";
 
 // MP-3 — la notificación de Mercado Pago NUNCA es la fuente de verdad: sólo
 // sirve para saber QUÉ payment id consultar. Todo lo que de verdad importa
@@ -293,6 +295,45 @@ export async function processMercadoPagoWebhookNotification({ type, dataId, body
             });
         }
 
+        // Alertas Developer — 2E) refunds anormalmente frecuentes. Best-
+        // effort de punta a punta (registrar el evento + evaluar volumen),
+        // nunca puede afectar la respuesta ya resuelta arriba. Integra el
+        // radar Developer SIN mandar un segundo email por el mismo hecho:
+        // la alerta individual ya salió arriba (sendMercadoPagoReversalAlert,
+        // a MERCADOPAGO_RECONCILIATION_ALERT_EMAIL) — esto sólo acumula
+        // volumen y, si corresponde, manda la alerta de PATRÓN aparte (a
+        // DEVELOPER_ALERT_EMAIL), nunca duplicada.
+        try {
+            const reversalType = payment.status === "refunded" ? "REFUNDED" : "CHARGED_BACK";
+            const organizationId = sale.event.organizationId;
+            await prisma.developerAlertReversalEvent.create({
+                data: { organizationId, saleId: sale.id, type: reversalType },
+            });
+
+            const config = await getDeveloperAlertConfigOrDefaults();
+            const windowStart = new Date(Date.now() - config.refundsVolumeWindowHours * 60 * 60 * 1000);
+            const count = await prisma.developerAlertReversalEvent.count({
+                where: { organizationId, occurredAt: { gte: windowStart } },
+            });
+            if (count >= config.refundsVolumeWindowCount) {
+                const claimed = await tryClaimDeveloperAlertCooldown(`${DeveloperAlertType.REFUNDS_VOLUME_SPIKE}:${organizationId}`, config.alertCooldownMinutes);
+                if (claimed) {
+                    const volumeAlertResult = await sendDeveloperAlert(DeveloperAlertType.REFUNDS_VOLUME_SPIKE, {
+                        organizationId,
+                        organizationName: sale.event.organization.name,
+                        count,
+                        windowHours: config.refundsVolumeWindowHours,
+                        threshold: config.refundsVolumeWindowCount,
+                    });
+                    if (!volumeAlertResult.sent) {
+                        logger.warn("mercadopago webhook: no se pudo enviar la alerta Developer de volumen de refunds", { organizationId, reason: volumeAlertResult.reason });
+                    }
+                }
+            }
+        } catch (err) {
+            logger.error(err, { context: "mercadopago webhook: fallo inesperado evaluando la alerta Developer de volumen de refunds (no afecta la reversión ya procesada)", saleId: sale.id });
+        }
+
         return { ok: true, action: "reversal_acknowledged", saleId: sale.id, ticketsRefunded };
     }
 
@@ -491,6 +532,28 @@ export async function processMercadoPagoWebhookNotification({ type, dataId, body
                 saleId: sale.id,
                 paymentId: normalizedPaymentId,
             });
+
+            // Alertas Developer — G) invariante financiera rota: nunca
+            // debería poder pasar (mercadoPagoPaymentId es @unique en
+            // Sale), requiere revisión manual. Best-effort, nunca puede
+            // afectar la respuesta 200 al webhook — el log de arriba ya
+            // deja constancia aunque la alerta no salga.
+            const alertResult = await sendDeveloperAlert(DeveloperAlertType.FINANCIAL_INVARIANT_BROKEN, {
+                reason: "PAYMENT_SALE_CONFLICT",
+                saleId: sale.id,
+                paymentId: normalizedPaymentId,
+                eventId: sale.eventId,
+                organizationId: sale.event.organizationId,
+                detail: "mercadoPagoPaymentId ya estaba vinculado a otra Sale (P2002)",
+            });
+            if (!alertResult.sent) {
+                logger.error(new Error("mercadopago webhook: no se pudo enviar la alerta interna de invariante financiera rota"), {
+                    saleId: sale.id,
+                    paymentId: normalizedPaymentId,
+                    reason: alertResult.reason,
+                });
+            }
+
             return { ok: true, action: "unresolvable", reason: "PAYMENT_SALE_CONFLICT" };
         }
         throw error;

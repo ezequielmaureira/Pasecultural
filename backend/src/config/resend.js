@@ -44,3 +44,16 @@ export function getEmailConfig() {
 export function getReconciliationAlertEmail() {
     return getRequiredEnv("MERCADOPAGO_RECONCILIATION_ALERT_EMAIL");
 }
+
+// Casilla interna de las Alertas Developer (riesgo de plataforma,
+// comportamiento excepcional, integraciones — ver
+// sendDeveloperAlert.service.js). A propósito una variable de entorno
+// DISTINTA de MERCADOPAGO_RECONCILIATION_ALERT_EMAIL: son responsabilidades
+// diferentes (conciliación financiera puntual vs. radar Developer general)
+// y pueden terminar teniendo destinatarios distintos. Mismo criterio LAZY:
+// si DEVELOPER_ALERT_EMAIL no está configurada, la app arranca igual y
+// cualquier operación principal sigue funcionando — sólo falla, de forma
+// best-effort, el envío puntual de la alerta (ver sendDeveloperAlert).
+export function getDeveloperAlertEmail() {
+    return getRequiredEnv("DEVELOPER_ALERT_EMAIL");
+}

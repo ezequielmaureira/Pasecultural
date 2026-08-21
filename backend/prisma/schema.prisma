@@ -156,6 +156,10 @@ model User {
   // ServiceFeeTier (ver ese modelo más abajo). Sólo DEVELOPER puede llegar
   // a aparecer acá (requireRole en developerServiceFee.routes.js).
   serviceFeeTiersUpdated ServiceFeeTier[]
+  // Alertas Developer — trazabilidad de quién guardó por última vez la
+  // configuración de umbrales (ver DeveloperAlertConfig más abajo). Mismo
+  // criterio que serviceFeeTiersUpdated.
+  developerAlertConfigsUpdated DeveloperAlertConfig[]
 }
 
 model Organization {
@@ -1113,6 +1117,96 @@ model ServiceFeeTier {
   updatedBy       User?   @relation(fields: [updatedByUserId], references: [id])
 
   @@map("service_fee_tiers")
+}
+
+// Alertas Developer — configuración de umbrales, editable desde Developer >
+// Configuración (ver developerAlertConfig.routes.js), mismo criterio de
+// autorización que ServiceFeeTier. A diferencia de ServiceFeeTier (rangos,
+// múltiples filas), acá los umbrales son escalares simples — se modela
+// como fila ÚNICA ("singleton"): el service siempre lee/reemplaza la
+// primera fila (o la crea si nunca existió, ver
+// developerAlertConfig.service.js). Nunca gobierna el negocio (ver
+// sendDeveloperAlert.service.js) — sólo decide CUÁNDO una alerta
+// informativa se dispara, jamás bloquea/cancela/modifica nada.
+model DeveloperAlertConfig {
+  id String @id @default(cuid())
+
+  // Alerta 2A — precio de entrada excepcionalmente alto (evaluado sobre el
+  // precio autoritativo ya persistido: TicketType.price o
+  // FunctionTicketType.priceOverride cuando corresponda).
+  highTicketPriceThreshold Decimal @db.Decimal(10, 2)
+
+  // Alerta 2B — cantidad de tickets en una única Sale CONFIRMED.
+  highSaleQuantityThreshold Int
+
+  // Alerta 2C — demasiados eventos creados por una misma Organization en
+  // una ventana de tiempo.
+  eventsWindowCount Int
+  eventsWindowHours Int
+
+  // Alerta 2D — pico de ventas CONFIRMED (por Organization) en una
+  // ventana de tiempo.
+  salesVolumeWindowCount   Int
+  salesVolumeWindowMinutes Int
+
+  // Alerta 2E — refunds acumulados (por Organization) en una ventana de
+  // tiempo.
+  refundsVolumeWindowCount Int
+  refundsVolumeWindowHours Int
+
+  // Cooldown por defecto para toda alerta de patrón/volumen (ver
+  // DeveloperAlertCooldown) — cuánto tiempo mínimo debe pasar entre dos
+  // envíos de la MISMA alerta antes de volver a mandarla.
+  alertCooldownMinutes Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Nullable por el mismo motivo que ServiceFeeTier.updatedByUserId: la
+  // fila inicial que trae la migración no la guardó ningún DEVELOPER real.
+  updatedByUserId String?
+  updatedBy       User?   @relation(fields: [updatedByUserId], references: [id])
+
+  @@map("developer_alert_config")
+}
+
+// Alertas Developer — deduplicación/cooldown de las alertas repetibles por
+// umbral (2A/2C/2D/2E), persistido a propósito: el proceso Node de Render
+// puede reiniciarse o correr en más de una instancia, así que deduplicar
+// sólo en memoria no alcanza (ver auditoría, sección "Deduplicación y
+// cooldown"). `key` identifica de forma estable QUÉ se está limitando (tipo
+// de alerta + alcance, ej. "sales-volume:{organizationId}") — un único
+// UPDATE condicional (`lastFiredAt < cutoff`) es lo que hace el "claim"
+// atómico entre instancias concurrentes, ver
+// sendDeveloperAlert.service.js#tryClaimDeveloperAlertCooldown. Nunca se
+// lee para nada más que esto — no es un log de auditoría de alertas.
+model DeveloperAlertCooldown {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  lastFiredAt DateTime
+
+  @@map("developer_alert_cooldowns")
+}
+
+// Alertas Developer — 2E (refunds anormalmente frecuentes). Registro
+// mínimo, sólo-append, de CADA reversión (refunded/charged_back)
+// procesada por el webhook — necesario porque ni Sale ni Ticket tienen
+// ningún campo de timestamp que indique CUÁNDO ocurrió una reversión
+// (Ticket no tiene updatedAt; ver informe de entrega, sección "Umbrales
+// iniciales" / "Alerta 2E" para el razonamiento completo de por qué no
+// alcanza con los datos existentes). Se escribe UNA fila por reversión
+// procesada, junto al mismo punto donde ya se manda la alerta individual
+// existente (sendMercadoPagoReversalAlert) — nunca se lee para nada más
+// que contar volumen en una ventana de tiempo.
+model DeveloperAlertReversalEvent {
+  id             String   @id @default(cuid())
+  organizationId String
+  saleId         String
+  type           String
+  occurredAt     DateTime @default(now())
+
+  @@index([organizationId, occurredAt])
+  @@map("developer_alert_reversal_events")
 }
 
 // Un ticket = una entrada individual escaneable. Se generan recién al

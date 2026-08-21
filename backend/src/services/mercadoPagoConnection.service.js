@@ -6,6 +6,7 @@ import { getUserByClerkId } from "../utils/getUserByClerkId.js";
 import { encryptMercadoPagoSecret, decryptMercadoPagoSecret } from "../config/mercadoPagoEncryption.js";
 import { buildMercadoPagoAuthorizationUrl, exchangeMercadoPagoAuthorizationCode, refreshMercadoPagoAccessToken } from "./mercadoPago.service.js";
 import { logger } from "../logging/logger.js";
+import { sendDeveloperAlert, DeveloperAlertType } from "./email/sendDeveloperAlert.service.js";
 
 // MP-1 — Organization ↔ OAuth ↔ Mercado Pago. Esta fase ÚNICAMENTE
 // conecta la cuenta (ver el informe de entrega): no crea preferencias de
@@ -203,8 +204,21 @@ export async function handleMercadoPagoOAuthCallbackService({ code, state }) {
     //    nunca se borra ni se pisa); 2) se crea una fila NUEVA, ACTIVE, con
     //    los tokens de la cuenta recién autorizada. Cubre tanto la primera
     //    conexión (0 filas ACTIVE para desactivar) como una reconexión.
+    // Alertas Developer — "primera conexión histórica" vs. "reconexión":
+    // se determina ACÁ, contando filas EXISTENTES (cualquier status, no
+    // sólo ACTIVE) para esta Organization ANTES de crear la nueva, dentro
+    // de la MISMA transacción bajo el advisory lock de arriba — no hace
+    // falta ningún campo/migración nuevo (ver informe de entrega, sección
+    // "Primera conexión MP"). Concurrent-safe por construcción: dos
+    // callbacks concurrentes para la MISMA Organization ya están
+    // serializados por acquireMercadoPagoConnectionLock, así que sólo uno
+    // de los dos puede ver `priorConnectionsCount === 0`.
+    let isFirstConnectionEver = false;
     await prisma.$transaction(async (tx) => {
         await acquireMercadoPagoConnectionLock(tx, organizationId);
+        const priorConnectionsCount = await tx.mercadoPagoConnection.count({ where: { organizationId } });
+        isFirstConnectionEver = priorConnectionsCount === 0;
+
         await tx.mercadoPagoConnection.updateMany({
             where: { organizationId, status: "ACTIVE" },
             data: { status: "DISCONNECTED", disconnectedAt: now },
@@ -224,7 +238,29 @@ export async function handleMercadoPagoOAuthCallbackService({ code, state }) {
         });
     });
 
-    logger.info("mercadopago oauth: conexión persistida", { organizationId });
+    logger.info("mercadopago oauth: conexión persistida", { organizationId, isFirstConnectionEver });
+
+    if (isFirstConnectionEver) {
+        // Nunca dentro de la transacción de arriba (ya cerrada): Resend es
+        // una llamada de red externa. Fetch aparte, sólo para el nombre en
+        // el email — si esto fallara, la alerta simplemente no sale (ver
+        // sendDeveloperAlert, siempre best-effort), nunca rompe el OAuth
+        // ya persistido.
+        try {
+            const organization = await prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } });
+            const alertResult = await sendDeveloperAlert(DeveloperAlertType.MERCADOPAGO_FIRST_CONNECTION, {
+                organizationId,
+                organizationName: organization?.name ?? organizationId,
+                connectedAt: now,
+            });
+            if (!alertResult.sent) {
+                logger.warn("mercadopago oauth: no se pudo enviar la alerta Developer de primera conexión", { organizationId, reason: alertResult.reason });
+            }
+        } catch (err) {
+            logger.error(err, { context: "mercadopago oauth: fallo inesperado al intentar mandar la alerta Developer de primera conexión (no afecta la conexión ya persistida)", organizationId });
+        }
+    }
+
     return { organizationId };
 }
 
@@ -243,15 +279,36 @@ export async function disconnectMercadoPagoConnectionService(clerkId, organizati
     const { organization } = await resolveOrganizationForOwnerOrThrow(clerkId, organizationId);
     const now = new Date();
 
-    const result = await prisma.$transaction(async (tx) => {
+    const { updateResult, activeConnectionId } = await prisma.$transaction(async (tx) => {
         await acquireMercadoPagoConnectionLock(tx, organization.id);
-        return tx.mercadoPagoConnection.updateMany({
+        // Se resuelve ANTES del update sólo para poder incluir el id en la
+        // alerta Developer — nunca cambia qué fila se desconecta ni el
+        // resultado en sí.
+        const active = await tx.mercadoPagoConnection.findFirst({ where: { organizationId: organization.id, status: "ACTIVE" }, select: { id: true } });
+        const updateResult = await tx.mercadoPagoConnection.updateMany({
             where: { organizationId: organization.id, status: "ACTIVE" },
             data: { status: "DISCONNECTED", disconnectedAt: now },
         });
+        return { updateResult, activeConnectionId: active?.id ?? null };
     });
 
-    logger.info("mercadopago oauth: conexión desconectada", { organizationId: organization.id, hadActiveConnection: result.count > 0 });
+    logger.info("mercadopago oauth: conexión desconectada", { organizationId: organization.id, hadActiveConnection: updateResult.count > 0 });
+
+    // Alertas Developer — sólo si de verdad HABÍA una conexión ACTIVE para
+    // desconectar (idempotente: desconectar algo ya desconectado nunca
+    // dispara esto, ver el comentario de arriba). Best-effort, nunca lanza.
+    if (updateResult.count > 0) {
+        const alertResult = await sendDeveloperAlert(DeveloperAlertType.MERCADOPAGO_DISCONNECTED, {
+            organizationId: organization.id,
+            organizationName: organization.name,
+            connectionId: activeConnectionId,
+            disconnectedAt: now,
+        });
+        if (!alertResult.sent) {
+            logger.warn("disconnectMercadoPagoConnectionService: no se pudo enviar la alerta Developer de desconexión", { organizationId: organization.id, reason: alertResult.reason });
+        }
+    }
+
     return { disconnected: true };
 }
 

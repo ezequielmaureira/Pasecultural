@@ -15,6 +15,8 @@ import { buildTicketQrImages } from "./email/ticketQrImages.js";
 import { buildTicketsPdfBuffer } from "./email/ticketsPdf.js";
 import { round2 } from "../utils/money.js";
 import { getValidatedServiceFeeTiersOrThrow, calculateServiceFeeForUnitPrice } from "./serviceFee.service.js";
+import { sendDeveloperAlert, DeveloperAlertType, tryClaimDeveloperAlertCooldown } from "./email/sendDeveloperAlert.service.js";
+import { getDeveloperAlertConfigOrDefaults } from "./developerAlertConfig.service.js";
 
 const ACTIVE_TICKET_STATUSES = SOLD_TICKET_STATUSES;
 
@@ -616,6 +618,89 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
         confirmedBy: organizerUser.id,
         ticketCount: result.tickets.length,
     });
+
+    // Alertas Developer — sólo para ventas REALES (origin=SALE, nunca
+    // COURTESY: una cortesía nunca es "primera venta" ni cuenta para pico
+    // de volumen, mismo criterio que el resto del proyecto separa
+    // Cortesías de "ventas reales"). Bloque enteramente best-effort — un
+    // error acá NUNCA puede revertir ni afectar la confirmación ya
+    // committeada arriba, por eso todo el bloque va en su propio
+    // try/catch, además de que sendDeveloperAlert ya nunca lanza por sí
+    // solo (ver informe de entrega, sección "Best-effort obligatorio").
+    if (sale.origin === "SALE") {
+        try {
+            const organizationId = sale.event.organizationId;
+            const organizationName = sale.event.organization.name;
+            const config = await getDeveloperAlertConfigOrDefaults();
+
+            // D) Primera venta CONFIRMED de la organización — concurrent-safe
+            // por construcción (ver informe de entrega, sección "Primera
+            // venta confirmada"): este count() corre DESPUÉS de que la
+            // transacción de arriba ya hizo commit, así que Postgres
+            // garantiza que cualquier otra confirmación cuyo propio commit
+            // haya ocurrido antes YA es visible acá. Sólo puede haber una
+            // ejecución que vea count===1 para una organización dada — la
+            // que de verdad commiteó primero.
+            const confirmedSalesCount = await prisma.sale.count({
+                where: { status: "CONFIRMED", origin: "SALE", event: { organizationId } },
+            });
+            if (confirmedSalesCount === 1) {
+                const alertResult = await sendDeveloperAlert(DeveloperAlertType.FIRST_CONFIRMED_SALE, {
+                    organizationId,
+                    organizationName,
+                    saleId: sale.id,
+                    confirmedAt: new Date(),
+                });
+                if (!alertResult.sent) {
+                    logger.warn("confirmSaleService: no se pudo enviar la alerta Developer de primera venta confirmada", { saleId: sale.id, reason: alertResult.reason });
+                }
+            }
+
+            // 2B) Cantidad excepcional de entradas en una única compra —
+            // datos autoritativos de la Sale ya confirmada (sale.items),
+            // nunca nada mandado por el frontend.
+            const totalQuantity = sale.items.reduce((sum, item) => sum + item.quantity, 0);
+            if (totalQuantity > config.highSaleQuantityThreshold) {
+                const alertResult = await sendDeveloperAlert(DeveloperAlertType.HIGH_QUANTITY_SALE, {
+                    organizationId,
+                    organizationName,
+                    saleId: sale.id,
+                    eventId: sale.eventId,
+                    quantity: totalQuantity,
+                    threshold: config.highSaleQuantityThreshold,
+                });
+                if (!alertResult.sent) {
+                    logger.warn("confirmSaleService: no se pudo enviar la alerta Developer de compra con cantidad excepcional", { saleId: sale.id, reason: alertResult.reason });
+                }
+            }
+
+            // 2D) Pico de ventas CONFIRMED de la organización en la ventana
+            // configurada — con cooldown persistente (ver
+            // tryClaimDeveloperAlertCooldown): no se manda un email por
+            // cada venta adicional mientras el volumen se mantenga alto.
+            const windowStart = new Date(Date.now() - config.salesVolumeWindowMinutes * 60 * 1000);
+            const recentConfirmedCount = await prisma.sale.count({
+                where: { status: "CONFIRMED", origin: "SALE", confirmedAt: { gte: windowStart }, event: { organizationId } },
+            });
+            if (recentConfirmedCount >= config.salesVolumeWindowCount) {
+                const claimed = await tryClaimDeveloperAlertCooldown(`${DeveloperAlertType.SALES_VOLUME_SPIKE}:${organizationId}`, config.alertCooldownMinutes);
+                if (claimed) {
+                    const alertResult = await sendDeveloperAlert(DeveloperAlertType.SALES_VOLUME_SPIKE, {
+                        organizationId,
+                        organizationName,
+                        count: recentConfirmedCount,
+                        windowMinutes: config.salesVolumeWindowMinutes,
+                        threshold: config.salesVolumeWindowCount,
+                    });
+                    if (!alertResult.sent) {
+                        logger.warn("confirmSaleService: no se pudo enviar la alerta Developer de pico de ventas", { organizationId, reason: alertResult.reason });
+                    }
+                }
+            }
+        } catch (err) {
+            logger.error(err, { context: "confirmSaleService: fallo inesperado evaluando alertas Developer (la venta ya confirmada arriba no se ve afectada)", saleId: sale.id });
+        }
+    }
 
     // Se reconstruye con la misma función que usa el camino "ya estaba
     // CONFIRMED" en vez de armar la respuesta a mano acá con lo que

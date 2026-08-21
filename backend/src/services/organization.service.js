@@ -1,4 +1,6 @@
 import prisma from "../config/prisma.js";
+import { logger } from "../logging/logger.js";
+import { sendDeveloperAlert, DeveloperAlertType } from "./email/sendDeveloperAlert.service.js";
 
 const ORGANIZATION_STATUSES = new Set([
     "PENDING",
@@ -94,6 +96,25 @@ export const createOrganizationService = async (
                   data: { role: "ORGANIZER" },
               })
             : user;
+
+    // Alertas Developer — la organización acaba de entrar de verdad al
+    // estado PENDING (nunca inventado: es el default real del modelo, ver
+    // schema.prisma). Best-effort, nunca lanza — un fallo acá no puede
+    // impedir que la organización quede creada. Sólo el camino que
+    // realmente creó una fila NUEVA llega acá (el early-return de arriba,
+    // "ya tenía una organización", nunca dispara esto).
+    const alertResult = await sendDeveloperAlert(DeveloperAlertType.NEW_ORGANIZATION_PENDING, {
+        organizationId: organization.id,
+        name: organization.name,
+        status: organization.status,
+        createdAt: organization.createdAt,
+    });
+    if (!alertResult.sent) {
+        logger.warn("createOrganizationService: no se pudo enviar la alerta Developer de nueva organización pendiente", {
+            organizationId: organization.id,
+            reason: alertResult.reason,
+        });
+    }
 
     return { organization, user: updatedUser };
 };

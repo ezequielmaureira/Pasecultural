@@ -524,4 +524,20 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "The buyer-confirmed price breakdown from the summary screen no longer matches the authoritative server-side calculation — ticket price and/or service fee tiers changed between summary and checkout. Aborted before creating any Sale, stock reservation, or Mercado Pago preference.",
         userMessage: "El precio cambió desde que revisaste el resumen. Confirmá el nuevo total para continuar.",
     },
+    // Alertas Developer — sólo puede pasar si la fila singleton fue borrada
+    // a mano (nunca en uso normal: la migración la siembra). El panel
+    // Developer necesita saberlo explícito para poder recrearla desde ahí;
+    // el resto del sistema nunca ve esto — usa
+    // getDeveloperAlertConfigOrDefaults, que no lanza (ver
+    // developerAlertConfig.service.js).
+    DEVELOPER_ALERT_CONFIG_MISSING: {
+        httpStatus: 500,
+        logMessage: "No DeveloperAlertConfig row exists — the singleton row was likely deleted manually (the migration seeds it).",
+        userMessage: "No pudimos cargar la configuración de alertas.",
+    },
+    DEVELOPER_ALERT_CONFIG_INVALID: {
+        httpStatus: 400,
+        logMessage: "The proposed developer alert threshold configuration failed validation (non-positive threshold/window, or negative cooldown).",
+        userMessage: "La configuración de alertas tiene errores. Revisá los valores e intentá de nuevo.",
+    },
 });

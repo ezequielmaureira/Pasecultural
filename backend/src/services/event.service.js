@@ -7,6 +7,88 @@ import { runArchiveSelfHeal } from "./eventArchive.service.js";
 import { effectiveCapacity, SOLD_TICKET_STATUSES } from "./functionCapacity.service.js";
 import { geocodeLocationIfNeeded } from "./geocoding.service.js";
 import { timeExternalCall } from "../utils/whatsappPerf.js";
+import { logger } from "../logging/logger.js";
+import { sendDeveloperAlert, DeveloperAlertType, tryClaimDeveloperAlertCooldown } from "./email/sendDeveloperAlert.service.js";
+import { getDeveloperAlertConfigOrDefaults } from "./developerAlertConfig.service.js";
+
+// Alertas Developer — evaluado sobre el precio AUTORITATIVO ya persistido
+// para cada (función, tipo de entrada): FunctionTicketType.priceOverride
+// cuando existe, si no TicketType.price — exactamente el mismo criterio
+// que usa createSaleForBuyer (sale.service.js) para cobrar. Bundlea todas
+// las entradas que superan el umbral de UN mismo guardado en un único
+// email (nunca uno por entrada) y usa cooldown persistente por evento —
+// createMany reemplaza TODOS los tipos de entrada en cada guardado (ver
+// syncEventScheduleService), así que sin cooldown cualquier edición no
+// relacionada del evento volvería a alertar sobre precios ya conocidos.
+async function checkAndAlertHighTicketPrices({ eventId, eventTitle, organizationId, organizationName, ticketTypeRows, assignmentRows }) {
+    try {
+        const config = await getDeveloperAlertConfigOrDefaults();
+        const priceByTicketTypeId = new Map(ticketTypeRows.map((tt) => [tt.id, { name: tt.name, price: Number(tt.price) }]));
+        const effectivePrices = new Map(); // ticketTypeId -> {name, price} más alto entre funciones
+
+        for (const tt of ticketTypeRows) {
+            const current = effectivePrices.get(tt.id);
+            const price = Number(tt.price);
+            if (!current || price > current.price) effectivePrices.set(tt.id, { name: tt.name, price });
+        }
+        for (const assignment of assignmentRows) {
+            if (assignment.priceOverride === null || assignment.priceOverride === undefined) continue;
+            const base = priceByTicketTypeId.get(assignment.ticketTypeId);
+            const current = effectivePrices.get(assignment.ticketTypeId);
+            const price = Number(assignment.priceOverride);
+            if (!current || price > current.price) effectivePrices.set(assignment.ticketTypeId, { name: base?.name ?? "Entrada", price });
+        }
+
+        const offending = [...effectivePrices.values()].filter((t) => t.price > config.highTicketPriceThreshold);
+        if (offending.length === 0) return;
+
+        const claimed = await tryClaimDeveloperAlertCooldown(`${DeveloperAlertType.HIGH_TICKET_PRICE}:${eventId}`, config.alertCooldownMinutes);
+        if (!claimed) return;
+
+        const alertResult = await sendDeveloperAlert(DeveloperAlertType.HIGH_TICKET_PRICE, {
+            organizationId,
+            organizationName,
+            eventId,
+            eventTitle,
+            tickets: offending,
+            threshold: config.highTicketPriceThreshold,
+        });
+        if (!alertResult.sent) {
+            logger.warn("checkAndAlertHighTicketPrices: no se pudo enviar la alerta Developer de precio de entrada alto", { eventId, reason: alertResult.reason });
+        }
+    } catch (err) {
+        logger.error(err, { context: "checkAndAlertHighTicketPrices: fallo inesperado (no afecta el guardado ya committeado)", eventId });
+    }
+}
+
+// Alertas Developer — cuántos eventos creó esta Organization en la ventana
+// configurada, contando el que se acaba de crear. Nunca bloquea la
+// creación — sólo informa (ver informe de entrega, sección "Best-effort
+// obligatorio"). Con cooldown persistente por organización.
+async function checkAndAlertTooManyEvents({ organizationId, organizationName }) {
+    try {
+        const config = await getDeveloperAlertConfigOrDefaults();
+        const windowStart = new Date(Date.now() - config.eventsWindowHours * 60 * 60 * 1000);
+        const count = await prisma.event.count({ where: { organizationId, createdAt: { gte: windowStart } } });
+        if (count < config.eventsWindowCount) return;
+
+        const claimed = await tryClaimDeveloperAlertCooldown(`${DeveloperAlertType.TOO_MANY_EVENTS}:${organizationId}`, config.alertCooldownMinutes);
+        if (!claimed) return;
+
+        const alertResult = await sendDeveloperAlert(DeveloperAlertType.TOO_MANY_EVENTS, {
+            organizationId,
+            organizationName,
+            count,
+            windowHours: config.eventsWindowHours,
+            threshold: config.eventsWindowCount,
+        });
+        if (!alertResult.sent) {
+            logger.warn("checkAndAlertTooManyEvents: no se pudo enviar la alerta Developer de demasiados eventos", { organizationId, reason: alertResult.reason });
+        }
+    } catch (err) {
+        logger.error(err, { context: "checkAndAlertTooManyEvents: fallo inesperado (no afecta la creación ya committeada)", organizationId });
+    }
+}
 
 const UPDATABLE_FIELDS = [
     "title",
@@ -240,7 +322,7 @@ export const createEventService = async (clerkId, input, organizationId = null, 
 
     const data = await buildEventData(input);
 
-    return prisma.event.create({
+    const event = await prisma.event.create({
         data: {
             ...data,
             title: input.title,
@@ -250,6 +332,12 @@ export const createEventService = async (clerkId, input, organizationId = null, 
             createdBy: context.user.id,
         },
     });
+
+    // Alertas Developer — 2C, best-effort, nunca puede impedir que el
+    // evento quede creado.
+    await checkAndAlertTooManyEvents({ organizationId: context.organization.id, organizationName: context.organization.name });
+
+    return event;
 };
 
 // "Mis eventos" — SIEMPRE excluye archivados (espacio operativo, ver
@@ -562,6 +650,17 @@ export const syncEventScheduleService = async (clerkId, eventId, input, organiza
 
         const summary = recomputeEventSummary(functionsInput, ticketTypesInput);
         await tx.event.update({ where: { id: eventId }, data: summary });
+    });
+
+    // Alertas Developer — 2A, best-effort, nunca puede impedir que el
+    // guardado ya committeado quede aplicado.
+    await checkAndAlertHighTicketPrices({
+        eventId,
+        eventTitle: event.title,
+        organizationId: context.organization.id,
+        organizationName: context.organization.name,
+        ticketTypeRows,
+        assignmentRows,
     });
 
     if (!returnEvent) return null;
@@ -935,5 +1034,10 @@ export const duplicateEventService = async (clerkId, id) => {
         }
 
         return tx.event.findUnique({ where: { id: newEvent.id }, include: EVENT_DETAIL_INCLUDE });
+    }).then(async (duplicated) => {
+        // Alertas Developer — 2C, best-effort, nunca puede impedir que la
+        // duplicación ya committeada quede aplicada.
+        await checkAndAlertTooManyEvents({ organizationId: context.organization.id, organizationName: context.organization.name });
+        return duplicated;
     });
 };

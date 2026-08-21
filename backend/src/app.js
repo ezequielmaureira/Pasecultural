@@ -22,6 +22,7 @@ import developerTicketsRoutes from "./routes/developerTickets.routes.js";
 import developerScannersRoutes from "./routes/developerScanners.routes.js";
 import developerSalesRoutes from "./routes/developerSales.routes.js";
 import developerServiceFeeRoutes from "./routes/developerServiceFee.routes.js";
+import developerAlertConfigRoutes from "./routes/developerAlertConfig.routes.js";
 import whatsappRoutes from "./routes/whatsapp.routes.js";
 import mercadoPagoRoutes from "./routes/mercadoPago.routes.js";
 import { errorHandler } from "./errors/index.js";
@@ -98,6 +99,13 @@ app.use("/api/developer", developerSalesRoutes);
 // /api/developer/service-fee (rangos de comisión de servicio). Exclusivo
 // DEVELOPER. Ver developerServiceFee.service.js.
 app.use("/api/developer", developerServiceFeeRoutes);
+// Mismo prefijo "/api/developer", séptimo router en paralelo (sin tocar
+// ninguno de los anteriores) — Alertas Developer, Developer > Configuración:
+// GET/PUT /api/developer/alert-config (umbrales de las alertas de patrón/
+// volumen: precio de entrada, cantidad por compra, eventos/ventas/refunds
+// por ventana de tiempo, cooldown). Exclusivo DEVELOPER. Ver
+// developerAlertConfig.service.js.
+app.use("/api/developer", developerAlertConfigRoutes);
 // Webhook de Meta WhatsApp Cloud API — Fase 2A: sólo verificación GET y
 // recepción POST del webhook, público (Meta no manda ningún header de
 // sesión de PaseCultural). No conecta EventCreationEngine/EventServicePort

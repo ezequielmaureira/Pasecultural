@@ -6,6 +6,7 @@ import Button from "../../components/ui/Button.jsx";
 import InlineErrorNotice from "../../components/ui/InlineErrorNotice.jsx";
 import { formatCurrencyARS, formatDateTime } from "../../lib/format.js";
 import { getServiceFeeConfig, updateServiceFeeConfig } from "../../lib/developerServiceFeeApi.js";
+import { getDeveloperAlertConfig, updateDeveloperAlertConfig } from "../../lib/developerAlertConfigApi.js";
 
 // MP-6 — Developer > Configuración. Única sección hoy (comisión de
 // servicio de Mercado Pago); pensada como el punto de entrada para
@@ -65,6 +66,154 @@ function PreviewRow({ example, rows }) {
       <td className="py-2 pr-3 text-slate-400">{incomplete ? "—" : formatCurrencyARS(fee)}</td>
       <td className="py-2 font-medium text-white">{incomplete ? "Rango incompleto" : formatCurrencyARS(subtotal + fee)}</td>
     </tr>
+  );
+}
+
+// Alertas Developer — umbrales de las alertas de patrón/volumen (ver
+// backend/src/services/developerAlertConfig.service.js). Sección aparte,
+// propia, dentro del mismo panel "Configuración" (nunca un panel
+// paralelo) — mismo criterio de autorización DEVELOPER que el resto de
+// esta pantalla.
+const ALERT_CONFIG_FIELDS = [
+  { key: "highTicketPriceThreshold", label: "Precio de entrada que dispara alerta ($)", step: "0.01" },
+  { key: "highSaleQuantityThreshold", label: "Cantidad de entradas por compra que dispara alerta" },
+  { key: "eventsWindowCount", label: "Cantidad de eventos" },
+  { key: "eventsWindowHours", label: "Ventana de eventos (horas)" },
+  { key: "salesVolumeWindowCount", label: "Cantidad de ventas" },
+  { key: "salesVolumeWindowMinutes", label: "Ventana de ventas (minutos)" },
+  { key: "refundsVolumeWindowCount", label: "Cantidad de refunds" },
+  { key: "refundsVolumeWindowHours", label: "Ventana de refunds (horas)" },
+  { key: "alertCooldownMinutes", label: "Cooldown entre alertas repetidas (minutos)" },
+];
+
+function emptyAlertConfigForm() {
+  return Object.fromEntries(ALERT_CONFIG_FIELDS.map((f) => [f.key, ""]));
+}
+
+function alertConfigFormFromConfig(config) {
+  return Object.fromEntries(ALERT_CONFIG_FIELDS.map((f) => [f.key, config ? String(config[f.key]) : ""]));
+}
+
+function DeveloperAlertConfigSection() {
+  const { getToken } = useAuth();
+
+  const [form, setForm] = useState(emptyAlertConfigForm());
+  const [updatedAt, setUpdatedAt] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [validationErrors, setValidationErrors] = useState([]);
+  const [savedMessage, setSavedMessage] = useState("");
+
+  async function load() {
+    setLoading(true);
+    setLoadError(false);
+    try {
+      const token = await getToken();
+      const config = await getDeveloperAlertConfig(token);
+      setForm(alertConfigFormFromConfig(config));
+      setUpdatedAt(config.updatedAt);
+    } catch (err) {
+      console.error("No se pudo cargar la configuración de alertas Developer", err);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function handleChange(key, value) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function handleSave() {
+    setSaveError("");
+    setValidationErrors([]);
+    setSavedMessage("");
+    setSaving(true);
+    try {
+      const token = await getToken();
+      const config = await updateDeveloperAlertConfig(token, form);
+      setForm(alertConfigFormFromConfig(config));
+      setUpdatedAt(config.updatedAt);
+      setSavedMessage("Configuración de alertas guardada.");
+    } catch (err) {
+      if (Array.isArray(err.errors) && err.errors.length > 0) {
+        setValidationErrors(err.errors);
+      } else {
+        setSaveError(err.message || "No pudimos guardar la configuración de alertas.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return <p className="text-sm text-slate-400">Cargando configuración de alertas...</p>;
+  }
+
+  if (loadError) {
+    return <InlineErrorNotice message="No pudimos cargar la configuración de alertas Developer." onRetry={load} />;
+  }
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-[#0B1120]/90 p-5">
+      <div className="mb-4 flex flex-col gap-1">
+        <h2 className="text-sm font-semibold text-white">Alertas Developer</h2>
+        <p className="text-xs leading-relaxed text-slate-500">
+          Umbrales de las alertas informativas de patrón/volumen (nunca bloquean nada: no cancelan ventas, no
+          suspenden organizaciones, no tocan Mercado Pago). Se envían a la casilla configurada en
+          DEVELOPER_ALERT_EMAIL.
+        </p>
+        {updatedAt && <p className="text-xs text-slate-600">Última modificación: {formatDateTime(updatedAt)}</p>}
+      </div>
+
+      {(saveError || validationErrors.length > 0) && (
+        <div className="mb-4 rounded-lg border border-rose-500/20 bg-rose-500/5 p-3">
+          {saveError && <p className="text-sm text-rose-300">{saveError}</p>}
+          {validationErrors.length > 0 && (
+            <ul className="mt-1 list-inside list-disc text-sm text-rose-300">
+              {validationErrors.map((message, i) => (
+                <li key={i}>{message}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {savedMessage && (
+        <div className="mb-4 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+          <p className="text-sm text-emerald-300">{savedMessage}</p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {ALERT_CONFIG_FIELDS.map((f) => (
+          <Field key={f.key} label={f.label}>
+            <input
+              type="number"
+              min={0}
+              step={f.step ?? "1"}
+              className={inputClass}
+              value={form[f.key]}
+              onChange={(e) => handleChange(f.key, e.target.value)}
+            />
+          </Field>
+        ))}
+      </div>
+
+      <div className="mt-5 flex justify-end">
+        <Button onClick={handleSave} loading={saving} loadingText="Guardando...">
+          <Save className="h-4 w-4" />
+          Guardar alertas
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -296,6 +445,8 @@ export default function DeveloperSettings() {
           </table>
         </div>
       </div>
+
+      <DeveloperAlertConfigSection />
     </div>
   );
 }
