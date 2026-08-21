@@ -40,28 +40,38 @@ test("sanitizeReasonNote caps length at 500 characters — never an unbounded fr
     assert.equal(sanitized.length, 500);
 });
 
-test("buildOrganizationContact builds a wa.me link when the phone parses as a real Argentine number", () => {
-    const contact = buildOrganizationContact({ phone: "+54 9 351 412-3456", email: "org@example.com" }, "Mi Evento");
+test("buildOrganizationContact builds a wa.me link when the phone is VERIFIED and parses as a real Argentine number", () => {
+    const contact = buildOrganizationContact({ phone: "+54 9 351 412-3456", phoneVerifiedAt: new Date(), email: "org@example.com" }, "Mi Evento");
     assert.ok(contact.whatsappUrl.startsWith("https://wa.me/549351"));
     assert.ok(contact.whatsappUrl.includes(encodeURIComponent("Mi Evento")));
 });
 
 test("buildOrganizationContact never includes DNI, OTP, tokens, or other-purchase data in the prearmed message", () => {
-    const contact = buildOrganizationContact({ phone: "+54 9 351 412-3456", email: "org@example.com" }, "Mi Evento");
+    const contact = buildOrganizationContact({ phone: "+54 9 351 412-3456", phoneVerifiedAt: new Date(), email: "org@example.com" }, "Mi Evento");
     const decoded = decodeURIComponent(contact.whatsappUrl);
     for (const forbidden of ["dni", "otp", "token", "codigo", "código"]) {
         assert.ok(!decoded.toLowerCase().includes(forbidden), `the prearmed WhatsApp message must never mention "${forbidden}"`);
     }
 });
 
-test("buildOrganizationContact falls back to the organization's public email when the phone can't be parsed with certainty", () => {
-    const contact = buildOrganizationContact({ phone: "no-es-un-telefono", email: "org@example.com" }, "Mi Evento");
+// Verificación de teléfono/WhatsApp de Organización — propiedad de
+// seguridad central de este mecanismo: un teléfono con formato válido pero
+// NUNCA confirmado por WhatsApp jamás debe ofrecerse como contacto,
+// aunque parsee perfecto como número argentino real.
+test("buildOrganizationContact NEVER offers WhatsApp for an unverified phone, even if it parses as a real Argentine number", () => {
+    const contact = buildOrganizationContact({ phone: "+54 9 351 412-3456", phoneVerifiedAt: null, email: "org@example.com" }, "Mi Evento");
+    assert.equal(contact.whatsappUrl, null);
+    assert.equal(contact.email, "org@example.com");
+});
+
+test("buildOrganizationContact falls back to the organization's public email when the (verified) phone can't be parsed with certainty", () => {
+    const contact = buildOrganizationContact({ phone: "no-es-un-telefono", phoneVerifiedAt: new Date(), email: "org@example.com" }, "Mi Evento");
     assert.equal(contact.whatsappUrl, null);
     assert.equal(contact.email, "org@example.com");
 });
 
 test("buildOrganizationContact falls back to null email when the organization phone AND some hypothetical missing email — never invents a contact", () => {
-    const contact = buildOrganizationContact({ phone: null, email: null }, "Mi Evento");
+    const contact = buildOrganizationContact({ phone: null, phoneVerifiedAt: null, email: null }, "Mi Evento");
     assert.equal(contact.whatsappUrl, null);
     assert.equal(contact.email, null);
 });

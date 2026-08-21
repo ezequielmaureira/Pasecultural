@@ -487,6 +487,78 @@ export const ErrorCatalog = Object.freeze({
         userMessage: "Este cambio de número ya se resolvió. Si todavía lo necesitás, pedí un código nuevo.",
     },
 
+    // --- Verificación de teléfono/WhatsApp de Organización (Organization.phone) ---
+    ORGANIZATION_PHONE_ORGANIZATION_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "Organization phone verification attempted without an organizationId.",
+        userMessage: "Falta indicar la organización.",
+    },
+    ORGANIZATION_PHONE_FORBIDDEN: {
+        httpStatus: 403,
+        logMessage: "Organization phone verification attempted by a user who does not own the given organization.",
+        userMessage: "No tenés permiso para modificar el teléfono de esta organización.",
+    },
+    ORGANIZATION_PHONE_INVALID_NUMBER: {
+        httpStatus: 400,
+        logMessage: "Organization phone verification requested with a phone number that could not be parsed unambiguously as an Argentine mobile number.",
+        userMessage: "Ingresá un número de WhatsApp argentino válido.",
+    },
+    ORGANIZATION_PHONE_SAME_NUMBER: {
+        httpStatus: 400,
+        logMessage: "Organization phone verification requested with the same number that is already verified for this organization.",
+        userMessage: "Ese ya es tu número verificado.",
+    },
+    ORGANIZATION_PHONE_RESEND_TOO_SOON: {
+        httpStatus: 429,
+        logMessage: "Organization phone verification (re)send attempted before the resend cooldown elapsed.",
+        userMessage: "Esperá unos segundos antes de reintentar.",
+    },
+    ORGANIZATION_PHONE_SEND_FAILED: {
+        httpStatus: 502,
+        logMessage: "Meta Graph API rejected, failed to deliver, or is missing template configuration for the organization phone verification WhatsApp message.",
+        userMessage: "No pudimos enviar el mensaje de verificación por WhatsApp. Probá de nuevo en unos minutos.",
+    },
+    ORGANIZATION_PHONE_EMAIL_SEND_FAILED: {
+        httpStatus: 502,
+        logMessage: "Resend failed to deliver the organization phone change authorization OTP email.",
+        userMessage: "No pudimos enviar el código a tu email. Probá de nuevo en unos minutos.",
+    },
+    ORGANIZATION_PHONE_VERIFICATION_NOT_FOUND: {
+        httpStatus: 404,
+        logMessage: "Organization phone WhatsApp verification resend attempted with no live pending verification for this organization.",
+        userMessage: "No encontramos una verificación de WhatsApp pendiente. Iniciá el proceso de nuevo.",
+    },
+    ORGANIZATION_PHONE_OTP_NOT_FOUND: {
+        httpStatus: 404,
+        logMessage: "Organization phone change email OTP verification/resend attempted with no live authorization for this organization.",
+        userMessage: "No encontramos un cambio de teléfono pendiente. Pedí un código nuevo.",
+    },
+    ORGANIZATION_PHONE_OTP_CODE_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "Organization phone change email OTP verification attempted without a well-formed 6-digit code.",
+        userMessage: "Ingresá el código de 6 dígitos.",
+    },
+    ORGANIZATION_PHONE_OTP_CODE_INVALID: {
+        httpStatus: 400,
+        logMessage: "Organization phone change email OTP verification attempted with a code that does not match the stored hash.",
+        userMessage: "El código ingresado es incorrecto.",
+    },
+    ORGANIZATION_PHONE_OTP_CODE_EXPIRED: {
+        httpStatus: 410,
+        logMessage: "Organization phone change email OTP verification attempted after the authorization's expiration.",
+        userMessage: "Ese código venció. Pedí uno nuevo.",
+    },
+    ORGANIZATION_PHONE_OTP_TOO_MANY_ATTEMPTS: {
+        httpStatus: 429,
+        logMessage: "Organization phone change email OTP verification attempted after exceeding the max allowed failed attempts for the current authorization.",
+        userMessage: "Superaste el máximo de intentos. Pedí un código nuevo.",
+    },
+    ORGANIZATION_PHONE_OTP_ALREADY_RESOLVED: {
+        httpStatus: 409,
+        logMessage: "Organization phone change email OTP verification attempted after the authorization was already consumed (or removed) by a concurrent request.",
+        userMessage: "Este cambio ya se resolvió. Si todavía lo necesitás, pedí un código nuevo.",
+    },
+
     // --- Mercado Pago OAuth (MP-1 — onboarding, sin cobros todavía) -----
     MERCADOPAGO_ORGANIZATION_REQUIRED: {
         httpStatus: 400,

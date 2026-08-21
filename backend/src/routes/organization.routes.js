@@ -19,6 +19,14 @@ import {
     cancelWhatsappNumberChange,
 } from "../controllers/organizationWhatsapp.controller.js";
 import { getMercadoPagoStatus, startMercadoPagoConnect, disconnectMercadoPagoConnection } from "../controllers/organizationMercadoPago.controller.js";
+import {
+    getOrganizationPhoneStatus,
+    requestOrganizationPhoneVerification,
+    verifyOrganizationPhoneChangeOtp,
+    resendOrganizationPhoneWhatsapp,
+    resendOrganizationPhoneChangeOtp,
+    cancelOrganizationPhoneChange,
+} from "../controllers/organizationPhoneVerification.controller.js";
 import { requireRole } from "../middlewares/requireRole.js";
 
 const router = Router();
@@ -57,6 +65,21 @@ router.get("/me/mercadopago/connect", requireRole("ORGANIZER"), startMercadoPago
 // Bug fix (desconexión de Mercado Pago) — POST porque muta estado, mismo
 // criterio que /me/whatsapp-number/change/cancel.
 router.post("/me/mercadopago/disconnect", requireRole("ORGANIZER"), disconnectMercadoPagoConnection);
+
+// Verificación de teléfono/WhatsApp de Organización — mismo sub-recurso
+// "/me", mismo requireRole("ORGANIZER"). organizationId SIEMPRE viaja
+// explícito (body/query) y SIEMPRE se revalida contra la sesión
+// autenticada dentro de cada service (ver
+// organizationPhoneVerification.service.js#resolveOrganizationForOwnerOrThrow)
+// — nunca se infiere con findFirst. UN SOLO mecanismo para alta nueva y
+// cambio: el service decide solo, mirando phoneVerifiedAt, si hace falta
+// el paso de OTP por email antes del WhatsApp.
+router.get("/me/phone-verification", requireRole("ORGANIZER"), getOrganizationPhoneStatus);
+router.post("/me/phone-verification/request", requireRole("ORGANIZER"), requestOrganizationPhoneVerification);
+router.post("/me/phone-verification/email-otp/verify", requireRole("ORGANIZER"), verifyOrganizationPhoneChangeOtp);
+router.post("/me/phone-verification/email-otp/resend", requireRole("ORGANIZER"), resendOrganizationPhoneChangeOtp);
+router.post("/me/phone-verification/whatsapp/resend", requireRole("ORGANIZER"), resendOrganizationPhoneWhatsapp);
+router.post("/me/phone-verification/cancel", requireRole("ORGANIZER"), cancelOrganizationPhoneChange);
 
 router.get("/", requireRole("DEVELOPER"), getOrganizations);
 router.get("/:id", requireRole("DEVELOPER"), getOrganizationById);

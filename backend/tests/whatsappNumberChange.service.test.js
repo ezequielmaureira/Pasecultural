@@ -625,10 +625,18 @@ testWithDb("20) multi-organization selector keeps working: a waId administering 
 
 // ==================================================================
 // 21) Web existente (organization.service.js) sigue funcionando sin
-// cambios — no se tocó ninguna de sus funciones.
+// cambios para el resto de los campos — no se tocó ninguna otra función.
+//
+// Verificación de teléfono/WhatsApp de Organización (ronda posterior) —
+// "phone" DEJÓ de ser editable por este PATCH genérico a propósito (ver
+// organization.service.js#UPDATABLE_FIELDS): a partir de ese mecanismo, el
+// ÚNICO camino para cambiar Organization.phone es
+// organizationPhoneVerification.service.js. Esta aserción se actualizó
+// para reflejar esa decisión — no es un debilitamiento del test, es
+// evidencia nueva real sobre el comportamiento correcto actual.
 // ==================================================================
 
-testWithDb("21) Web's existing GET/PATCH /me organization flow is unaffected by this feature", async () => {
+testWithDb("21) Web's existing GET/PATCH /me organization flow still works for other fields; PATCH can no longer change phone directly", async () => {
     const owner = await createUser();
     const org = await createOrganization(owner.id, { phone: "+54 351 555-1111" });
     try {
@@ -636,8 +644,9 @@ testWithDb("21) Web's existing GET/PATCH /me organization flow is unaffected by 
         assert.equal(fetched.id, org.id);
         assert.equal(fetched.phone, "+54 351 555-1111");
 
-        const updated = await updateMyOrganizationService(owner.clerkId, { phone: "+54 351 555-2222", name: fetched.name });
-        assert.equal(updated.phone, "+54 351 555-2222", "PATCH /me sigue pudiendo cambiar el teléfono público libremente");
+        const updated = await updateMyOrganizationService(owner.clerkId, { phone: "+54 351 555-2222", name: "Nombre actualizado" });
+        assert.equal(updated.name, "Nombre actualizado", "PATCH /me sigue pudiendo cambiar otros campos libremente");
+        assert.equal(updated.phone, "+54 351 555-1111", "PATCH /me ya NO puede cambiar el teléfono directamente — sólo el mecanismo de verificación puede");
     } finally {
         await cleanup({ organizationIds: [org.id], userIds: [owner.id] });
     }

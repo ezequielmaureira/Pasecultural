@@ -442,6 +442,49 @@ export async function sendWhatsappWelcomeTemplate({ to, firstName, organizationN
 }
 
 // ==================================================================
+// Verificación de teléfono/WhatsApp de Organización (Organization.phone) —
+// mismo criterio LAZY que getWhatsappOtpTemplateName/Language: el mensaje
+// "Este número fue registrado como WhatsApp de contacto de [Organización].
+// Respondé CONFIRMAR para verificarlo." tiene que existir como template
+// aprobado en el panel de Meta (el número nunca escribió antes, así que
+// nunca hay ventana de 24hs abierta — ver el comentario de
+// sendWhatsappTemplateMessage). Nunca se crea/aprueba el template desde
+// acá — sólo lee el nombre/idioma ya configurados.
+// ==================================================================
+
+let cachedPhoneVerificationTemplateName;
+export function getWhatsappPhoneVerificationTemplateName() {
+    if (cachedPhoneVerificationTemplateName) return cachedPhoneVerificationTemplateName;
+    const value = process.env.WHATSAPP_PHONE_VERIFICATION_TEMPLATE_NAME;
+    if (!value || !value.trim()) {
+        throw new Error("Falta configurar la variable de entorno WHATSAPP_PHONE_VERIFICATION_TEMPLATE_NAME (plantilla de Meta para verificar el teléfono de una organización).");
+    }
+    cachedPhoneVerificationTemplateName = value.trim();
+    return cachedPhoneVerificationTemplateName;
+}
+
+let cachedPhoneVerificationTemplateLanguage;
+export function getWhatsappPhoneVerificationTemplateLanguage() {
+    if (cachedPhoneVerificationTemplateLanguage) return cachedPhoneVerificationTemplateLanguage;
+    const value = process.env.WHATSAPP_PHONE_VERIFICATION_TEMPLATE_LANGUAGE;
+    if (!value || !value.trim()) {
+        throw new Error("Falta configurar la variable de entorno WHATSAPP_PHONE_VERIFICATION_TEMPLATE_LANGUAGE.");
+    }
+    cachedPhoneVerificationTemplateLanguage = value.trim();
+    return cachedPhoneVerificationTemplateLanguage;
+}
+
+// Única variable real del template: el nombre de la organización — el
+// texto "Respondé CONFIRMAR para verificarlo" vive en el template ya
+// aprobado por Meta, nunca acá. Mismo criterio que sendWhatsappOtpTemplate:
+// lanza ANTES de intentar ningún request si falta configuración.
+export async function sendWhatsappPhoneVerificationTemplate({ to, organizationName }) {
+    const templateName = getWhatsappPhoneVerificationTemplateName();
+    const languageCode = getWhatsappPhoneVerificationTemplateLanguage();
+    return sendWhatsappTemplateMessage({ to, templateName, languageCode, bodyParameters: [organizationName] });
+}
+
+// ==================================================================
 // Respuesta automática mínima — Fase 2D. Sigue sin EventCreationEngine/
 // EventServicePort/Prisma: sólo decide "¿a este mensaje le corresponde
 // nuestra única respuesta fija?", nunca envía nada por sí misma (eso lo

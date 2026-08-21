@@ -34,13 +34,18 @@ export function sanitizeReasonNote(reasonNote) {
 
 // Mismo mensaje prearmado descripto en el informe de entrega — NUNCA
 // incluye DNI, OTP, tokens ni datos de otras compras, sólo el título del
-// evento (dato ya público). Si Organization.phone no se puede interpretar
-// con certeza como un número argentino real (ver buildArgentineWhatsappId
-// — nunca adivina), no se ofrece WhatsApp: se cae al email público de la
-// organización (Organization.email, campo obligatorio del modelo), nunca
-// se inventa un contacto que no existe.
+// evento (dato ya público). Verificación de teléfono/WhatsApp de
+// Organización — el WhatsApp SOLO se ofrece si Organization.phoneVerifiedAt
+// tiene valor (el número pasó de verdad por el mecanismo de confirmación
+// real de Meta, ver organizationPhoneVerification.service.js); nunca un
+// teléfono simplemente presente/con formato válido, y nunca un
+// pendingPhone en curso (ese campo ni siquiera vive en Organization, así
+// que no hay forma de que se filtre acá por accidente). Si no hay teléfono
+// verificado, se cae al email público de la organización
+// (Organization.email, campo obligatorio del modelo), nunca se inventa un
+// contacto que no existe.
 export function buildOrganizationContact(organization, eventTitle) {
-    const waId = buildArgentineWhatsappId(organization.phone);
+    const waId = organization.phoneVerifiedAt ? buildArgentineWhatsappId(organization.phone) : null;
     const message = `Hola, realicé una solicitud relacionada con mi compra del evento ${eventTitle}. Quisiera comunicarme por la solicitud registrada.`;
     return {
         whatsappUrl: waId ? `https://wa.me/${waId}?text=${encodeURIComponent(message)}` : null,

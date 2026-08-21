@@ -1,6 +1,7 @@
 import prisma from "../config/prisma.js";
 import { logger } from "../logging/logger.js";
 import { sendDeveloperAlert, DeveloperAlertType } from "./email/sendDeveloperAlert.service.js";
+import { startOrganizationPhoneVerificationOnCreate } from "./organizationPhoneVerification.service.js";
 
 const ORGANIZATION_STATUSES = new Set([
     "PENDING",
@@ -116,15 +117,30 @@ export const createOrganizationService = async (
         });
     }
 
+    // Verificación de teléfono/WhatsApp — sección "Organización nueva" del
+    // informe de entrega: si se proporcionó teléfono, arranca la
+    // verificación por WhatsApp acá mismo (best-effort, nunca lanza —
+    // "la falta de confirmación NO debe borrar la organización", y un
+    // fallo al mandar el mensaje tampoco puede impedir que la organización
+    // quede creada). El teléfono queda PENDIENTE hasta que llegue el
+    // CONFIRMAR real por el webhook de Meta.
+    await startOrganizationPhoneVerificationOnCreate(organization, updatedUser);
+
     return { organization, user: updatedUser };
 };
 
+// Verificación de teléfono/WhatsApp — "phone" DELIBERADAMENTE fuera de esta
+// lista: a partir de este mecanismo, el ÚNICO camino para cambiar
+// Organization.phone es organizationPhoneVerification.service.js (ver el
+// informe de entrega, "UN SOLO mecanismo"). Si un PATCH viejo todavía
+// manda `phone` en el body, Object.hasOwn ya no lo encuentra acá abajo y
+// se ignora en silencio, exactamente igual que cualquier otro campo no
+// reconocido.
 const UPDATABLE_FIELDS = [
     "name",
     "type",
     "description",
     "logo",
-    "phone",
     "email",
     "website",
     "instagram",

@@ -1,7 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import { evaluateWebhookVerification, parseInboundWhatsappMessages } from "../src/services/whatsapp.service.js";
 import { receiveWhatsappWebhook } from "../src/controllers/whatsapp.controller.js";
+
+// Verificación de teléfono de Organizaciones — auditoría: receiveWhatsappWebhook
+// ahora exige una firma X-Hub-Signature-256 válida (ver
+// config/whatsappWebhookSignature.js) antes de procesar nada. Fijada UNA
+// vez acá arriba, mismo criterio LAZY que el resto de whatsapp.service.js.
+process.env.WHATSAPP_APP_SECRET = "test-webhook-app-secret";
+
+// Arma un `req` fake que se comporta como uno real de Express en lo único
+// que receiveWhatsappWebhook necesita: rawBody (los bytes exactos que
+// firma el HMAC, ver app.js#express.json({verify})) y req.get(header).
+function buildSignedReq(bodyObject) {
+    const rawBody = Buffer.from(JSON.stringify(bodyObject));
+    const signature = `sha256=${crypto.createHmac("sha256", process.env.WHATSAPP_APP_SECRET).update(rawBody).digest("hex")}`;
+    return {
+        body: bodyObject,
+        rawBody,
+        get: (header) => (header === "X-Hub-Signature-256" ? signature : undefined),
+    };
+}
 
 // Payload real de Meta (forma simplificada, campos irrelevantes omitidos)
 // para un mensaje de texto entrante con su contacto asociado.
@@ -62,7 +82,7 @@ test("evaluateWebhookVerification rejects a missing challenge", () => {
 // controller directo con un req/res mínimo, mismo criterio que el resto de
 // tests/*.test.js (probar la función real, no levantar un server HTTP).
 test("receiveWhatsappWebhook always responds 200 without touching the database", () => {
-    const req = { body: { object: "whatsapp_business_account", entry: [{ id: "1" }] } };
+    const req = buildSignedReq({ object: "whatsapp_business_account", entry: [{ id: "1" }] });
     let statusSent;
     const res = { sendStatus: (code) => { statusSent = code; } };
 
@@ -354,9 +374,9 @@ test("parseInboundWhatsappMessages flattens multiple entries/changes/messages", 
 // receiveWhatsappWebhook (controller) — Fase 2B
 // ==================================================
 
-// J) POST con payload válido (con mensajes) -> HTTP 200.
-test("receiveWhatsappWebhook responds 200 when the payload contains real messages", () => {
-    const req = { body: buildTextMessagePayload({ from: "5491122334455" }) };
+// J) POST con payload válido (con mensajes) y firma real -> HTTP 200.
+test("receiveWhatsappWebhook responds 200 when the payload contains real messages and the signature is valid", () => {
+    const req = buildSignedReq(buildTextMessagePayload({ from: "5491122334455" }));
     let statusSent;
     const res = { sendStatus: (code) => { statusSent = code; } };
 
@@ -365,17 +385,46 @@ test("receiveWhatsappWebhook responds 200 when the payload contains real message
     assert.equal(statusSent, 200);
 });
 
-// K) POST con payload sin mensajes (status update) -> HTTP 200.
-test("receiveWhatsappWebhook responds 200 for a status-only payload", () => {
-    const req = {
-        body: {
-            entry: [{ changes: [{ value: { statuses: [{ id: "wamid.A", status: "read" }] } }] }],
-        },
-    };
+// K) POST con payload sin mensajes (status update) y firma real -> HTTP 200.
+test("receiveWhatsappWebhook responds 200 for a status-only payload with a valid signature", () => {
+    const req = buildSignedReq({
+        entry: [{ changes: [{ value: { statuses: [{ id: "wamid.A", status: "read" }] } }] }],
+    });
     let statusSent;
     const res = { sendStatus: (code) => { statusSent = code; } };
 
     receiveWhatsappWebhook(req, res);
 
     assert.equal(statusSent, 200);
+});
+
+// Verificación de teléfono de Organizaciones — auditoría: cubre
+// explícitamente el fail-closed nuevo (sin esto, cualquiera que conozca la
+// URL podría mandar payloads falsos, ver el informe de entrega).
+test("receiveWhatsappWebhook rejects a request with an invalid/forged signature (401), never processes it", () => {
+    const req = {
+        body: buildTextMessagePayload({ from: "5491122334455" }),
+        rawBody: Buffer.from(JSON.stringify(buildTextMessagePayload({ from: "5491122334455" }))),
+        get: (header) => (header === "X-Hub-Signature-256" ? "sha256=" + "0".repeat(64) : undefined),
+    };
+    let statusSent;
+    const res = { sendStatus: (code) => { statusSent = code; } };
+
+    receiveWhatsappWebhook(req, res);
+
+    assert.equal(statusSent, 401);
+});
+
+test("receiveWhatsappWebhook rejects a request with no signature header at all (401)", () => {
+    const req = {
+        body: buildTextMessagePayload({ from: "5491122334455" }),
+        rawBody: Buffer.from(JSON.stringify(buildTextMessagePayload({ from: "5491122334455" }))),
+        get: () => undefined,
+    };
+    let statusSent;
+    const res = { sendStatus: (code) => { statusSent = code; } };
+
+    receiveWhatsappWebhook(req, res);
+
+    assert.equal(statusSent, 401);
 });

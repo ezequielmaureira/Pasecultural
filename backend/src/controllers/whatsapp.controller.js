@@ -8,6 +8,8 @@ import {
     sendWhatsappTextMessage,
     shouldAutoReply,
 } from "../services/whatsapp.service.js";
+import { getWhatsappAppSecret, verifyWhatsappWebhookSignature } from "../config/whatsappWebhookSignature.js";
+import { isOrganizationPhoneConfirmationText, confirmOrganizationPhoneFromWebhook } from "../services/organizationPhoneVerification.service.js";
 import * as EventCreationEngine from "../conversation/EventCreationEngine.js";
 // Fase 2F, legacy — whatsappOrganizerIdentity.service.js/
 // createOrReuseWhatsappLinkChallenge ya no se importan acá: el flujo de
@@ -1351,6 +1353,27 @@ export async function processInboundMessage(
             return;
         }
 
+        // Verificación de teléfono de Organización — "CONFIRMAR" enviado
+        // DESDE el número que se está verificando (alta nueva o cambio, ver
+        // organizationPhoneVerification.service.js). Se revisa ANTES de la
+        // conversación del bot: una confirmación de teléfono nunca debe
+        // interpretarse como respuesta a un paso del motor. Si no hay
+        // ninguna verificación PENDING para message.from exacto (el wa_id
+        // real que mandó Meta, nunca uno inferido/normalizado para test
+        // mode), confirmOrganizationPhoneFromWebhook no hace nada y el
+        // mensaje sigue su camino normal más abajo — podría ser, por
+        // ejemplo, alguien escribiendo "confirmar" dentro de una
+        // conversación real del bot.
+        if (message.type === "text" && isOrganizationPhoneConfirmationText(text)) {
+            const { confirmedOrganizationIds } = await confirmOrganizationPhoneFromWebhook(message.from);
+            if (confirmedOrganizationIds.length > 0) {
+                await sendText({ to, text: "✅ ¡Listo! Verificamos tu WhatsApp como número de contacto." }).catch((error) => {
+                    logger.warn("receiveWhatsappWebhook: no se pudo enviar la confirmación de teléfono verificado", { reason: error.message });
+                });
+                return;
+            }
+        }
+
         if (active) {
             if (isCancelCommand(text)) {
                 await cancelConversation(active.id, active.userId);
@@ -1767,7 +1790,31 @@ export async function processInboundMessages(messages, deps) {
 // `value.messages`, así que parseInboundWhatsappMessages ya los ignora
 // limpiamente (devuelve []) sin necesidad de distinguirlos acá — nunca se
 // les responde nada.
+// Verificación de teléfono de Organizaciones — auditoría: este endpoint no
+// tenía ninguna validación criptográfica de origen (ver el informe de
+// entrega, sección "Validación webhook Meta"). `req.rawBody` lo captura el
+// `verify` de express.json() en app.js — SIEMPRE los bytes crudos, nunca
+// req.body re-serializado. Si WHATSAPP_APP_SECRET no está configurada
+// (getWhatsappAppSecret lanza), se falla CERRADO (se rechaza el request)
+// en vez de procesar sin firma — nunca "no hay secreto, dejo pasar todo".
+function isWhatsappWebhookSignatureValid(req) {
+    let secret;
+    try {
+        secret = getWhatsappAppSecret();
+    } catch (error) {
+        logger.error(error, { context: "receiveWhatsappWebhook: WHATSAPP_APP_SECRET no configurada, rechazando por seguridad (fail-closed)" });
+        return false;
+    }
+    return verifyWhatsappWebhookSignature({ signatureHeader: req.get("X-Hub-Signature-256"), rawBody: req.rawBody, secret });
+}
+
 export const receiveWhatsappWebhook = (req, res) => {
+    if (!isWhatsappWebhookSignatureValid(req)) {
+        logger.warn("receiveWhatsappWebhook: firma inválida o ausente, request rechazado");
+        res.sendStatus(401);
+        return;
+    }
+
     const messages = parseInboundWhatsappMessages(req.body);
 
     // Nunca se loguea text.body, el nombre del contacto ni el teléfono

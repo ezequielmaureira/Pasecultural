@@ -10,6 +10,7 @@ import { useToast } from "../../context/ToastContext.jsx";
 import WhatsappNumberChangeCard from "./WhatsappNumberChangeCard.jsx";
 import MercadoPagoConnectionCard from "./MercadoPagoConnectionCard.jsx";
 import OrganizerNotificationSettingsCard from "./OrganizerNotificationSettingsCard.jsx";
+import OrganizationPhoneVerificationCard from "./OrganizationPhoneVerificationCard.jsx";
 
 function FieldSkeleton({ className = "" }) {
   return (
@@ -20,12 +21,15 @@ function FieldSkeleton({ className = "" }) {
   );
 }
 
+// "phone" DELIBERADAMENTE fuera de este formulario — Verificación de
+// teléfono/WhatsApp: el organization.service.js#UPDATABLE_FIELDS del
+// backend ya no acepta escribirlo por este PATCH genérico; el único camino
+// para cambiarlo es OrganizationPhoneVerificationCard, más abajo.
 const EMPTY_ORG = {
   logo: "",
   name: "",
   cuit: "",
   email: "",
-  phone: "",
   province: "",
   city: "",
   website: "",
@@ -57,7 +61,6 @@ export default function OrganizerSettings() {
             name: organization.name || "",
             cuit: organization.cuit || "",
             email: organization.email || "",
-            phone: organization.phone || "",
             province: organization.province || "",
             city: organization.city || "",
             website: organization.website || "",
@@ -167,13 +170,6 @@ export default function OrganizerSettings() {
                 onChange={(e) => setOrgField("email", e.target.value)}
               />
             </Field>
-            <Field label="Teléfono" required>
-              <input
-                className={inputClass}
-                value={org.phone}
-                onChange={(e) => setOrgField("phone", e.target.value)}
-              />
-            </Field>
             <Field label="Provincia" required>
               <input
                 className={inputClass}
@@ -212,6 +208,8 @@ export default function OrganizerSettings() {
           </div>
         )}
       </Card>
+
+      {!loading && orgId && <OrganizationPhoneVerificationCard organizationId={orgId} />}
 
       {!loading && orgId && <WhatsappNumberChangeCard organizationId={orgId} organizationName={org.name} />}
 

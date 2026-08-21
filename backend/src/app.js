@@ -38,7 +38,19 @@ const app = express();
 app.set("trust proxy", 1);
 
 app.use(cors());
-app.use(express.json());
+// Verificación de teléfono de Organizaciones — captura los bytes CRUDOS de
+// cada request (req.rawBody) además del body ya parseado, sin cambiar el
+// comportamiento de parseo para NADIE: sólo agrega un buffer extra en
+// memoria. Lo usa únicamente whatsapp.controller.js (X-Hub-Signature-256,
+// ver config/whatsappWebhookSignature.js) — un HMAC tiene que firmarse
+// sobre los bytes exactos que mandó Meta, nunca sobre un JSON re-serializado.
+app.use(
+    express.json({
+        verify: (req, res, buf) => {
+            req.rawBody = buf;
+        },
+    })
+);
 app.use(clerkMiddleware());
 
 // Health Check

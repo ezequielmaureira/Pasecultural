@@ -140,43 +140,59 @@ model User {
   updatedAt     DateTime       @updatedAt
   organizations Organization[]
 
-  salesAsBuyer    Sale[]
-  ticketsAsBuyer  Ticket[]       @relation("TicketBuyer")
-  ticketsAsOwner  Ticket[]       @relation("TicketOwner")
+  salesAsBuyer                                   Sale[]
+  ticketsAsBuyer                                 Ticket[]                               @relation("TicketBuyer")
+  ticketsAsOwner                                 Ticket[]                               @relation("TicketOwner")
   // Cortesías que este usuario emitió como organizador (nunca como
   // comprador/destinatario — eso ya lo cubre salesAsBuyer).
-  courtesyIssuances CourtesyIssuance[]
+  courtesyIssuances                              CourtesyIssuance[]
   // Cambios de número de WhatsApp autorizado que este usuario inició desde
   // el panel Web (nunca desde WhatsApp) — ver WhatsappNumberChangeChallenge.
-  whatsappNumberChangeRequests WhatsappNumberChangeChallenge[]
+  whatsappNumberChangeRequests                   WhatsappNumberChangeChallenge[]
   // MP-1 — intentos de autorización OAuth de Mercado Pago que este usuario
   // inició (ver MercadoPagoOAuthState).
-  mercadoPagoOAuthStatesRequested MercadoPagoOAuthState[]
+  mercadoPagoOAuthStatesRequested                MercadoPagoOAuthState[]
   // MP-6 — trazabilidad de quién guardó por última vez cada rango de
   // ServiceFeeTier (ver ese modelo más abajo). Sólo DEVELOPER puede llegar
   // a aparecer acá (requireRole en developerServiceFee.routes.js).
-  serviceFeeTiersUpdated ServiceFeeTier[]
+  serviceFeeTiersUpdated                         ServiceFeeTier[]
   // Alertas Developer — trazabilidad de quién guardó por última vez la
   // configuración de umbrales (ver DeveloperAlertConfig más abajo). Mismo
   // criterio que serviceFeeTiersUpdated.
-  developerAlertConfigsUpdated DeveloperAlertConfig[]
+  developerAlertConfigsUpdated                   DeveloperAlertConfig[]
+  // Verificación de teléfono/WhatsApp de Organización — quién inició cada
+  // intento (ver los modelos más abajo).
+  organizationPhoneVerificationsRequested        OrganizationPhoneVerification[]
+  organizationPhoneChangeAuthorizationsRequested OrganizationPhoneChangeAuthorization[]
 }
 
 model Organization {
-  id          String            @id @default(cuid())
-  name        String
-  type        OrganizationType?
-  description String?
-  logo        String?
-  phone       String?
-  email       String
-  website     String?
-  instagram   String?
-  facebook    String?
-  tiktok      String?
-  province    String?
-  city        String?
-  cuit        String?
+  id              String            @id @default(cuid())
+  name            String
+  type            OrganizationType?
+  description     String?
+  logo            String?
+  // Teléfono de contacto/WhatsApp de la organización. Verificación de
+  // teléfono/WhatsApp — este campo deja de aceptar escrituras directas vía
+  // PATCH /api/organizations/me (ver organization.service.js#UPDATABLE_FIELDS):
+  // el ÚNICO camino para cambiarlo, tanto al crear la organización como
+  // después, es el mecanismo de OrganizationPhoneVerification más abajo.
+  // phoneVerifiedAt es la única fuente de verdad de "¿este número está
+  // verificado?" — null significa NO verificado (incluye: nunca se intentó
+  // verificar, el intento sigue pendiente, o es un teléfono histórico de
+  // antes de que este mecanismo existiera — nunca se marca VERIFIED
+  // automáticamente sólo porque el campo tenía un valor, ver la migración).
+  // Cuando phoneVerifiedAt tiene valor, `phone` ES el número verificado.
+  phone           String?
+  phoneVerifiedAt DateTime?
+  email           String
+  website         String?
+  instagram       String?
+  facebook        String?
+  tiktok          String?
+  province        String?
+  city            String?
+  cuit            String?
 
   responsibleFirstName String?
   responsibleLastName  String?
@@ -201,6 +217,11 @@ model Organization {
   // Sale.origin).
   withdrawalRequests WithdrawalRequest[]
 
+  // Verificación de teléfono/WhatsApp — a lo sumo UN intento de cada tipo
+  // vivo por organización a la vez (ver los modelos más abajo).
+  phoneVerification        OrganizationPhoneVerification?
+  phoneChangeAuthorization OrganizationPhoneChangeAuthorization?
+
   // Fase 2F — vínculo WhatsApp ↔ organizer. La verificación del código de
   // vinculación llega SOLO como {code} (nunca waId/organizationId, ver
   // whatsappOrganizerLink.service.js), así que no hay una fila de
@@ -214,7 +235,7 @@ model Organization {
   whatsappLinkAttempts   Int       @default(0)
   whatsappLinkAttemptsAt DateTime?
 
-  whatsappOrganizerLink WhatsappOrganizerLink?
+  whatsappOrganizerLink         WhatsappOrganizerLink?
   // Cambio de número de WhatsApp autorizado EN CURSO para esta organización
   // (a lo sumo uno a la vez) — ver WhatsappNumberChangeChallenge. Nunca es
   // el vínculo ya verificado (eso es whatsappOrganizerLink de arriba).
@@ -325,22 +346,110 @@ enum WhatsappNumberChangePurpose {
 // de esta tabla sólo puede significar esto), no una comparación de valores
 // que alguien podría olvidarse de chequear.
 model WhatsappNumberChangeChallenge {
-  id                String                       @id @default(cuid())
-  organizationId    String                       @unique
-  organization      Organization                 @relation(fields: [organizationId], references: [id])
+  id                String                      @id @default(cuid())
+  organizationId    String                      @unique
+  organization      Organization                @relation(fields: [organizationId], references: [id])
   requestedByUserId String
-  requestedByUser   User                         @relation(fields: [requestedByUserId], references: [id])
-  purpose           WhatsappNumberChangePurpose  @default(CHANGE_WHATSAPP_NUMBER)
+  requestedByUser   User                        @relation(fields: [requestedByUserId], references: [id])
+  purpose           WhatsappNumberChangePurpose @default(CHANGE_WHATSAPP_NUMBER)
   oldWaId           String?
   newWaId           String
   codeHash          String
-  attempts          Int                          @default(0)
+  attempts          Int                         @default(0)
   expiresAt         DateTime
   lastSentAt        DateTime
-  createdAt         DateTime                     @default(now())
-  updatedAt         DateTime                     @updatedAt
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
 
   @@map("whatsapp_number_change_challenges")
+}
+
+// ==================================================================
+// Verificación de teléfono/WhatsApp de Organización — Organization.phone
+// (el contacto público, NUNCA WhatsappOrganizerLink.waId, que es el número
+// AUTORIZADO para administrar la organización por el bot — dominios
+// completamente distintos, ver whatsappNumberChange.service.js). Un solo
+// mecanismo para dos entradas (alta de organización nueva, cambio de un
+// teléfono ya verificado): la CONFIRMACIÓN final es siempre la misma
+// (responder "CONFIRMAR" por WhatsApp DESDE el número nuevo, capturado por
+// el webhook real de Meta) — lo único que cambia según el caso es si hace
+// falta autorizar el intento primero con un código por email (sólo cuando
+// YA existe un teléfono verificado que proteger, ver
+// organizationPhoneVerification.service.js#requestOrganizationPhoneVerificationService).
+// ==================================================================
+
+// PASO 1 del flujo de CAMBIO (nunca del alta nueva, que no tiene nada que
+// proteger todavía): autoriza, con un código de 6 dígitos mandado por email
+// al correo YA registrado de la organización, que se pueda siquiera
+// INICIAR un intento de verificación de WhatsApp para un número nuevo.
+// Mismos parámetros que el resto de los flujos de código de 6 dígitos de
+// la app (WhatsappNumberChangeChallenge, scannerInvitation,
+// saleRecoveryVerification): 10 minutos de vigencia, 5 intentos, 1 minuto
+// de cooldown entre reenvíos. Se borra al consumirse con éxito (recién ahí
+// se crea OrganizationPhoneVerification) o al cancelarse — nunca conviven
+// las dos filas para la misma organización.
+model OrganizationPhoneChangeAuthorization {
+  id String @id @default(cuid())
+
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  requestedByUserId String
+  requestedBy       User   @relation(fields: [requestedByUserId], references: [id])
+
+  // El número candidato — todavía NO tocó Organization.phone. Se "promueve"
+  // a OrganizationPhoneVerification.pendingPhone recién si este código se
+  // verifica correctamente.
+  newPhone String
+
+  codeHash   String
+  attempts   Int      @default(0)
+  expiresAt  DateTime
+  lastSentAt DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("organization_phone_change_authorizations")
+}
+
+// El intento de verificación de WhatsApp en sí — para alta de organización
+// nueva, se crea directamente; para cambio de un teléfono ya verificado,
+// se crea recién después de consumir con éxito
+// OrganizationPhoneChangeAuthorization. `pendingPhone` NUNCA se usa como
+// contacto público (ver el informe de entrega, sección "pendingPhone
+// nunca es el contacto oficial") — Organization.phone/phoneVerifiedAt
+// siguen intactos mientras esta fila exista. `pendingWaId` es el formato
+// normalizado (549XXXXXXXXXX, ver utils/normalizeArgentinePhone.js) que
+// el webhook de Meta compara EXACTO contra message.from — nunca se
+// interpreta el número de otra forma al confirmar. Expira a las 24hs
+// (propuesta explícita del pedido): si nadie responde CONFIRMAR a tiempo,
+// el teléfono anterior (si había uno) sigue siendo el oficial y el nuevo
+// nunca llega a serlo — permitir reintentar es sólo volver a crear esta
+// fila. No es @unique en pendingWaId a propósito: dos organizaciones
+// distintas pueden estar verificando el mismo número de buena fe al mismo
+// tiempo (mismo criterio que WhatsappOrganizerLink.waId, que tampoco es
+// único — un mismo número puede administrar más de una organización).
+model OrganizationPhoneVerification {
+  id String @id @default(cuid())
+
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  requestedByUserId String
+  requestedBy       User   @relation(fields: [requestedByUserId], references: [id])
+
+  pendingPhone String
+  pendingWaId  String
+
+  expiresAt  DateTime
+  lastSentAt DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([pendingWaId])
+  @@map("organization_phone_verifications")
 }
 
 enum WhatsappPendingSelectionStatus {
@@ -470,20 +579,20 @@ enum MercadoPagoConnectionStatus {
 }
 
 model MercadoPagoConnection {
-  id                     String                      @id @default(cuid())
-  organizationId         String
-  organization           Organization                @relation(fields: [organizationId], references: [id])
-  mercadoPagoUserId      String
-  publicKey              String?
-  accessTokenEncrypted   String
-  refreshTokenEncrypted  String
-  scope                  String?
-  liveMode               Boolean                     @default(false)
-  accessTokenExpiresAt   DateTime
-  status                 MercadoPagoConnectionStatus @default(ACTIVE)
-  connectedAt            DateTime                    @default(now())
-  disconnectedAt         DateTime?
-  updatedAt              DateTime                    @updatedAt
+  id                    String                      @id @default(cuid())
+  organizationId        String
+  organization          Organization                @relation(fields: [organizationId], references: [id])
+  mercadoPagoUserId     String
+  publicKey             String?
+  accessTokenEncrypted  String
+  refreshTokenEncrypted String
+  scope                 String?
+  liveMode              Boolean                     @default(false)
+  accessTokenExpiresAt  DateTime
+  status                MercadoPagoConnectionStatus @default(ACTIVE)
+  connectedAt           DateTime                    @default(now())
+  disconnectedAt        DateTime?
+  updatedAt             DateTime                    @updatedAt
 
   @@index([organizationId])
   @@index([mercadoPagoUserId])
@@ -804,13 +913,13 @@ enum WhatsappInboundMessageClaimStatus {
 // FAILED de más de N días", o encontrar leases PROCESSING vencidos para
 // observabilidad).
 model WhatsappInboundMessageClaim {
-  id             String                             @id @default(cuid())
-  wamid          String                             @unique
-  status         WhatsappInboundMessageClaimStatus  @default(PROCESSING)
-  attempts       Int                                @default(1)
+  id             String                            @id @default(cuid())
+  wamid          String                            @unique
+  status         WhatsappInboundMessageClaimStatus @default(PROCESSING)
+  attempts       Int                               @default(1)
   leaseExpiresAt DateTime
-  createdAt      DateTime                           @default(now())
-  updatedAt      DateTime                           @updatedAt
+  createdAt      DateTime                          @default(now())
+  updatedAt      DateTime                          @updatedAt
 
   @@index([status, leaseExpiresAt])
   @@map("whatsapp_inbound_message_claims")
@@ -931,7 +1040,7 @@ model Sale {
   // recién cuando Mercado Pago confirma la creación de la preferencia
   // (mercadoPagoCheckout.service.js) — si esa llamada falla, la Sale se
   // cancela y estos quedan null para siempre en esa fila.
-  checkoutIdempotencyKey String? @unique
+  checkoutIdempotencyKey  String? @unique
   mercadoPagoPreferenceId String? @unique
   mercadoPagoInitPoint    String?
 
@@ -1422,7 +1531,7 @@ model Ticket {
 
   // Correlativo interno (autoincrement de Postgres, atómico) usado para
   // construir ticketNumber sin condiciones de carrera. No se expone.
-  sequence Int @unique @default(autoincrement())
+  sequence     Int    @unique @default(autoincrement())
   // Identificador legible y único para soporte/búsqueda. Ej: PC-2026-000123.
   ticketNumber String @unique
 
