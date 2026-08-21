@@ -34,6 +34,8 @@ import { requestWithdrawalRequestOtpService } from "../src/services/withdrawalRe
 import { hasDatabase } from "./helpers/dbGuard.js";
 const testWithDb = hasDatabase ? test : test.skip;
 
+process.env.TICKET_QR_SECRET_KEY = process.env.TICKET_QR_SECRET_KEY || Buffer.alloc(32, 7).toString("base64");
+
 function uniqueSuffix() {
     return randomUUID().slice(0, 8);
 }
