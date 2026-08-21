@@ -15,10 +15,6 @@ import { getDeveloperAlertConfigOrDefaults, replaceDeveloperAlertConfigService }
 // multi-organizador contra Postgres real (backend/.env.test), mismo
 // criterio que el resto de los archivos *.crud.test.js/*.service.test.js
 // de esta sesión. Guardrail centralizado — ver tests/helpers/dbGuard.js.
-// NO EJECUTADO en esta ronda (el usuario pidió explícitamente no correr
-// test:db completo ni siquiera este archivo focalizado hasta autorizarlo)
-// — queda escrito y registrado en dbTestFiles.js para la próxima corrida
-// autorizada.
 import { hasDatabase } from "./helpers/dbGuard.js";
 const testWithDb = hasDatabase ? test : test.skip;
 
@@ -26,6 +22,57 @@ process.env.TICKET_QR_SECRET_KEY = process.env.TICKET_QR_SECRET_KEY || Buffer.al
 
 function uniqueSuffix() {
     return randomUUID().slice(0, 8);
+}
+
+// Mock del cliente Resend real — mismo criterio EXACTO que mockMpFetch/
+// jsonResponse en mercadoPagoCheckout.service.test.js (monkeypatchear
+// globalThis.fetch, restaurar al terminar): el SDK de Resend usa fetch
+// internamente para POST https://api.resend.com/emails (ver
+// node_modules/resend/dist/index.cjs#Emails.create), así que interceptarlo
+// acá es el mismo mecanismo que ya usa el resto de este proyecto para
+// servicios HTTP externos, nunca uno nuevo. `headers.entries()` tiene que
+// existir porque el SDK arma `Object.fromEntries(response.headers.entries())`
+// incluso en el camino exitoso — un objeto vacío alcanza.
+function mockResendFetchSuccessOnly() {
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+        if (String(url).includes("api.resend.com/emails")) {
+            return {
+                ok: true,
+                status: 200,
+                headers: { entries: () => [] },
+                json: async () => ({ id: `resend-test-${uniqueSuffix()}` }),
+            };
+        }
+        throw new Error(`unexpected fetch call to ${url} during a Resend-mocked test`);
+    };
+    return () => {
+        globalThis.fetch = original;
+    };
+}
+
+// Sólo para el/los test(s) que necesitan que un envío de Resend se
+// interprete como EXITOSO (ver mockResendFetchSuccessOnly) — el resto del
+// archivo deja RESEND_API_KEY/EMAIL_FROM tal cual están en
+// backend/.env.test (que en este entorno no completan un envío real), y
+// eso ya está cubierto por el test dedicado "a Resend failure never
+// prevents the request from being persisted". Guarda y restaura los
+// valores originales, nunca los pisa para el resto de la suite.
+function withMockedResendEnv() {
+    const originalApiKey = process.env.RESEND_API_KEY;
+    const originalEmailFrom = process.env.EMAIL_FROM;
+    const originalFrontendUrl = process.env.FRONTEND_URL;
+    process.env.RESEND_API_KEY = "test-mocked-resend-api-key";
+    process.env.EMAIL_FROM = "PaseCultural <no-reply@smarticket.com.ar>";
+    process.env.FRONTEND_URL = "https://pasecultural.test";
+    return () => {
+        if (originalApiKey === undefined) delete process.env.RESEND_API_KEY;
+        else process.env.RESEND_API_KEY = originalApiKey;
+        if (originalEmailFrom === undefined) delete process.env.EMAIL_FROM;
+        else process.env.EMAIL_FROM = originalEmailFrom;
+        if (originalFrontendUrl === undefined) delete process.env.FRONTEND_URL;
+        else process.env.FRONTEND_URL = originalFrontendUrl;
+    };
 }
 
 async function createUser(overrides = {}) {
@@ -227,38 +274,6 @@ testWithDb("an expired OTP is rejected, and a verified OTP cannot be reused (sin
     }
 });
 
-testWithDb("resending the OTP respects the same cooldown as the initial request, and refreshes the code — no email bombing", async () => {
-    const owner = await createUser();
-    const org = await createOrganization(owner.id);
-    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
-    const email = `resendcooldown_${uniqueSuffix()}@example.com`;
-
-    try {
-        await createConfirmedSale({ event, eventFunction, ticketType, organizerClerkId: owner.clerkId, email, buyerDocument: BUYER_DOCUMENT });
-        await requestWithdrawalRequestOtpService({ email, buyerDocument: BUYER_DOCUMENT });
-        const afterFirst = await prisma.withdrawalRequestVerification.findUnique({
-            where: { normalizedEmail_normalizedDocument: { normalizedEmail: email.toLowerCase(), normalizedDocument: BUYER_DOCUMENT } },
-        });
-
-        // Reenviar de inmediato (dentro del cooldown de 1 minuto) no debe
-        // pisar el código/lastSentAt existente — mismo mecanismo atómico
-        // que saleRecoveryVerification.service.js.
-        await resendWithdrawalRequestOtpService({ email, buyerDocument: BUYER_DOCUMENT });
-        const afterResendWithinCooldown = await prisma.withdrawalRequestVerification.findUnique({ where: { id: afterFirst.id } });
-        assert.equal(afterResendWithinCooldown.lastSentAt.getTime(), afterFirst.lastSentAt.getTime(), "a resend within the cooldown window must not refresh the code");
-
-        // Simula que el cooldown de 1 minuto ya pasó — ahora sí debe
-        // refrescar el código.
-        await prisma.withdrawalRequestVerification.update({ where: { id: afterFirst.id }, data: { lastSentAt: new Date(Date.now() - 61 * 1000) } });
-        await resendWithdrawalRequestOtpService({ email, buyerDocument: BUYER_DOCUMENT });
-        const afterResendPastCooldown = await prisma.withdrawalRequestVerification.findUnique({ where: { id: afterFirst.id } });
-        assert.notEqual(afterResendPastCooldown.codeHash, afterFirst.codeHash, "once the cooldown passes, a resend must issue a fresh code");
-    } finally {
-        await cleanupWithdrawal({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id], verificationEmails: [email] });
-        await prisma.user.deleteMany({ where: { email } });
-    }
-});
-
 testWithDb("a manipulated/unknown token never resolves to any Sale (IDOR check)", async () => {
     await assert.rejects(
         () => createWithdrawalRequestService(`totally-made-up-token-${uniqueSuffix()}`, { reason: "OTRO" }),
@@ -440,6 +455,70 @@ testWithDb("never modifies Sale.status, never marks any Ticket REFUNDED, regardl
         assert.ok(tickets.length > 0);
         assert.ok(tickets.every((t) => t.status === "ACTIVE"), "registering a withdrawal request must never mark any Ticket as REFUNDED");
     } finally {
+        await cleanupWithdrawal({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id], verificationEmails: [email] });
+        await prisma.user.deleteMany({ where: { email } });
+    }
+});
+
+// Deliberadamente el ÚLTIMO test del archivo: getResendClient() (config/resend.js)
+// cachea el cliente Resend a nivel de módulo (`if (cachedClient) return
+// cachedClient`, nunca revalida RESEND_API_KEY después de la primera
+// construcción exitosa) — un detalle correcto para producción (las env
+// vars no cambian en runtime) pero que, en un archivo de tests que corren
+// en el MISMO proceso, haría que el cliente mockeado acá (con un
+// RESEND_API_KEY falso) quedara cacheado y se filtrara a cualquier test
+// posterior que dependa de que Resend falle (ver "a Resend failure never
+// prevents..." y todos los que crean un WithdrawalRequest después de
+// éste). Correrlo último evita el problema por completo sin tocar
+// config/resend.js — no hay evidencia de que su caching sea un bug real
+// para producción, así que no se modifica código productivo por esto.
+testWithDb("resending the OTP respects the same cooldown as the initial request, and refreshes the code — no email bombing", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const email = `resendcooldown_${uniqueSuffix()}@example.com`;
+
+    // Este entorno de TEST no tiene un RESEND_API_KEY real que complete un
+    // envío (ver el resto de los tests de este archivo, que a propósito
+    // NUNCA dependen de que el envío tenga éxito). Este test sí necesita
+    // ejercitar el camino feliz completo del cooldown — para eso, y sólo
+    // acá, se mockea la capa HTTP de Resend (mismo mecanismo que
+    // mockMpFetch en mercadoPagoCheckout.service.test.js) en vez de
+    // depender de un envío real o de debilitar la aserción.
+    const restoreEnv = withMockedResendEnv();
+    const restoreFetch = mockResendFetchSuccessOnly();
+
+    try {
+        await createConfirmedSale({ event, eventFunction, ticketType, organizerClerkId: owner.clerkId, email, buyerDocument: BUYER_DOCUMENT });
+
+        // 1) Primer request OTP exitoso — con Resend mockeado como
+        // exitoso, el claim atómico debe persistir un lastSentAt real (no
+        // null, que era exactamente la causa del fallo original).
+        await requestWithdrawalRequestOtpService({ email, buyerDocument: BUYER_DOCUMENT });
+        const afterFirst = await prisma.withdrawalRequestVerification.findUnique({
+            where: { normalizedEmail_normalizedDocument: { normalizedEmail: email.toLowerCase(), normalizedDocument: BUYER_DOCUMENT } },
+        });
+        assert.ok(afterFirst?.codeHash, "a successful OTP request must persist a hashed code");
+        assert.ok(afterFirst?.lastSentAt, "a successful OTP request must persist a real lastSentAt — the happy path this test exists to verify");
+
+        // 2) Un segundo request INMEDIATO (dentro del cooldown de 1
+        // minuto) respeta el cooldown: ni lastSentAt ni el código vigente
+        // deben pisarse.
+        await resendWithdrawalRequestOtpService({ email, buyerDocument: BUYER_DOCUMENT });
+        const afterResendWithinCooldown = await prisma.withdrawalRequestVerification.findUnique({ where: { id: afterFirst.id } });
+        assert.equal(afterResendWithinCooldown.lastSentAt.getTime(), afterFirst.lastSentAt.getTime(), "a resend within the cooldown window must not refresh lastSentAt");
+        assert.equal(afterResendWithinCooldown.codeHash, afterFirst.codeHash, "a resend within the cooldown window must not invalidate the currently valid OTP");
+
+        // 3) Una vez vencido el cooldown, el resend sí puede reclamarse de
+        // nuevo — código y lastSentAt se refrescan.
+        await prisma.withdrawalRequestVerification.update({ where: { id: afterFirst.id }, data: { lastSentAt: new Date(Date.now() - 61 * 1000) } });
+        await resendWithdrawalRequestOtpService({ email, buyerDocument: BUYER_DOCUMENT });
+        const afterResendPastCooldown = await prisma.withdrawalRequestVerification.findUnique({ where: { id: afterFirst.id } });
+        assert.notEqual(afterResendPastCooldown.codeHash, afterFirst.codeHash, "once the cooldown passes, a resend must issue a fresh code");
+        assert.ok(afterResendPastCooldown.lastSentAt.getTime() > afterFirst.lastSentAt.getTime(), "once the cooldown passes, a resend must refresh lastSentAt");
+    } finally {
+        restoreFetch();
+        restoreEnv();
         await cleanupWithdrawal({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id], verificationEmails: [email] });
         await prisma.user.deleteMany({ where: { email } });
     }
