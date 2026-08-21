@@ -370,11 +370,15 @@ model WhatsappNumberChangeChallenge {
 // AUTORIZADO para administrar la organización por el bot — dominios
 // completamente distintos, ver whatsappNumberChange.service.js). Un solo
 // mecanismo para dos entradas (alta de organización nueva, cambio de un
-// teléfono ya verificado): la CONFIRMACIÓN final es siempre la misma
-// (responder "CONFIRMAR" por WhatsApp DESDE el número nuevo, capturado por
-// el webhook real de Meta) — lo único que cambia según el caso es si hace
-// falta autorizar el intento primero con un código por email (sólo cuando
-// YA existe un teléfono verificado que proteger, ver
+// teléfono ya verificado): la CONFIRMACIÓN final es siempre la misma —
+// EL ORGANIZADOR inicia la conversación de WhatsApp hacia el número oficial
+// de PaseCultural y manda "CONFIRMAR <token>" (mensaje prearmado por un
+// deep link wa.me, ver organizationPhoneVerification.service.js), capturado
+// por el webhook real de Meta — PaseCultural NUNCA manda un WhatsApp
+// primero (por eso no depende de ningún template de Meta). Lo único que
+// cambia según el caso es si hace falta autorizar el intento primero con
+// un código por email (sólo cuando YA existe un teléfono verificado que
+// proteger, ver
 // organizationPhoneVerification.service.js#requestOrganizationPhoneVerificationService).
 // ==================================================================
 
@@ -421,15 +425,32 @@ model OrganizationPhoneChangeAuthorization {
 // nunca es el contacto oficial") — Organization.phone/phoneVerifiedAt
 // siguen intactos mientras esta fila exista. `pendingWaId` es el formato
 // normalizado (549XXXXXXXXXX, ver utils/normalizeArgentinePhone.js) que
-// el webhook de Meta compara EXACTO contra message.from — nunca se
-// interpreta el número de otra forma al confirmar. Expira a las 24hs
-// (propuesta explícita del pedido): si nadie responde CONFIRMAR a tiempo,
-// el teléfono anterior (si había uno) sigue siendo el oficial y el nuevo
-// nunca llega a serlo — permitir reintentar es sólo volver a crear esta
-// fila. No es @unique en pendingWaId a propósito: dos organizaciones
-// distintas pueden estar verificando el mismo número de buena fe al mismo
-// tiempo (mismo criterio que WhatsappOrganizerLink.waId, que tampoco es
-// único — un mismo número puede administrar más de una organización).
+// el webhook de Meta compara EXACTO contra message.from al confirmar.
+// Expira a las 24hs (propuesta explícita del pedido): si nadie manda el
+// CONFIRMAR a tiempo, el teléfono anterior (si había uno) sigue siendo el
+// oficial y el nuevo nunca llega a serlo — permitir reintentar es sólo
+// volver a crear esta fila. No es @unique en pendingWaId a propósito: dos
+// organizaciones distintas pueden estar verificando el mismo número de
+// buena fe al mismo tiempo (mismo criterio que WhatsappOrganizerLink.waId,
+// que tampoco es único).
+//
+// challengeTokenHash — DESAMBIGUACIÓN (flujo invertido: el organizador
+// inicia la conversación, así que message.from YA NO alcanza para
+// identificar una única fila, ver pendingWaId no-único arriba). El deep
+// link wa.me prearma "CONFIRMAR <token público de un solo uso>"
+// (organizationPhoneVerification.service.js#buildOrganizationPhoneVerificationDeepLink)
+// — el webhook busca la fila POR ESE TOKEN (hash, @unique GLOBAL — nunca
+// puede haber dos filas vivas con el mismo token, sin importar la
+// organización) y RECIÉN DESPUÉS confirma que pendingWaId === message.from
+// antes de aplicar el cambio (ver confirmOrganizationPhoneFromWebhook):
+// exige AMBOS simultáneamente, nunca uno solo. El token no es un secreto
+// que haya que ocultar del propio organizador (viaja abierto en el
+// mensaje de WhatsApp que él mismo manda) — se guarda hasheado igual que
+// el resto de los códigos de la app por consistencia y porque igual nunca
+// hace falta volver a mostrar el mismo token dos veces (cada reintento de
+// "Abrir WhatsApp" emite uno nuevo, ver el service). Single-use: se
+// consume con el mismo `deleteMany` atómico que ya reclamaba la fila
+// antes de este cambio.
 model OrganizationPhoneVerification {
   id String @id @default(cuid())
 
@@ -439,11 +460,16 @@ model OrganizationPhoneVerification {
   requestedByUserId String
   requestedBy       User   @relation(fields: [requestedByUserId], references: [id])
 
-  pendingPhone String
-  pendingWaId  String
+  pendingPhone       String
+  pendingWaId        String
+  challengeTokenHash String @unique
 
-  expiresAt  DateTime
-  lastSentAt DateTime
+  expiresAt    DateTime
+  // Última vez que se emitió/reemitió un token de challenge para esta fila
+  // (alta, o "Abrir WhatsApp nuevamente") — base del cooldown anti-abuso
+  // (ver claimPhoneVerification). Nunca es "envío de WhatsApp": PaseCultural
+  // no manda nada acá, sólo genera el link.
+  lastIssuedAt DateTime
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

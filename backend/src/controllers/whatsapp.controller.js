@@ -9,7 +9,7 @@ import {
     shouldAutoReply,
 } from "../services/whatsapp.service.js";
 import { getWhatsappAppSecret, verifyWhatsappWebhookSignature } from "../config/whatsappWebhookSignature.js";
-import { isOrganizationPhoneConfirmationText, confirmOrganizationPhoneFromWebhook } from "../services/organizationPhoneVerification.service.js";
+import { parseOrganizationPhoneConfirmationMessage, confirmOrganizationPhoneFromWebhook } from "../services/organizationPhoneVerification.service.js";
 import * as EventCreationEngine from "../conversation/EventCreationEngine.js";
 // Fase 2F, legacy — whatsappOrganizerIdentity.service.js/
 // createOrReuseWhatsappLinkChallenge ya no se importan acá: el flujo de
@@ -1353,24 +1353,29 @@ export async function processInboundMessage(
             return;
         }
 
-        // Verificación de teléfono de Organización — "CONFIRMAR" enviado
-        // DESDE el número que se está verificando (alta nueva o cambio, ver
+        // Verificación de teléfono de Organización — flujo invertido: el
+        // organizador manda "CONFIRMAR <token>" DESDE el número que se está
+        // verificando (alta nueva o cambio, deep link wa.me armado por
         // organizationPhoneVerification.service.js). Se revisa ANTES de la
         // conversación del bot: una confirmación de teléfono nunca debe
-        // interpretarse como respuesta a un paso del motor. Si no hay
-        // ninguna verificación PENDING para message.from exacto (el wa_id
-        // real que mandó Meta, nunca uno inferido/normalizado para test
-        // mode), confirmOrganizationPhoneFromWebhook no hace nada y el
-        // mensaje sigue su camino normal más abajo — podría ser, por
-        // ejemplo, alguien escribiendo "confirmar" dentro de una
-        // conversación real del bot.
-        if (message.type === "text" && isOrganizationPhoneConfirmationText(text)) {
-            const { confirmedOrganizationIds } = await confirmOrganizationPhoneFromWebhook(message.from);
-            if (confirmedOrganizationIds.length > 0) {
-                await sendText({ to, text: "✅ ¡Listo! Verificamos tu WhatsApp como número de contacto." }).catch((error) => {
-                    logger.warn("receiveWhatsappWebhook: no se pudo enviar la confirmación de teléfono verificado", { reason: error.message });
-                });
-                return;
+        // interpretarse como respuesta a un paso del motor. El token
+        // desambigua entre organizaciones (@unique global, ver el
+        // comentario del modelo) — message.from se exige IGUAL como
+        // segundo factor. Si el texto no matchea el patrón, o el token no
+        // corresponde a ninguna verificación PENDING vigente para ESE
+        // message.from exacto (el wa_id real que mandó Meta, nunca uno
+        // inferido/normalizado para test mode), confirmOrganizationPhoneFromWebhook
+        // no hace nada y el mensaje sigue su camino normal más abajo.
+        if (message.type === "text") {
+            const parsedConfirmation = parseOrganizationPhoneConfirmationMessage(text);
+            if (parsedConfirmation) {
+                const { confirmed } = await confirmOrganizationPhoneFromWebhook({ waId: message.from, token: parsedConfirmation.token });
+                if (confirmed) {
+                    await sendText({ to, text: "✅ ¡Listo! Verificamos tu WhatsApp como número de contacto." }).catch((error) => {
+                        logger.warn("receiveWhatsappWebhook: no se pudo enviar la confirmación de teléfono verificado", { reason: error.message });
+                    });
+                    return;
+                }
             }
         }
 

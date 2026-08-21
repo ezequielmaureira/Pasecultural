@@ -1,7 +1,6 @@
 import prisma from "../config/prisma.js";
 import { logger } from "../logging/logger.js";
 import { sendDeveloperAlert, DeveloperAlertType } from "./email/sendDeveloperAlert.service.js";
-import { startOrganizationPhoneVerificationOnCreate } from "./organizationPhoneVerification.service.js";
 
 const ORGANIZATION_STATUSES = new Set([
     "PENDING",
@@ -117,14 +116,12 @@ export const createOrganizationService = async (
         });
     }
 
-    // Verificación de teléfono/WhatsApp — sección "Organización nueva" del
-    // informe de entrega: si se proporcionó teléfono, arranca la
-    // verificación por WhatsApp acá mismo (best-effort, nunca lanza —
-    // "la falta de confirmación NO debe borrar la organización", y un
-    // fallo al mandar el mensaje tampoco puede impedir que la organización
-    // quede creada). El teléfono queda PENDIENTE hasta que llegue el
-    // CONFIRMAR real por el webhook de Meta.
-    await startOrganizationPhoneVerificationOnCreate(organization, updatedUser);
+    // Verificación de teléfono/WhatsApp — flujo invertido: PaseCultural NO
+    // inicia nada acá. El teléfono queda cargado y PENDIENTE
+    // (phoneVerifiedAt null, default del modelo) hasta que el organizador
+    // mismo, desde Configuración, toque "Verificar WhatsApp" (que genera un
+    // deep link wa.me hacia el número oficial) y mande el CONFIRMAR real
+    // capturado por el webhook de Meta — ver organizationPhoneVerification.service.js.
 
     return { organization, user: updatedUser };
 };

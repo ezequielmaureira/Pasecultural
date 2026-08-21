@@ -4,6 +4,12 @@ import { apiFetch } from "./api.js";
 // "/me" que organizationWhatsappApi.js (número AUTORIZADO del bot, un
 // dominio distinto). organizationId siempre explícito, mismo criterio que
 // el resto de las llamadas /me/whatsapp-*.
+//
+// Flujo invertido: request/verifyOrganizationPhoneChangeOtp/resend pueden
+// devolver {step: "WHATSAPP_PENDING", deepLink} — `deepLink` es la URL
+// wa.me que hay que abrir (nunca se reconstruye en el frontend: el backend
+// es el único que conoce el número oficial y el token en texto plano, y
+// sólo lo devuelve en la respuesta que lo emite).
 export async function getOrganizationPhoneStatus(token, organizationId) {
     return apiFetch(`/api/organizations/me/phone-verification?organizationId=${encodeURIComponent(organizationId)}`, { token });
 }

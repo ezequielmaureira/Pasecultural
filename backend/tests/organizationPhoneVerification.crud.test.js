@@ -6,15 +6,16 @@ import { createOrganizationService } from "../src/services/organization.service.
 import {
     requestOrganizationPhoneVerificationService,
     verifyOrganizationPhoneChangeOtpService,
+    resendOrganizationPhoneWhatsappService,
     resendOrganizationPhoneChangeOtpService,
     cancelOrganizationPhoneChangeService,
     getOrganizationPhoneStatusService,
     confirmOrganizationPhoneFromWebhook,
 } from "../src/services/organizationPhoneVerification.service.js";
 
-// Verificación de teléfono/WhatsApp de Organización — CRUD real + hooks
-// (alta nueva, cambio con OTP por email, confirmación por webhook,
-// idempotencia, aislamiento multi-organizador) contra Postgres real
+// Verificación de teléfono/WhatsApp de Organización — flujo INVERTIDO (el
+// organizador inicia la conversación de WhatsApp hacia PaseCultural, ver el
+// pedido de cambio de diseño) — CRUD real + hooks contra Postgres real
 // (backend/.env.test), mismo criterio que organizerNotifications.crud.test.js/
 // withdrawalRequest.crud.test.js. Guardrail centralizado — ver
 // tests/helpers/dbGuard.js.
@@ -23,10 +24,10 @@ import {
 // esta ronda) — queda escrito y registrado en dbTestFiles.js para la
 // próxima corrida autorizada. NO cubierto acá (ver el informe de entrega):
 // el branch real dentro de processInboundMessage/whatsapp.controller.js
-// (requeriría simular un webhook HTTP completo con firma HMAC válida —
-// más apropiado como un test de integración HTTP separado), y el rate
-// limit de reenvío bajo concurrencia real (cubierto indirectamente por el
-// mismo patrón ya probado en developerAlertConfig.crud.test.js para
+// (requeriría simular un webhook HTTP completo con firma HMAC válida — más
+// apropiado como un test de integración HTTP separado), y el rate limit de
+// reissue bajo concurrencia real (cubierto indirectamente por el mismo
+// patrón ya probado en developerAlertConfig.crud.test.js para
 // tryClaimDeveloperAlertCooldown, que usa el mismo mecanismo CAS).
 import { hasDatabase } from "./helpers/dbGuard.js";
 const testWithDb = hasDatabase ? test : test.skip;
@@ -37,18 +38,25 @@ function uniqueSuffix() {
     return randomUUID().slice(0, 8);
 }
 
-// Mismo mecanismo EXACTO que mockResendFetchSuccessOnly/withMockedResendEnv
-// en withdrawalRequest.crud.test.js — acá intercepta TANTO Resend (OTP por
-// email) COMO el Graph API de Meta (mensaje de WhatsApp), dispatcheando
-// por URL.
-function mockOutboundFetchSuccessOnly() {
+// El deep link nunca guarda el token en la base (sólo su hash) — en los
+// tests, la única forma de obtener el token para simular el webhook de
+// Meta es extraerlo del propio deep link que devolvió el service, EXACTO
+// mismo dato que vería el organizador real al abrir el link.
+function extractTokenFromDeepLink(deepLink) {
+    const url = new URL(deepLink);
+    const text = url.searchParams.get("text");
+    const match = /^CONFIRMAR (.+)$/.exec(text ?? "");
+    if (!match) throw new Error(`deep link sin token: ${deepLink}`);
+    return match[1];
+}
+
+// Sólo el email OTP manda algo real (Resend) — el WhatsApp ya NO manda
+// nada (flujo invertido), así que no hace falta mockear graph.facebook.com.
+function mockResendFetchSuccessOnly() {
     const original = globalThis.fetch;
     globalThis.fetch = async (url) => {
         if (String(url).includes("api.resend.com/emails")) {
             return { ok: true, status: 200, headers: { entries: () => [] }, json: async () => ({ id: `resend-test-${uniqueSuffix()}` }) };
-        }
-        if (String(url).includes("graph.facebook.com")) {
-            return { ok: true, status: 200, headers: { entries: () => [] }, json: async () => ({ messages: [{ id: `wamid-test-${uniqueSuffix()}` }] }) };
         }
         throw new Error(`unexpected fetch call to ${url} during a mocked test`);
     };
@@ -62,20 +70,12 @@ function withMockedOutboundEnv() {
         RESEND_API_KEY: process.env.RESEND_API_KEY,
         EMAIL_FROM: process.env.EMAIL_FROM,
         FRONTEND_URL: process.env.FRONTEND_URL,
-        WHATSAPP_ACCESS_TOKEN: process.env.WHATSAPP_ACCESS_TOKEN,
-        WHATSAPP_PHONE_NUMBER_ID: process.env.WHATSAPP_PHONE_NUMBER_ID,
-        WHATSAPP_GRAPH_API_VERSION: process.env.WHATSAPP_GRAPH_API_VERSION,
-        WHATSAPP_PHONE_VERIFICATION_TEMPLATE_NAME: process.env.WHATSAPP_PHONE_VERIFICATION_TEMPLATE_NAME,
-        WHATSAPP_PHONE_VERIFICATION_TEMPLATE_LANGUAGE: process.env.WHATSAPP_PHONE_VERIFICATION_TEMPLATE_LANGUAGE,
+        WHATSAPP_DISPLAY_PHONE_NUMBER: process.env.WHATSAPP_DISPLAY_PHONE_NUMBER,
     };
     process.env.RESEND_API_KEY = "test-mocked-resend-api-key";
     process.env.EMAIL_FROM = "PaseCultural <no-reply@smarticket.com.ar>";
     process.env.FRONTEND_URL = "https://pasecultural.test";
-    process.env.WHATSAPP_ACCESS_TOKEN = "test-mocked-whatsapp-access-token";
-    process.env.WHATSAPP_PHONE_NUMBER_ID = "1234567890";
-    process.env.WHATSAPP_GRAPH_API_VERSION = "v21.0";
-    process.env.WHATSAPP_PHONE_VERIFICATION_TEMPLATE_NAME = "test_phone_verification";
-    process.env.WHATSAPP_PHONE_VERIFICATION_TEMPLATE_LANGUAGE = "es_AR";
+    process.env.WHATSAPP_DISPLAY_PHONE_NUMBER = "5493511234567";
     return () => {
         for (const [key, value] of Object.entries(original)) {
             if (value === undefined) delete process.env[key];
@@ -103,64 +103,91 @@ const ARG_PHONE_2 = "351 555-7890"; // normaliza a waId 5493515557890
 
 // --- Organización nueva ---
 
-testWithDb("a new organization with a phone starts PENDING (phoneVerifiedAt null), never blocks creation even if the WhatsApp send fails", async () => {
+testWithDb("a new organization with a phone starts PENDING (phoneVerifiedAt null) and never issues a WhatsApp challenge on its own (no auto-send)", async () => {
     const owner = await createUser();
-    // Sin mock de fetch: cualquier intento de red real falla (no hay
-    // WHATSAPP_ACCESS_TOKEN configurado) — exactamente lo que este test
-    // quiere probar: la organización se crea igual.
+    // Sin mock de fetch: cualquier intento de red real fallaría el test —
+    // exactamente lo que este test quiere probar: la creación no manda nada.
     const { organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE });
     try {
         assert.equal(organization.phone, ARG_PHONE);
         assert.equal(organization.phoneVerifiedAt, null);
+        const pending = await prisma.organizationPhoneVerification.findUnique({ where: { organizationId: organization.id } });
+        assert.equal(pending, null, "el alta de organización nunca debe crear un challenge de WhatsApp por su cuenta");
     } finally {
         await cleanup({ organizationIds: [organization.id], userIds: [owner.id] });
     }
 });
 
-testWithDb("CONFIRMAR from the exact registered number verifies the phone; a different number never does", async () => {
+testWithDb("requesting verification for a new organization returns a wa.me deep link with CONFIRMAR + token prefilled, never sends anything", async () => {
     const owner = await createUser();
     const restoreEnv = withMockedOutboundEnv();
-    const restoreFetch = mockOutboundFetchSuccessOnly();
     let organization;
     try {
         ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
 
-        // Un número DISTINTO nunca confirma esta organización.
-        const wrongResult = await confirmOrganizationPhoneFromWebhook("5491111111111");
-        assert.deepEqual(wrongResult.confirmedOrganizationIds, []);
-        const stillPending = await prisma.organization.findUnique({ where: { id: organization.id } });
-        assert.equal(stillPending.phoneVerifiedAt, null);
+        const result = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
+        assert.equal(result.step, "WHATSAPP_PENDING");
+        assert.match(result.deepLink, /^https:\/\/wa\.me\/5493511234567\?text=CONFIRMAR%20[A-Z0-9]+$/);
 
-        // El número REAL (waId normalizado) sí confirma.
-        const result = await confirmOrganizationPhoneFromWebhook("5493514123456");
-        assert.deepEqual(result.confirmedOrganizationIds, [organization.id]);
-        const verified = await prisma.organization.findUnique({ where: { id: organization.id } });
-        assert.ok(verified.phoneVerifiedAt);
-        assert.equal(verified.phone, ARG_PHONE);
+        const status = await getOrganizationPhoneStatusService(owner.clerkId, organization.id);
+        assert.equal(status.pendingPhone, ARG_PHONE);
+        assert.ok(status.pendingExpiresAt);
     } finally {
-        restoreFetch();
         restoreEnv();
         if (organization) await cleanup({ organizationIds: [organization.id], userIds: [owner.id] });
     }
 });
 
-testWithDb("a repeated CONFIRMAR (same wa_id, after already verified) is a safe no-op — idempotent, never errors", async () => {
+testWithDb("CONFIRMAR <token> from the exact registered number verifies the phone; a wrong number or a wrong token never does", async () => {
     const owner = await createUser();
     const restoreEnv = withMockedOutboundEnv();
-    const restoreFetch = mockOutboundFetchSuccessOnly();
     let organization;
     try {
         ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
+        const { deepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
+        const token = extractTokenFromDeepLink(deepLink);
 
-        const first = await confirmOrganizationPhoneFromWebhook("5493514123456");
-        assert.deepEqual(first.confirmedOrganizationIds, [organization.id]);
+        // Token correcto, número DISTINTO nunca confirma.
+        const wrongNumber = await confirmOrganizationPhoneFromWebhook({ waId: "5491111111111", token });
+        assert.equal(wrongNumber.confirmed, false);
 
-        // La fila ya se borró al confirmar — un segundo CONFIRMAR del mismo
-        // número no encuentra nada PENDING para aplicar de nuevo.
-        const second = await confirmOrganizationPhoneFromWebhook("5493514123456");
-        assert.deepEqual(second.confirmedOrganizationIds, []);
+        // Número correcto, token INCORRECTO nunca confirma.
+        const wrongToken = await confirmOrganizationPhoneFromWebhook({ waId: "5493514123456", token: "NOTTHERIGHTTOKEN" });
+        assert.equal(wrongToken.confirmed, false);
+
+        const stillPending = await prisma.organization.findUnique({ where: { id: organization.id } });
+        assert.equal(stillPending.phoneVerifiedAt, null);
+
+        // Ambos correctos a la vez: confirma.
+        const result = await confirmOrganizationPhoneFromWebhook({ waId: "5493514123456", token });
+        assert.equal(result.confirmed, true);
+        assert.equal(result.organizationId, organization.id);
+        const verified = await prisma.organization.findUnique({ where: { id: organization.id } });
+        assert.ok(verified.phoneVerifiedAt);
+        assert.equal(verified.phone, ARG_PHONE);
     } finally {
-        restoreFetch();
+        restoreEnv();
+        if (organization) await cleanup({ organizationIds: [organization.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("a repeated CONFIRMAR (same token, after already verified) is a safe no-op — idempotent, never errors", async () => {
+    const owner = await createUser();
+    const restoreEnv = withMockedOutboundEnv();
+    let organization;
+    try {
+        ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
+        const { deepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
+        const token = extractTokenFromDeepLink(deepLink);
+
+        const first = await confirmOrganizationPhoneFromWebhook({ waId: "5493514123456", token });
+        assert.equal(first.confirmed, true);
+
+        // La fila ya se borró al confirmar — un segundo CONFIRMAR con el
+        // mismo token no encuentra nada que aplicar de nuevo.
+        const second = await confirmOrganizationPhoneFromWebhook({ waId: "5493514123456", token });
+        assert.equal(second.confirmed, false);
+    } finally {
         restoreEnv();
         if (organization) await cleanup({ organizationIds: [organization.id], userIds: [owner.id] });
     }
@@ -169,24 +196,65 @@ testWithDb("a repeated CONFIRMAR (same wa_id, after already verified) is a safe 
 testWithDb("an expired pending verification is never confirmed by a late CONFIRMAR", async () => {
     const owner = await createUser();
     const restoreEnv = withMockedOutboundEnv();
-    const restoreFetch = mockOutboundFetchSuccessOnly();
     let organization;
     try {
         ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
+        const { deepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
+        const token = extractTokenFromDeepLink(deepLink);
 
         await prisma.organizationPhoneVerification.update({
             where: { organizationId: organization.id },
             data: { expiresAt: new Date(Date.now() - 1000) },
         });
 
-        const result = await confirmOrganizationPhoneFromWebhook("5493514123456");
-        assert.deepEqual(result.confirmedOrganizationIds, []);
+        const result = await confirmOrganizationPhoneFromWebhook({ waId: "5493514123456", token });
+        assert.equal(result.confirmed, false);
         const stillPending = await prisma.organization.findUnique({ where: { id: organization.id } });
         assert.equal(stillPending.phoneVerifiedAt, null);
     } finally {
-        restoreFetch();
         restoreEnv();
         if (organization) await cleanup({ organizationIds: [organization.id], userIds: [owner.id] });
+    }
+});
+
+// --- Ambigüedad entre organizaciones (sección crítica del pedido) ---
+
+testWithDb("two organizations pending verification for the SAME phone number never get verified together by one CONFIRMAR — the token disambiguates", async () => {
+    const ownerA = await createUser();
+    const ownerB = await createUser();
+    const restoreEnv = withMockedOutboundEnv();
+    let orgA, orgB;
+    try {
+        ({ organization: orgA } = await createOrganizationService(ownerA.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com` }));
+        ({ organization: orgB } = await createOrganizationService(ownerB.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com` }));
+
+        // Las dos organizaciones, de buena fe, están verificando EL MISMO
+        // número de WhatsApp al mismo tiempo (mismo pendingWaId).
+        const { deepLink: deepLinkA } = await requestOrganizationPhoneVerificationService(ownerA.clerkId, orgA.id, ARG_PHONE);
+        const { deepLink: deepLinkB } = await requestOrganizationPhoneVerificationService(ownerB.clerkId, orgB.id, ARG_PHONE);
+        const tokenA = extractTokenFromDeepLink(deepLinkA);
+        const tokenB = extractTokenFromDeepLink(deepLinkB);
+        assert.notEqual(tokenA, tokenB, "cada organización debe recibir un token distinto aunque el número candidato sea el mismo");
+
+        // El CONFIRMAR real trae el token de A: sólo A queda verificada.
+        const result = await confirmOrganizationPhoneFromWebhook({ waId: "5493514123456", token: tokenA });
+        assert.equal(result.confirmed, true);
+        assert.equal(result.organizationId, orgA.id);
+
+        const refreshedA = await prisma.organization.findUnique({ where: { id: orgA.id } });
+        const refreshedB = await prisma.organization.findUnique({ where: { id: orgB.id } });
+        assert.ok(refreshedA.phoneVerifiedAt, "A debe quedar verificada");
+        assert.equal(refreshedB.phoneVerifiedAt, null, "B NUNCA debe quedar verificada por el CONFIRMAR de A");
+
+        // B todavía puede confirmarse con SU PROPIO token.
+        const resultB = await confirmOrganizationPhoneFromWebhook({ waId: "5493514123456", token: tokenB });
+        assert.equal(resultB.confirmed, true);
+        assert.equal(resultB.organizationId, orgB.id);
+        const finalB = await prisma.organization.findUnique({ where: { id: orgB.id } });
+        assert.ok(finalB.phoneVerifiedAt);
+    } finally {
+        restoreEnv();
+        await cleanup({ organizationIds: [orgA?.id, orgB?.id].filter(Boolean), userIds: [ownerA.id, ownerB.id] });
     }
 });
 
@@ -195,47 +263,59 @@ testWithDb("an expired pending verification is never confirmed by a late CONFIRM
 testWithDb("changing an already-verified phone never touches the old number until the email OTP is authorized", async () => {
     const owner = await createUser();
     const restoreEnv = withMockedOutboundEnv();
-    const restoreFetch = mockOutboundFetchSuccessOnly();
     let organization;
     try {
         ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
-        await confirmOrganizationPhoneFromWebhook("5493514123456");
+        const { deepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
+        await confirmOrganizationPhoneFromWebhook({ waId: "5493514123456", token: extractTokenFromDeepLink(deepLink) });
 
-        const result = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE_2);
+        const restoreFetch = mockResendFetchSuccessOnly();
+        let result;
+        try {
+            result = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE_2);
+        } finally {
+            restoreFetch();
+        }
         assert.equal(result.step, "EMAIL_OTP_REQUIRED");
 
         const untouched = await prisma.organization.findUnique({ where: { id: organization.id } });
         assert.equal(untouched.phone, ARG_PHONE, "el teléfono verificado no debe tocarse mientras el OTP de email sigue pendiente");
         assert.ok(untouched.phoneVerifiedAt);
 
-        // Tampoco existe todavía ninguna verificación de WhatsApp — recién
-        // se crea después de un OTP correcto.
+        // Tampoco existe todavía ningún challenge de WhatsApp para el nuevo
+        // número — recién se crea después de un OTP correcto.
         const pendingWhatsapp = await prisma.organizationPhoneVerification.findUnique({ where: { organizationId: organization.id } });
         assert.equal(pendingWhatsapp, null);
     } finally {
-        restoreFetch();
         restoreEnv();
         if (organization) await cleanup({ organizationIds: [organization.id], userIds: [owner.id] });
     }
 });
 
-testWithDb("a correct email OTP authorizes the WhatsApp send for the new number; CONFIRMAR from it then replaces the old one", async () => {
+testWithDb("a correct email OTP returns a wa.me deep link for the new number; CONFIRMAR <token> from it then replaces the old one", async () => {
     const owner = await createUser();
     const restoreEnv = withMockedOutboundEnv();
-    const restoreFetch = mockOutboundFetchSuccessOnly();
     let organization;
     try {
         ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
-        await confirmOrganizationPhoneFromWebhook("5493514123456");
+        const { deepLink: firstDeepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
+        await confirmOrganizationPhoneFromWebhook({ waId: "5493514123456", token: extractTokenFromDeepLink(firstDeepLink) });
 
-        await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE_2);
-        const authorization = await prisma.organizationPhoneChangeAuthorization.findUnique({ where: { organizationId: organization.id } });
-        const { hashVerificationCode } = await import("../src/utils/verificationCode.js");
-        const knownCode = "654321";
-        await prisma.organizationPhoneChangeAuthorization.update({ where: { id: authorization.id }, data: { codeHash: hashVerificationCode(knownCode) } });
+        const restoreFetch = mockResendFetchSuccessOnly();
+        let verifyResult;
+        try {
+            await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE_2);
+            const authorization = await prisma.organizationPhoneChangeAuthorization.findUnique({ where: { organizationId: organization.id } });
+            const { hashVerificationCode } = await import("../src/utils/verificationCode.js");
+            const knownCode = "654321";
+            await prisma.organizationPhoneChangeAuthorization.update({ where: { id: authorization.id }, data: { codeHash: hashVerificationCode(knownCode) } });
 
-        const verifyResult = await verifyOrganizationPhoneChangeOtpService(owner.clerkId, organization.id, knownCode);
-        assert.equal(verifyResult.step, "WHATSAPP_SENT");
+            verifyResult = await verifyOrganizationPhoneChangeOtpService(owner.clerkId, organization.id, knownCode);
+        } finally {
+            restoreFetch();
+        }
+        assert.equal(verifyResult.step, "WHATSAPP_PENDING");
+        assert.match(verifyResult.deepLink, /^https:\/\/wa\.me\/5493511234567\?text=CONFIRMAR%20[A-Z0-9]+$/);
 
         // El OTP quedó consumido (no reutilizable) y el teléfono viejo
         // SIGUE siendo el oficial hasta que llegue el CONFIRMAR real.
@@ -244,13 +324,12 @@ testWithDb("a correct email OTP authorizes the WhatsApp send for the new number;
         const authorizationGone = await prisma.organizationPhoneChangeAuthorization.findUnique({ where: { organizationId: organization.id } });
         assert.equal(authorizationGone, null);
 
-        const confirmResult = await confirmOrganizationPhoneFromWebhook("5493515557890");
-        assert.deepEqual(confirmResult.confirmedOrganizationIds, [organization.id]);
+        const confirmResult = await confirmOrganizationPhoneFromWebhook({ waId: "5493515557890", token: extractTokenFromDeepLink(verifyResult.deepLink) });
+        assert.equal(confirmResult.confirmed, true);
         const swapped = await prisma.organization.findUnique({ where: { id: organization.id } });
         assert.equal(swapped.phone, ARG_PHONE_2);
         assert.ok(swapped.phoneVerifiedAt > stillOld.phoneVerifiedAt);
     } finally {
-        restoreFetch();
         restoreEnv();
         if (organization) await cleanup({ organizationIds: [organization.id], userIds: [owner.id] });
     }
@@ -259,26 +338,30 @@ testWithDb("a correct email OTP authorizes the WhatsApp send for the new number;
 testWithDb("an incorrect email OTP is rejected and never authorizes a WhatsApp verification", async () => {
     const owner = await createUser();
     const restoreEnv = withMockedOutboundEnv();
-    const restoreFetch = mockOutboundFetchSuccessOnly();
     let organization;
     try {
         ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
-        await confirmOrganizationPhoneFromWebhook("5493514123456");
+        const { deepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
+        await confirmOrganizationPhoneFromWebhook({ waId: "5493514123456", token: extractTokenFromDeepLink(deepLink) });
 
-        await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE_2);
+        const restoreFetch = mockResendFetchSuccessOnly();
+        try {
+            await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE_2);
 
-        await assert.rejects(
-            () => verifyOrganizationPhoneChangeOtpService(owner.clerkId, organization.id, "000000"),
-            (err) => {
-                assert.equal(err.code, "ORGANIZATION_PHONE_OTP_CODE_INVALID");
-                return true;
-            }
-        );
+            await assert.rejects(
+                () => verifyOrganizationPhoneChangeOtpService(owner.clerkId, organization.id, "000000"),
+                (err) => {
+                    assert.equal(err.code, "ORGANIZATION_PHONE_OTP_CODE_INVALID");
+                    return true;
+                }
+            );
+        } finally {
+            restoreFetch();
+        }
 
         const pendingWhatsapp = await prisma.organizationPhoneVerification.findUnique({ where: { organizationId: organization.id } });
-        assert.equal(pendingWhatsapp, null, "un OTP incorrecto nunca debe crear una verificación de WhatsApp");
+        assert.equal(pendingWhatsapp, null, "un OTP incorrecto nunca debe crear un challenge de WhatsApp");
     } finally {
-        restoreFetch();
         restoreEnv();
         if (organization) await cleanup({ organizationIds: [organization.id], userIds: [owner.id] });
     }
@@ -287,13 +370,18 @@ testWithDb("an incorrect email OTP is rejected and never authorizes a WhatsApp v
 testWithDb("cancelling a change discards the pending attempt and leaves the verified phone untouched", async () => {
     const owner = await createUser();
     const restoreEnv = withMockedOutboundEnv();
-    const restoreFetch = mockOutboundFetchSuccessOnly();
     let organization;
     try {
         ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
-        await confirmOrganizationPhoneFromWebhook("5493514123456");
+        const { deepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
+        await confirmOrganizationPhoneFromWebhook({ waId: "5493514123456", token: extractTokenFromDeepLink(deepLink) });
 
-        await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE_2);
+        const restoreFetch = mockResendFetchSuccessOnly();
+        try {
+            await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE_2);
+        } finally {
+            restoreFetch();
+        }
         await cancelOrganizationPhoneChangeService(owner.clerkId, organization.id);
 
         const authorization = await prisma.organizationPhoneChangeAuthorization.findUnique({ where: { organizationId: organization.id } });
@@ -301,7 +389,6 @@ testWithDb("cancelling a change discards the pending attempt and leaves the veri
         const untouched = await prisma.organization.findUnique({ where: { id: organization.id } });
         assert.equal(untouched.phone, ARG_PHONE);
     } finally {
-        restoreFetch();
         restoreEnv();
         if (organization) await cleanup({ organizationIds: [organization.id], userIds: [owner.id] });
     }
@@ -310,22 +397,66 @@ testWithDb("cancelling a change discards the pending attempt and leaves the veri
 testWithDb("resend respects the cooldown (rate limit) for the email OTP", async () => {
     const owner = await createUser();
     const restoreEnv = withMockedOutboundEnv();
-    const restoreFetch = mockOutboundFetchSuccessOnly();
     let organization;
     try {
         ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
-        await confirmOrganizationPhoneFromWebhook("5493514123456");
-        await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE_2);
+        const { deepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
+        await confirmOrganizationPhoneFromWebhook({ waId: "5493514123456", token: extractTokenFromDeepLink(deepLink) });
+
+        const restoreFetch = mockResendFetchSuccessOnly();
+        try {
+            await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE_2);
+
+            await assert.rejects(
+                () => resendOrganizationPhoneChangeOtpService(owner.clerkId, organization.id),
+                (err) => {
+                    assert.equal(err.code, "ORGANIZATION_PHONE_RESEND_TOO_SOON");
+                    return true;
+                }
+            );
+        } finally {
+            restoreFetch();
+        }
+    } finally {
+        restoreEnv();
+        if (organization) await cleanup({ organizationIds: [organization.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("'Abrir WhatsApp nuevamente' reissues a fresh token (a new deep link) and respects the reissue cooldown", async () => {
+    const owner = await createUser();
+    const restoreEnv = withMockedOutboundEnv();
+    let organization;
+    try {
+        ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
+        const { deepLink: firstDeepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
 
         await assert.rejects(
-            () => resendOrganizationPhoneChangeOtpService(owner.clerkId, organization.id),
+            () => resendOrganizationPhoneWhatsappService(owner.clerkId, organization.id),
             (err) => {
                 assert.equal(err.code, "ORGANIZATION_PHONE_RESEND_TOO_SOON");
                 return true;
             }
         );
+
+        // Fuera del cooldown: reemite un token nuevo. El viejo deja de
+        // servir (fue reemplazado, no coexisten dos tokens vivos).
+        await prisma.organizationPhoneVerification.update({
+            where: { organizationId: organization.id },
+            data: { lastIssuedAt: new Date(Date.now() - 61 * 1000) },
+        });
+        const reissued = await resendOrganizationPhoneWhatsappService(owner.clerkId, organization.id);
+        assert.equal(reissued.step, "WHATSAPP_PENDING");
+        assert.notEqual(reissued.deepLink, firstDeepLink);
+
+        const oldToken = extractTokenFromDeepLink(firstDeepLink);
+        const staleResult = await confirmOrganizationPhoneFromWebhook({ waId: "5493514123456", token: oldToken });
+        assert.equal(staleResult.confirmed, false, "el token viejo ya no debe servir después de reemitir");
+
+        const newToken = extractTokenFromDeepLink(reissued.deepLink);
+        const freshResult = await confirmOrganizationPhoneFromWebhook({ waId: "5493514123456", token: newToken });
+        assert.equal(freshResult.confirmed, true);
     } finally {
-        restoreFetch();
         restoreEnv();
         if (organization) await cleanup({ organizationIds: [organization.id], userIds: [owner.id] });
     }
@@ -337,7 +468,6 @@ testWithDb("an organizer can never request, verify, or cancel another organizati
     const ownerA = await createUser();
     const ownerB = await createUser();
     const restoreEnv = withMockedOutboundEnv();
-    const restoreFetch = mockOutboundFetchSuccessOnly();
     let orgA, orgB;
     try {
         ({ organization: orgA } = await createOrganizationService(ownerA.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
@@ -369,7 +499,6 @@ testWithDb("an organizer can never request, verify, or cancel another organizati
         const untouched = await prisma.organization.findUnique({ where: { id: orgB.id } });
         assert.equal(untouched.phone, ARG_PHONE_2);
     } finally {
-        restoreFetch();
         restoreEnv();
         await cleanup({ organizationIds: [orgA?.id, orgB?.id].filter(Boolean), userIds: [ownerA.id, ownerB.id] });
     }

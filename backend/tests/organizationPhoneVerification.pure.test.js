@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-    isOrganizationPhoneConfirmationText,
+    parseOrganizationPhoneConfirmationMessage,
     requiresEmailAuthorization,
+    buildOrganizationPhoneVerificationDeepLink,
 } from "../src/services/organizationPhoneVerification.service.js";
 
 // Verificación de teléfono/WhatsApp de Organización — lógica PURA (nunca
@@ -10,27 +11,28 @@ import {
 // importe prisma.js transitivamente (mismo criterio que
 // withdrawalRequest.pure.test.js).
 
-test("isOrganizationPhoneConfirmationText accepts the exact word, case-insensitive", () => {
-    assert.equal(isOrganizationPhoneConfirmationText("CONFIRMAR"), true);
-    assert.equal(isOrganizationPhoneConfirmationText("confirmar"), true);
-    assert.equal(isOrganizationPhoneConfirmationText("Confirmar"), true);
-    assert.equal(isOrganizationPhoneConfirmationText("CoNfIrMaR"), true);
+test("parseOrganizationPhoneConfirmationMessage accepts CONFIRMAR + token, case-insensitive, tolerating surrounding/repeated whitespace", () => {
+    assert.deepEqual(parseOrganizationPhoneConfirmationMessage("CONFIRMAR ABC123XYZ9"), { token: "ABC123XYZ9" });
+    assert.deepEqual(parseOrganizationPhoneConfirmationMessage("confirmar abc123xyz9"), { token: "ABC123XYZ9" });
+    assert.deepEqual(parseOrganizationPhoneConfirmationMessage("  Confirmar   ABC123XYZ9  "), { token: "ABC123XYZ9" });
+    assert.deepEqual(parseOrganizationPhoneConfirmationMessage("CoNfIrMaR\nABC123XYZ9"), { token: "ABC123XYZ9" });
 });
 
-test("isOrganizationPhoneConfirmationText tolerates surrounding/repeated whitespace", () => {
-    assert.equal(isOrganizationPhoneConfirmationText("  confirmar  "), true);
-    assert.equal(isOrganizationPhoneConfirmationText("confirmar\n"), true);
+test("parseOrganizationPhoneConfirmationMessage rejects a bare CONFIRMAR with no token", () => {
+    assert.equal(parseOrganizationPhoneConfirmationMessage("CONFIRMAR"), null);
+    assert.equal(parseOrganizationPhoneConfirmationMessage("  confirmar  "), null);
 });
 
-test("isOrganizationPhoneConfirmationText rejects anything that is not exactly the word", () => {
-    assert.equal(isOrganizationPhoneConfirmationText("confirmar por favor"), false);
-    assert.equal(isOrganizationPhoneConfirmationText("si, confirmo"), false);
-    assert.equal(isOrganizationPhoneConfirmationText("confirmado"), false);
-    assert.equal(isOrganizationPhoneConfirmationText("CONFIRMAR!"), false);
-    assert.equal(isOrganizationPhoneConfirmationText(""), false);
-    assert.equal(isOrganizationPhoneConfirmationText(null), false);
-    assert.equal(isOrganizationPhoneConfirmationText(undefined), false);
-    assert.equal(isOrganizationPhoneConfirmationText(123456), false);
+test("parseOrganizationPhoneConfirmationMessage rejects partial matches and extra text", () => {
+    assert.equal(parseOrganizationPhoneConfirmationMessage("confirmar por favor ABC123"), null);
+    assert.equal(parseOrganizationPhoneConfirmationMessage("si, confirmo ABC123"), null);
+    assert.equal(parseOrganizationPhoneConfirmationMessage("confirmado ABC123"), null);
+    assert.equal(parseOrganizationPhoneConfirmationMessage("CONFIRMAR ABC123 gracias"), null);
+    assert.equal(parseOrganizationPhoneConfirmationMessage("CONFIRMAR!ABC123"), null);
+    assert.equal(parseOrganizationPhoneConfirmationMessage(""), null);
+    assert.equal(parseOrganizationPhoneConfirmationMessage(null), null);
+    assert.equal(parseOrganizationPhoneConfirmationMessage(undefined), null);
+    assert.equal(parseOrganizationPhoneConfirmationMessage(123456), null);
 });
 
 test("requiresEmailAuthorization is true only when the organization already has a verified phone", () => {
@@ -39,4 +41,9 @@ test("requiresEmailAuthorization is true only when the organization already has 
     assert.equal(requiresEmailAuthorization({ phoneVerifiedAt: undefined }), false);
     assert.equal(requiresEmailAuthorization({}), false);
     assert.equal(requiresEmailAuthorization(null), false);
+});
+
+test("buildOrganizationPhoneVerificationDeepLink builds a wa.me URL with CONFIRMAR + token prefilled and URL-encoded", () => {
+    const url = buildOrganizationPhoneVerificationDeepLink("5493511234567", "ABC123XYZ9");
+    assert.equal(url, "https://wa.me/5493511234567?text=CONFIRMAR%20ABC123XYZ9");
 });

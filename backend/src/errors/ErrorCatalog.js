@@ -510,13 +510,13 @@ export const ErrorCatalog = Object.freeze({
     },
     ORGANIZATION_PHONE_RESEND_TOO_SOON: {
         httpStatus: 429,
-        logMessage: "Organization phone verification (re)send attempted before the resend cooldown elapsed.",
+        logMessage: "Organization phone verification challenge (re)issue attempted before the reissue cooldown elapsed (WhatsApp deep link), or the email OTP resend cooldown elapsed.",
         userMessage: "Esperá unos segundos antes de reintentar.",
     },
     ORGANIZATION_PHONE_SEND_FAILED: {
         httpStatus: 502,
-        logMessage: "Meta Graph API rejected, failed to deliver, or is missing template configuration for the organization phone verification WhatsApp message.",
-        userMessage: "No pudimos enviar el mensaje de verificación por WhatsApp. Probá de nuevo en unos minutos.",
+        logMessage: "WHATSAPP_DISPLAY_PHONE_NUMBER is missing/misconfigured — could not build the organization phone verification wa.me deep link.",
+        userMessage: "No pudimos generar el enlace de verificación por WhatsApp. Probá de nuevo en unos minutos.",
     },
     ORGANIZATION_PHONE_EMAIL_SEND_FAILED: {
         httpStatus: 502,

@@ -443,45 +443,27 @@ export async function sendWhatsappWelcomeTemplate({ to, firstName, organizationN
 
 // ==================================================================
 // Verificación de teléfono/WhatsApp de Organización (Organization.phone) —
-// mismo criterio LAZY que getWhatsappOtpTemplateName/Language: el mensaje
-// "Este número fue registrado como WhatsApp de contacto de [Organización].
-// Respondé CONFIRMAR para verificarlo." tiene que existir como template
-// aprobado en el panel de Meta (el número nunca escribió antes, así que
-// nunca hay ventana de 24hs abierta — ver el comentario de
-// sendWhatsappTemplateMessage). Nunca se crea/aprueba el template desde
-// acá — sólo lee el nombre/idioma ya configurados.
+// flujo INVERTIDO: EL ORGANIZADOR inicia la conversación de WhatsApp hacia
+// el número oficial de PaseCultural (deep link wa.me con "CONFIRMAR
+// <token>" prearmado, ver organizationPhoneVerification.service.js) — nunca
+// al revés, así que esta feature NO manda ningún template de Meta y no
+// depende de que exista uno aprobado. Lo único que hace falta configurar es
+// EL NÚMERO OFICIAL que hay que abrir en WhatsApp: mismo criterio LAZY que
+// el resto de este archivo, pero deliberadamente DISTINTO de
+// WHATSAPP_PHONE_NUMBER_ID (ese es el phone_number_id interno de Meta para
+// la Graph API, nunca el número real en formato E.164 que necesita un
+// enlace wa.me/<número>).
 // ==================================================================
 
-let cachedPhoneVerificationTemplateName;
-export function getWhatsappPhoneVerificationTemplateName() {
-    if (cachedPhoneVerificationTemplateName) return cachedPhoneVerificationTemplateName;
-    const value = process.env.WHATSAPP_PHONE_VERIFICATION_TEMPLATE_NAME;
+let cachedDisplayPhoneNumber;
+export function getWhatsappDisplayPhoneNumber() {
+    if (cachedDisplayPhoneNumber) return cachedDisplayPhoneNumber;
+    const value = process.env.WHATSAPP_DISPLAY_PHONE_NUMBER;
     if (!value || !value.trim()) {
-        throw new Error("Falta configurar la variable de entorno WHATSAPP_PHONE_VERIFICATION_TEMPLATE_NAME (plantilla de Meta para verificar el teléfono de una organización).");
+        throw new Error("Falta configurar la variable de entorno WHATSAPP_DISPLAY_PHONE_NUMBER (número oficial de WhatsApp de PaseCultural, formato wa.me — sólo dígitos, con código de país, sin '+').");
     }
-    cachedPhoneVerificationTemplateName = value.trim();
-    return cachedPhoneVerificationTemplateName;
-}
-
-let cachedPhoneVerificationTemplateLanguage;
-export function getWhatsappPhoneVerificationTemplateLanguage() {
-    if (cachedPhoneVerificationTemplateLanguage) return cachedPhoneVerificationTemplateLanguage;
-    const value = process.env.WHATSAPP_PHONE_VERIFICATION_TEMPLATE_LANGUAGE;
-    if (!value || !value.trim()) {
-        throw new Error("Falta configurar la variable de entorno WHATSAPP_PHONE_VERIFICATION_TEMPLATE_LANGUAGE.");
-    }
-    cachedPhoneVerificationTemplateLanguage = value.trim();
-    return cachedPhoneVerificationTemplateLanguage;
-}
-
-// Única variable real del template: el nombre de la organización — el
-// texto "Respondé CONFIRMAR para verificarlo" vive en el template ya
-// aprobado por Meta, nunca acá. Mismo criterio que sendWhatsappOtpTemplate:
-// lanza ANTES de intentar ningún request si falta configuración.
-export async function sendWhatsappPhoneVerificationTemplate({ to, organizationName }) {
-    const templateName = getWhatsappPhoneVerificationTemplateName();
-    const languageCode = getWhatsappPhoneVerificationTemplateLanguage();
-    return sendWhatsappTemplateMessage({ to, templateName, languageCode, bodyParameters: [organizationName] });
+    cachedDisplayPhoneNumber = value.trim();
+    return cachedDisplayPhoneNumber;
 }
 
 // ==================================================================

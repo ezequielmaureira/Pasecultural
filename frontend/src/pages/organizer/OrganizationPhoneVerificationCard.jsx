@@ -20,7 +20,14 @@ const RESEND_COOLDOWN_MS = 60 * 1000;
 // WhatsappNumberChangeCard.jsx (ese es el número AUTORIZADO para
 // administrar por el bot; esto es Organization.phone, el contacto
 // público). No muestra complejidad técnica: nunca habla de "webhook",
-// "HMAC" ni "hash" — sólo estados simples (Verificado / Pendiente).
+// "HMAC", "hash" ni "token" — sólo estados simples (Verificado / Pendiente).
+//
+// Flujo invertido: EL ORGANIZADOR inicia la conversación de WhatsApp hacia
+// PaseCultural — PaseCultural nunca manda un mensaje primero. `deepLink`
+// (URL wa.me con "CONFIRMAR <token>" prearmado) sólo existe EN MEMORIA acá:
+// el backend nunca la vuelve a mostrar en el GET de estado (no guarda el
+// token en texto plano) — si se pierde (recarga de página), "Abrir WhatsApp
+// nuevamente" pide una nueva.
 export default function OrganizationPhoneVerificationCard({ organizationId }) {
   const { getToken } = useAuth();
   const toast = useToast();
@@ -37,8 +44,9 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
   const [code, setCode] = useState("");
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState("");
-  const [resending, setResending] = useState(false);
-  const [resendError, setResendError] = useState("");
+  const [deepLink, setDeepLink] = useState(null);
+  const [reopening, setReopening] = useState(false);
+  const [reopenError, setReopenError] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const [resendCooldownUntil, setResendCooldownUntil] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
@@ -78,7 +86,8 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
     setCode("");
     setRequestError("");
     setVerifyError("");
-    setResendError("");
+    setReopenError("");
+    setDeepLink(null);
     setResendCooldownUntil(0);
     loadStatus();
   }
@@ -90,10 +99,16 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
     try {
       const token = await getToken();
       const result = await requestOrganizationPhoneVerification(token, organizationId, phone.trim());
-      setResendCooldownUntil(Date.now() + RESEND_COOLDOWN_MS);
       setCode("");
       setVerifyError("");
-      setPhase(result.step === "EMAIL_OTP_REQUIRED" ? "email-otp" : "whatsapp-waiting");
+      if (result.step === "EMAIL_OTP_REQUIRED") {
+        setResendCooldownUntil(Date.now() + RESEND_COOLDOWN_MS);
+        setPhase("email-otp");
+      } else {
+        setDeepLink(result.deepLink);
+        setResendCooldownUntil(Date.now() + RESEND_COOLDOWN_MS);
+        setPhase("whatsapp-waiting");
+      }
       await loadStatus();
     } catch (err) {
       setRequestError(err.message || "No pudimos iniciar la verificación.");
@@ -108,9 +123,11 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
     setVerifyError("");
     try {
       const token = await getToken();
-      await verifyOrganizationPhoneChangeOtp(token, organizationId, code.trim());
+      const result = await verifyOrganizationPhoneChangeOtp(token, organizationId, code.trim());
+      setDeepLink(result.deepLink);
+      setResendCooldownUntil(Date.now() + RESEND_COOLDOWN_MS);
       setPhase("whatsapp-waiting");
-      toast.success("Código verificado. Te mandamos un WhatsApp al nuevo número.");
+      toast.success("Código verificado. Ahora abrí WhatsApp para confirmar el número nuevo.");
       await loadStatus();
     } catch (err) {
       setVerifyError(err.message || "No pudimos verificar el código.");
@@ -119,19 +136,52 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
     }
   }
 
-  async function handleResend() {
-    setResending(true);
-    setResendError("");
+  async function handleResendEmailOtp() {
+    setReopening(true);
+    setReopenError("");
     try {
       const token = await getToken();
-      if (phase === "email-otp") await resendOrganizationPhoneChangeOtp(token, organizationId);
-      else await resendOrganizationPhoneWhatsapp(token, organizationId);
+      await resendOrganizationPhoneChangeOtp(token, organizationId);
       setResendCooldownUntil(Date.now() + RESEND_COOLDOWN_MS);
     } catch (err) {
-      setResendError(err.message || "No pudimos reenviar.");
+      setReopenError(err.message || "No pudimos reenviar.");
     } finally {
-      setResending(false);
+      setReopening(false);
     }
+  }
+
+  // Pide un deep link nuevo al backend (sujeto al cooldown anti-abuso) y lo
+  // abre en una pestaña — la pestaña se abre ANTES del await (mismo truco
+  // que cualquier flujo con un paso async en el medio) para que los
+  // bloqueadores de pop-ups no lo corten: el user gesture del click ya la
+  // habilitó.
+  async function reissueAndOpenWhatsapp() {
+    setReopening(true);
+    setReopenError("");
+    const newTab = window.open("", "_blank", "noopener,noreferrer");
+    try {
+      const token = await getToken();
+      const result = await resendOrganizationPhoneWhatsapp(token, organizationId);
+      setDeepLink(result.deepLink);
+      setResendCooldownUntil(Date.now() + RESEND_COOLDOWN_MS);
+      if (newTab) newTab.location.href = result.deepLink;
+    } catch (err) {
+      if (newTab) newTab.close();
+      setReopenError(err.message || "No pudimos abrir WhatsApp.");
+    } finally {
+      setReopening(false);
+    }
+  }
+
+  // Botón principal "Abrir WhatsApp" — si ya tenemos el deep link en
+  // memoria (recién emitido por request/verify), lo reabre directo, sin
+  // llamar al backend. Si se perdió (recarga de página), pide uno nuevo.
+  function handleOpenWhatsapp() {
+    if (deepLink) {
+      window.open(deepLink, "_blank", "noopener,noreferrer");
+      return;
+    }
+    reissueAndOpenWhatsapp();
   }
 
   async function handleCancel() {
@@ -192,11 +242,11 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
           <div className="flex items-center justify-between">
             <button
               type="button"
-              onClick={handleResend}
-              disabled={resending || cooldownRemaining > 0}
+              onClick={handleResendEmailOtp}
+              disabled={reopening || cooldownRemaining > 0}
               className="inline-flex items-center gap-1.5 text-xs font-medium text-violet-400 transition-colors duration-150 hover:text-violet-300 disabled:cursor-not-allowed disabled:text-slate-600"
             >
-              <RefreshCw className={`h-3 w-3 ${resending ? "animate-spin" : ""}`} />
+              <RefreshCw className={`h-3 w-3 ${reopening ? "animate-spin" : ""}`} />
               {cooldownRemaining > 0 ? `Reenviar código (${cooldownRemaining}s)` : "Reenviar código"}
             </button>
             <button
@@ -208,7 +258,7 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
               Cancelar cambio
             </button>
           </div>
-          {resendError && <p className="text-xs text-rose-400">{resendError}</p>}
+          {reopenError && <p className="text-xs text-rose-400">{reopenError}</p>}
         </div>
       </Card>
     );
@@ -233,19 +283,23 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
               <Clock className="h-4 w-4 text-amber-400" /> {status?.pendingPhone} — Pendiente de confirmación
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              Le mandamos un WhatsApp a ese número. Tenés que responder <strong className="text-slate-300">CONFIRMAR</strong> desde ese mismo teléfono para que quede verificado.
+              Abrí WhatsApp desde ese mismo teléfono y mandá el mensaje que ya te dejamos escrito — apenas lo recibamos, queda verificado.
             </p>
           </div>
+
+          <Button onClick={handleOpenWhatsapp} loading={reopening} loadingText="Abriendo..." className="justify-center">
+            <MessageCircle className="h-4 w-4" /> Abrir WhatsApp
+          </Button>
 
           <div className="flex items-center justify-between">
             <button
               type="button"
-              onClick={handleResend}
-              disabled={resending || cooldownRemaining > 0}
+              onClick={reissueAndOpenWhatsapp}
+              disabled={reopening || cooldownRemaining > 0}
               className="inline-flex items-center gap-1.5 text-xs font-medium text-violet-400 transition-colors duration-150 hover:text-violet-300 disabled:cursor-not-allowed disabled:text-slate-600"
             >
-              <RefreshCw className={`h-3 w-3 ${resending ? "animate-spin" : ""}`} />
-              {cooldownRemaining > 0 ? `Reenviar confirmación (${cooldownRemaining}s)` : "Reenviar confirmación"}
+              <RefreshCw className={`h-3 w-3 ${reopening ? "animate-spin" : ""}`} />
+              {cooldownRemaining > 0 ? `Abrir WhatsApp nuevamente (${cooldownRemaining}s)` : "Abrir WhatsApp nuevamente"}
             </button>
             <button
               type="button"
@@ -256,7 +310,7 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
               Cancelar cambio
             </button>
           </div>
-          {resendError && <p className="text-xs text-rose-400">{resendError}</p>}
+          {reopenError && <p className="text-xs text-rose-400">{reopenError}</p>}
 
           <button
             type="button"
@@ -290,8 +344,8 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
           {requestError && <p className="text-sm text-rose-400">{requestError}</p>}
 
           <div className="flex gap-2">
-            <Button onClick={handleRequest} loading={requesting} loadingText="Enviando..." disabled={!phone.trim()} className="flex-1 justify-center">
-              {status?.verifiedAt ? "Enviar código de autorización" : "Verificar por WhatsApp"}
+            <Button onClick={handleRequest} loading={requesting} loadingText="Generando enlace..." disabled={!phone.trim()} className="flex-1 justify-center">
+              {status?.verifiedAt ? "Enviar código de autorización" : "Verificar WhatsApp"}
             </Button>
             <Button variant="secondary" onClick={() => setPhase("idle")} disabled={requesting}>
               Cancelar
@@ -329,8 +383,17 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
             )}
           </div>
         </div>
-        <Button variant="secondary" size="sm" onClick={() => setPhase("request")}>
-          {status?.verifiedAt ? "Cambiar número" : status?.phone ? "Verificar ahora" : "Agregar WhatsApp"}
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => {
+            // Sección "organizaciones existentes" — verificar un número
+            // legacy YA cargado no debe obligar a retipearlo.
+            setPhone(!status?.verifiedAt && status?.phone ? status.phone : "");
+            setPhase("request");
+          }}
+        >
+          {status?.verifiedAt ? "Cambiar número" : status?.phone ? "Verificar WhatsApp" : "Agregar WhatsApp"}
         </Button>
       </div>
       {statusError && <p className="mt-2 text-xs text-rose-400">{statusError}</p>}

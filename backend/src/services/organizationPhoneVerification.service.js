@@ -4,7 +4,8 @@ import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { getUserByClerkId } from "../utils/getUserByClerkId.js";
 import { buildArgentineWhatsappId } from "../utils/normalizeArgentinePhone.js";
 import { generateVerificationCode, hashVerificationCode, verificationCodeMatchesHash } from "../utils/verificationCode.js";
-import { sendWhatsappPhoneVerificationTemplate } from "./whatsapp.service.js";
+import { generateOrganizationPhoneChallengeToken, hashOrganizationPhoneChallengeToken } from "../utils/organizationPhoneChallengeToken.js";
+import { getWhatsappDisplayPhoneNumber } from "./whatsapp.service.js";
 import { sendOrganizationPhoneChangeOtpEmail } from "./email/sendOrganizationPhoneChangeOtp.service.js";
 import { logger } from "../logging/logger.js";
 
@@ -13,9 +14,15 @@ import { logger } from "../logging/logger.js";
 // verificado): ver el comentario de los modelos en schema.prisma. NUNCA
 // OTP por WhatsApp (a diferencia de whatsappNumberChange.service.js, que
 // es un dominio completamente distinto — el número AUTORIZADO para
-// administrar por el bot, nunca Organization.phone) — la confirmación acá
-// es siempre "responder CONFIRMAR desde el número nuevo", capturada por el
-// webhook real de Meta (ver whatsapp.controller.js).
+// administrar por el bot, nunca Organization.phone).
+//
+// FLUJO INVERTIDO — EL ORGANIZADOR inicia la conversación de WhatsApp: acá
+// NUNCA se manda un mensaje de WhatsApp (por eso no hay ningún template de
+// Meta involucrado). Lo único que este service produce es un deep link
+// wa.me hacia el número oficial de PaseCultural con "CONFIRMAR <token>"
+// prearmado — la confirmación real ocurre cuando ESE mensaje llega por el
+// webhook real de Meta (ver whatsapp.controller.js) con message.from
+// EXACTAMENTE igual a pendingWaId Y el token exacto de esa fila.
 
 const EMAIL_OTP_EXPIRY_MS = 10 * 60 * 1000;
 const EMAIL_OTP_MAX_ATTEMPTS = 5;
@@ -23,19 +30,28 @@ const EMAIL_OTP_RESEND_COOLDOWN_MS = 60 * 1000;
 
 // Propuesta explícita del pedido: 24 horas.
 const WHATSAPP_VERIFICATION_EXPIRY_MS = 24 * 60 * 60 * 1000;
-const WHATSAPP_RESEND_COOLDOWN_MS = 60 * 1000;
+// Cooldown anti-abuso para EMITIR/REEMITIR un token de challenge — ya no
+// protege un envío de Meta (no hay ninguno), protege contra spamear
+// creación de filas ("Mantener protección contra abuso en creación/
+// reinicio de challenges", pedido explícito).
+const WHATSAPP_REISSUE_COOLDOWN_MS = 60 * 1000;
 
 // ==================================================================
 // Funciones puras — testeables sin Prisma.
 // ==================================================================
 
-// "CONFIRMAR" — ignora mayúsculas/minúsculas y tolera espacios (incluidos
-// espacios repetidos/al borde), pero NUNCA acepta variantes ("confirmar
-// por favor", "si, confirmo"): sólo la palabra exacta, normalizada.
-export function isOrganizationPhoneConfirmationText(rawText) {
-    if (typeof rawText !== "string") return false;
+// Acepta EXACTAMENTE "CONFIRMAR <token>" (mayúsculas/minúsculas y espacios
+// al borde/repetidos ignorados) — nunca variantes, nunca sólo "CONFIRMAR"
+// sin token (el deep link SIEMPRE prearma el token; sin él no hay forma de
+// desambiguar entre organizaciones, ver el comentario del modelo en
+// schema.prisma). Devuelve {token} o null — nunca lanza.
+const CONFIRMATION_PATTERN = /^CONFIRMAR\s+([A-Z0-9]{6,32})$/;
+
+export function parseOrganizationPhoneConfirmationMessage(rawText) {
+    if (typeof rawText !== "string") return null;
     const normalized = rawText.trim().toUpperCase().replace(/\s+/g, " ");
-    return normalized === "CONFIRMAR";
+    const match = CONFIRMATION_PATTERN.exec(normalized);
+    return match ? { token: match[1] } : null;
 }
 
 // Un teléfono candidato requiere autorización previa por email SÓLO si ya
@@ -46,6 +62,15 @@ export function isOrganizationPhoneConfirmationText(rawText) {
 // resto del flujo (confirmación por WhatsApp) es idéntico para ambos.
 export function requiresEmailAuthorization(organization) {
     return Boolean(organization?.phoneVerifiedAt);
+}
+
+// El deep link wa.me que abre WhatsApp del organizador hacia el número
+// oficial de PaseCultural con el mensaje prearmado — nunca construido en el
+// frontend (que no conoce el número oficial ni el token en texto plano
+// antes de que el backend lo emita).
+export function buildOrganizationPhoneVerificationDeepLink(officialNumber, token) {
+    const text = `CONFIRMAR ${token}`;
+    return `https://wa.me/${officialNumber}?text=${encodeURIComponent(text)}`;
 }
 
 // ==================================================================
@@ -71,41 +96,84 @@ async function resolveOrganizationForOwnerOrThrow(clerkId, organizationId) {
 }
 
 // ==================================================================
-// Claims atómicos CAS — mismo patrón (updateMany bajo cooldown, create si
-// no existía, P2002 tratado como "todavía en cooldown") que
-// whatsappNumberChange.service.js#claimNumberChangeChallenge.
+// Claim atómico CAS del challenge de WhatsApp — mismo patrón (updateMany
+// bajo cooldown, create si no existía, P2002 tratado como "todavía en
+// cooldown") que whatsappNumberChange.service.js#claimNumberChangeChallenge.
+// A diferencia de la versión anterior, esto NUNCA llama a Meta: genera el
+// token acá mismo y devuelve el valor EN TEXTO PLANO (sólo existe en este
+// instante — la fila sólo guarda el hash) para que el caller arme el deep
+// link. Devuelve `null` si el cooldown todavía no pasó.
 // ==================================================================
 
 async function claimPhoneVerification({ organizationId, requestedByUserId, pendingPhone, pendingWaId, now }) {
-    const cooldownBefore = new Date(now.getTime() - WHATSAPP_RESEND_COOLDOWN_MS);
+    const cooldownBefore = new Date(now.getTime() - WHATSAPP_REISSUE_COOLDOWN_MS);
+    const token = generateOrganizationPhoneChallengeToken();
     const fields = {
         requestedByUserId,
         pendingPhone,
         pendingWaId,
+        challengeTokenHash: hashOrganizationPhoneChallengeToken(token),
         expiresAt: new Date(now.getTime() + WHATSAPP_VERIFICATION_EXPIRY_MS),
-        lastSentAt: now,
+        lastIssuedAt: now,
     };
 
     const replaced = await prisma.organizationPhoneVerification.updateMany({
-        where: { organizationId, OR: [{ lastSentAt: { lt: cooldownBefore } }, { expiresAt: { lt: now } }] },
+        where: { organizationId, OR: [{ lastIssuedAt: { lt: cooldownBefore } }, { expiresAt: { lt: now } }] },
         data: fields,
     });
-    if (replaced.count === 1) return true;
+    if (replaced.count === 1) return token;
 
     try {
         await prisma.organizationPhoneVerification.create({ data: { organizationId, ...fields } });
-        return true;
+        return token;
     } catch (error) {
-        if (error.code === "P2002") return false;
+        // P2002 acá casi siempre es el cooldown real (organizationId ya
+        // tiene una fila viva) — en teoría también podría ser una colisión
+        // de challengeTokenHash (token generado dos veces), pero con 32^10
+        // combinaciones posibles es efectivamente imposible; tratarla igual
+        // (como cooldown) es seguro: el caller simplemente reintenta.
+        if (error.code === "P2002") return null;
         throw error;
     }
 }
 
-// Si el envío por Meta falla DESPUÉS de reclamar, no queda nada útil que
-// conservar (el mensaje nunca llegó) — se borra la fila entera, mismo
-// criterio que whatsappNumberChange.service.js#releaseAfterFailedSend.
-async function releasePhoneVerificationAfterFailedSend(organizationId) {
-    await prisma.organizationPhoneVerification.deleteMany({ where: { organizationId } }).catch(() => {});
+function errorCodeForIssueFailureReason(reason) {
+    if (reason === "INVALID_NUMBER") return ErrorCodes.ORGANIZATION_PHONE_INVALID_NUMBER;
+    if (reason === "RESEND_TOO_SOON") return ErrorCodes.ORGANIZATION_PHONE_RESEND_TOO_SOON;
+    return ErrorCodes.ORGANIZATION_PHONE_SEND_FAILED;
+}
+
+// Núcleo compartido: reclama una fila nueva + genera su deep link. NUNCA
+// lanza — devuelve {ok:true, deepLink} o {ok:false, reason}; el caller
+// decide si eso se traduce en un AppError (llamada explícita del
+// organizador) o se degrada silenciosamente a un log (hook best-effort al
+// crear una organización ya NO llama a esto, ver la sección más abajo).
+async function issuePhoneVerificationChallenge({ organization, user, rawPhone, now }) {
+    const pendingWaId = buildArgentineWhatsappId(rawPhone);
+    if (!pendingWaId) return { ok: false, reason: "INVALID_NUMBER" };
+
+    // Preflight ANTES de tocar la base: si falta configurar el número
+    // oficial, mejor fallar acá que dejar una fila reclamada sin poder
+    // devolver nunca su deep link.
+    let officialNumber;
+    try {
+        officialNumber = getWhatsappDisplayPhoneNumber();
+    } catch (error) {
+        logger.error(error, { context: "issuePhoneVerificationChallenge: falta configuración del número oficial de WhatsApp" });
+        return { ok: false, reason: "LINK_UNAVAILABLE" };
+    }
+
+    const token = await claimPhoneVerification({
+        organizationId: organization.id,
+        requestedByUserId: user.id,
+        pendingPhone: rawPhone.trim(),
+        pendingWaId,
+        now,
+    });
+    if (!token) return { ok: false, reason: "RESEND_TOO_SOON" };
+
+    logger.info("organization phone verification: challenge emitido", { organizationId: organization.id });
+    return { ok: true, deepLink: buildOrganizationPhoneVerificationDeepLink(officialNumber, token) };
 }
 
 async function claimChangeAuthorization({ organizationId, requestedByUserId, newPhone, now }) {
@@ -139,43 +207,6 @@ async function releaseChangeAuthorizationAfterFailedSend(organizationId) {
     await prisma.organizationPhoneChangeAuthorization.deleteMany({ where: { organizationId } }).catch(() => {});
 }
 
-function errorCodeForSendFailureReason(reason) {
-    if (reason === "INVALID_NUMBER") return ErrorCodes.ORGANIZATION_PHONE_INVALID_NUMBER;
-    if (reason === "RESEND_TOO_SOON") return ErrorCodes.ORGANIZATION_PHONE_RESEND_TOO_SOON;
-    return ErrorCodes.ORGANIZATION_PHONE_SEND_FAILED;
-}
-
-// Núcleo compartido: reclama + manda el mensaje de WhatsApp. NUNCA lanza —
-// devuelve {ok:true} o {ok:false, reason}; el caller decide si eso se
-// traduce en un AppError (llamada explícita del organizador) o se degrada
-// silenciosamente a un log (hook best-effort al crear una organización).
-async function attemptWhatsappPhoneVerificationSend({ organization, user, rawPhone, now }) {
-    const pendingWaId = buildArgentineWhatsappId(rawPhone);
-    if (!pendingWaId) return { ok: false, reason: "INVALID_NUMBER" };
-
-    const claimed = await claimPhoneVerification({
-        organizationId: organization.id,
-        requestedByUserId: user.id,
-        pendingPhone: rawPhone.trim(),
-        pendingWaId,
-        now,
-    });
-    if (!claimed) return { ok: false, reason: "RESEND_TOO_SOON" };
-
-    const sendResult = await sendWhatsappPhoneVerificationTemplate({ to: pendingWaId, organizationName: organization.name }).catch((error) => ({
-        success: false,
-        error: error.message,
-    }));
-    if (!sendResult.success) {
-        await releasePhoneVerificationAfterFailedSend(organization.id);
-        logger.warn("organization phone verification: fallo al enviar el mensaje de WhatsApp", { organizationId: organization.id, reason: sendResult.error });
-        return { ok: false, reason: "SEND_FAILED" };
-    }
-
-    logger.info("organization phone verification: mensaje de WhatsApp enviado", { organizationId: organization.id });
-    return { ok: true };
-}
-
 // ==================================================================
 // REQUEST — POST .../phone-verification/request. Punto de entrada único
 // para "verificar por primera vez" y "cambiar" — la decisión de si hace
@@ -199,7 +230,8 @@ export async function requestOrganizationPhoneVerificationService(clerkId, organ
 
     if (requiresEmailAuthorization(organization)) {
         // CAMBIO de un teléfono ya verificado — PASO 1: autorizar por email
-        // ANTES de tocar WhatsApp. El teléfono actual sigue intacto.
+        // ANTES de habilitar el deep link de WhatsApp. El teléfono actual
+        // sigue intacto.
         const code = await claimChangeAuthorization({ organizationId: organization.id, requestedByUserId: user.id, newPhone: rawPhone.trim(), now });
         if (!code) throw new AppError(ErrorCodes.ORGANIZATION_PHONE_RESEND_TOO_SOON);
 
@@ -215,16 +247,18 @@ export async function requestOrganizationPhoneVerificationService(clerkId, organ
         return { step: "EMAIL_OTP_REQUIRED" };
     }
 
-    // Alta nueva, o teléfono histórico/legacy nunca verificado — directo a
-    // WhatsApp, sin OTP (no hay ningún canal ya probado que proteger).
-    const result = await attemptWhatsappPhoneVerificationSend({ organization, user, rawPhone, now });
-    if (!result.ok) throw new AppError(errorCodeForSendFailureReason(result.reason));
-    return { step: "WHATSAPP_SENT" };
+    // Alta nueva, o teléfono histórico/legacy nunca verificado — directo al
+    // deep link de WhatsApp, sin OTP (no hay ningún canal ya probado que
+    // proteger).
+    const result = await issuePhoneVerificationChallenge({ organization, user, rawPhone, now });
+    if (!result.ok) throw new AppError(errorCodeForIssueFailureReason(result.reason));
+    return { step: "WHATSAPP_PENDING", deepLink: result.deepLink };
 }
 
 // ==================================================================
-// EMAIL OTP VERIFY — POST .../phone-verification/email-otp/verify. PASO 4
-// y 5: código correcto autoriza recién ENTONCES el envío del WhatsApp.
+// EMAIL OTP VERIFY — POST .../phone-verification/email-otp/verify. Código
+// correcto habilita recién ENTONCES el deep link de WhatsApp del número
+// candidato.
 // ==================================================================
 
 export async function verifyOrganizationPhoneChangeOtpService(clerkId, organizationId, rawCode) {
@@ -251,15 +285,19 @@ export async function verifyOrganizationPhoneChangeOtpService(clerkId, organizat
     const claim = await prisma.organizationPhoneChangeAuthorization.deleteMany({ where: { id: authorization.id } });
     if (claim.count === 0) throw new AppError(ErrorCodes.ORGANIZATION_PHONE_OTP_ALREADY_RESOLVED);
 
-    const result = await attemptWhatsappPhoneVerificationSend({ organization, user, rawPhone: authorization.newPhone, now });
-    if (!result.ok) throw new AppError(errorCodeForSendFailureReason(result.reason));
-    return { step: "WHATSAPP_SENT" };
+    const result = await issuePhoneVerificationChallenge({ organization, user, rawPhone: authorization.newPhone, now });
+    if (!result.ok) throw new AppError(errorCodeForIssueFailureReason(result.reason));
+    return { step: "WHATSAPP_PENDING", deepLink: result.deepLink };
 }
 
 // ==================================================================
-// RESEND — reenvío del mensaje de WhatsApp (verificación ya en curso) o
-// del OTP por email (autorización de cambio ya en curso). Con rate limit
-// (cooldown CAS), mismo criterio que el resto de la app.
+// "Abrir WhatsApp nuevamente" — POST .../phone-verification/whatsapp/resend.
+// Ya NO reenvía nada por Meta (PaseCultural nunca mandó un WhatsApp para
+// empezar): reemite un deep link nuevo para el intento YA en curso, mismo
+// pendingPhone/pendingWaId, sujeto al mismo cooldown anti-abuso que la
+// emisión inicial. Existe para cuando el organizador perdió el link
+// original (recargó la página, cerró la pestaña) — mientras lo tenga a
+// mano, el frontend puede reabrirlo directo sin llamar acá.
 // ==================================================================
 
 export async function resendOrganizationPhoneWhatsappService(clerkId, organizationId) {
@@ -269,27 +307,25 @@ export async function resendOrganizationPhoneWhatsappService(clerkId, organizati
     const existing = await prisma.organizationPhoneVerification.findUnique({ where: { organizationId: organization.id } });
     if (!existing || existing.expiresAt < now) throw new AppError(ErrorCodes.ORGANIZATION_PHONE_VERIFICATION_NOT_FOUND);
 
-    const claimed = await claimPhoneVerification({
+    let officialNumber;
+    try {
+        officialNumber = getWhatsappDisplayPhoneNumber();
+    } catch (error) {
+        logger.error(error, { context: "resendOrganizationPhoneWhatsappService: falta configuración del número oficial de WhatsApp" });
+        throw new AppError(ErrorCodes.ORGANIZATION_PHONE_SEND_FAILED);
+    }
+
+    const token = await claimPhoneVerification({
         organizationId: organization.id,
         requestedByUserId: existing.requestedByUserId,
         pendingPhone: existing.pendingPhone,
         pendingWaId: existing.pendingWaId,
         now,
     });
-    if (!claimed) throw new AppError(ErrorCodes.ORGANIZATION_PHONE_RESEND_TOO_SOON);
+    if (!token) throw new AppError(ErrorCodes.ORGANIZATION_PHONE_RESEND_TOO_SOON);
 
-    const sendResult = await sendWhatsappPhoneVerificationTemplate({ to: existing.pendingWaId, organizationName: organization.name }).catch((error) => ({
-        success: false,
-        error: error.message,
-    }));
-    if (!sendResult.success) {
-        await releasePhoneVerificationAfterFailedSend(organization.id);
-        logger.warn("organization phone verification: fallo al reenviar el mensaje de WhatsApp", { organizationId: organization.id, reason: sendResult.error });
-        throw new AppError(ErrorCodes.ORGANIZATION_PHONE_SEND_FAILED);
-    }
-
-    logger.info("organization phone verification: mensaje de WhatsApp reenviado", { organizationId: organization.id });
-    return { step: "WHATSAPP_SENT" };
+    logger.info("organization phone verification: deep link reemitido", { organizationId: organization.id });
+    return { step: "WHATSAPP_PENDING", deepLink: buildOrganizationPhoneVerificationDeepLink(officialNumber, token) };
 }
 
 export async function resendOrganizationPhoneChangeOtpService(clerkId, organizationId) {
@@ -316,7 +352,7 @@ export async function resendOrganizationPhoneChangeOtpService(clerkId, organizat
 
 // ==================================================================
 // CANCEL — POST .../phone-verification/cancel. Descarta cualquier intento
-// EN CURSO (autorización por email y/o verificación de WhatsApp) — nunca
+// EN CURSO (autorización por email y/o challenge de WhatsApp) — nunca
 // toca Organization.phone/phoneVerifiedAt. Idempotente (deleteMany sobre 0
 // o 1 filas, nunca lanza).
 // ==================================================================
@@ -330,7 +366,11 @@ export async function cancelOrganizationPhoneChangeService(clerkId, organization
 }
 
 // ==================================================================
-// STATUS — GET .../phone-verification. Sólo lectura.
+// STATUS — GET .../phone-verification. Sólo lectura. Nunca devuelve el
+// deep link/token (sólo existió en texto plano en la respuesta del
+// request/verify/resend que lo emitió — la fila sólo guarda el hash): el
+// frontend guarda ese deep link en memoria, y si lo pierde (recarga de
+// página) usa "Abrir WhatsApp nuevamente" para pedir uno nuevo.
 // ==================================================================
 
 export async function getOrganizationPhoneStatusService(clerkId, organizationId) {
@@ -354,78 +394,59 @@ export async function getOrganizationPhoneStatusService(clerkId, organizationId)
 }
 
 // ==================================================================
-// Hook best-effort al crear una organización nueva (organization.service.js)
-// — NUNCA lanza: la organización ya quedó creada, la falta de
-// confirmación de WhatsApp no puede revertir ni bloquear eso.
-// ==================================================================
-
-export async function startOrganizationPhoneVerificationOnCreate(organization, user) {
-    if (!organization.phone) return;
-    try {
-        const result = await attemptWhatsappPhoneVerificationSend({ organization, user, rawPhone: organization.phone, now: new Date() });
-        if (!result.ok) {
-            logger.warn("startOrganizationPhoneVerificationOnCreate: no se pudo iniciar la verificación de WhatsApp (la organización ya quedó creada igual)", {
-                organizationId: organization.id,
-                reason: result.reason,
-            });
-        }
-    } catch (error) {
-        logger.error(error, {
-            context: "startOrganizationPhoneVerificationOnCreate: fallo inesperado (no afecta la organización ya creada)",
-            organizationId: organization.id,
-        });
-    }
-}
-
-// ==================================================================
 // CONFIRMACIÓN — llamada ÚNICAMENTE desde whatsapp.controller.js, a partir
-// de un mensaje "CONFIRMAR" ya recibido por el webhook real de Meta (ver
-// isOrganizationPhoneConfirmationText). `waId` es SIEMPRE message.from tal
-// cual lo manda Meta — nunca un valor que decida el frontend.
+// de un mensaje "CONFIRMAR <token>" ya recibido por el webhook real de
+// Meta (ver parseOrganizationPhoneConfirmationMessage). `waId` es SIEMPRE
+// message.from tal cual lo manda Meta — nunca un valor que decida el
+// frontend.
 //
-// pendingWaId NO es único (dos organizaciones distintas pueden estar
-// verificando el mismo número al mismo tiempo, ver el comentario del
-// modelo) — se confirman TODAS las candidatas encontradas, cada una en su
-// propia transacción atómica. La transición es idempotente por diseño: el
-// `deleteMany` que reclama cada fila es lo único que la consume, así que
-// una reentrega/duplicado del mismo "CONFIRMAR" (o dos "CONFIRMAR"
-// separados, con wamids distintos) nunca puede aplicar el cambio dos
-// veces — la segunda vez, simplemente no encuentra ninguna fila PENDING
-// para ese wa_id.
+// DESAMBIGUACIÓN (sección crítica del pedido) — el lookup es por
+// challengeTokenHash, @unique GLOBAL: nunca puede haber dos filas vivas
+// (de cualquier organización) con el mismo token, así que encontrar una
+// fila por token YA identifica una única organización sin ambigüedad
+// posible, sin importar que pendingWaId no sea único. `message.from` se
+// exige IGUAL como segundo factor (nunca sólo el token) — evita que un
+// token filtrado/copiado se pueda confirmar desde un número distinto al
+// que efectivamente se está verificando.
+//
+// Idempotente por diseño: el `deleteMany` que reclama la fila es lo único
+// que la consume, así que una reentrega/duplicado del mismo "CONFIRMAR
+// <token>" nunca puede aplicar el cambio dos veces — la segunda vez,
+// simplemente no encuentra ninguna fila para ese token (ya se borró).
 // ==================================================================
 
-export async function confirmOrganizationPhoneFromWebhook(waId) {
-    if (typeof waId !== "string" || !waId) return { confirmedOrganizationIds: [] };
+export async function confirmOrganizationPhoneFromWebhook({ waId, token }) {
+    if (typeof waId !== "string" || !waId || typeof token !== "string" || !token) {
+        return { confirmed: false, organizationId: null };
+    }
 
     const now = new Date();
-    const candidates = await prisma.organizationPhoneVerification.findMany({
-        where: { pendingWaId: waId, expiresAt: { gt: now } },
+    const candidate = await prisma.organizationPhoneVerification.findUnique({
+        where: { challengeTokenHash: hashOrganizationPhoneChallengeToken(token) },
     });
-    if (candidates.length === 0) return { confirmedOrganizationIds: [] };
+    if (!candidate) return { confirmed: false, organizationId: null };
+    if (candidate.expiresAt < now) return { confirmed: false, organizationId: null };
+    if (candidate.pendingWaId !== waId) return { confirmed: false, organizationId: null };
 
-    const confirmedOrganizationIds = [];
-    for (const candidate of candidates) {
-        try {
-            const confirmed = await prisma.$transaction(async (tx) => {
-                const claim = await tx.organizationPhoneVerification.deleteMany({ where: { id: candidate.id } });
-                if (claim.count === 0) return false; // otra confirmación concurrente ya lo consumió
-                await tx.organization.update({
-                    where: { id: candidate.organizationId },
-                    data: { phone: candidate.pendingPhone, phoneVerifiedAt: now },
-                });
-                return true;
+    try {
+        const confirmed = await prisma.$transaction(async (tx) => {
+            const claim = await tx.organizationPhoneVerification.deleteMany({ where: { id: candidate.id } });
+            if (claim.count === 0) return false; // otra confirmación concurrente ya lo consumió
+            await tx.organization.update({
+                where: { id: candidate.organizationId },
+                data: { phone: candidate.pendingPhone, phoneVerifiedAt: now },
             });
-            if (confirmed) confirmedOrganizationIds.push(candidate.organizationId);
-        } catch (error) {
-            logger.error(error, {
-                context: "confirmOrganizationPhoneFromWebhook: fallo inesperado confirmando una organización puntual (las demás candidatas siguen procesándose)",
-                organizationId: candidate.organizationId,
-            });
-        }
-    }
+            return true;
+        });
+        if (!confirmed) return { confirmed: false, organizationId: null };
 
-    if (confirmedOrganizationIds.length > 0) {
-        logger.info("confirmOrganizationPhoneFromWebhook: teléfono verificado", { count: confirmedOrganizationIds.length });
+        logger.info("confirmOrganizationPhoneFromWebhook: teléfono verificado", { organizationId: candidate.organizationId });
+        return { confirmed: true, organizationId: candidate.organizationId };
+    } catch (error) {
+        logger.error(error, {
+            context: "confirmOrganizationPhoneFromWebhook: fallo inesperado confirmando la organización",
+            organizationId: candidate.organizationId,
+        });
+        return { confirmed: false, organizationId: null };
     }
-    return { confirmedOrganizationIds };
 }
