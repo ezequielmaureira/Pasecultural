@@ -11,6 +11,7 @@ import eventRoutes from "./routes/event.routes.js";
 import conversationRoutes from "./routes/conversation.routes.js";
 import saleRoutes from "./routes/sale.routes.js";
 import courtesyRoutes from "./routes/courtesy.routes.js";
+import withdrawalRequestRoutes from "./routes/withdrawalRequest.routes.js";
 import ticketRoutes from "./routes/ticket.routes.js";
 import scannerRoutes from "./routes/scanner.routes.js";
 import scannerInvitationRoutes from "./routes/scannerInvitation.routes.js";
@@ -56,6 +57,13 @@ app.use("/api/events", eventRoutes);
 app.use("/api/conversations", conversationRoutes);
 app.use("/api/sales", saleRoutes);
 app.use("/api/courtesies", courtesyRoutes);
+// Botón de arrepentimiento — recurso propio (mismo criterio que
+// /api/courtesies: un dominio con forma propia, no forzado dentro de
+// /api/sales). Público sin sesión para el flujo OTP + registrar la
+// solicitud (autorizado por token, nunca por Clerk); requireRole recién
+// adentro para el panel Organizer/Developer. Ver
+// routes/withdrawalRequest.routes.js.
+app.use("/api/withdrawal-requests", withdrawalRequestRoutes);
 app.use("/api/tickets", ticketRoutes);
 app.use("/api/scanner", scannerRoutes);
 app.use("/api/scanner-invitations", scannerInvitationRoutes);

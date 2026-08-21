@@ -1027,3 +1027,62 @@ export const getSalePdfByTokenService = async (recoveryToken) => {
 
     return { pdfBuffer, fileName: `entradas-pasecultural-${data.saleId}.pdf` };
 };
+
+// Botón de arrepentimiento — query real de "qué compras puede elegir esta
+// persona", separada del service de verificación (withdrawalRequestVerification.service.js
+// la reusa tal cual, con valores ya normalizados) por el mismo motivo que
+// findConfirmedRecoverableSales: nunca se llama desde un controller
+// directamente, sólo después de un OTP verificado.
+//
+// Elegibilidad TÉCNICA, nunca legal (ver el informe de entrega — el bloque
+// legal de PaseCultural todavía no está definido): CONFIRMED (nunca
+// PENDING/CANCELLED/EXPIRED — esas nunca llegaron a completarse), origin
+// SALE (nunca COURTESY, mismo criterio que el resto del proyecto separa
+// cortesías de "ventas reales"), y al menos un Ticket que no esté YA
+// REFUNDED (si todos ya se revirtieron por Mercado Pago, no tiene sentido
+// ofrecer una solicitud nueva sobre algo que ya se resolvió del lado
+// financiero real).
+//
+// `existingRequestStatus` viaja ya resuelto (REQUESTED/CONTACTED si hay
+// una solicitud activa, null si no) para que el frontend pueda mostrar el
+// estado existente en vez de un botón "Solicitar" — ver createWithdrawalRequestService,
+// que igual vuelve a validar esto de forma autoritativa antes de crear
+// nada (nunca confía en que el frontend haya visto este resultado a
+// tiempo).
+export async function findWithdrawalEligibleSales(normalizedEmail, normalizedDocument) {
+    const sales = await prisma.sale.findMany({
+        where: {
+            status: "CONFIRMED",
+            origin: "SALE",
+            deletedAt: null,
+            buyerDocument: normalizedDocument,
+            buyer: { email: normalizedEmail },
+            publicRecoveryToken: { not: null },
+        },
+        select: {
+            publicRecoveryToken: true,
+            createdAt: true,
+            event: { select: { title: true } },
+            function: { select: { date: true, venue: true } },
+            tickets: { where: { deletedAt: null }, select: { status: true } },
+            withdrawalRequests: {
+                where: { status: { in: ["REQUESTED", "CONTACTED"] } },
+                select: { status: true },
+                take: 1,
+            },
+        },
+        orderBy: { createdAt: "desc" },
+    });
+
+    return sales
+        .filter((sale) => sale.tickets.some((t) => t.status !== "REFUNDED"))
+        .map((sale) => ({
+            saleToken: sale.publicRecoveryToken,
+            eventTitle: sale.event.title,
+            functionDate: sale.function.date,
+            venue: sale.function.venue,
+            purchasedAt: sale.createdAt,
+            ticketCount: sale.tickets.length,
+            existingRequestStatus: sale.withdrawalRequests[0]?.status ?? null,
+        }));
+}

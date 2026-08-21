@@ -272,6 +272,51 @@ export const ErrorCatalog = Object.freeze({
         userMessage: "Superaste el máximo de intentos. Pedí un código nuevo.",
     },
 
+    // --- Botón de arrepentimiento (WithdrawalRequest) --------------------
+    // Mismo criterio de no-enumeración que la familia RECOVER_* de arriba:
+    // ninguno de estos códigos distingue "el par no existe" de "el código
+    // es incorrecto" — ver withdrawalRequestVerification.service.js.
+    WITHDRAWAL_INFO_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "Withdrawal request OTP requested without both email and buyerDocument.",
+        userMessage: "Ingresá tu email y tu DNI para continuar.",
+    },
+    WITHDRAWAL_VERIFICATION_CODE_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "Withdrawal request OTP verification attempted without a code.",
+        userMessage: "Ingresá el código que te mandamos por correo.",
+    },
+    WITHDRAWAL_VERIFICATION_CODE_INVALID: {
+        httpStatus: 400,
+        logMessage: "Withdrawal request OTP verification attempted with a code that does not match the stored hash, or no verification session exists for this email+document pair (deliberately indistinguishable from a wrong code).",
+        userMessage: "El código ingresado es incorrecto.",
+    },
+    WITHDRAWAL_VERIFICATION_CODE_EXPIRED: {
+        httpStatus: 410,
+        logMessage: "Withdrawal request OTP verification attempted after the code's expiration.",
+        userMessage: "Ese código venció. Pedí uno nuevo.",
+    },
+    WITHDRAWAL_VERIFICATION_TOO_MANY_ATTEMPTS: {
+        httpStatus: 429,
+        logMessage: "Withdrawal request OTP verification attempted after exceeding the max allowed attempts for the current code.",
+        userMessage: "Superaste el máximo de intentos. Pedí un código nuevo.",
+    },
+    // A diferencia de los códigos de arriba, éste SÍ puede ser específico:
+    // el token acá no es un par de datos personales adivinable, es un
+    // secreto de alta entropía que sólo el propio navegador vio recién
+    // después de superar el OTP — mismo criterio que SALE_NOT_FOUND en
+    // confirmSaleByBuyer.
+    WITHDRAWAL_REQUEST_SALE_NOT_FOUND: {
+        httpStatus: 404,
+        logMessage: "Withdrawal request attempted with a token that doesn't resolve to any Sale.",
+        userMessage: "No encontramos esa compra.",
+    },
+    WITHDRAWAL_REQUEST_NOT_ELIGIBLE: {
+        httpStatus: 409,
+        logMessage: "Withdrawal request attempted against a Sale that isn't in a technically eligible state (not CONFIRMED, or every ticket already REFUNDED).",
+        userMessage: "Esta compra no está disponible para una solicitud en este momento.",
+    },
+
     // --- Portal Scanner (login recurrente por email + código) -----------
     // El resto de los códigos de este flujo reusa la familia
     // SCANNER_VERIFICATION_* de arriba (mismo texto sirve para registro y

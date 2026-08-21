@@ -16,6 +16,8 @@ const VALID_INPUT = {
     salesVolumeWindowMinutes: 60,
     refundsVolumeWindowCount: 10,
     refundsVolumeWindowHours: 24,
+    withdrawalRequestsWindowCount: 5,
+    withdrawalRequestsWindowHours: 24,
     alertCooldownMinutes: 60,
 };
 
@@ -52,6 +54,8 @@ for (const field of [
     "salesVolumeWindowMinutes",
     "refundsVolumeWindowCount",
     "refundsVolumeWindowHours",
+    "withdrawalRequestsWindowCount",
+    "withdrawalRequestsWindowHours",
 ]) {
     test(`${field} must be a positive integer — 0 is rejected`, () => {
         const { valid, errors } = validateDeveloperAlertConfigInput({ ...VALID_INPUT, [field]: 0 });

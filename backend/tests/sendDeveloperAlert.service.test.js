@@ -53,7 +53,7 @@ test("an empty/whitespace-only DEVELOPER_ALERT_EMAIL is treated the same as miss
     }
 });
 
-test("DeveloperAlertType exposes exactly the 10 alert types documented in the delivery report", () => {
+test("DeveloperAlertType exposes exactly the 11 alert types documented across the Developer Alerts + botón de arrepentimiento delivery reports", () => {
     const expected = [
         "NEW_ORGANIZATION_PENDING",
         "MERCADOPAGO_FIRST_CONNECTION",
@@ -65,6 +65,7 @@ test("DeveloperAlertType exposes exactly the 10 alert types documented in the de
         "TOO_MANY_EVENTS",
         "SALES_VOLUME_SPIKE",
         "REFUNDS_VOLUME_SPIKE",
+        "WITHDRAWAL_REQUESTS_VOLUME_SPIKE",
     ];
     assert.deepEqual(Object.keys(DeveloperAlertType).sort(), expected.sort());
 });

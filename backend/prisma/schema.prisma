@@ -193,6 +193,14 @@ model Organization {
 
   events Event[]
 
+  // Botón de arrepentimiento — solicitudes de las compras de ESTA
+  // organización (ver WithdrawalRequest más abajo). Denormalizado desde
+  // Sale.event.organizationId para que el panel Organizer pueda filtrar
+  // "sólo lo mío" con un WHERE directo, sin depender de un join a través
+  // de Event cada vez (mismo criterio que Ticket.origin denormaliza
+  // Sale.origin).
+  withdrawalRequests WithdrawalRequest[]
+
   // Fase 2F — vínculo WhatsApp ↔ organizer. La verificación del código de
   // vinculación llega SOLO como {code} (nunca waId/organizationId, ver
   // whatsappOrganizerLink.service.js), así que no hay una fila de
@@ -545,6 +553,9 @@ model Event {
   sales    Sale[]
   tickets  Ticket[]
   scanners EventScanner[]
+
+  // Botón de arrepentimiento — ver el comentario equivalente en Organization.
+  withdrawalRequests WithdrawalRequest[]
 }
 
 // Enlaces relacionados con el evento, los artistas o la organización
@@ -951,6 +962,13 @@ model Sale {
   // Sólo existe cuando origin = COURTESY — ver CourtesyIssuance.
   courtesy CourtesyIssuance?
 
+  // Botón de arrepentimiento — lista (no un único opcional) porque después
+  // de que una solicitud llega a RESOLVED nada impide una solicitud nueva
+  // más adelante; lo que sí está prohibido es tener DOS solicitudes ACTIVAS
+  // (REQUESTED/CONTACTED) a la vez para la misma Sale — ver el índice único
+  // parcial en la migración y el comentario de WithdrawalRequest.
+  withdrawalRequests WithdrawalRequest[]
+
   @@map("sales")
 }
 
@@ -1038,6 +1056,102 @@ model SaleRecoveryVerification {
 
   @@unique([normalizedEmail, normalizedDocument])
   @@map("sale_recovery_verifications")
+}
+
+// Botón de arrepentimiento — segundo factor (código de 6 dígitos) para
+// WithdrawalRequestFlow (WithdrawalRequest.jsx en el frontend). Estructura
+// IDÉNTICA a SaleRecoveryVerification (mismo mecanismo de claim/cooldown/
+// intentos, ver withdrawalRequestVerification.service.js) pero en una
+// tabla PROPIA, a propósito: comparten el mismo par (email, DNI) como
+// clave, así que reusar la tabla de recuperación haría que iniciar este
+// flujo invalidara silenciosamente un código de "Recuperar mis entradas"
+// en curso para la misma persona (y viceversa) — @@unique por par choca
+// entre dos propósitos distintos. La lógica de generar/hashear/comparar el
+// código SÍ se reutiliza tal cual (ver utils/verificationCode.js).
+model WithdrawalRequestVerification {
+  id String @id @default(cuid())
+
+  normalizedEmail    String
+  normalizedDocument String
+
+  codeHash      String?
+  codeExpiresAt DateTime?
+  attempts      Int       @default(0)
+  lastSentAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([normalizedEmail, normalizedDocument])
+  @@map("withdrawal_request_verifications")
+}
+
+// Botón de arrepentimiento — motivo elegido por el comprador. Puramente
+// informativo para el organizador/métricas (ver el informe de entrega):
+// NUNCA se usa para decidir automáticamente si corresponde un reembolso.
+// CAMBIO_EVENTO es deliberadamente neutral (no "EVENTO_CANCELADO"): el
+// bloque legal de PaseCultural todavía no está definido, así que el motivo
+// no puede afirmar nada sobre responsabilidad u obligación del organizador.
+enum WithdrawalRequestReason {
+  ARREPENTIMIENTO
+  ERROR_COMPRA
+  CAMBIO_EVENTO
+  PROBLEMA_ENTRADAS
+  OTRO
+}
+
+// Botón de arrepentimiento — estado técnico de la solicitud, gestionado
+// por el organizador desde su panel. Deliberadamente NO incluye REFUNDED:
+// ese estado sólo puede afirmarse a partir de una reconsulta server-to-
+// server real a Mercado Pago (ver mercadoPagoWebhook.service.js,
+// REVERSAL_STATUSES) — nunca a partir de esta solicitud, que es apenas un
+// pedido de contacto, no una confirmación financiera.
+enum WithdrawalRequestStatus {
+  REQUESTED
+  CONTACTED
+  RESOLVED
+}
+
+// Botón de arrepentimiento — la solicitud en sí. Registra que el comprador
+// pidió que lo contacten por una compra puntual; NUNCA modifica Sale,
+// Ticket ni dispara ningún reembolso (ver el informe de entrega, sección
+// "NO refund automático"). saleId NO es @unique a propósito: después de
+// RESOLVED nada impide una solicitud nueva más adelante — lo único que se
+// prohíbe es tener dos solicitudes ACTIVAS (REQUESTED/CONTACTED)
+// simultáneas para la misma Sale, garantizado por un índice único PARCIAL
+// a nivel Postgres (ver migration.sql — Prisma no expresa índices
+// parciales en el schema), concurrent-safe por diseño.
+//
+// email/buyerDocument del comprador NUNCA se duplican acá: siempre se leen
+// vía sale.buyer.email / sale.buyerDocument cuando hacen falta.
+model WithdrawalRequest {
+  id String @id @default(cuid())
+
+  saleId String
+  sale   Sale   @relation(fields: [saleId], references: [id])
+
+  // Denormalizado desde sale.eventId/sale.event.organizationId — nunca la
+  // fuente de verdad (eso sigue siendo la relación Sale->Event), sólo para
+  // que el aislamiento multi-organizador y las alertas de volumen puedan
+  // filtrar con un WHERE directo, sin joins. Ver el comentario equivalente
+  // en Organization.withdrawalRequests.
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id])
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  status     WithdrawalRequestStatus  @default(REQUESTED)
+  reason     WithdrawalRequestReason?
+  reasonNote String?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  resolvedAt DateTime?
+
+  @@index([organizationId, createdAt])
+  @@index([saleId])
+  @@map("withdrawal_requests")
 }
 
 // Detalle de qué tipos de entrada y cuántas unidades componen la venta.
@@ -1153,6 +1267,12 @@ model DeveloperAlertConfig {
   // tiempo.
   refundsVolumeWindowCount Int
   refundsVolumeWindowHours Int
+
+  // Botón de arrepentimiento — WITHDRAWAL_REQUESTS_VOLUME_SPIKE: solicitudes
+  // acumuladas (por Organization) en una ventana de tiempo. Mismo criterio
+  // que 2D/2E — nunca una alerta por solicitud individual.
+  withdrawalRequestsWindowCount Int
+  withdrawalRequestsWindowHours Int
 
   // Cooldown por defecto para toda alerta de patrón/volumen (ver
   // DeveloperAlertCooldown) — cuánto tiempo mínimo debe pasar entre dos

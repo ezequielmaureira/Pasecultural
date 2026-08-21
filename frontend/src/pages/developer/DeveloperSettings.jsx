@@ -83,6 +83,8 @@ const ALERT_CONFIG_FIELDS = [
   { key: "salesVolumeWindowMinutes", label: "Ventana de ventas (minutos)" },
   { key: "refundsVolumeWindowCount", label: "Cantidad de refunds" },
   { key: "refundsVolumeWindowHours", label: "Ventana de refunds (horas)" },
+  { key: "withdrawalRequestsWindowCount", label: "Cantidad de solicitudes de arrepentimiento" },
+  { key: "withdrawalRequestsWindowHours", label: "Ventana de solicitudes de arrepentimiento (horas)" },
   { key: "alertCooldownMinutes", label: "Cooldown entre alertas repetidas (minutos)" },
 ];
 

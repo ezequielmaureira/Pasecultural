@@ -13,6 +13,7 @@ import {
     buildTooManyEventsEmail,
     buildSalesVolumeSpikeEmail,
     buildRefundsVolumeSpikeEmail,
+    buildWithdrawalRequestsVolumeSpikeEmail,
 } from "./developerAlertTemplates.js";
 
 const RESEND_CALL_TIMEOUT_MS = 10000; // mismo criterio que sendMercadoPagoReconciliationAlert.service.js
@@ -34,6 +35,9 @@ export const DeveloperAlertType = Object.freeze({
     TOO_MANY_EVENTS: "TOO_MANY_EVENTS",
     SALES_VOLUME_SPIKE: "SALES_VOLUME_SPIKE",
     REFUNDS_VOLUME_SPIKE: "REFUNDS_VOLUME_SPIKE",
+    // Botón de arrepentimiento — volumen anormal de solicitudes, nunca una
+    // alerta por solicitud individual (ver withdrawalRequest.service.js).
+    WITHDRAWAL_REQUESTS_VOLUME_SPIKE: "WITHDRAWAL_REQUESTS_VOLUME_SPIKE",
 });
 
 const TEMPLATE_BUILDERS = {
@@ -47,6 +51,7 @@ const TEMPLATE_BUILDERS = {
     [DeveloperAlertType.TOO_MANY_EVENTS]: buildTooManyEventsEmail,
     [DeveloperAlertType.SALES_VOLUME_SPIKE]: buildSalesVolumeSpikeEmail,
     [DeveloperAlertType.REFUNDS_VOLUME_SPIKE]: buildRefundsVolumeSpikeEmail,
+    [DeveloperAlertType.WITHDRAWAL_REQUESTS_VOLUME_SPIKE]: buildWithdrawalRequestsVolumeSpikeEmail,
 };
 
 // Best-effort SIEMPRE — nunca lanza, mismo criterio que

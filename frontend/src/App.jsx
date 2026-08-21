@@ -35,6 +35,7 @@ import EventDetail from "./pages/public/EventDetail.jsx";
 import PurchaseWizard from "./pages/public/purchase/PurchaseWizard.jsx";
 import MyTickets from "./pages/public/MyTickets.jsx";
 import RecoverPurchase from "./pages/public/RecoverPurchase.jsx";
+import WithdrawalRequest from "./pages/public/WithdrawalRequest.jsx";
 import OrganizerDashboard from "./pages/organizer/OrganizerDashboard.jsx";
 import OrganizerEvents from "./pages/organizer/OrganizerEvents.jsx";
 import OrganizerEventWizard from "./pages/organizer/OrganizerEventWizard.jsx";
@@ -50,6 +51,7 @@ import OrganizerScannerInvite from "./pages/organizer/OrganizerScannerInvite.jsx
 import OrganizerSettings from "./pages/organizer/OrganizerSettings.jsx";
 import OrganizerFunctionStatus from "./pages/organizer/OrganizerFunctionStatus.jsx";
 import OrganizerEventHistory from "./pages/organizer/OrganizerEventHistory.jsx";
+import OrganizerWithdrawalRequests from "./pages/organizer/OrganizerWithdrawalRequests.jsx";
 
 function NotFound() {
   return (
@@ -78,6 +80,7 @@ export default function App() {
               <Route path="/mis-entradas" element={<MyTickets />} />
             </Route>
             <Route path="/recuperar-compra" element={<RecoverPurchase />} />
+            <Route path="/arrepentimiento" element={<WithdrawalRequest />} />
             {/* Público a propósito: tiene que mostrar "vas a operar como
                 scanner de X" antes del login — RequireAuth la mandaría
                 directo a /iniciar-sesion sin ese contexto. La propia
@@ -155,6 +158,7 @@ export default function App() {
                   <Route path="cortesias/emitir" element={<IssueCourtesyWizard />} />
                   <Route path="cortesias/historial" element={<CourtesyHistory />} />
                   <Route path="ventas" element={<OrganizerSales />} />
+                  <Route path="solicitudes" element={<OrganizerWithdrawalRequests />} />
                   <Route path="scanners" element={<OrganizerScanners />} />
                   <Route path="scanners/nuevo" element={<OrganizerScannerInvite />} />
                   <Route path="funciones" element={<OrganizerFunctionStatus />} />

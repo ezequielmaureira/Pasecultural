@@ -64,6 +64,8 @@ const VALID_CONFIG = {
     salesVolumeWindowMinutes: 45,
     refundsVolumeWindowCount: 8,
     refundsVolumeWindowHours: 12,
+    withdrawalRequestsWindowCount: 3,
+    withdrawalRequestsWindowHours: 12,
     alertCooldownMinutes: 30,
 };
 
@@ -114,6 +116,8 @@ testWithDb("a DEVELOPER can replace the alert config atomically via the controll
                     salesVolumeWindowMinutes: originalRow.salesVolumeWindowMinutes,
                     refundsVolumeWindowCount: originalRow.refundsVolumeWindowCount,
                     refundsVolumeWindowHours: originalRow.refundsVolumeWindowHours,
+                    withdrawalRequestsWindowCount: originalRow.withdrawalRequestsWindowCount,
+                    withdrawalRequestsWindowHours: originalRow.withdrawalRequestsWindowHours,
                     alertCooldownMinutes: originalRow.alertCooldownMinutes,
                     updatedByUserId: originalRow.updatedByUserId,
                 },

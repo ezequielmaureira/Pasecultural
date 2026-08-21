@@ -24,6 +24,8 @@ const DEFAULTS = Object.freeze({
     salesVolumeWindowMinutes: 60,
     refundsVolumeWindowCount: 10,
     refundsVolumeWindowHours: 24,
+    withdrawalRequestsWindowCount: 5,
+    withdrawalRequestsWindowHours: 24,
     alertCooldownMinutes: 60,
 });
 
@@ -38,6 +40,8 @@ function serializeConfig(row) {
         salesVolumeWindowMinutes: row.salesVolumeWindowMinutes,
         refundsVolumeWindowCount: row.refundsVolumeWindowCount,
         refundsVolumeWindowHours: row.refundsVolumeWindowHours,
+        withdrawalRequestsWindowCount: row.withdrawalRequestsWindowCount,
+        withdrawalRequestsWindowHours: row.withdrawalRequestsWindowHours,
         alertCooldownMinutes: row.alertCooldownMinutes,
         updatedAt: row.updatedAt,
     };
@@ -68,6 +72,8 @@ export function validateDeveloperAlertConfigInput(input) {
     const salesVolumeWindowMinutes = positiveInt(input?.salesVolumeWindowMinutes, "La ventana de minutos para ventas");
     const refundsVolumeWindowCount = positiveInt(input?.refundsVolumeWindowCount, "La cantidad de refunds");
     const refundsVolumeWindowHours = positiveInt(input?.refundsVolumeWindowHours, "La ventana de horas para refunds");
+    const withdrawalRequestsWindowCount = positiveInt(input?.withdrawalRequestsWindowCount, "La cantidad de solicitudes de arrepentimiento");
+    const withdrawalRequestsWindowHours = positiveInt(input?.withdrawalRequestsWindowHours, "La ventana de horas para solicitudes de arrepentimiento");
 
     const alertCooldownMinutes = Number(input?.alertCooldownMinutes);
     if (!Number.isInteger(alertCooldownMinutes) || alertCooldownMinutes < 0) {
@@ -88,6 +94,8 @@ export function validateDeveloperAlertConfigInput(input) {
             salesVolumeWindowMinutes,
             refundsVolumeWindowCount,
             refundsVolumeWindowHours,
+            withdrawalRequestsWindowCount,
+            withdrawalRequestsWindowHours,
             alertCooldownMinutes,
         },
     };

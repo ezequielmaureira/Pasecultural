@@ -200,3 +200,17 @@ export function buildRefundsVolumeSpikeEmail({ organizationId, organizationName,
         ],
     });
 }
+
+export function buildWithdrawalRequestsVolumeSpikeEmail({ organizationId, organizationName, count, windowHours, threshold }) {
+    return buildDeveloperAlertEmail({
+        badge: "🙋 Solicitudes de arrepentimiento anormalmente frecuentes",
+        title: `Solicitudes de arrepentimiento anormalmente frecuentes (${organizationName})`,
+        intro: `Una organización acumuló ${count} solicitudes de arrepentimiento/devolución en las últimas ${windowHours} horas, por encima del umbral configurado (${threshold}). Alerta de patrón/volumen — nunca una por cada solicitud individual.`,
+        rows: [
+            ["Organization ID", organizationId],
+            ["Organización", organizationName],
+            ["Solicitudes observadas", `${count} en ${windowHours}h`],
+            ["Umbral configurado", `${threshold} en ${windowHours}h`],
+        ],
+    });
+}

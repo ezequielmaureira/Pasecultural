@@ -92,6 +92,9 @@ export default function Navbar() {
           <NavLink to="/recuperar-compra" className={navLinkClassName}>
             Recuperar mis entradas
           </NavLink>
+          <NavLink to="/arrepentimiento" className={navLinkClassName}>
+            Botón de arrepentimiento
+          </NavLink>
         </nav>
 
         <SearchBar className="ml-2 hidden max-w-xs flex-1 md:block" />
@@ -189,6 +192,13 @@ export default function Navbar() {
               className="rounded-lg px-3 py-2.5 text-sm font-medium text-slate-200 transition-colors duration-150 hover:bg-white/5 hover:text-white"
             >
               Recuperar mis entradas
+            </NavLink>
+            <NavLink
+              to="/arrepentimiento"
+              onClick={() => setMobileOpen(false)}
+              className="rounded-lg px-3 py-2.5 text-sm font-medium text-slate-200 transition-colors duration-150 hover:bg-white/5 hover:text-white"
+            >
+              Botón de arrepentimiento
             </NavLink>
             {isDeveloper && (
               <Link

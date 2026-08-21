@@ -14,6 +14,7 @@ import {
   History,
   Receipt,
   Gift,
+  Undo2,
 } from "lucide-react";
 import { useBackendUser } from "../../context/AuthContext.jsx";
 import { NEW_EVENT_REQUEST_EVENT } from "../../lib/eventChatEvents.js";
@@ -77,6 +78,7 @@ const NAV_BY_ROLE = {
       ],
     },
     { label: "Ventas", icon: Receipt, path: "/organizador/ventas", end: true },
+    { label: "Solicitudes", icon: Undo2, path: "/organizador/solicitudes", end: true },
     {
       label: "Scanners",
       icon: ScanLine,
