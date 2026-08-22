@@ -1,0 +1,16 @@
+-- Botón de arrepentimiento — cierre del ciclo. Agrega el valor DISMISSED
+-- a WithdrawalRequestStatus (comprador descartó su propia solicitud).
+--
+-- Forward-only: 20260821180000_withdrawal_requests (donde se creó
+-- originalmente este enum) queda INMUTABLE — nunca se edita una migración
+-- ya aplicada.
+--
+-- No requiere tocar withdrawal_requests_active_per_sale (el índice único
+-- parcial de esa misma migración, WHERE status IN ('REQUESTED','CONTACTED')):
+-- DISMISSED nunca estuvo ni queda incluido ahí, así que una solicitud
+-- descartada ya libera automáticamente la posibilidad de una nueva
+-- solicitud para la misma Sale, sin ningún cambio adicional.
+--
+-- ALTER TYPE ... ADD VALUE es seguro dentro de esta migración porque el
+-- valor nuevo no se USA en la misma transacción — sólo se agrega.
+ALTER TYPE "WithdrawalRequestStatus" ADD VALUE 'DISMISSED';

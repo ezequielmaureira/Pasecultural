@@ -42,6 +42,14 @@ export async function createWithdrawalRequest(saleToken, { reason, reasonNote } 
     });
 }
 
+// Cierre del ciclo — "Descartar solicitud". Mismo modelo de autorización
+// que createWithdrawalRequest (saleToken en la URL, nunca sesión).
+export async function dismissWithdrawalRequest(saleToken) {
+    return apiFetch(`/api/withdrawal-requests/${encodeURIComponent(saleToken)}/dismiss`, {
+        method: "POST",
+    });
+}
+
 // Panel Organizer/Developer > Solicitudes.
 export async function getWithdrawalRequests(token) {
     const { requests } = await apiFetch("/api/withdrawal-requests", { token });
@@ -53,5 +61,19 @@ export async function updateWithdrawalRequestStatus(token, withdrawalRequestId, 
         token,
         method: "POST",
         body: JSON.stringify({ status }),
+    });
+}
+
+// Cierre del ciclo — detalle de entradas de la Sale para elegir cuál(es)
+// marcar como devuelta(s).
+export async function getWithdrawalRequestTickets(token, withdrawalRequestId) {
+    return apiFetch(`/api/withdrawal-requests/${encodeURIComponent(withdrawalRequestId)}/tickets`, { token });
+}
+
+export async function returnWithdrawalRequestTickets(token, withdrawalRequestId, ticketIds) {
+    return apiFetch(`/api/withdrawal-requests/${encodeURIComponent(withdrawalRequestId)}/return-tickets`, {
+        token,
+        method: "POST",
+        body: JSON.stringify({ ticketIds }),
     });
 }

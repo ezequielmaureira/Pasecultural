@@ -23,6 +23,7 @@ export const DB_TEST_FILES = [
     "developerServiceFee.service.test.js",
     "developerAlertConfig.crud.test.js",
     "withdrawalRequest.crud.test.js",
+    "withdrawalRequestReturn.crud.test.js",
     "organizerNotifications.crud.test.js",
     "organizationPhoneVerification.crud.test.js",
     "organizationPhoneVerificationChatbotSync.crud.test.js",

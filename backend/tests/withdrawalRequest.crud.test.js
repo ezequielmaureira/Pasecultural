@@ -415,9 +415,13 @@ testWithDb("multi-organizer isolation: an ORGANIZER never sees or can update ano
         assert.ok(!listForA.some((r) => r.saleId === saleB.id), "ORGANIZER A must never see ORGANIZER B's withdrawal requests");
 
         // A tampoco puede actualizar el estado de la solicitud de B
-        // manipulando el id directamente.
+        // manipulando el id directamente. (CONTACTED, no RESOLVED: desde
+        // el ciclo de "botón de arrepentimiento" RESOLVED sólo se alcanza
+        // vía returnWithdrawalRequestTicketsService — ver
+        // withdrawalRequestReturn.crud.test.js. Este test sigue probando
+        // aislamiento entre organizaciones, no esa restricción aparte.)
         await assert.rejects(
-            () => updateWithdrawalRequestStatusService(ownerA.clerkId, requestBRow.id, "RESOLVED"),
+            () => updateWithdrawalRequestStatusService(ownerA.clerkId, requestBRow.id, "CONTACTED"),
             (err) => {
                 assert.equal(err.code, "WITHDRAWAL_REQUEST_SALE_NOT_FOUND");
                 return true;

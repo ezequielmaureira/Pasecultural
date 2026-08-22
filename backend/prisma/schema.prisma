@@ -1230,9 +1230,23 @@ enum WithdrawalRequestReason {
 // server real a Mercado Pago (ver mercadoPagoWebhook.service.js,
 // REVERSAL_STATUSES) — nunca a partir de esta solicitud, que es apenas un
 // pedido de contacto, no una confirmación financiera.
+//
+// Cierre del ciclo (ronda "cierre del flujo") — DISMISSED es NUEVO: el
+// comprador descartó su propia solicitud (nunca toca Sale/Ticket, ver
+// dismissWithdrawalRequestService) — no está en el índice único parcial
+// (withdrawal_requests_active_per_sale, ver la migración original), así
+// que descartar SIEMPRE libera la posibilidad de una solicitud nueva más
+// adelante, igual que RESOLVED. RESOLVED, a partir de esta ronda, sólo se
+// alcanza mediante returnWithdrawalRequestTicketsService (organizador
+// marca entrada(s) como devueltas, atómico con cancelar el/los Ticket
+// correspondiente(s)) — updateWithdrawalRequestStatusService (el toggle
+// manual REQUESTED<->CONTACTED de "en gestión") ya NO acepta RESOLVED
+// como destino, para que RESOLVED signifique siempre "hubo una devolución
+// de entrada real", nunca un clic administrativo sin acción real detrás.
 enum WithdrawalRequestStatus {
   REQUESTED
   CONTACTED
+  DISMISSED
   RESOLVED
 }
 

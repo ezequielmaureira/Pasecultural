@@ -316,6 +316,19 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Withdrawal request attempted against a Sale that isn't in a technically eligible state (not CONFIRMED, or every ticket already REFUNDED).",
         userMessage: "Esta compra no está disponible para una solicitud en este momento.",
     },
+    // Cierre del ciclo — "Marcar entrada como devuelta" sólo puede resolver
+    // una solicitud que todavía está activa (REQUESTED/CONTACTED); una ya
+    // DISMISSED/RESOLVED no puede volver a resolverse por acá.
+    WITHDRAWAL_REQUEST_NOT_ACTIVE: {
+        httpStatus: 409,
+        logMessage: "An action that requires an ACTIVE withdrawal request (REQUESTED/CONTACTED) was attempted against one that is already DISMISSED or RESOLVED.",
+        userMessage: "Esta solicitud ya no está activa.",
+    },
+    WITHDRAWAL_REQUEST_TICKETS_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "Marking tickets as returned was attempted with no ticketIds.",
+        userMessage: "Elegí al menos una entrada para marcar como devuelta.",
+    },
 
     // --- Portal Scanner (login recurrente por email + código) -----------
     // El resto de los códigos de este flujo reusa la familia

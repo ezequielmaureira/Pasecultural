@@ -242,17 +242,29 @@ export async function listWithdrawalRequestsService(clerkId) {
     }));
 }
 
-// Sólo transición de estado (REQUESTED -> CONTACTED -> RESOLVED, ver
-// schema.prisma) — nunca toca Sale/Ticket, nunca dispara nada financiero.
-// Mismo aislamiento que listWithdrawalRequestsService: un ORGANIZER nunca
-// puede tocar una solicitud que no sea de su propia organización, sin
-// importar qué id mande.
-export async function updateWithdrawalRequestStatusService(clerkId, withdrawalRequestId, status) {
+// Sólo transición REQUESTED<->CONTACTED ("en gestión") — nunca toca Sale/
+// Ticket, nunca dispara nada financiero. Deliberadamente YA NO acepta
+// RESOLVED como destino (ver el comentario del enum en schema.prisma):
+// RESOLVED sólo puede alcanzarse mediante returnWithdrawalRequestTicketsService,
+// que SÍ cancela el/los Ticket correspondiente(s) en la misma transacción
+// — así RESOLVED significa siempre lo mismo (hubo una devolución de
+// entrada real), nunca un clic administrativo sin acción real detrás.
+// Tampoco acepta DISMISSED: eso es EXCLUSIVAMENTE una decisión del
+// comprador (ver dismissWithdrawalRequestService), nunca algo que el
+// organizador pueda hacer sobre la solicitud de otra persona. Mismo
+// aislamiento que listWithdrawalRequestsService: un ORGANIZER nunca puede
+// tocar una solicitud que no sea de su propia organización, sin importar
+// qué id mande.
+// Resolución de ownership compartida — ORGANIZER sólo puede tocar
+// solicitudes de SU organización (nunca por un organizationId que mande
+// el cliente, siempre derivado del owner real); DEVELOPER ve/toca
+// cualquiera (mismo criterio platform-wide que el resto de Developer > *).
+// "No existe" y "existe pero no es tuya" responden EXACTAMENTE igual
+// (WITHDRAWAL_REQUEST_SALE_NOT_FOUND) — nunca se distingue cuál de los dos
+// casos ocurrió, mismo patrón que el resto del proyecto.
+async function resolveOwnedWithdrawalRequestOrThrow(clerkId, withdrawalRequestId) {
     const user = await getUserByClerkId(clerkId);
     if (!user) throw new AppError(ErrorCodes.USER_NOT_FOUND);
-    if (!["REQUESTED", "CONTACTED", "RESOLVED"].includes(status)) {
-        throw new AppError(ErrorCodes.WITHDRAWAL_REQUEST_NOT_ELIGIBLE, { details: ["Estado inválido."] });
-    }
 
     const existing = await prisma.withdrawalRequest.findUnique({ where: { id: withdrawalRequestId } });
     if (!existing) throw new AppError(ErrorCodes.WITHDRAWAL_REQUEST_SALE_NOT_FOUND);
@@ -260,20 +272,32 @@ export async function updateWithdrawalRequestStatusService(clerkId, withdrawalRe
     if (user.role !== "DEVELOPER") {
         const organization = await prisma.organization.findFirst({ where: { ownerId: user.id } });
         if (!organization || organization.id !== existing.organizationId) {
-            // Mismo criterio "no distinguir de no existe" que el resto del
-            // proyecto usa para aislamiento entre organizaciones.
             throw new AppError(ErrorCodes.WITHDRAWAL_REQUEST_SALE_NOT_FOUND);
         }
     }
 
+    return { user, withdrawalRequest: existing };
+}
+
+export async function updateWithdrawalRequestStatusService(clerkId, withdrawalRequestId, status) {
+    if (!["REQUESTED", "CONTACTED"].includes(status)) {
+        throw new AppError(ErrorCodes.WITHDRAWAL_REQUEST_NOT_ELIGIBLE, { details: ["Estado inválido."] });
+    }
+
+    const { user } = await resolveOwnedWithdrawalRequestOrThrow(clerkId, withdrawalRequestId);
+
+    // resolvedAt nunca se toca acá: este endpoint sólo alterna
+    // REQUESTED<->CONTACTED (validado arriba), nunca llega a RESOLVED — ver
+    // returnWithdrawalRequestTicketsService para el único camino real que
+    // marca resolvedAt.
     let updated;
     try {
         updated = await prisma.withdrawalRequest.update({
             where: { id: withdrawalRequestId },
-            data: { status, resolvedAt: status === "RESOLVED" ? new Date() : existing.resolvedAt },
+            data: { status },
         });
     } catch (err) {
-        // Reabrir una solicitud RESOLVED de vuelta a REQUESTED/CONTACTED
+        // Reabrir una solicitud desde otro estado hacia REQUESTED/CONTACTED
         // puede chocar contra el índice único parcial si mientras tanto ya
         // existe OTRA solicitud activa para la misma Sale (ver
         // migration.sql) — caso raro, pero se traduce a un error claro en
@@ -288,4 +312,130 @@ export async function updateWithdrawalRequestStatusService(clerkId, withdrawalRe
 
     logger.info("updateWithdrawalRequestStatusService completed", { withdrawalRequestId, status, updatedBy: user.id });
     return { id: updated.id, status: updated.status, resolvedAt: updated.resolvedAt };
+}
+
+// ==================================================================
+// Cierre del ciclo — "Descartar solicitud" (comprador) y "Marcar entrada
+// como devuelta" (organizador). Ver el informe de entrega, sección
+// "arquitectura encontrada": WithdrawalRequest apunta a la Sale completa
+// (nunca a un Ticket puntual) porque una Sale puede tener varias entradas
+// y el comprador siempre elige la COMPRA, nunca una entrada individual —
+// por eso "qué entrada puntual se devuelve" lo decide el ORGANIZADOR recién
+// al resolver (ya negoció el acuerdo real por fuera del sistema), nunca el
+// comprador ni un cálculo automático.
+// ==================================================================
+
+// Autorizado ÚNICAMENTE por conocer el saleToken (publicRecoveryToken de
+// la Sale) — mismo modelo que createWithdrawalRequestService, nunca por
+// sesión. Idempotente A PROPÓSITO (sección "Descartar solicitud" del
+// pedido): si no hay ninguna solicitud ACTIVA para descartar (ya se
+// descartó, ya se resolvió, o nunca existió), no es un error — el estado
+// final deseado ("nada pendiente") ya se cumple. El claim (updateMany
+// condicionado al status todavía activo) es lo que hace esto concurrent-
+// safe: dos descartes simultáneos nunca compiten, sólo uno gana el count=1
+// real. NUNCA toca Sale/Ticket — descartar es exclusivamente sobre la
+// solicitud misma (ver el informe de entrega, sección 14).
+export async function dismissWithdrawalRequestService(token) {
+    if (!token) throw new AppError(ErrorCodes.WITHDRAWAL_REQUEST_SALE_NOT_FOUND);
+
+    const sale = await prisma.sale.findUnique({ where: { publicRecoveryToken: token }, select: { id: true, deletedAt: true } });
+    if (!sale || sale.deletedAt) throw new AppError(ErrorCodes.WITHDRAWAL_REQUEST_SALE_NOT_FOUND);
+
+    const claim = await prisma.withdrawalRequest.updateMany({
+        where: { saleId: sale.id, status: { in: ACTIVE_STATUSES } },
+        data: { status: "DISMISSED" },
+    });
+
+    if (claim.count > 0) {
+        logger.info("dismissWithdrawalRequestService: solicitud descartada", { saleId: sale.id });
+    }
+    // dismissed:false es un no-op seguro (nunca un error) — ver el
+    // comentario de arriba.
+    return { dismissed: claim.count > 0 };
+}
+
+// Panel Organizer — detalle de las entradas de la Sale detrás de una
+// solicitud puntual, para que el organizador elija cuál/cuáles marcar como
+// devueltas. Sólo lectura. Mismo aislamiento que el resto de este archivo.
+export async function getWithdrawalRequestTicketsService(clerkId, withdrawalRequestId) {
+    const { withdrawalRequest } = await resolveOwnedWithdrawalRequestOrThrow(clerkId, withdrawalRequestId);
+
+    const tickets = await prisma.ticket.findMany({
+        where: { saleId: withdrawalRequest.saleId, deletedAt: null },
+        select: { id: true, ticketNumber: true, status: true, ticketType: { select: { name: true } } },
+        orderBy: { sequence: "asc" },
+    });
+
+    return {
+        id: withdrawalRequest.id,
+        status: withdrawalRequest.status,
+        tickets: tickets.map((t) => ({ id: t.id, ticketNumber: t.ticketNumber, status: t.status, ticketTypeName: t.ticketType.name })),
+    };
+}
+
+// "Marcar entrada como devuelta" — la ÚNICA forma de alcanzar RESOLVED
+// desde esta ronda en adelante (ver el comentario del enum en
+// schema.prisma). Reutiliza EXACTAMENTE el mismo criterio que
+// ticketAdmin.service.js#cancelTicketService (ACTIVE -> CANCELLED,
+// TicketAuditLog action=CANCEL, actorType=ORGANIZER) — nunca reimplementa
+// una invalidación paralela: confirmScanService/scanner.service.js ya
+// rechazan un ticket CANCELLED (nunca REFUNDED, reservado exclusivamente
+// para reversiones reales de Mercado Pago confirmadas por webhook — ver
+// mercadoPagoWebhook.service.js), y functionCapacity.service.js#SOLD_TICKET_STATUSES
+// ya excluye CANCELLED de "ocupa stock" — la disponibilidad se libera SOLA,
+// nunca un `stock = stock + 1` manual.
+//
+// Atómico y concurrency-safe: reclama la solicitud PRIMERO (updateMany
+// condicionado a que siga REQUESTED/CONTACTED, mismo patrón CAS que el
+// resto del proyecto) DENTRO de la misma transacción que cancela los
+// tickets — si el claim no cuenta 1 (otra resolución/concurrencia ya la
+// resolvió), la transacción entera aborta sin tocar ningún ticket; si los
+// ticketIds no son válidos (no pertenecen a esta Sale, o alguno ya no está
+// ACTIVE — ej. ya usado/cancelado), también aborta sin dejar la solicitud
+// a mitad de camino. Nunca puede quedar "solicitud RESOLVED + ticket
+// activo" ni "ticket cancelado + solicitud todavía pendiente".
+export async function returnWithdrawalRequestTicketsService(clerkId, withdrawalRequestId, ticketIds) {
+    const { user, withdrawalRequest } = await resolveOwnedWithdrawalRequestOrThrow(clerkId, withdrawalRequestId);
+
+    const ids = Array.isArray(ticketIds) ? [...new Set(ticketIds.filter((id) => typeof id === "string" && id))] : [];
+    if (ids.length === 0) throw new AppError(ErrorCodes.WITHDRAWAL_REQUEST_TICKETS_REQUIRED);
+
+    const now = new Date();
+
+    const result = await prisma.$transaction(async (tx) => {
+        const claim = await tx.withdrawalRequest.updateMany({
+            where: { id: withdrawalRequestId, status: { in: ACTIVE_STATUSES } },
+            data: { status: "RESOLVED", resolvedAt: now },
+        });
+        if (claim.count === 0) return { claimed: false };
+
+        // Nunca se confía en que el frontend haya mandado ids válidos —
+        // sólo tickets de ESTA MISMA Sale, sin borrar, cuentan.
+        const tickets = await tx.ticket.findMany({
+            where: { id: { in: ids }, saleId: withdrawalRequest.saleId, deletedAt: null },
+            select: { id: true, status: true },
+        });
+        if (tickets.length !== ids.length) throw new AppError(ErrorCodes.TICKET_NOT_FOUND);
+        if (tickets.some((t) => t.status !== "ACTIVE")) throw new AppError(ErrorCodes.TICKET_INVALID_TRANSITION);
+
+        await tx.ticket.updateMany({ where: { id: { in: ids } }, data: { status: "CANCELLED" } });
+        await tx.ticketAuditLog.createMany({
+            data: ids.map((ticketId) => ({
+                ticketId,
+                action: "CANCEL",
+                fromStatus: "ACTIVE",
+                toStatus: "CANCELLED",
+                actorType: "ORGANIZER",
+                actorId: user.id,
+                reason: `Botón de arrepentimiento — entrada devuelta (solicitud ${withdrawalRequestId})`,
+            })),
+        });
+
+        return { claimed: true };
+    });
+
+    if (!result.claimed) throw new AppError(ErrorCodes.WITHDRAWAL_REQUEST_NOT_ACTIVE);
+
+    logger.info("returnWithdrawalRequestTicketsService completed", { withdrawalRequestId, ticketIds: ids, updatedBy: user.id });
+    return { id: withdrawalRequestId, status: "RESOLVED", resolvedAt: now, returnedTicketIds: ids };
 }

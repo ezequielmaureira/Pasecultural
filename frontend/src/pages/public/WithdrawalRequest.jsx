@@ -3,8 +3,44 @@ import { Search, CalendarDays, MapPin, RefreshCw, CheckCircle2, Ticket, MessageC
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
 import Spinner from "../../components/ui/Spinner.jsx";
+import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
 import { Field, inputClass } from "../../components/ui/FormField.jsx";
-import { requestWithdrawalOtp, resendWithdrawalOtp, verifyWithdrawalOtp, createWithdrawalRequest } from "../../lib/withdrawalRequestApi.js";
+import {
+  requestWithdrawalOtp,
+  resendWithdrawalOtp,
+  verifyWithdrawalOtp,
+  createWithdrawalRequest,
+  dismissWithdrawalRequest,
+} from "../../lib/withdrawalRequestApi.js";
+
+// Cierre del ciclo — mismo bloque "Contactar al organizador" que ya usaba
+// la pantalla de "Solicitud registrada" (submitResult.contact), extraído
+// para reusarlo tal cual en "Volver a contactar" sobre una compra con
+// solicitud YA existente — nunca una segunda implementación de la regla de
+// contacto (eso vive únicamente en buildOrganizationContact, backend).
+function ContactActions({ contact, size = "md" }) {
+  if (contact?.whatsappUrl) {
+    return (
+      <a href={contact.whatsappUrl} target="_blank" rel="noreferrer" className="w-full">
+        <Button size={size} className="w-full justify-center gap-1.5">
+          <MessageCircle className="h-4 w-4" />
+          Contactar por WhatsApp
+        </Button>
+      </a>
+    );
+  }
+  if (contact?.email) {
+    return (
+      <a href={`mailto:${contact.email}`} className="w-full">
+        <Button size={size} variant="secondary" className="w-full justify-center gap-1.5">
+          <Mail className="h-4 w-4" />
+          {contact.email}
+        </Button>
+      </a>
+    );
+  }
+  return <p className="text-xs text-slate-500">El organizador no tiene un contacto público disponible en este momento.</p>;
+}
 
 const EMAIL_REGEX = /^\S+@\S+\.\S+$/;
 const DOCUMENT_REGEX = /^\d{7,10}$/;
@@ -69,6 +105,16 @@ export default function WithdrawalRequest() {
   const [submitError, setSubmitError] = useState("");
   const [submitResult, setSubmitResult] = useState(null);
 
+  // Cierre del ciclo — "Volver a contactar" / "Descartar solicitud" sobre
+  // una compra que YA tiene una solicitud activa (pantalla "select").
+  // Claves por saleToken (única forma estable de identificar cada fila de
+  // `sales` acá) — nunca por índice, que cambiaría si la lista se
+  // reordenara.
+  const [contactOpenToken, setContactOpenToken] = useState(null);
+  const [confirmDismissSale, setConfirmDismissSale] = useState(null);
+  const [dismissing, setDismissing] = useState(false);
+  const [dismissError, setDismissError] = useState("");
+
   useEffect(() => {
     if (resendCooldownUntil <= Date.now()) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -132,6 +178,29 @@ export default function WithdrawalRequest() {
     }
   }
 
+  // Cierre del ciclo — descarta la solicitud ACTIVA de esta compra
+  // puntual. Nunca toca Ticket/QR/disponibilidad (eso vive exclusivamente
+  // en el backend, ver dismissWithdrawalRequestService) — acá sólo se
+  // actualiza la fila correspondiente en memoria para que la tarjeta
+  // vuelva a mostrar "Solicitar por esta compra", sin tener que reverificar
+  // el OTP de nuevo.
+  async function handleDismiss(sale) {
+    setDismissing(true);
+    setDismissError("");
+    try {
+      await dismissWithdrawalRequest(sale.saleToken);
+      setSales((prev) =>
+        prev.map((s) => (s.saleToken === sale.saleToken ? { ...s, existingRequestStatus: null, withdrawalRequestId: null, contact: null } : s))
+      );
+      setConfirmDismissSale(null);
+      setContactOpenToken((prev) => (prev === sale.saleToken ? null : prev));
+    } catch (err) {
+      setDismissError(err.message || "No pudimos descartar la solicitud.");
+    } finally {
+      setDismissing(false);
+    }
+  }
+
   function handleSelectSale(sale) {
     setSelectedSale(sale);
     setReason("ARREPENTIMIENTO");
@@ -165,6 +234,9 @@ export default function WithdrawalRequest() {
     setSelectedSale(null);
     setSubmitResult(null);
     setSubmitError("");
+    setContactOpenToken(null);
+    setConfirmDismissSale(null);
+    setDismissError("");
   }
 
   if (status === "requesting" || status === "submitting") {
@@ -201,23 +273,7 @@ export default function WithdrawalRequest() {
 
             <div className="mt-2 flex w-full flex-col gap-2">
               <p className="text-sm font-semibold text-white">Contactar al organizador</p>
-              {submitResult.contact?.whatsappUrl ? (
-                <a href={submitResult.contact.whatsappUrl} target="_blank" rel="noreferrer" className="w-full">
-                  <Button className="w-full justify-center gap-1.5">
-                    <MessageCircle className="h-4 w-4" />
-                    Contactar por WhatsApp
-                  </Button>
-                </a>
-              ) : submitResult.contact?.email ? (
-                <a href={`mailto:${submitResult.contact.email}`} className="w-full">
-                  <Button variant="secondary" className="w-full justify-center gap-1.5">
-                    <Mail className="h-4 w-4" />
-                    {submitResult.contact.email}
-                  </Button>
-                </a>
-              ) : (
-                <p className="text-xs text-slate-500">El organizador no tiene un contacto público disponible en este momento.</p>
-              )}
+              <ContactActions contact={submitResult.contact} />
             </div>
 
             <button type="button" onClick={handleTryAgain} className="mt-1 text-xs text-slate-500 transition-colors duration-150 hover:text-slate-300">
@@ -309,7 +365,28 @@ export default function WithdrawalRequest() {
                   </p>
                 </div>
                 {sale.existingRequestStatus ? (
-                  <p className="text-xs text-amber-300">{REQUEST_STATUS_LABEL[sale.existingRequestStatus] ?? "Ya existe una solicitud para esta compra."}</p>
+                  <div className="flex flex-col gap-2">
+                    <p className="text-xs text-amber-300">{REQUEST_STATUS_LABEL[sale.existingRequestStatus] ?? "Ya existe una solicitud para esta compra."}</p>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="flex-1 justify-center"
+                        onClick={() => setContactOpenToken((prev) => (prev === sale.saleToken ? null : sale.saleToken))}
+                      >
+                        Volver a contactar
+                      </Button>
+                      <Button size="sm" variant="secondary" className="flex-1 justify-center text-rose-400" onClick={() => setConfirmDismissSale(sale)}>
+                        Descartar solicitud
+                      </Button>
+                    </div>
+                    {contactOpenToken === sale.saleToken && (
+                      <div className="rounded-lg border border-white/10 bg-white/5 p-2.5">
+                        <ContactActions contact={sale.contact} size="sm" />
+                      </div>
+                    )}
+                    {dismissError && confirmDismissSale?.saleToken === sale.saleToken && <p className="text-xs text-rose-400">{dismissError}</p>}
+                  </div>
                 ) : (
                   <Button size="sm" onClick={() => handleSelectSale(sale)} className="w-full justify-center">
                     Solicitar por esta compra
@@ -322,6 +399,18 @@ export default function WithdrawalRequest() {
             Buscar de nuevo
           </Button>
         </Card>
+
+        {confirmDismissSale && (
+          <ConfirmDialog
+            title="¿Descartar esta solicitud?"
+            description="Tu entrada seguirá vigente. Esta acción solamente cancela la solicitud de devolución — vas a poder iniciar una nueva más adelante si lo necesitás."
+            confirmLabel="Descartar solicitud"
+            danger
+            loading={dismissing}
+            onConfirm={() => handleDismiss(confirmDismissSale)}
+            onClose={() => setConfirmDismissSale(null)}
+          />
+        )}
       </div>
     );
   }
@@ -442,7 +531,7 @@ export default function WithdrawalRequest() {
 
           <Button disabled={!isValid} onClick={handleSearch} className="mt-1 w-full justify-center gap-1.5">
             <Search className="h-4 w-4" />
-            Solicitar código
+            Enviar código de verificación a mi correo
           </Button>
         </div>
       </Card>

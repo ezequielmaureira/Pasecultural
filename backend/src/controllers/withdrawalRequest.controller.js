@@ -10,6 +10,9 @@ import {
     createWithdrawalRequestService,
     listWithdrawalRequestsService,
     updateWithdrawalRequestStatusService,
+    dismissWithdrawalRequestService,
+    getWithdrawalRequestTicketsService,
+    returnWithdrawalRequestTicketsService,
 } from "../services/withdrawalRequest.service.js";
 
 // Botón de arrepentimiento — público, sin sesión. Sólo validan req y
@@ -59,6 +62,19 @@ export const createWithdrawalRequest = async (req, res, next) => {
     }
 };
 
+// Cierre del ciclo — "Descartar solicitud" del comprador. Mismo modelo de
+// autorización que createWithdrawalRequest (sólo el token en la URL,
+// nunca sesión). Siempre 200 con {dismissed: boolean} — nunca un error si
+// ya no había nada activo para descartar (idempotente, ver el service).
+export const dismissWithdrawalRequest = async (req, res, next) => {
+    try {
+        const result = await dismissWithdrawalRequestService(req.params.token);
+        res.status(200).json(result);
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
+
 // Panel Organizer/Developer > Solicitudes. requireRole ya filtró el rol
 // grueso (ver withdrawalRequest.routes.js); el aislamiento fino por
 // organización vive en listWithdrawalRequestsService.
@@ -77,6 +93,29 @@ export const updateWithdrawalRequestStatus = async (req, res, next) => {
         const { userId } = getAuth(req);
         logger.info("updateWithdrawalRequestStatus controller entered", { withdrawalRequestId: req.params.id, status: req.body?.status });
         const result = await updateWithdrawalRequestStatusService(userId, req.params.id, req.body?.status);
+        res.status(200).json(result);
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
+
+// Cierre del ciclo — detalle de entradas de la Sale detrás de una
+// solicitud, para el selector de "Marcar entrada como devuelta".
+export const getWithdrawalRequestTickets = async (req, res, next) => {
+    try {
+        const { userId } = getAuth(req);
+        const result = await getWithdrawalRequestTicketsService(userId, req.params.id);
+        res.status(200).json(result);
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
+
+// Cierre del ciclo — "Marcar entrada como devuelta". body: {ticketIds}.
+export const returnWithdrawalRequestTickets = async (req, res, next) => {
+    try {
+        const { userId } = getAuth(req);
+        const result = await returnWithdrawalRequestTicketsService(userId, req.params.id, req.body?.ticketIds);
         res.status(200).json(result);
     } catch (error) {
         next(AppError.from(error));

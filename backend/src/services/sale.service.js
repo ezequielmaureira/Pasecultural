@@ -18,6 +18,7 @@ import { getValidatedServiceFeeTiersOrThrow, calculateServiceFeeForUnitPrice } f
 import { sendDeveloperAlert, DeveloperAlertType, tryClaimDeveloperAlertCooldown } from "./email/sendDeveloperAlert.service.js";
 import { getDeveloperAlertConfigOrDefaults } from "./developerAlertConfig.service.js";
 import { sendOrganizerNotification, OrganizerNotificationType } from "./email/sendOrganizerNotification.service.js";
+import { buildOrganizationContact } from "./withdrawalRequest.service.js";
 import {
     getOrganizerNotificationSettingsOrDefaults,
     tryClaimOrganizerNotification,
@@ -1205,7 +1206,14 @@ export const getSalePdfByTokenService = async (recoveryToken) => {
 // estado existente en vez de un botón "Solicitar" — ver createWithdrawalRequestService,
 // que igual vuelve a validar esto de forma autoritativa antes de crear
 // nada (nunca confía en que el frontend haya visto este resultado a
-// tiempo).
+// tiempo). Cierre del ciclo — `withdrawalRequestId` viaja también (sólo
+// cuando hay una solicitud activa) para que "Descartar solicitud"/"Volver
+// a contactar" tengan qué mostrar/accionar sin una llamada aparte;
+// `contact` reutiliza EXACTAMENTE buildOrganizationContact (nunca
+// reimplementado acá) y, mismo criterio de privacidad que
+// createWithdrawalRequestService, sólo se calcula cuando YA existe una
+// solicitud — nunca se expone el contacto del organizador para una compra
+// sin solicitud todavía.
 export async function findWithdrawalEligibleSales(normalizedEmail, normalizedDocument) {
     const sales = await prisma.sale.findMany({
         where: {
@@ -1219,12 +1227,12 @@ export async function findWithdrawalEligibleSales(normalizedEmail, normalizedDoc
         select: {
             publicRecoveryToken: true,
             createdAt: true,
-            event: { select: { title: true } },
+            event: { select: { title: true, organization: { select: { phone: true, phoneVerifiedAt: true, email: true } } } },
             function: { select: { date: true, venue: true } },
             tickets: { where: { deletedAt: null }, select: { status: true } },
             withdrawalRequests: {
                 where: { status: { in: ["REQUESTED", "CONTACTED"] } },
-                select: { status: true },
+                select: { id: true, status: true },
                 take: 1,
             },
         },
@@ -1233,13 +1241,18 @@ export async function findWithdrawalEligibleSales(normalizedEmail, normalizedDoc
 
     return sales
         .filter((sale) => sale.tickets.some((t) => t.status !== "REFUNDED"))
-        .map((sale) => ({
-            saleToken: sale.publicRecoveryToken,
-            eventTitle: sale.event.title,
-            functionDate: sale.function.date,
-            venue: sale.function.venue,
-            purchasedAt: sale.createdAt,
-            ticketCount: sale.tickets.length,
-            existingRequestStatus: sale.withdrawalRequests[0]?.status ?? null,
-        }));
+        .map((sale) => {
+            const activeRequest = sale.withdrawalRequests[0] ?? null;
+            return {
+                saleToken: sale.publicRecoveryToken,
+                eventTitle: sale.event.title,
+                functionDate: sale.function.date,
+                venue: sale.function.venue,
+                purchasedAt: sale.createdAt,
+                ticketCount: sale.tickets.length,
+                existingRequestStatus: activeRequest?.status ?? null,
+                withdrawalRequestId: activeRequest?.id ?? null,
+                contact: activeRequest ? buildOrganizationContact(sale.event.organization, sale.event.title) : null,
+            };
+        });
 }

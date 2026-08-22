@@ -4,8 +4,11 @@ import {
     resendWithdrawalOtp,
     verifyWithdrawalOtp,
     createWithdrawalRequest,
+    dismissWithdrawalRequest,
     listWithdrawalRequests,
     updateWithdrawalRequestStatus,
+    getWithdrawalRequestTickets,
+    returnWithdrawalRequestTickets,
 } from "../controllers/withdrawalRequest.controller.js";
 import { requireRole } from "../middlewares/requireRole.js";
 import { rateLimit } from "../middlewares/rateLimit.js";
@@ -31,10 +34,17 @@ router.post("/otp", otpRequestRateLimit, requestWithdrawalOtp);
 router.post("/otp/resend", otpResendRateLimit, resendWithdrawalOtp);
 router.post("/otp/verify", otpVerifyRateLimit, verifyWithdrawalOtp);
 router.post("/:token", createRequestRateLimit, createWithdrawalRequest);
+// Cierre del ciclo — "Descartar solicitud". Mismo criterio de rate limit
+// que crear la solicitud: ya pasó el OTP, no es "de adivinanza", pero se
+// limita igual para no dejarlo como vector barato de abuso.
+router.post("/:token/dismiss", createRequestRateLimit, dismissWithdrawalRequest);
 
 // Panel Organizer/Developer — ver withdrawalRequest.service.js para el
 // aislamiento fino por organización (nunca sólo este requireRole grueso).
 router.get("/", requireRole("ORGANIZER", "DEVELOPER"), listWithdrawalRequests);
 router.post("/:id/status", requireRole("ORGANIZER", "DEVELOPER"), updateWithdrawalRequestStatus);
+// Cierre del ciclo — detalle de entradas + "Marcar entrada como devuelta".
+router.get("/:id/tickets", requireRole("ORGANIZER", "DEVELOPER"), getWithdrawalRequestTickets);
+router.post("/:id/return-tickets", requireRole("ORGANIZER", "DEVELOPER"), returnWithdrawalRequestTickets);
 
 export default router;
