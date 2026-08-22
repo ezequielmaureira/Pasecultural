@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeArgentinePhoneForMatching, isSameArgentinePhone } from "../src/utils/normalizeArgentinePhone.js";
+import { normalizeArgentinePhoneForMatching, isSameArgentinePhone, buildArgentineWhatsappId } from "../src/utils/normalizeArgentinePhone.js";
 
 // Un mismo número real de Córdoba (351 4123456), escrito en todos los
 // formatos que Meta/una organización pueden mandar/cargar — todos deben
@@ -61,4 +61,41 @@ test("isSameArgentinePhone is false whenever either side fails to normalize", ()
     assert.equal(isSameArgentinePhone("", "3514123456"), false);
     assert.equal(isSameArgentinePhone("3514123456", null), false);
     assert.equal(isSameArgentinePhone(null, null), false);
+});
+
+// ==================================================
+// buildArgentineWhatsappId — movidos acá desde whatsappNumberChange.pure.test.js
+// (retirado junto con el sistema viejo de "número autorizado"): esta
+// función es una utilidad compartida, no algo propio de ese dominio — la
+// usa activamente organizationPhoneVerification.service.js.
+// ==================================================
+
+test("buildArgentineWhatsappId: builds the canonical 549+10-digit waId from a +54 9 formatted number", () => {
+    assert.equal(buildArgentineWhatsappId("+54 9 299 451-4062"), "5492994514062");
+});
+
+test("buildArgentineWhatsappId: accepts a bare national number without prefixes", () => {
+    assert.equal(buildArgentineWhatsappId("2994514062"), "5492994514062");
+});
+
+test("buildArgentineWhatsappId: accepts 0-prefixed domestic dialing format", () => {
+    assert.equal(buildArgentineWhatsappId("02994514062"), "5492994514062");
+});
+
+test("buildArgentineWhatsappId: accepts an already-9-prefixed international format", () => {
+    assert.equal(buildArgentineWhatsappId("549 2994514062"), "5492994514062");
+});
+
+test("buildArgentineWhatsappId: rejects a number that cannot be interpreted with certainty, never guesses", () => {
+    assert.equal(buildArgentineWhatsappId("12345"), null);
+    assert.equal(buildArgentineWhatsappId(""), null);
+    assert.equal(buildArgentineWhatsappId("abc"), null);
+    assert.equal(buildArgentineWhatsappId(null), null);
+    assert.equal(buildArgentineWhatsappId(undefined), null);
+});
+
+test("buildArgentineWhatsappId: two different area codes with the same local number never collide", () => {
+    const a = buildArgentineWhatsappId("358-4123456");
+    const b = buildArgentineWhatsappId("351-4123456");
+    assert.notEqual(a, b);
 });

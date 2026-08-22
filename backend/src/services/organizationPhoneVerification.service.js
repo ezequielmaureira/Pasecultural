@@ -12,9 +12,20 @@ import { logger } from "../logging/logger.js";
 // Verificación de teléfono/WhatsApp de Organización — UN SOLO mecanismo
 // para dos entradas (alta de organización nueva, cambio de un teléfono ya
 // verificado): ver el comentario de los modelos en schema.prisma. NUNCA
-// OTP por WhatsApp (a diferencia de whatsappNumberChange.service.js, que
-// es un dominio completamente distinto — el número AUTORIZADO para
-// administrar por el bot, nunca Organization.phone).
+// OTP por WhatsApp — el organizador nunca prueba nada por un código que
+// nosotros mandamos, prueba control real del número respondiendo desde él.
+//
+// UNIFICACIÓN (ronda "arquitectura final WhatsApp") — Organization.phone
+// verificado (phoneVerifiedAt != null) es ahora la ÚNICA fuente de
+// identidad de WhatsApp de la organización: sirve simultáneamente como
+// contacto público Y como número autorizado para administrar por chatbot.
+// Ya no existe un segundo mecanismo paralelo (whatsappNumberChange.service.js
+// + WhatsappNumberChangeChallenge, retirados) para "el número autorizado
+// del bot" — ver syncWhatsappOrganizerLinkAfterVerification más abajo, que
+// sincroniza WhatsappOrganizerLink (la infraestructura real que usa el
+// bot para resolver un mensaje entrante, ver whatsappOrganizerDiscovery.service.js)
+// automáticamente, en la MISMA transacción que confirma el teléfono —
+// nunca un segundo paso manual.
 //
 // FLUJO INVERTIDO — EL ORGANIZADOR inicia la conversación de WhatsApp: acá
 // NUNCA se manda un mensaje de WhatsApp (por eso no hay ningún template de
@@ -75,8 +86,8 @@ export function buildOrganizationPhoneVerificationDeepLink(officialNumber, token
 
 // ==================================================================
 // Autorización — SIEMPRE clerkId (sesión real) + organizationId EXPLÍCITO,
-// mismo criterio que whatsappNumberChange.service.js (duplicado a
-// propósito, no importado desde ahí: dominios distintos).
+// mismo criterio que el resto de los sub-recursos "/me" del router (ver
+// mercadoPagoConnection.service.js#resolveOrganizationForOwnerOrThrow).
 // ==================================================================
 
 async function resolveOrganizationForOwnerOrThrow(clerkId, organizationId) {
@@ -98,11 +109,12 @@ async function resolveOrganizationForOwnerOrThrow(clerkId, organizationId) {
 // ==================================================================
 // Claim atómico CAS del challenge de WhatsApp — mismo patrón (updateMany
 // bajo cooldown, create si no existía, P2002 tratado como "todavía en
-// cooldown") que whatsappNumberChange.service.js#claimNumberChangeChallenge.
-// A diferencia de la versión anterior, esto NUNCA llama a Meta: genera el
-// token acá mismo y devuelve el valor EN TEXTO PLANO (sólo existe en este
-// instante — la fila sólo guarda el hash) para que el caller arme el deep
-// link. Devuelve `null` si el cooldown todavía no pasó.
+// cooldown") que el resto de los flujos de código/challenge de la app
+// (scannerInvitation.service.js, whatsappOrganizerLink.service.js). Nunca
+// llama a Meta: genera el token acá mismo y devuelve el valor EN TEXTO
+// PLANO (sólo existe en este instante — la fila sólo guarda el hash) para
+// que el caller arme el deep link. Devuelve `null` si el cooldown todavía
+// no pasó.
 // ==================================================================
 
 async function claimPhoneVerification({ organizationId, requestedByUserId, pendingPhone, pendingWaId, now }) {
@@ -208,6 +220,69 @@ async function releaseChangeAuthorizationAfterFailedSend(organizationId) {
 }
 
 // ==================================================================
+// Sincronización con WhatsappOrganizerLink — la infraestructura REAL que
+// usa el bot para resolver a qué Organization pertenece un mensaje
+// entrante (ver whatsappOrganizerDiscovery.service.js#discoverWhatsappOrganizationCandidates,
+// que primero reutiliza cualquier WhatsappOrganizerLink ya existente antes
+// de volver a mirar Organization.phone). Se llama DENTRO de la misma
+// transacción que confirma/borra el teléfono — nunca como un paso
+// separado — para que jamás exista una ventana donde el número viejo y el
+// nuevo queden autorizados a la vez (sección "cambio de número" del
+// pedido): organizationId es @unique en WhatsappOrganizerLink, así que el
+// upsert de abajo REEMPLAZA la fila existente (si había una) en el mismo
+// UPDATE, nunca crea una segunda.
+//
+// La limpieza de ConversationState/WhatsappPendingOrganizationSelection
+// para el waId VIEJO es el mismo criterio que ya usaba (y ya probaba)
+// whatsappNumberChange.service.js#verifyWhatsappNumberChangeService, ahora
+// retirado — se preserva acá tal cual: sólo la conversación de ESTA
+// organización con el número viejo (un mismo waId puede seguir
+// administrando otras Organizations, esas nunca se tocan), y sólo mientras
+// siga ACTIVE (nunca revive una ya abandonada/completada).
+async function syncWhatsappOrganizerLinkAfterVerification(tx, organizationId, newWaId, now) {
+    const existingLink = await tx.whatsappOrganizerLink.findUnique({ where: { organizationId }, select: { waId: true } });
+    const oldWaId = existingLink?.waId ?? null;
+    if (oldWaId === newWaId) return; // ya estaba sincronizado (ej. reverificación del mismo número) — nada que hacer
+
+    await tx.whatsappOrganizerLink.upsert({
+        where: { organizationId },
+        update: { waId: newWaId, verifiedAt: now },
+        create: { organizationId, waId: newWaId, verifiedAt: now },
+    });
+
+    if (oldWaId) {
+        await tx.conversationState.updateMany({
+            where: { channel: "WHATSAPP", channelRef: oldWaId, organizationId, status: "ACTIVE" },
+            data: { status: "ABANDONED" },
+        });
+        await tx.whatsappPendingOrganizationSelection.deleteMany({ where: { waId: oldWaId } });
+    }
+    // Limpieza defensiva del lado del número NUEVO también: si por lo que
+    // sea ya tenía una selección multi-organización pendiente de una
+    // interacción anterior, no debe quedar compitiendo con el vínculo
+    // recién sincronizado.
+    await tx.whatsappPendingOrganizationSelection.deleteMany({ where: { waId: newWaId } });
+}
+
+// Revoca por completo la autorización de chatbot de una organización —
+// usada por deleteOrganizationPhoneService. A diferencia del sync de
+// arriba (que REEMPLAZA el link), acá se BORRA: sin teléfono verificado no
+// hay ningún número que deba quedar autorizado. Misma limpieza de
+// ConversationState/selección pendiente que arriba, para el único waId
+// que sí importa acá (el que se está revocando).
+async function revokeWhatsappOrganizerLink(tx, organizationId) {
+    const existingLink = await tx.whatsappOrganizerLink.findUnique({ where: { organizationId }, select: { waId: true } });
+    if (!existingLink) return;
+
+    await tx.whatsappOrganizerLink.deleteMany({ where: { organizationId } });
+    await tx.conversationState.updateMany({
+        where: { channel: "WHATSAPP", channelRef: existingLink.waId, organizationId, status: "ACTIVE" },
+        data: { status: "ABANDONED" },
+    });
+    await tx.whatsappPendingOrganizationSelection.deleteMany({ where: { waId: existingLink.waId } });
+}
+
+// ==================================================================
 // REQUEST — POST .../phone-verification/request. Punto de entrada único
 // para "verificar por primera vez" y "cambiar" — la decisión de si hace
 // falta el email OTP se toma acá, mirando el estado REAL de la
@@ -281,7 +356,8 @@ export async function verifyOrganizationPhoneChangeOtpService(clerkId, organizat
 
     // Reclamo atómico (delete): dos VERIFY concurrentes con el mismo
     // código nunca autorizan dos veces — mismo mecanismo que
-    // whatsappNumberChange.service.js#verifyWhatsappNumberChangeService.
+    // confirmOrganizationPhoneFromWebhook más abajo (deleteMany por id
+    // dentro de la transacción).
     const claim = await prisma.organizationPhoneChangeAuthorization.deleteMany({ where: { id: authorization.id } });
     if (claim.count === 0) throw new AppError(ErrorCodes.ORGANIZATION_PHONE_OTP_ALREADY_RESOLVED);
 
@@ -399,6 +475,10 @@ export async function deleteOrganizationPhoneService(clerkId, organizationId) {
         // pedido exige inutilizar de inmediato.
         await tx.organizationPhoneChangeAuthorization.deleteMany({ where: { organizationId: organization.id } });
         await tx.organizationPhoneVerification.deleteMany({ where: { organizationId: organization.id } });
+        // Revoca de inmediato la autorización de chatbot asociada — el
+        // número eliminado no puede seguir administrando la organización
+        // por WhatsApp (ver el informe de entrega, sección "eliminar").
+        await revokeWhatsappOrganizerLink(tx, organization.id);
     });
 
     logger.info("organization phone verification: teléfono eliminado", { organizationId: organization.id });
@@ -476,6 +556,11 @@ export async function confirmOrganizationPhoneFromWebhook({ waId, token }) {
                 where: { id: candidate.organizationId },
                 data: { phone: candidate.pendingPhone, phoneVerifiedAt: now },
             });
+            // Unificación — el mismo número recién verificado queda
+            // simultáneamente autorizado para administrar por chatbot,
+            // atómico con la confirmación de arriba (ver el comentario de
+            // la función).
+            await syncWhatsappOrganizerLinkAfterVerification(tx, candidate.organizationId, waId, now);
             return true;
         });
         if (!confirmed) return { confirmed: false, organizationId: null };

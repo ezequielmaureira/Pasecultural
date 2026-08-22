@@ -24,7 +24,7 @@ const STATE_EXPIRY_MS = 10 * 60 * 1000;
 // ==================================================================
 // Autorización — SIEMPRE clerkId (sesión real) + organizationId EXPLÍCITO,
 // nunca inferido con findFirst. Mismo patrón que
-// whatsappNumberChange.service.js#resolveOrganizationForOwnerOrThrow
+// organizationPhoneVerification.service.js#resolveOrganizationForOwnerOrThrow
 // (duplicado a propósito, no importado desde ahí: son dominios distintos,
 // y este archivo no debe depender de la integración de WhatsApp).
 // ==================================================================

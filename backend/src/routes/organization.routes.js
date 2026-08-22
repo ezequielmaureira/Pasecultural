@@ -9,15 +9,7 @@ import {
     updateOrganizationStatus,
     deleteOrganization,
 } from "../controllers/organization.controller.js";
-import {
-    getWhatsappLinkStatus,
-    linkWhatsappOrganizer,
-    getWhatsappNumberChangeStatus,
-    requestWhatsappNumberChange,
-    verifyWhatsappNumberChange,
-    resendWhatsappNumberChangeOtp,
-    cancelWhatsappNumberChange,
-} from "../controllers/organizationWhatsapp.controller.js";
+import { getWhatsappLinkStatus, linkWhatsappOrganizer } from "../controllers/organizationWhatsapp.controller.js";
 import { getMercadoPagoStatus, startMercadoPagoConnect, disconnectMercadoPagoConnection } from "../controllers/organizationMercadoPago.controller.js";
 import {
     getOrganizationPhoneStatus,
@@ -44,16 +36,11 @@ router.post("/", createOrganization);
 router.get("/me/whatsapp-link", requireRole("ORGANIZER"), getWhatsappLinkStatus);
 router.post("/me/whatsapp-link", requireRole("ORGANIZER"), linkWhatsappOrganizer);
 
-// Cambio de número de WhatsApp autorizado — mismo sub-recurso "/me", mismo
-// requireRole("ORGANIZER"). organizationId SIEMPRE viaja explícito (body/
-// query) y SIEMPRE se revalida contra la sesión autenticada dentro de cada
-// service (ver whatsappNumberChange.service.js) — nunca se infiere con
-// findFirst, a diferencia del resto de las rutas /me de este router.
-router.get("/me/whatsapp-number", requireRole("ORGANIZER"), getWhatsappNumberChangeStatus);
-router.post("/me/whatsapp-number/change/request", requireRole("ORGANIZER"), requestWhatsappNumberChange);
-router.post("/me/whatsapp-number/change/verify", requireRole("ORGANIZER"), verifyWhatsappNumberChange);
-router.post("/me/whatsapp-number/change/resend", requireRole("ORGANIZER"), resendWhatsappNumberChangeOtp);
-router.post("/me/whatsapp-number/change/cancel", requireRole("ORGANIZER"), cancelWhatsappNumberChange);
+// Las rutas /me/whatsapp-number/change/* (número de WhatsApp autorizado
+// del chatbot, OTP-vía-WhatsApp) fueron RETIRADAS — ver el informe de
+// entrega "unificación WhatsApp": el número autorizado ahora se sincroniza
+// automáticamente con /me/phone-verification/* (más abajo), nunca un
+// segundo flujo/endpoint paralelo.
 
 // MP-1 — onboarding OAuth de Mercado Pago, mismo sub-recurso "/me", mismo
 // requireRole("ORGANIZER"). organizationId viaja explícito (query) y

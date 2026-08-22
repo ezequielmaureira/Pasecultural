@@ -146,8 +146,8 @@ model User {
   // Cortesías que este usuario emitió como organizador (nunca como
   // comprador/destinatario — eso ya lo cubre salesAsBuyer).
   courtesyIssuances                              CourtesyIssuance[]
-  // Cambios de número de WhatsApp autorizado que este usuario inició desde
-  // el panel Web (nunca desde WhatsApp) — ver WhatsappNumberChangeChallenge.
+  // RETIRADA (ver el comentario de WhatsappNumberChangeChallenge) — relación
+  // huérfana, mantenida sólo porque el modelo/tabla siguen intactos.
   whatsappNumberChangeRequests                   WhatsappNumberChangeChallenge[]
   // MP-1 — intentos de autorización OAuth de Mercado Pago que este usuario
   // inició (ver MercadoPagoOAuthState).
@@ -236,9 +236,8 @@ model Organization {
   whatsappLinkAttemptsAt DateTime?
 
   whatsappOrganizerLink         WhatsappOrganizerLink?
-  // Cambio de número de WhatsApp autorizado EN CURSO para esta organización
-  // (a lo sumo uno a la vez) — ver WhatsappNumberChangeChallenge. Nunca es
-  // el vínculo ya verificado (eso es whatsappOrganizerLink de arriba).
+  // RETIRADA (ver el comentario de WhatsappNumberChangeChallenge) — relación
+  // huérfana, mantenida sólo porque el modelo/tabla siguen intactos.
   whatsappNumberChangeChallenge WhatsappNumberChangeChallenge?
 
   // MP-1 — vinculaciones OAuth con cuenta(s) de Mercado Pago de ESTA
@@ -314,37 +313,15 @@ enum WhatsappNumberChangePurpose {
   CHANGE_WHATSAPP_NUMBER
 }
 
-// Cambio seguro del NÚMERO AUTORIZADO para administrar una organización por
-// WhatsApp (nunca Organization.phone, que es el teléfono público/de
-// contacto — ver whatsappNumberChange.service.js). Mismo criterio de "una
-// fila viva por clave, reemplazada bajo cooldown, borrada al resolverse"
-// que WhatsappLinkChallenge/WhatsappPendingOrganizationSelection — nunca un
-// status persistido para "expirado" (se compara expiresAt contra `now` en
-// el momento de usarlo), y nunca el código en texto plano (sólo codeHash).
-//
-// organizationId es @unique A PROPÓSITO (a diferencia de WhatsappLinkChallenge,
-// que indexaba por waId): acá el disparador SIEMPRE es un usuario Web ya
-// autenticado que ya sabe para qué organización está pidiendo el cambio
-// (nunca se infiere con findFirst) — como mucho un cambio pendiente por
-// organización a la vez, nunca dos challenges compitiendo por la misma.
-//
-// requestedByUserId es la fila interna de User (resuelta desde la sesión
-// Clerk autenticada, nunca del body) que inició el pedido — junto con
-// organizationId, es lo que permite reconfirmar identidad/organización
-// antes de migrar (nunca se confía únicamente en el código).
-//
-// oldWaId es una COPIA del WhatsappOrganizerLink.waId vigente al crear el
-// challenge (null si la organización todavía no tenía ningún número
-// autorizado) — un snapshot, no una referencia viva: es lo que permite, al
-// verificar, cerrar la conversación y limpiar selecciones pendientes de ESE
-// número puntual sin tener que volver a leerlo (y sin arriesgar que haya
-// cambiado en el medio).
-//
-// purpose es explícito (un solo valor hoy) para que un código de esta tabla
-// nunca pueda interpretarse como válido para otra operación futura que
-// también use códigos de 6 dígitos — la distinción es ESTRUCTURAL (una fila
-// de esta tabla sólo puede significar esto), no una comparación de valores
-// que alguien podría olvidarse de chequear.
+// RETIRADA (ronda "unificación WhatsApp") — este era el cambio seguro del
+// NÚMERO AUTORIZADO para administrar una organización por WhatsApp vía un
+// código enviado por OTP-vía-WhatsApp (whatsappNumberChange.service.js,
+// ya eliminado). Reemplazada por completo: ahora el número autorizado se
+// sincroniza automáticamente con Organization.phone verificado, ver
+// organizationPhoneVerification.service.js#syncWhatsappOrganizerLinkAfterVerification.
+// El modelo/tabla se dejan intactos A PROPÓSITO (nunca DROP TABLE sin
+// confirmar antes que no haya datos que perder — ver el informe de
+// entrega) — código de aplicación cero, ninguna ruta/service la usa ya.
 model WhatsappNumberChangeChallenge {
   id                String                      @id @default(cuid())
   organizationId    String                      @unique
@@ -366,19 +343,24 @@ model WhatsappNumberChangeChallenge {
 
 // ==================================================================
 // Verificación de teléfono/WhatsApp de Organización — Organization.phone
-// (el contacto público, NUNCA WhatsappOrganizerLink.waId, que es el número
-// AUTORIZADO para administrar la organización por el bot — dominios
-// completamente distintos, ver whatsappNumberChange.service.js). Un solo
-// mecanismo para dos entradas (alta de organización nueva, cambio de un
-// teléfono ya verificado): la CONFIRMACIÓN final es siempre la misma —
-// EL ORGANIZADOR inicia la conversación de WhatsApp hacia el número oficial
-// de PaseCultural y manda "CONFIRMAR <token>" (mensaje prearmado por un
-// deep link wa.me, ver organizationPhoneVerification.service.js), capturado
-// por el webhook real de Meta — PaseCultural NUNCA manda un WhatsApp
-// primero (por eso no depende de ningún template de Meta). Lo único que
-// cambia según el caso es si hace falta autorizar el intento primero con
-// un código por email (sólo cuando YA existe un teléfono verificado que
-// proteger, ver
+// verificado (phoneVerifiedAt != null) es, desde la ronda "unificación
+// WhatsApp", la ÚNICA fuente de identidad de WhatsApp de la organización:
+// sirve simultáneamente como contacto público Y como número autorizado
+// para administrar por chatbot — WhatsappOrganizerLink.waId (la
+// infraestructura real que usa el bot para resolver un mensaje entrante,
+// ver whatsappOrganizerDiscovery.service.js) se sincroniza AUTOMÁTICAMENTE
+// con este número al confirmarse, nunca requiere un segundo flujo/OTP
+// separado (ver organizationPhoneVerification.service.js#syncWhatsappOrganizerLinkAfterVerification).
+// Un solo mecanismo para dos entradas (alta de organización nueva, cambio
+// de un teléfono ya verificado): la CONFIRMACIÓN final es siempre la
+// misma — EL ORGANIZADOR inicia la conversación de WhatsApp hacia el
+// número oficial de PaseCultural y manda "CONFIRMAR <token>" (mensaje
+// prearmado por un deep link wa.me, ver organizationPhoneVerification.service.js),
+// capturado por el webhook real de Meta — PaseCultural NUNCA manda un
+// WhatsApp primero (por eso no depende de ningún template de Meta). Lo
+// único que cambia según el caso es si hace falta autorizar el intento
+// primero con un código por email (sólo cuando YA existe un teléfono
+// verificado que proteger, ver
 // organizationPhoneVerification.service.js#requestOrganizationPhoneVerificationService).
 // ==================================================================
 
@@ -387,11 +369,11 @@ model WhatsappNumberChangeChallenge {
 // al correo YA registrado de la organización, que se pueda siquiera
 // INICIAR un intento de verificación de WhatsApp para un número nuevo.
 // Mismos parámetros que el resto de los flujos de código de 6 dígitos de
-// la app (WhatsappNumberChangeChallenge, scannerInvitation,
-// saleRecoveryVerification): 10 minutos de vigencia, 5 intentos, 1 minuto
-// de cooldown entre reenvíos. Se borra al consumirse con éxito (recién ahí
-// se crea OrganizationPhoneVerification) o al cancelarse — nunca conviven
-// las dos filas para la misma organización.
+// la app (scannerInvitation, saleRecoveryVerification): 10 minutos de
+// vigencia, 5 intentos, 1 minuto de cooldown entre reenvíos. Se borra al
+// consumirse con éxito (recién ahí se crea OrganizationPhoneVerification)
+// o al cancelarse — nunca conviven las dos filas para la misma
+// organización.
 model OrganizationPhoneChangeAuthorization {
   id String @id @default(cuid())
 

@@ -12,7 +12,7 @@ import {
 import { requireRole } from "../src/middlewares/requireRole.js";
 
 // MP-1 — onboarding OAuth de Mercado Pago. Mismo criterio que
-// whatsappNumberChange.service.test.js/eventServicePort.commit.perf.test.js:
+// organizationPhoneVerification.crud.test.js/eventServicePort.commit.perf.test.js:
 // esto es CRUD + transacciones + concurrencia real, no expresable como
 // funciones puras, así que se prueba contra Postgres real
 // (backend/.env.test), nunca con mocks de Prisma. Guardrail centralizado —

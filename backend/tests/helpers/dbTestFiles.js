@@ -15,7 +15,6 @@ export const DB_TEST_FILES = [
     "eventServicePort.commit.perf.test.js",
     "eventCreationEngine.conversationStateCache.test.js",
     "whatsappInboundMessageClaim.service.test.js",
-    "whatsappNumberChange.service.test.js",
     "mercadoPagoConnection.service.test.js",
     "mercadoPagoCheckout.service.test.js",
     "mercadoPagoWebhook.service.test.js",
@@ -26,4 +25,5 @@ export const DB_TEST_FILES = [
     "withdrawalRequest.crud.test.js",
     "organizerNotifications.crud.test.js",
     "organizationPhoneVerification.crud.test.js",
+    "organizationPhoneVerificationChatbotSync.crud.test.js",
 ];

@@ -18,11 +18,16 @@ import { useToast } from "../../context/ToastContext.jsx";
 
 const RESEND_COOLDOWN_MS = 60 * 1000;
 
-// Verificación de teléfono/WhatsApp de Organización — SEPARADA de
-// WhatsappNumberChangeCard.jsx (ese es el número AUTORIZADO para
-// administrar por el bot; esto es Organization.phone, el contacto
-// público). No muestra complejidad técnica: nunca habla de "webhook",
-// "HMAC", "hash" ni "token" — sólo estados simples (Verificado / Pendiente).
+// Verificación de teléfono/WhatsApp de Organización — ÚNICA tarjeta de
+// WhatsApp del Dashboard (ver el informe de entrega "unificación
+// WhatsApp"): ya no existe una segunda tarjeta/flujo para un "número
+// autorizado" distinto — este mismo Organization.phone, una vez
+// verificado, sirve simultáneamente como contacto público Y como número
+// autorizado para administrar por chatbot (sincronizado automáticamente
+// del lado del backend, ver organizationPhoneVerification.service.js).
+// No muestra complejidad técnica: nunca habla de "webhook", "HMAC",
+// "hash", "token" ni "WhatsappOrganizerLink" — sólo estados simples
+// (Verificado / Pendiente).
 //
 // Flujo invertido: EL ORGANIZADOR inicia la conversación de WhatsApp hacia
 // PaseCultural — PaseCultural nunca manda un mensaje primero. `deepLink`
@@ -404,7 +409,7 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
   // phase === "idle"
   return (
     <Card title="WhatsApp de contacto">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col gap-3">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/5">
             <MessageCircle className="h-5 w-5 text-emerald-400" />
@@ -414,24 +419,32 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
               <>
                 <p className="text-sm font-medium text-white">{status.phone}</p>
                 {status.verifiedAt ? (
-                  <p className="flex items-center gap-1 text-xs text-emerald-400">
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Verificado
-                  </p>
+                  <>
+                    <p className="flex items-center gap-1 text-xs text-emerald-400">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Verificado
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">También habilitado para administrar tu organización por WhatsApp.</p>
+                  </>
                 ) : (
-                  <p className="flex items-center gap-1 text-xs text-amber-400">
-                    <Clock className="h-3.5 w-3.5" /> Pendiente de verificación
-                  </p>
+                  <>
+                    <p className="flex items-center gap-1 text-xs text-amber-400">
+                      <Clock className="h-3.5 w-3.5" /> Pendiente de verificación
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Este número es tu WhatsApp de contacto y también el número para administrar tu organización por WhatsApp — verificalo para activarlo.
+                    </p>
+                  </>
                 )}
               </>
             ) : (
-              <p className="text-sm text-slate-500">Todavía no cargaste un WhatsApp de contacto.</p>
+              <p className="text-sm text-slate-500">
+                Todavía no cargaste un WhatsApp de contacto. Este número también sirve para administrar tu organización por WhatsApp.
+              </p>
             )}
-            <p className="mt-1 text-xs text-slate-500">
-              Este es el WhatsApp público que ven tus compradores — distinto del número autorizado para administrar por chat (más abajo).
-            </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="secondary"
             size="sm"
@@ -445,16 +458,16 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
             {status?.verifiedAt ? "Cambiar WhatsApp de contacto" : status?.phone ? "Verificar WhatsApp" : "Agregar WhatsApp"}
           </Button>
           {status?.phone && (
-            <button
-              type="button"
-              title={status.verifiedAt ? "Eliminar WhatsApp de contacto" : "Eliminar número"}
-              aria-label={status.verifiedAt ? "Eliminar WhatsApp de contacto" : "Eliminar número"}
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => (status.verifiedAt ? setConfirmDeleteVerified(true) : handleDeletePhone())}
-              disabled={deleting}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/5 text-slate-400 transition-colors duration-150 hover:bg-rose-500/10 hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
+              loading={deleting && !confirmDeleteVerified}
+              loadingText="Eliminando..."
+              className="text-rose-400 hover:bg-rose-500/10"
             >
-              <Trash2 className="h-4 w-4" />
-            </button>
+              <Trash2 className="h-4 w-4" /> {status.verifiedAt ? "Eliminar WhatsApp de contacto" : "Eliminar número"}
+            </Button>
           )}
         </div>
       </div>

@@ -7,7 +7,6 @@ import ImageUploader from "../../components/ui/ImageUploader.jsx";
 import { Field, inputClass, textareaClass } from "../../components/ui/FormField.jsx";
 import { apiFetch } from "../../lib/api.js";
 import { useToast } from "../../context/ToastContext.jsx";
-import WhatsappNumberChangeCard from "./WhatsappNumberChangeCard.jsx";
 import MercadoPagoConnectionCard from "./MercadoPagoConnectionCard.jsx";
 import OrganizerNotificationSettingsCard from "./OrganizerNotificationSettingsCard.jsx";
 import OrganizationPhoneVerificationCard from "./OrganizationPhoneVerificationCard.jsx";
@@ -210,8 +209,6 @@ export default function OrganizerSettings() {
       </Card>
 
       {!loading && orgId && <OrganizationPhoneVerificationCard organizationId={orgId} />}
-
-      {!loading && orgId && <WhatsappNumberChangeCard organizationId={orgId} organizationName={org.name} />}
 
       {/* MP-1 — onboarding OAuth de Mercado Pago (reemplaza el placeholder
           "Próximamente" que había acá). Sólo conecta la cuenta: todavía no

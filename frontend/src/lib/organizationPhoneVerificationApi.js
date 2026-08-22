@@ -1,9 +1,11 @@
 import { apiFetch } from "./api.js";
 
-// Verificación de teléfono/WhatsApp de Organización — mismo sub-recurso
-// "/me" que organizationWhatsappApi.js (número AUTORIZADO del bot, un
-// dominio distinto). organizationId siempre explícito, mismo criterio que
-// el resto de las llamadas /me/whatsapp-*.
+// Verificación de teléfono/WhatsApp de Organización — ÚNICO mecanismo de
+// WhatsApp del Dashboard (ver el informe de entrega "unificación
+// WhatsApp"): el mismo número, una vez verificado, sirve como contacto
+// público y como número autorizado para administrar por chatbot.
+// organizationId siempre explícito, mismo criterio que el resto de las
+// llamadas /me/*.
 //
 // Flujo invertido: request/verifyOrganizationPhoneChangeOtp/resend pueden
 // devolver {step: "WHATSAPP_PENDING", deepLink} — `deepLink` es la URL
