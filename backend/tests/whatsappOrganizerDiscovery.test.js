@@ -213,6 +213,15 @@ async function createUser(overrides = {}) {
     });
 }
 
+// REGLA FINAL (ronda "cerrar riesgo legacy") — phoneVerifiedAt != null es
+// ahora un requisito estricto para que discoverWhatsappOrganizationCandidates
+// pueda crear un link NUEVO por coincidencia de teléfono (ver el informe de
+// entrega). Todos los tests de este archivo que ejercitan ese camino
+// (descubrimiento por teléfono) representan organizaciones YA verificadas
+// por diseño — phoneVerifiedAt: new Date() por default acá — así que este
+// único cambio central mantiene válida la intención original de cada test
+// sin tener que tocarlos uno por uno. El caso "sin verificar" tiene sus
+// propios tests explícitos más abajo.
 async function createOrganization(ownerId, overrides = {}) {
     const suffix = uniqueSuffix();
     return prisma.organization.create({
@@ -221,6 +230,7 @@ async function createOrganization(ownerId, overrides = {}) {
             email: `org_${suffix}@example.com`,
             status: "APPROVED",
             phone: "2984405532",
+            phoneVerifiedAt: new Date(),
             ownerId,
             ...overrides,
         },
@@ -259,10 +269,65 @@ testWithDb("2) a phone with one APPROVED organization and no existing link disco
     }
 });
 
+// REGLA FINAL — un teléfono SIN VERIFICAR jamás es candidato ni autoriza
+// nada por chatbot, sin excepción de compatibilidad legacy (ver el informe
+// de entrega "cerrar riesgo legacy").
+testWithDb("REGLA FINAL: an APPROVED organization with an UNVERIFIED phone (phoneVerifiedAt: null) is never discovered/auto-linked by phone match", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id, { name: "Cine Nadia", phoneVerifiedAt: null });
+    try {
+        const result = await discoverWhatsappOrganizationCandidates(WA_ID);
+        assert.deepEqual(result, [], "un teléfono no verificado nunca debe resolver ninguna organización");
+
+        const link = await prisma.whatsappOrganizerLink.findUnique({ where: { organizationId: org.id } });
+        assert.equal(link, null, "un teléfono no verificado nunca debe crear un link autorizado");
+    } finally {
+        await cleanup({ organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+// Confirma explícitamente el contraste con el test de arriba — mismo
+// escenario, sólo que con phoneVerifiedAt puesto (lo que ya es el default
+// de createOrganization en este archivo, pero acá se deja explícito a
+// propósito para que el contraste quede documentado en un solo lugar).
+testWithDb("REGLA FINAL: an APPROVED organization with a VERIFIED phone (phoneVerifiedAt set) IS discovered and linked normally", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id, { name: "Cine Nadia", phoneVerifiedAt: new Date() });
+    try {
+        const result = await discoverWhatsappOrganizationCandidates(WA_ID);
+        assert.equal(result.length, 1);
+        assert.equal(result[0].organizationId, org.id);
+
+        const link = await prisma.whatsappOrganizerLink.findUnique({ where: { organizationId: org.id } });
+        assert.ok(link, "un teléfono verificado sí debe poder crear el link autorizado");
+    } finally {
+        await cleanup({ organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
 // 3) una Organization APPROVED con link ya existente
 testWithDb("3) a phone with one APPROVED organization already linked resolves it via the link, without re-querying by phone", async () => {
     const owner = await createUser();
     const org = await createOrganization(owner.id, { name: "Cine Nadia" });
+    await prisma.whatsappOrganizerLink.create({ data: { waId: WA_ID, organizationId: org.id } });
+    try {
+        const result = await discoverWhatsappOrganizationCandidates(WA_ID);
+        assert.equal(result.length, 1);
+        assert.equal(result[0].organizationId, org.id);
+    } finally {
+        await cleanup({ organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+// Confirma que el fix de la regla final NO tocó el camino `byLink`: un
+// link YA CREADO (por ejemplo, por el flujo de verificación nuevo — ver
+// organizationPhoneVerification.service.js#syncWhatsappOrganizerLinkAfterVerification)
+// sigue resolviendo con normalidad — la restricción de phoneVerifiedAt
+// sólo aplica a la CREACIÓN de links nuevos por coincidencia de teléfono,
+// nunca a un link ya existente.
+testWithDb("an organization with an already-existing WhatsappOrganizerLink keeps resolving via the link regardless of the current phoneVerifiedAt value", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id, { name: "Cine Nadia", phoneVerifiedAt: null });
     await prisma.whatsappOrganizerLink.create({ data: { waId: WA_ID, organizationId: org.id } });
     try {
         const result = await discoverWhatsappOrganizationCandidates(WA_ID);

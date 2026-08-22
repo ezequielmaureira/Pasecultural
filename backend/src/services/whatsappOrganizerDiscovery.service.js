@@ -7,6 +7,16 @@ import { logger } from "../logging/logger.js";
 // un código de 6 dígitos y pasa a resolverse por coincidencia exacta de
 // teléfono contra Organization.phone. whatsappOrganizerIdentity.service.js
 // queda sin usar (legacy), no se borra (ver informe de entrega).
+//
+// REGLA FINAL (ronda "cerrar riesgo legacy") — un Organization.phone SIN
+// VERIFICAR (phoneVerifiedAt == null) NUNCA puede autorizar administración
+// por chatbot, sin excepción: la coincidencia por teléfono de más abajo
+// (unlinkedApproved) exige phoneVerifiedAt != null además de phone != null.
+// Un WhatsappOrganizerLink YA CREADO (por este descubrimiento en el pasado,
+// o por el flujo de verificación nuevo, ver
+// organizationPhoneVerification.service.js#syncWhatsappOrganizerLinkAfterVerification)
+// sigue resolviendo con normalidad — esta regla sólo restringe la creación
+// de vínculos NUEVOS a partir de acá, nunca revoca uno existente.
 
 // Fase 3K — se agrega `ownerFirstName` (User.firstName, el mismo dato que ya
 // sincroniza Clerk) para poder saludar a la PERSONA, no a la organización
@@ -95,14 +105,20 @@ export async function discoverWhatsappOrganizationCandidates(waId) {
     // aprobó o cargó su teléfono después de que la primera ya se vinculó.
     const [existingLinks, unlinkedApproved] = await Promise.all([
         prisma.whatsappOrganizerLink.findMany({ where: { waId }, select: CANDIDATE_LINK_SELECT }),
-        // Sólo Organizations APPROVED, con teléfono cargado, y que TODAVÍA
+        // Sólo Organizations APPROVED, con teléfono VERIFICADO (nunca uno
+        // sin verificar — ver el informe de entrega "unificación
+        // WhatsApp": phoneVerifiedAt != null es ahora un requisito
+        // estricto para que un teléfono pueda autorizar administración por
+        // chatbot, sin excepción de compatibilidad legacy), y que TODAVÍA
         // no tengan ningún WhatsApp asociado — una Organization ya
         // vinculada (a este u otro wa_id) nunca vuelve a ser candidata de
         // descubrimiento: así se garantiza que nunca se reasigna/pisa un
         // vínculo existente (ver sección "concurrencia" del informe de
-        // entrega).
+        // entrega). Un link YA existente (`existingLinks`, arriba) nunca
+        // se re-audita acá — sólo se restringe qué Organizations pueden
+        // crear un link NUEVO por esta vía.
         prisma.organization.findMany({
-            where: { status: "APPROVED", phone: { not: null }, whatsappOrganizerLink: null },
+            where: { status: "APPROVED", phone: { not: null }, phoneVerifiedAt: { not: null }, whatsappOrganizerLink: null },
             select: { id: true, name: true, phone: true, owner: { select: { clerkId: true, firstName: true } } },
         }),
     ]);
