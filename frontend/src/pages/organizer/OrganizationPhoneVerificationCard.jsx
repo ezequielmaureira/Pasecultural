@@ -426,6 +426,9 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
             ) : (
               <p className="text-sm text-slate-500">Todavía no cargaste un WhatsApp de contacto.</p>
             )}
+            <p className="mt-1 text-xs text-slate-500">
+              Este es el WhatsApp público que ven tus compradores — distinto del número autorizado para administrar por chat (más abajo).
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -439,7 +442,7 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
               setPhase("request");
             }}
           >
-            {status?.verifiedAt ? "Cambiar número" : status?.phone ? "Verificar WhatsApp" : "Agregar WhatsApp"}
+            {status?.verifiedAt ? "Cambiar WhatsApp de contacto" : status?.phone ? "Verificar WhatsApp" : "Agregar WhatsApp"}
           </Button>
           {status?.phone && (
             <button

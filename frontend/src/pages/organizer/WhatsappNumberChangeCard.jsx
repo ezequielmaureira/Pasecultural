@@ -24,12 +24,23 @@ function formatWaIdForDisplay(waId) {
 }
 
 // Tarjeta autocontenida para el panel de Configuración del organizador —
-// SEPARADA de Organization.phone (el teléfono público/de contacto, que
-// sigue viviendo en OrganizerSettings.jsx tal cual): esto es el número
-// AUTORIZADO para administrar la organización por WhatsApp
-// (WhatsappOrganizerLink.waId). `organizationId` lo pasa el caller (ya
-// resuelto por GET /api/organizations/me) — el backend igual revalida
-// pertenencia real en cada request.
+// SEPARADA de Organization.phone (el teléfono público/de contacto, ver
+// OrganizationPhoneVerificationCard.jsx, que se renderiza justo arriba de
+// esta en OrganizerSettings.jsx): esto es el número AUTORIZADO para
+// administrar la organización por WhatsApp (WhatsappOrganizerLink.waId) —
+// el que puede publicar/editar eventos por chat con el bot, nunca el que
+// ven los compradores. `organizationId` lo pasa el caller (ya resuelto por
+// GET /api/organizations/me) — el backend igual revalida pertenencia real
+// en cada request.
+//
+// Bug real de producción (confusión de UI) — las dos tarjetas usaban el
+// mismo texto "Cambiar número" para acciones completamente distintas
+// (ésta manda un código de 6 dígitos por WhatsApp vía template de Meta,
+// WHATSAPP_OTP_TEMPLATE_NAME; la de contacto NUNCA manda nada, es deep
+// link + CONFIRMAR). Todo el texto de acá abajo es deliberadamente
+// explícito ("...autorizado", "...para administrar por chat") para que
+// nunca vuelvan a confundirse — la lógica/endpoint no cambiaron, sólo las
+// etiquetas.
 export default function WhatsappNumberChangeCard({ organizationId, organizationName }) {
   const { getToken } = useAuth();
 
@@ -174,7 +185,7 @@ export default function WhatsappNumberChangeCard({ organizationId, organizationN
 
   if (phase === "code") {
     return (
-      <Card title="Verificar nuevo número">
+      <Card title="Verificar número autorizado (chatbot)">
         <div className="flex flex-col gap-3">
           <p className="text-sm text-slate-400">
             Te enviamos un código de 6 dígitos a <span className="font-medium text-slate-200">{phone.trim()}</span>. Vence en 10 minutos.
@@ -227,8 +238,11 @@ export default function WhatsappNumberChangeCard({ organizationId, organizationN
 
   if (phase === "request") {
     return (
-      <Card title="Cambiar número de WhatsApp">
+      <Card title="Cambiar número autorizado (chatbot)">
         <div className="flex flex-col gap-3">
+          <p className="text-sm text-slate-400">
+            Este es el número que puede administrar {organizationName || "tu organización"} por WhatsApp (publicar/editar eventos por chat) — no tu WhatsApp de contacto público.
+          </p>
           <Field label="Nuevo número">
             <input
               type="tel"
@@ -258,25 +272,28 @@ export default function WhatsappNumberChangeCard({ organizationId, organizationN
 
   // phase === "idle" | "loading"
   return (
-    <Card title="WhatsApp autorizado">
+    <Card title="WhatsApp para administrar por chat">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/5">
             <MessageCircle className="h-5 w-5 text-emerald-400" />
           </div>
           <div>
-            <p className="text-xs font-medium text-slate-400">Número de WhatsApp autorizado</p>
+            <p className="text-xs font-medium text-slate-400">Número autorizado para administrar por WhatsApp</p>
             {phase === "loading" ? (
               <div className="mt-1 h-4 w-32 animate-pulse rounded bg-white/10" />
             ) : waId ? (
               <p className="text-sm font-medium text-white">{formatWaIdForDisplay(waId)}</p>
             ) : (
-              <p className="text-sm text-slate-500">Todavía no vinculaste un WhatsApp.</p>
+              <p className="text-sm text-slate-500">Todavía no vinculaste un número autorizado.</p>
             )}
+            <p className="mt-1 text-xs text-slate-500">
+              Distinto de tu WhatsApp de contacto (arriba) — este es el que puede publicar/editar eventos por chat con el bot.
+            </p>
           </div>
         </div>
         <Button variant="secondary" size="sm" onClick={() => setPhase("request")} disabled={phase === "loading"}>
-          {waId ? "Cambiar número" : "Vincular número"}
+          {waId ? "Cambiar número autorizado" : "Vincular número autorizado"}
         </Button>
       </div>
       {statusError && <p className="mt-2 text-xs text-rose-400">{statusError}</p>}
