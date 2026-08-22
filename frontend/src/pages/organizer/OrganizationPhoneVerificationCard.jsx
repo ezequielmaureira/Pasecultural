@@ -18,6 +18,22 @@ import { useToast } from "../../context/ToastContext.jsx";
 
 const RESEND_COOLDOWN_MS = 60 * 1000;
 
+// Mensaje claro para el caso más común de "Abrir WhatsApp nuevamente"
+// (todavía existe un challenge vigente — pedir otro tan seguido dispara el
+// cooldown anti-abuso, ver ORGANIZATION_PHONE_RESEND_TOO_SOON) — nunca el
+// error técnico genérico para ESTE código puntual, en ESTA acción
+// puntual. Deliberadamente NO se reutiliza en handleRequest: ese mismo
+// código de error también puede significar "cooldown del OTP por email"
+// cuando la organización ya tiene un teléfono verificado (rama distinta
+// del mismo service), donde hablar de "enlace" sería confuso/incorrecto —
+// ahí el mensaje genérico del backend sigue siendo el correcto.
+function friendlyReissueError(err) {
+  if (err?.code === "ORGANIZATION_PHONE_RESEND_TOO_SOON") {
+    return "Ya generamos un enlace de verificación. Esperá unos segundos antes de solicitar uno nuevo.";
+  }
+  return err?.message || "No pudimos abrir WhatsApp.";
+}
+
 // Verificación de teléfono/WhatsApp de Organización — ÚNICA tarjeta de
 // WhatsApp del Dashboard (ver el informe de entrega "unificación
 // WhatsApp"): ya no existe una segunda tarjeta/flujo para un "número
@@ -165,15 +181,28 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
     }
   }
 
-  // Pide un deep link nuevo al backend (sujeto al cooldown anti-abuso) y lo
-  // abre en una pestaña — la pestaña se abre ANTES del await (mismo truco
-  // que cualquier flujo con un paso async en el medio) para que los
-  // bloqueadores de pop-ups no lo corten: el user gesture del click ya la
-  // habilitó.
+  // Bug real de producción — quedaba una pestaña about:blank huérfana
+  // SIEMPRE que se llamaba a esta función, éxito o error: "noopener"/
+  // "noreferrer" en el open de abajo hacen que window.open() devuelva
+  // `null` en todos los navegadores modernos (es exactamente lo que esas
+  // dos features garantizan — nunca entregar una referencia real a la
+  // ventana nueva), así que `newTab` siempre era `null` acá — ni el
+  // `.location.href` del caso éxito ni el `.close()` del caso error
+  // llegaban a ejecutarse nunca. Sin esas dos features, window.open()
+  // devuelve una referencia real que sí podemos navegar después del await
+  // (o cerrar si falla) — el destino final (wa.me) lo elegimos nosotros
+  // mismos más abajo, nunca texto arbitrario del usuario, así que perder
+  // noopener en este open puntual es un trade-off aceptado y es
+  // exactamente el patrón estándar para "abrir en blanco ahora, navegar
+  // después de un paso async" (nunca se puede reabrir recién al terminar
+  // el await: para entonces el user gesture del click ya expiró y los
+  // bloqueadores de pop-ups lo cortarían). handleOpenWhatsapp de abajo NO
+  // tiene este problema — abre directo con el deepLink ya conocido, nunca
+  // necesita la referencia de vuelta, así que sigue usando noopener/noreferrer.
   async function reissueAndOpenWhatsapp() {
     setReopening(true);
     setReopenError("");
-    const newTab = window.open("", "_blank", "noopener,noreferrer");
+    const newTab = window.open("", "_blank");
     try {
       const token = await getToken();
       const result = await resendOrganizationPhoneWhatsapp(token, organizationId);
@@ -181,8 +210,10 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
       setResendCooldownUntil(Date.now() + RESEND_COOLDOWN_MS);
       if (newTab) newTab.location.href = result.deepLink;
     } catch (err) {
+      // Nunca deja la pestaña precreada abierta en about:blank — ni en
+      // este error puntual (cooldown) ni en ningún otro.
       if (newTab) newTab.close();
-      setReopenError(err.message || "No pudimos abrir WhatsApp.");
+      setReopenError(friendlyReissueError(err));
     } finally {
       setReopening(false);
     }
