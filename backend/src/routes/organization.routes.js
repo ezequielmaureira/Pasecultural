@@ -26,6 +26,7 @@ import {
     resendOrganizationPhoneWhatsapp,
     resendOrganizationPhoneChangeOtp,
     cancelOrganizationPhoneChange,
+    deleteOrganizationPhone,
 } from "../controllers/organizationPhoneVerification.controller.js";
 import { requireRole } from "../middlewares/requireRole.js";
 
@@ -80,6 +81,10 @@ router.post("/me/phone-verification/email-otp/verify", requireRole("ORGANIZER"),
 router.post("/me/phone-verification/email-otp/resend", requireRole("ORGANIZER"), resendOrganizationPhoneChangeOtp);
 router.post("/me/phone-verification/whatsapp/resend", requireRole("ORGANIZER"), resendOrganizationPhoneWhatsapp);
 router.post("/me/phone-verification/cancel", requireRole("ORGANIZER"), cancelOrganizationPhoneChange);
+// Eliminar el teléfono oficial (verificado o no) — deliberadamente
+// DISTINTO de /cancel: cancel sólo descarta un intento EN CURSO y nunca
+// toca Organization.phone; esto sí lo hace (ver el informe de entrega).
+router.post("/me/phone-verification/delete", requireRole("ORGANIZER"), deleteOrganizationPhone);
 
 router.get("/", requireRole("DEVELOPER"), getOrganizations);
 router.get("/:id", requireRole("DEVELOPER"), getOrganizationById);

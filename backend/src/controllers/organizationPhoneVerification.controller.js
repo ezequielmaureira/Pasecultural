@@ -7,6 +7,7 @@ import {
     resendOrganizationPhoneWhatsappService,
     resendOrganizationPhoneChangeOtpService,
     cancelOrganizationPhoneChangeService,
+    deleteOrganizationPhoneService,
 } from "../services/organizationPhoneVerification.service.js";
 
 // Verificación de teléfono/WhatsApp de Organización — mismo criterio que
@@ -69,6 +70,19 @@ export const cancelOrganizationPhoneChange = async (req, res, next) => {
     try {
         const { userId } = getAuth(req);
         const result = await cancelOrganizationPhoneChangeService(userId, req.body?.organizationId);
+        res.status(200).json(result);
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
+
+// Sirve tanto "Eliminar número" (no verificado) como "Eliminar WhatsApp de
+// contacto" (verificado) — misma mutación real en ambos casos, ver
+// deleteOrganizationPhoneService.
+export const deleteOrganizationPhone = async (req, res, next) => {
+    try {
+        const { userId } = getAuth(req);
+        const result = await deleteOrganizationPhoneService(userId, req.body?.organizationId);
         res.status(200).json(result);
     } catch (error) {
         next(AppError.from(error));

@@ -9,9 +9,11 @@ import {
     resendOrganizationPhoneWhatsappService,
     resendOrganizationPhoneChangeOtpService,
     cancelOrganizationPhoneChangeService,
+    deleteOrganizationPhoneService,
     getOrganizationPhoneStatusService,
     confirmOrganizationPhoneFromWebhook,
 } from "../src/services/organizationPhoneVerification.service.js";
+import { buildOrganizationContact } from "../src/services/withdrawalRequest.service.js";
 
 // Verificación de teléfono/WhatsApp de Organización — flujo INVERTIDO (el
 // organizador inicia la conversación de WhatsApp hacia PaseCultural, ver el
@@ -488,6 +490,13 @@ testWithDb("an organizer can never request, verify, or cancel another organizati
             }
         );
         await assert.rejects(
+            () => deleteOrganizationPhoneService(ownerA.clerkId, orgB.id),
+            (err) => {
+                assert.equal(err.code, "ORGANIZATION_PHONE_FORBIDDEN");
+                return true;
+            }
+        );
+        await assert.rejects(
             () => getOrganizationPhoneStatusService(ownerA.clerkId, orgB.id),
             (err) => {
                 assert.equal(err.code, "ORGANIZATION_PHONE_FORBIDDEN");
@@ -501,5 +510,185 @@ testWithDb("an organizer can never request, verify, or cancel another organizati
     } finally {
         restoreEnv();
         await cleanup({ organizationIds: [orgA?.id, orgB?.id].filter(Boolean), userIds: [ownerA.id, ownerB.id] });
+    }
+});
+
+// --- Eliminar teléfono (número no verificado o WhatsApp ya verificado) ---
+
+testWithDb("an unverified pending phone can be deleted; afterwards phone and phoneVerifiedAt are both null and the old pending row is gone", async () => {
+    const owner = await createUser();
+    const restoreEnv = withMockedOutboundEnv();
+    let organization;
+    try {
+        ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
+        await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
+
+        const result = await deleteOrganizationPhoneService(owner.clerkId, organization.id);
+        assert.equal(result.deleted, true);
+
+        const cleared = await prisma.organization.findUnique({ where: { id: organization.id } });
+        assert.equal(cleared.phone, null);
+        assert.equal(cleared.phoneVerifiedAt, null);
+
+        const pending = await prisma.organizationPhoneVerification.findUnique({ where: { organizationId: organization.id } });
+        assert.equal(pending, null);
+
+        const status = await getOrganizationPhoneStatusService(owner.clerkId, organization.id);
+        assert.equal(status.phone, null);
+        assert.equal(status.pendingPhone, null);
+    } finally {
+        restoreEnv();
+        if (organization) await cleanup({ organizationIds: [organization.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("a token from a challenge deleted-before-confirming is permanently inert — the later CONFIRMAR never restores the phone", async () => {
+    const owner = await createUser();
+    const restoreEnv = withMockedOutboundEnv();
+    let organization;
+    try {
+        ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
+        const { deepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
+        const token = extractTokenFromDeepLink(deepLink);
+
+        await deleteOrganizationPhoneService(owner.clerkId, organization.id);
+
+        // El mensaje "CONFIRMAR <token>" llega DESPUÉS de eliminado — no
+        // debe verificar ni restaurar nada.
+        const result = await confirmOrganizationPhoneFromWebhook({ waId: "5493514123456", token });
+        assert.equal(result.confirmed, false);
+
+        const stillCleared = await prisma.organization.findUnique({ where: { id: organization.id } });
+        assert.equal(stillCleared.phone, null);
+        assert.equal(stillCleared.phoneVerifiedAt, null);
+    } finally {
+        restoreEnv();
+        if (organization) await cleanup({ organizationIds: [organization.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("deleting a phone twice in a row is idempotent — the second call is a safe no-op", async () => {
+    const owner = await createUser();
+    const restoreEnv = withMockedOutboundEnv();
+    let organization;
+    try {
+        ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
+
+        const first = await deleteOrganizationPhoneService(owner.clerkId, organization.id);
+        assert.equal(first.deleted, true);
+        const second = await deleteOrganizationPhoneService(owner.clerkId, organization.id);
+        assert.equal(second.deleted, true);
+
+        const cleared = await prisma.organization.findUnique({ where: { id: organization.id } });
+        assert.equal(cleared.phone, null);
+        assert.equal(cleared.phoneVerifiedAt, null);
+    } finally {
+        restoreEnv();
+        if (organization) await cleanup({ organizationIds: [organization.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("an already-verified WhatsApp can be explicitly deleted too; WithdrawalRequest falls back to email afterwards, never a stale/pending number", async () => {
+    const owner = await createUser();
+    const restoreEnv = withMockedOutboundEnv();
+    let organization;
+    try {
+        ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
+        const { deepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
+        await confirmOrganizationPhoneFromWebhook({ waId: "5493514123456", token: extractTokenFromDeepLink(deepLink) });
+
+        const verifiedOrg = await prisma.organization.findUnique({ where: { id: organization.id } });
+        assert.ok(verifiedOrg.phoneVerifiedAt);
+        // Antes de eliminar: WithdrawalRequest SÍ ofrecería WhatsApp.
+        assert.ok(buildOrganizationContact(verifiedOrg, "Evento de prueba").whatsappUrl);
+
+        const result = await deleteOrganizationPhoneService(owner.clerkId, organization.id);
+        assert.equal(result.deleted, true);
+
+        const cleared = await prisma.organization.findUnique({ where: { id: organization.id } });
+        assert.equal(cleared.phone, null);
+        assert.equal(cleared.phoneVerifiedAt, null);
+
+        const contact = buildOrganizationContact(cleared, "Evento de prueba");
+        assert.equal(contact.whatsappUrl, null, "nunca debe ofrecer WhatsApp después de eliminarlo");
+        assert.equal(contact.email, cleared.email);
+    } finally {
+        restoreEnv();
+        if (organization) await cleanup({ organizationIds: [organization.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("'Cancelar cambio' only discards the pending new number (B) — the already-verified number (A) is never touched", async () => {
+    const owner = await createUser();
+    const restoreEnv = withMockedOutboundEnv();
+    let organization;
+    try {
+        ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
+        const { deepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
+        await confirmOrganizationPhoneFromWebhook({ waId: "5493514123456", token: extractTokenFromDeepLink(deepLink) });
+        const verifiedA = await prisma.organization.findUnique({ where: { id: organization.id } });
+
+        const restoreFetch = mockResendFetchSuccessOnly();
+        try {
+            await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE_2);
+        } finally {
+            restoreFetch();
+        }
+
+        await cancelOrganizationPhoneChangeService(owner.clerkId, organization.id);
+
+        const afterCancel = await prisma.organization.findUnique({ where: { id: organization.id } });
+        assert.equal(afterCancel.phone, ARG_PHONE, "A debe seguir siendo el oficial");
+        assert.equal(afterCancel.phoneVerifiedAt.getTime(), verifiedA.phoneVerifiedAt.getTime(), "phoneVerifiedAt de A no debe tocarse");
+
+        const authorization = await prisma.organizationPhoneChangeAuthorization.findUnique({ where: { organizationId: organization.id } });
+        assert.equal(authorization, null);
+        const pendingB = await prisma.organizationPhoneVerification.findUnique({ where: { organizationId: organization.id } });
+        assert.equal(pendingB, null);
+    } finally {
+        restoreEnv();
+        if (organization) await cleanup({ organizationIds: [organization.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("delete racing a concurrent CONFIRMAR never leaves an impossible state — whichever commits first fully determines the outcome", async () => {
+    const owner = await createUser();
+    const restoreEnv = withMockedOutboundEnv();
+    let organization;
+    try {
+        ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
+        const { deepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
+        const token = extractTokenFromDeepLink(deepLink);
+
+        // "Ejecutados en simultáneo": ambas promesas arrancan antes de que
+        // cualquiera de las dos resuelva. Postgres serializa las dos
+        // transacciones sobre la misma fila de Organization — el resultado
+        // final SIEMPRE es uno de dos consistentes, nunca un híbrido.
+        const [deleteResult, confirmResult] = await Promise.all([
+            deleteOrganizationPhoneService(owner.clerkId, organization.id),
+            confirmOrganizationPhoneFromWebhook({ waId: "5493514123456", token }),
+        ]);
+
+        assert.equal(deleteResult.deleted, true);
+        const finalOrg = await prisma.organization.findUnique({ where: { id: organization.id } });
+
+        if (confirmResult.confirmed) {
+            // CONFIRMAR ganó la carrera: verificó, y el delete (que corrió
+            // después) volvió a limpiar ese mismo teléfono recién
+            // verificado — resultado final igual: sin teléfono.
+            assert.equal(finalOrg.phone, null);
+            assert.equal(finalOrg.phoneVerifiedAt, null);
+        } else {
+            // Delete ganó la carrera: el CONFIRMAR no encontró nada para
+            // reclamar.
+            assert.equal(finalOrg.phone, null);
+            assert.equal(finalOrg.phoneVerifiedAt, null);
+        }
+        // Ningún camino deja una fila de challenge huérfana.
+        const pending = await prisma.organizationPhoneVerification.findUnique({ where: { organizationId: organization.id } });
+        assert.equal(pending, null);
+    } finally {
+        restoreEnv();
+        if (organization) await cleanup({ organizationIds: [organization.id], userIds: [owner.id] });
     }
 });

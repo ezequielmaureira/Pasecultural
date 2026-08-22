@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
-import { MessageCircle, CheckCircle2, Clock, RefreshCw } from "lucide-react";
+import { MessageCircle, CheckCircle2, Clock, RefreshCw, Trash2 } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
+import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
 import { Field, inputClass } from "../../components/ui/FormField.jsx";
 import {
   getOrganizationPhoneStatus,
@@ -11,6 +12,7 @@ import {
   resendOrganizationPhoneChangeOtp,
   resendOrganizationPhoneWhatsapp,
   cancelOrganizationPhoneChange,
+  deleteOrganizationPhone,
 } from "../../lib/organizationPhoneVerificationApi.js";
 import { useToast } from "../../context/ToastContext.jsx";
 
@@ -51,6 +53,12 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
   const [resendCooldownUntil, setResendCooldownUntil] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  // true mientras se muestra el ConfirmDialog para eliminar un WhatsApp YA
+  // VERIFICADO — eliminar uno no verificado nunca necesita confirmación
+  // (mismo criterio que "Cancelar cambio", que tampoco la pide).
+  const [confirmDeleteVerified, setConfirmDeleteVerified] = useState(false);
 
   useEffect(() => {
     if (resendCooldownUntil <= Date.now()) return;
@@ -87,6 +95,8 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
     setRequestError("");
     setVerifyError("");
     setReopenError("");
+    setDeleteError("");
+    setConfirmDeleteVerified(false);
     setDeepLink(null);
     setResendCooldownUntil(0);
     loadStatus();
@@ -203,6 +213,25 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
     setRefreshing(false);
   }
 
+  // Sirve tanto "Eliminar número" (no verificado, llamado directo) como
+  // "Eliminar WhatsApp de contacto" (verificado, llamado recién después de
+  // confirmar en el ConfirmDialog, ver más abajo) — misma mutación.
+  async function handleDeletePhone() {
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      const token = await getToken();
+      await deleteOrganizationPhone(token, organizationId);
+      setConfirmDeleteVerified(false);
+      toast.success("Eliminamos tu WhatsApp de contacto.");
+      resetToIdle();
+    } catch (err) {
+      setDeleteError(err.message || "No pudimos eliminar el número.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   if (phase === "loading") {
     return (
       <Card title="WhatsApp de contacto">
@@ -291,7 +320,7 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
             <MessageCircle className="h-4 w-4" /> Abrir WhatsApp
           </Button>
 
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <button
               type="button"
               onClick={reissueAndOpenWhatsapp}
@@ -301,16 +330,32 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
               <RefreshCw className={`h-3 w-3 ${reopening ? "animate-spin" : ""}`} />
               {cooldownRemaining > 0 ? `Abrir WhatsApp nuevamente (${cooldownRemaining}s)` : "Abrir WhatsApp nuevamente"}
             </button>
-            <button
-              type="button"
-              onClick={handleCancel}
-              disabled={cancelling}
-              className="text-xs text-slate-500 transition-colors duration-150 hover:text-slate-300 disabled:cursor-not-allowed"
-            >
-              Cancelar cambio
-            </button>
+            <div className="flex items-center gap-3">
+              {/* Nunca junto a un cambio en curso sobre un teléfono YA
+                  verificado — ahí sólo "Cancelar cambio" tiene sentido, A
+                  debe quedar intacto (ver el informe de entrega). */}
+              {!status?.verifiedAt && (
+                <button
+                  type="button"
+                  onClick={handleDeletePhone}
+                  disabled={deleting}
+                  className="inline-flex items-center gap-1 text-xs text-slate-500 transition-colors duration-150 hover:text-rose-400 disabled:cursor-not-allowed"
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Eliminar número
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleCancel}
+                disabled={cancelling}
+                className="text-xs text-slate-500 transition-colors duration-150 hover:text-slate-300 disabled:cursor-not-allowed"
+              >
+                Cancelar cambio
+              </button>
+            </div>
           </div>
           {reopenError && <p className="text-xs text-rose-400">{reopenError}</p>}
+          {deleteError && <p className="text-xs text-rose-400">{deleteError}</p>}
 
           <button
             type="button"
@@ -383,20 +428,47 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
             )}
           </div>
         </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => {
-            // Sección "organizaciones existentes" — verificar un número
-            // legacy YA cargado no debe obligar a retipearlo.
-            setPhone(!status?.verifiedAt && status?.phone ? status.phone : "");
-            setPhase("request");
-          }}
-        >
-          {status?.verifiedAt ? "Cambiar número" : status?.phone ? "Verificar WhatsApp" : "Agregar WhatsApp"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              // Sección "organizaciones existentes" — verificar un número
+              // legacy YA cargado no debe obligar a retipearlo.
+              setPhone(!status?.verifiedAt && status?.phone ? status.phone : "");
+              setPhase("request");
+            }}
+          >
+            {status?.verifiedAt ? "Cambiar número" : status?.phone ? "Verificar WhatsApp" : "Agregar WhatsApp"}
+          </Button>
+          {status?.phone && (
+            <button
+              type="button"
+              title={status.verifiedAt ? "Eliminar WhatsApp de contacto" : "Eliminar número"}
+              aria-label={status.verifiedAt ? "Eliminar WhatsApp de contacto" : "Eliminar número"}
+              onClick={() => (status.verifiedAt ? setConfirmDeleteVerified(true) : handleDeletePhone())}
+              disabled={deleting}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/5 text-slate-400 transition-colors duration-150 hover:bg-rose-500/10 hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
+        </div>
       </div>
       {statusError && <p className="mt-2 text-xs text-rose-400">{statusError}</p>}
+      {deleteError && <p className="mt-2 text-xs text-rose-400">{deleteError}</p>}
+
+      {confirmDeleteVerified && (
+        <ConfirmDialog
+          title="Eliminar WhatsApp de contacto"
+          description="¿Querés eliminar este WhatsApp de contacto? Los compradores ya no podrán contactarte por WhatsApp desde PaseCultural."
+          confirmLabel="Eliminar"
+          danger
+          loading={deleting}
+          onConfirm={handleDeletePhone}
+          onClose={() => setConfirmDeleteVerified(false)}
+        />
+      )}
     </Card>
   );
 }

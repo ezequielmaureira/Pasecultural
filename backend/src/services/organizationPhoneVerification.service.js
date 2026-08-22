@@ -366,6 +366,46 @@ export async function cancelOrganizationPhoneChangeService(clerkId, organization
 }
 
 // ==================================================================
+// DELETE — POST .../phone-verification/delete. Sirve para AMBOS casos que
+// pide el Dashboard ("Eliminar número" sobre un teléfono nunca verificado,
+// y "Eliminar WhatsApp de contacto" sobre uno ya verificado): la mutación
+// real es idéntica en los dos — nunca hubo lógica de negocio distinta que
+// justifique dos endpoints, sólo distinta UX en el frontend (confirmación
+// visual antes de llamar acá cuando el teléfono YA estaba verificado, ver
+// el informe de entrega). Transaccional (misma unidad atómica que
+// confirmOrganizationPhoneFromWebhook) — si un CONFIRMAR concurrente ya
+// commiteó primero, esto simplemente vuelve a poner todo en null sobre el
+// teléfono recién verificado (delete explícito de un teléfono verificado,
+// caso legítimo); si esto commitea primero, el CONFIRMAR que llegue
+// después no encuentra ninguna fila para reclamar y no hace nada — el
+// lock de fila de Postgres sobre el UPDATE de Organization alcanza para
+// serializar ambos casos sin lógica extra. Idempotente: llamarlo con
+// Organization.phone ya en null no falla, sólo no cambia nada más.
+// ==================================================================
+
+export async function deleteOrganizationPhoneService(clerkId, organizationId) {
+    const { organization } = await resolveOrganizationForOwnerOrThrow(clerkId, organizationId);
+
+    await prisma.$transaction(async (tx) => {
+        await tx.organization.update({
+            where: { id: organization.id },
+            data: { phone: null, phoneVerifiedAt: null },
+        });
+        // Invalida CUALQUIER challenge/autorización en curso — nunca debe
+        // quedar un pendingPhone/token fantasma apuntando a una
+        // Organization que ya no tiene teléfono. No es un no-op silencioso
+        // que se pueda saltar: un OrganizationPhoneVerification vivo acá
+        // es exactamente el "CONFIRMAR <token>" viejo que la sección 8 del
+        // pedido exige inutilizar de inmediato.
+        await tx.organizationPhoneChangeAuthorization.deleteMany({ where: { organizationId: organization.id } });
+        await tx.organizationPhoneVerification.deleteMany({ where: { organizationId: organization.id } });
+    });
+
+    logger.info("organization phone verification: teléfono eliminado", { organizationId: organization.id });
+    return { deleted: true };
+}
+
+// ==================================================================
 // STATUS — GET .../phone-verification. Sólo lectura. Nunca devuelve el
 // deep link/token (sólo existió en texto plano en la respuesta del
 // request/verify/resend que lo emitió — la fila sólo guarda el hash): el

@@ -53,3 +53,15 @@ export async function cancelOrganizationPhoneChange(token, organizationId) {
         body: JSON.stringify({ organizationId }),
     });
 }
+
+// Sirve tanto "Eliminar número" (no verificado) como "Eliminar WhatsApp de
+// contacto" (verificado) — distinto de cancelOrganizationPhoneChange:
+// cancel sólo descarta un intento en curso, esto elimina el teléfono
+// oficial mismo.
+export async function deleteOrganizationPhone(token, organizationId) {
+    return apiFetch("/api/organizations/me/phone-verification/delete", {
+        token,
+        method: "POST",
+        body: JSON.stringify({ organizationId }),
+    });
+}

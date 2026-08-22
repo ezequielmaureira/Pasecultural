@@ -34,22 +34,14 @@ CREATE UNIQUE INDEX "organization_phone_change_authorizations_organizationId_key
 ALTER TABLE "organization_phone_change_authorizations" ADD CONSTRAINT "organization_phone_change_authorizations_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "organization_phone_change_authorizations" ADD CONSTRAINT "organization_phone_change_authorizations_requestedByUserId_fkey" FOREIGN KEY ("requestedByUserId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- Flujo invertido (el organizador inicia la conversación de WhatsApp hacia
--- PaseCultural): pendingWaId solo ya no alcanza para desambiguar entre
--- organizaciones (ver el comentario del modelo) — challengeTokenHash es la
--- clave real de búsqueda del webhook, @unique GLOBAL (nunca dos filas vivas
--- con el mismo token). lastIssuedAt reemplaza a lastSentAt: esta fila ya no
--- registra un envío de WhatsApp (PaseCultural no manda nada), sólo cuándo
--- se emitió el token vigente.
 CREATE TABLE "organization_phone_verifications" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "requestedByUserId" TEXT NOT NULL,
     "pendingPhone" TEXT NOT NULL,
     "pendingWaId" TEXT NOT NULL,
-    "challengeTokenHash" TEXT NOT NULL,
     "expiresAt" TIMESTAMP(3) NOT NULL,
-    "lastIssuedAt" TIMESTAMP(3) NOT NULL,
+    "lastSentAt" TIMESTAMP(3) NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -57,10 +49,8 @@ CREATE TABLE "organization_phone_verifications" (
 );
 
 CREATE UNIQUE INDEX "organization_phone_verifications_organizationId_key" ON "organization_phone_verifications"("organizationId");
-CREATE UNIQUE INDEX "organization_phone_verifications_challengeTokenHash_key" ON "organization_phone_verifications"("challengeTokenHash");
 -- No único: dos organizaciones distintas pueden estar verificando el
--- mismo wa_id de buena fe al mismo tiempo (ver el comentario del modelo) —
--- la desambiguación real la hace challengeTokenHash de arriba.
+-- mismo wa_id de buena fe al mismo tiempo (ver el comentario del modelo).
 CREATE INDEX "organization_phone_verifications_pendingWaId_idx" ON "organization_phone_verifications"("pendingWaId");
 
 ALTER TABLE "organization_phone_verifications" ADD CONSTRAINT "organization_phone_verifications_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
