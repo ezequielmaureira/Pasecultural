@@ -18,7 +18,12 @@ import { getValidatedServiceFeeTiersOrThrow, calculateServiceFeeForUnitPrice } f
 import { sendDeveloperAlert, DeveloperAlertType, tryClaimDeveloperAlertCooldown } from "./email/sendDeveloperAlert.service.js";
 import { getDeveloperAlertConfigOrDefaults } from "./developerAlertConfig.service.js";
 import { sendOrganizerNotification, OrganizerNotificationType } from "./email/sendOrganizerNotification.service.js";
-import { buildOrganizationContact } from "./withdrawalRequest.service.js";
+import {
+    buildOrganizationContact,
+    getWithdrawalReturnInfoForTickets,
+    isWithinWithdrawalReturnWindow,
+    WITHDRAWAL_RETURN_VISIBILITY_HOURS,
+} from "./withdrawalRequest.service.js";
 import {
     getOrganizerNotificationSettingsOrDefaults,
     tryClaimOrganizerNotification,
@@ -1021,17 +1026,43 @@ export const getSaleStatusService = async (recoveryToken) => {
         return { id: sale.id, status: sale.status };
     }
 
-    const tickets = sale.tickets.map((ticket) => ({
-        id: ticket.id,
-        ticketNumber: ticket.ticketNumber,
-        status: ticket.status,
-        ticketTypeId: ticket.ticketTypeId,
-        ticketTypeName: ticket.ticketType?.name ?? "",
-        eventTitle: sale.event.title,
-        functionDate: sale.function.date,
-        venue: sale.function.venue,
-        qrToken: `${ticket.id}.${decryptSecret(ticket.qr.secretEncrypted)}`,
-    }));
+    // Botón de arrepentimiento — ventana informativa de 24h post-devolución
+    // (ver getWithdrawalReturnInfoForTickets/isWithinWithdrawalReturnWindow,
+    // withdrawalRequest.service.js). Resuelto acá, al CONSULTAR — nunca un
+    // cron/job: `now` es un único instante compartido por el cálculo de
+    // returnedAt y por el filtro de abajo, así que ambos siempre coinciden.
+    // Un ticket CANCELLED por CUALQUIER OTRO motivo (ticketAdmin admin
+    // panel, etc.) nunca tiene returnedAt — sigue apareciendo exactamente
+    // como siempre, sin ventana ni vencimiento.
+    const cancelledTicketIds = sale.tickets.filter((t) => t.status === "CANCELLED").map((t) => t.id);
+    const returnInfoByTicketId = await getWithdrawalReturnInfoForTickets(cancelledTicketIds);
+    const now = new Date();
+
+    const tickets = [];
+    for (const ticket of sale.tickets) {
+        const returnedAt = returnInfoByTicketId.get(ticket.id) ?? null;
+        // Ventana vencida (>=24h) — deja de aparecer en este panel, pero
+        // nunca se borra ni se toca nada en la base (ver el informe de
+        // entrega): el ticket, su QR, TicketAuditLog y WithdrawalRequest
+        // siguen existiendo tal cual, sólo se omite de ESTA respuesta.
+        if (returnedAt && !isWithinWithdrawalReturnWindow(returnedAt, now)) continue;
+
+        tickets.push({
+            id: ticket.id,
+            ticketNumber: ticket.ticketNumber,
+            status: ticket.status,
+            ticketTypeId: ticket.ticketTypeId,
+            ticketTypeName: ticket.ticketType?.name ?? "",
+            eventTitle: sale.event.title,
+            functionDate: sale.function.date,
+            venue: sale.function.venue,
+            qrToken: `${ticket.id}.${decryptSecret(ticket.qr.secretEncrypted)}`,
+            returnedAt,
+            returnWindowExpiresAt: returnedAt
+                ? new Date(returnedAt.getTime() + WITHDRAWAL_RETURN_VISIBILITY_HOURS * 60 * 60 * 1000)
+                : null,
+        });
+    }
 
     return {
         id: sale.id,

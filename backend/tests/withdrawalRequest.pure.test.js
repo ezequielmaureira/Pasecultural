@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sanitizeReason, sanitizeReasonNote, buildOrganizationContact } from "../src/services/withdrawalRequest.service.js";
+import {
+    sanitizeReason,
+    sanitizeReasonNote,
+    buildOrganizationContact,
+    isWithinWithdrawalReturnWindow,
+    WITHDRAWAL_RETURN_VISIBILITY_HOURS,
+} from "../src/services/withdrawalRequest.service.js";
 
 // Botón de arrepentimiento — lógica PURA (nunca toca la base), corre segura
 // bajo `npm run test:unit` aunque el módulo importe prisma.js
@@ -74,4 +80,20 @@ test("buildOrganizationContact falls back to null email when the organization ph
     const contact = buildOrganizationContact({ phone: null, phoneVerifiedAt: null, email: null }, "Mi Evento");
     assert.equal(contact.whatsappUrl, null);
     assert.equal(contact.email, null);
+});
+
+// Extensión "ver mis entradas" — ventana de 24h, resuelta al consultar
+// (nunca un cron). Cobertura pura de isWithinWithdrawalReturnWindow —
+// getSaleStatusService (sale.service.js) es quien la usa de verdad contra
+// datos reales, ver withdrawalRequestTicketVisibility.crud.test.js.
+test("isWithinWithdrawalReturnWindow: null returnedAt is never within the window (never a returned ticket)", () => {
+    assert.equal(isWithinWithdrawalReturnWindow(null, new Date()), false);
+});
+
+test("isWithinWithdrawalReturnWindow: true just under 24h, false just over — exact boundary", () => {
+    const now = new Date("2026-01-02T12:00:00.000Z");
+    const returnedAtJustUnder = new Date(now.getTime() - (WITHDRAWAL_RETURN_VISIBILITY_HOURS * 60 * 60 * 1000 - 1000));
+    const returnedAtJustOver = new Date(now.getTime() - (WITHDRAWAL_RETURN_VISIBILITY_HOURS * 60 * 60 * 1000 + 1000));
+    assert.equal(isWithinWithdrawalReturnWindow(returnedAtJustUnder, now), true);
+    assert.equal(isWithinWithdrawalReturnWindow(returnedAtJustOver, now), false);
 });

@@ -17,6 +17,21 @@ const VALID_REASONS = new Set(["ARREPENTIMIENTO", "ERROR_COMPRA", "CAMBIO_EVENTO
 const REASON_NOTE_MAX_LENGTH = 500;
 const ACTIVE_STATUSES = ["REQUESTED", "CONTACTED"];
 
+// Ventana informativa post-devolución — ver getSaleStatusService
+// (sale.service.js), que es quien realmente la aplica. Sólo UI: nunca
+// reactiva el ticket, nunca reabre la solicitud, nunca revive el QR.
+export const WITHDRAWAL_RETURN_VISIBILITY_HOURS = 24;
+
+// Discriminador INEQUÍVOCO de "este ACTIVE->CANCELLED fue un ticket
+// devuelto por el botón de arrepentimiento" — nunca una cancelación
+// administrativa común (ticketAdmin.service.js#cancelTicketService usa el
+// mismo action=CANCEL/actorType=ORGANIZER, así que ninguno de esos dos
+// campos alcanza por sí solo para distinguir un motivo del otro). Se guarda
+// en TicketAuditLog.metadata (Json? ya existente, reservado para esto,
+// nunca usado por ningún otro caller hoy) — no hace falta ningún campo de
+// schema nuevo.
+const WITHDRAWAL_RETURN_AUDIT_SOURCE = "WITHDRAWAL_REQUEST_RETURN";
+
 // Exportadas para tests unitarios puros (nunca tocan la base) — ver
 // tests/withdrawalRequest.pure.test.js.
 export function sanitizeReason(reason) {
@@ -428,6 +443,11 @@ export async function returnWithdrawalRequestTicketsService(clerkId, withdrawalR
                 actorType: "ORGANIZER",
                 actorId: user.id,
                 reason: `Botón de arrepentimiento — entrada devuelta (solicitud ${withdrawalRequestId})`,
+                // metadata.source es lo único que getWithdrawalReturnInfoForTickets
+                // realmente lee para decidir "esto fue una devolución de este
+                // flujo" — el `reason` de arriba es sólo texto para humanos,
+                // nunca se parsea.
+                metadata: { source: WITHDRAWAL_RETURN_AUDIT_SOURCE, withdrawalRequestId },
             })),
         });
 
@@ -438,4 +458,41 @@ export async function returnWithdrawalRequestTicketsService(clerkId, withdrawalR
 
     logger.info("returnWithdrawalRequestTicketsService completed", { withdrawalRequestId, ticketIds: ids, updatedBy: user.id });
     return { id: withdrawalRequestId, status: "RESOLVED", resolvedAt: now, returnedTicketIds: ids };
+}
+
+// Extensión "ver mis entradas" (ventana de 24h) — resuelve, para un lote de
+// tickets YA sabidos CANCELLED, cuál de ellos llegó a ese estado por una
+// devolución de ESTE flujo (nunca por ticketAdmin.service.js#cancelTicketService
+// u otro motivo administrativo). Se apoya en que TicketAuditLog es
+// append-only: la fila MÁS RECIENTE con toStatus=CANCELLED es, por
+// construcción, la transición que produjo el estado CANCELLED actual del
+// ticket (si luego se rehabilitara y se volviera a cancelar por otro medio,
+// esa nueva fila sería la más reciente y ganaría correctamente). Devuelve un
+// Map<ticketId, Date|null> — null cuando el ticket está CANCELLED pero NO
+// por este flujo (nunca se inventa un returnedAt ahí).
+export async function getWithdrawalReturnInfoForTickets(ticketIds) {
+    const result = new Map();
+    if (!Array.isArray(ticketIds) || ticketIds.length === 0) return result;
+
+    const logs = await prisma.ticketAuditLog.findMany({
+        where: { ticketId: { in: ticketIds }, toStatus: "CANCELLED" },
+        orderBy: { createdAt: "desc" },
+        select: { ticketId: true, createdAt: true, metadata: true },
+    });
+
+    for (const log of logs) {
+        if (result.has(log.ticketId)) continue; // ya se guardó la transición MÁS RECIENTE para este ticket
+        const isWithdrawalReturn = log.metadata && typeof log.metadata === "object" && log.metadata.source === WITHDRAWAL_RETURN_AUDIT_SOURCE;
+        result.set(log.ticketId, isWithdrawalReturn ? log.createdAt : null);
+    }
+    return result;
+}
+
+// now se recibe explícito (nunca `new Date()` interno) para que
+// getSaleStatusService calcule returnedAt/returnWindowExpiresAt con el
+// MISMO instante que usó para decidir si el ticket entra o no en la
+// respuesta — nunca dos relojes ligeramente distintos en la misma llamada.
+export function isWithinWithdrawalReturnWindow(returnedAt, now) {
+    if (!returnedAt) return false;
+    return now.getTime() - new Date(returnedAt).getTime() < WITHDRAWAL_RETURN_VISIBILITY_HOURS * 60 * 60 * 1000;
 }

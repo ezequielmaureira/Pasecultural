@@ -12,6 +12,7 @@ import {
   createWithdrawalRequest,
   dismissWithdrawalRequest,
 } from "../../lib/withdrawalRequestApi.js";
+import WithdrawalTicketDetailModal from "./tickets/WithdrawalTicketDetailModal.jsx";
 
 // Cierre del ciclo — mismo bloque "Contactar al organizador" que ya usaba
 // la pantalla de "Solicitud registrada" (submitResult.contact), extraído
@@ -114,6 +115,12 @@ export default function WithdrawalRequest() {
   const [confirmDismissSale, setConfirmDismissSale] = useState(null);
   const [dismissing, setDismissing] = useState(false);
   const [dismissError, setDismissError] = useState("");
+
+  // "Ver entrada(s)" — disponible independientemente de que exista o no
+  // una WithdrawalRequest activa (ver el informe de entrega). Reutiliza el
+  // mismo saleToken ya autorizado por OTP, nunca una compra/id que mande el
+  // frontend sin haber pasado por la verificación.
+  const [viewTicketsSale, setViewTicketsSale] = useState(null);
 
   useEffect(() => {
     if (resendCooldownUntil <= Date.now()) return;
@@ -237,6 +244,7 @@ export default function WithdrawalRequest() {
     setContactOpenToken(null);
     setConfirmDismissSale(null);
     setDismissError("");
+    setViewTicketsSale(null);
   }
 
   if (status === "requesting" || status === "submitting") {
@@ -364,6 +372,11 @@ export default function WithdrawalRequest() {
                     {sale.ticketCount} {sale.ticketCount === 1 ? "entrada" : "entradas"}
                   </p>
                 </div>
+                <Button size="sm" variant="secondary" className="w-full justify-center" onClick={() => setViewTicketsSale(sale)}>
+                  <Ticket className="h-3.5 w-3.5" />
+                  {sale.ticketCount === 1 ? "Ver entrada" : "Ver entradas"}
+                </Button>
+
                 {sale.existingRequestStatus ? (
                   <div className="flex flex-col gap-2">
                     <p className="text-xs text-amber-300">{REQUEST_STATUS_LABEL[sale.existingRequestStatus] ?? "Ya existe una solicitud para esta compra."}</p>
@@ -409,6 +422,14 @@ export default function WithdrawalRequest() {
             loading={dismissing}
             onConfirm={() => handleDismiss(confirmDismissSale)}
             onClose={() => setConfirmDismissSale(null)}
+          />
+        )}
+
+        {viewTicketsSale && (
+          <WithdrawalTicketDetailModal
+            saleToken={viewTicketsSale.saleToken}
+            eventTitle={viewTicketsSale.eventTitle}
+            onClose={() => setViewTicketsSale(null)}
           />
         )}
       </div>
