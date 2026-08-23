@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import prisma from "../src/config/prisma.js";
 import { createOrganizationService } from "../src/services/organization.service.js";
-import { requestOrganizationPhoneVerificationService, confirmOrganizationPhoneFromWebhook, deleteOrganizationPhoneService } from "../src/services/organizationPhoneVerification.service.js";
+import {
+    requestOrganizationPhoneVerificationService,
+    confirmOrganizationPhoneFromWebhook,
+    deleteOrganizationPhoneService,
+    verifyOrganizationPhoneChangeOtpService,
+} from "../src/services/organizationPhoneVerification.service.js";
 import { discoverWhatsappOrganizationCandidates } from "../src/services/whatsappOrganizerDiscovery.service.js";
 
 // Unificación WhatsApp (ronda "arquitectura final") — Organization.phone
@@ -15,9 +20,12 @@ import { discoverWhatsappOrganizationCandidates } from "../src/services/whatsapp
 // REAL que usa el bot (discoverWhatsappOrganizationCandidates), no un
 // mock. Guardrail centralizado — ver tests/helpers/dbGuard.js.
 //
-// NO EJECUTADO todavía (el usuario pidió explícitamente no correr test:db
-// esta ronda) — queda escrito y registrado en dbTestFiles.js para la
-// próxima corrida autorizada.
+// Ejecutado por primera vez contra TEST real en la ronda de "deploy
+// autorizado" (ver el informe de entrega) — reveló que los fixtures creaban
+// la Organization vía createOrganizationService (status PENDING por
+// default) sin aprobarla, así que discoverWhatsappOrganizationCandidates
+// (que sólo resuelve APPROVED, correctamente) nunca las encontraba —
+// corregido con createApprovedOrganization, sin tocar ninguna regla real.
 import { hasDatabase } from "./helpers/dbGuard.js";
 const testWithDb = hasDatabase ? test : test.skip;
 
@@ -74,6 +82,19 @@ async function createUser(overrides = {}) {
     });
 }
 
+// discoverWhatsappOrganizationCandidates SÓLO resuelve Organizations
+// status=APPROVED (ver whatsappOrganizerDiscovery.service.js) — nunca una
+// recién creada por createOrganizationService, que arranca en PENDING
+// (comportamiento correcto: una organización sin aprobar no debe poder
+// administrarse por chatbot). Este archivo prueba discovery real, así que
+// necesita una organización YA aprobada — nunca se toca
+// discoverWhatsappOrganizationCandidates para relajar ese filtro.
+async function createApprovedOrganization(clerkId, data) {
+    const { organization } = await createOrganizationService(clerkId, data);
+    const approved = await prisma.organization.update({ where: { id: organization.id }, data: { status: "APPROVED" } });
+    return { organization: approved };
+}
+
 async function cleanup({ organizationIds = [], userIds = [], waIds = [] }) {
     await prisma.whatsappPendingOrganizationSelection.deleteMany({ where: { waId: { in: waIds } } });
     await prisma.conversationState.deleteMany({ where: { organizationId: { in: organizationIds } } });
@@ -97,7 +118,7 @@ testWithDb("1) before CONFIRMAR, a newly created organization with an unverified
     const restoreEnv = withMockedOutboundEnv();
     let organization;
     try {
-        ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
+        ({ organization } = await createApprovedOrganization(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
         await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
 
         const link = await prisma.whatsappOrganizerLink.findUnique({ where: { organizationId: organization.id } });
@@ -113,7 +134,7 @@ testWithDb("2) a valid CONFIRMAR <token> creates a WhatsappOrganizerLink for the
     const restoreEnv = withMockedOutboundEnv();
     let organization;
     try {
-        ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
+        ({ organization } = await createApprovedOrganization(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
         const { deepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
         const result = await confirmOrganizationPhoneFromWebhook({ waId: WAID_A, token: extractTokenFromDeepLink(deepLink) });
         assert.equal(result.confirmed, true);
@@ -132,7 +153,7 @@ testWithDb("3) once verified, the real chatbot discovery (discoverWhatsappOrgani
     const restoreEnv = withMockedOutboundEnv();
     let organization;
     try {
-        ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
+        ({ organization } = await createApprovedOrganization(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
         const { deepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
         await confirmOrganizationPhoneFromWebhook({ waId: WAID_A, token: extractTokenFromDeepLink(deepLink) });
 
@@ -154,7 +175,7 @@ testWithDb("4) changing A→B keeps A authorized for the chatbot until B is actu
     const restoreEnv = withMockedOutboundEnv();
     let organization;
     try {
-        ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
+        ({ organization } = await createApprovedOrganization(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
         const { deepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
         await confirmOrganizationPhoneFromWebhook({ waId: WAID_A, token: extractTokenFromDeepLink(deepLink) });
 
@@ -182,15 +203,26 @@ testWithDb("5) once B is confirmed, the authorization swaps atomically: B resolv
     const restoreEnv = withMockedOutboundEnv();
     let organization;
     try {
-        ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
+        ({ organization } = await createApprovedOrganization(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
         const { deepLink: firstDeepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
         await confirmOrganizationPhoneFromWebhook({ waId: WAID_A, token: extractTokenFromDeepLink(firstDeepLink) });
 
+        // Cambiar un teléfono YA verificado exige el paso de autorización por
+        // email PRIMERO (requiresEmailAuthorization,
+        // organizationPhoneVerification.service.js) — el deep link real para
+        // B recién sale de verifyOrganizationPhoneChangeOtpService, nunca del
+        // request inicial (ese sólo dispara el OTP). Mismo patrón ya probado
+        // en organizationPhoneVerification.crud.test.js.
         const restoreFetch = mockResendFetchSuccessOnly();
         let secondDeepLink;
         try {
-            const { deepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE_2);
-            secondDeepLink = deepLink;
+            await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE_2);
+            const authorization = await prisma.organizationPhoneChangeAuthorization.findUnique({ where: { organizationId: organization.id } });
+            const { hashVerificationCode } = await import("../src/utils/verificationCode.js");
+            const knownCode = "654321";
+            await prisma.organizationPhoneChangeAuthorization.update({ where: { id: authorization.id }, data: { codeHash: hashVerificationCode(knownCode) } });
+            const verifyResult = await verifyOrganizationPhoneChangeOtpService(owner.clerkId, organization.id, knownCode);
+            secondDeepLink = verifyResult.deepLink;
         } finally {
             restoreFetch();
         }
@@ -226,7 +258,7 @@ testWithDb("6) deleting the verified WhatsApp immediately revokes chatbot author
     const restoreEnv = withMockedOutboundEnv();
     let organization;
     try {
-        ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
+        ({ organization } = await createApprovedOrganization(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
         const { deepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
         await confirmOrganizationPhoneFromWebhook({ waId: WAID_A, token: extractTokenFromDeepLink(deepLink) });
 
@@ -250,7 +282,7 @@ testWithDb("7) a challenge token from before the deletion is permanently inert a
     const restoreEnv = withMockedOutboundEnv();
     let organization;
     try {
-        ({ organization } = await createOrganizationService(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
+        ({ organization } = await createApprovedOrganization(owner.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
         const { deepLink } = await requestOrganizationPhoneVerificationService(owner.clerkId, organization.id, ARG_PHONE);
         const token = extractTokenFromDeepLink(deepLink);
 
@@ -278,8 +310,8 @@ testWithDb("8) verifying organization X's phone never creates/touches a Whatsapp
     const restoreEnv = withMockedOutboundEnv();
     let orgX, orgY;
     try {
-        ({ organization: orgX } = await createOrganizationService(ownerX.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
-        ({ organization: orgY } = await createOrganizationService(ownerY.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE_2 }));
+        ({ organization: orgX } = await createApprovedOrganization(ownerX.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE }));
+        ({ organization: orgY } = await createApprovedOrganization(ownerY.clerkId, { name: `Sala ${uniqueSuffix()}`, email: `org_${uniqueSuffix()}@example.com`, phone: ARG_PHONE_2 }));
 
         const { deepLink } = await requestOrganizationPhoneVerificationService(ownerX.clerkId, orgX.id, ARG_PHONE);
         await confirmOrganizationPhoneFromWebhook({ waId: WAID_A, token: extractTokenFromDeepLink(deepLink) });

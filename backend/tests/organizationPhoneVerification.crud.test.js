@@ -22,9 +22,10 @@ import { buildOrganizationContact } from "../src/services/withdrawalRequest.serv
 // withdrawalRequest.crud.test.js. Guardrail centralizado — ver
 // tests/helpers/dbGuard.js.
 //
-// NO EJECUTADO todavía (el usuario pidió explícitamente no correr test:db
-// esta ronda) — queda escrito y registrado en dbTestFiles.js para la
-// próxima corrida autorizada. NO cubierto acá (ver el informe de entrega):
+// Ejecutado por primera vez contra TEST real en la ronda de "deploy
+// autorizado" (ver el informe de entrega) — reveló que cleanup() no
+// borraba WhatsappOrganizerLink antes de Organization (FK violation),
+// corregido en ESE mismo momento. NO cubierto acá (ver el informe de entrega):
 // el branch real dentro de processInboundMessage/whatsapp.controller.js
 // (requeriría simular un webhook HTTP completo con firma HMAC válida — más
 // apropiado como un test de integración HTTP separado), y el rate limit de
@@ -94,6 +95,13 @@ async function createUser(overrides = {}) {
 }
 
 async function cleanup({ organizationIds = [], userIds = [] }) {
+    // confirmOrganizationPhoneFromWebhook sincroniza WhatsappOrganizerLink
+    // (ver syncWhatsappOrganizerLinkAfterVerification) — este archivo nunca
+    // lo había ejercitado contra Postgres real hasta ahora, así que la
+    // limpieza nunca había necesitado borrar esa fila antes de la
+    // Organization (FK whatsapp_organizer_links_organizationId_fkey). Mismo
+    // orden que ya usa organizationPhoneVerificationChatbotSync.crud.test.js.
+    await prisma.whatsappOrganizerLink.deleteMany({ where: { organizationId: { in: organizationIds } } });
     await prisma.organizationPhoneChangeAuthorization.deleteMany({ where: { organizationId: { in: organizationIds } } });
     await prisma.organizationPhoneVerification.deleteMany({ where: { organizationId: { in: organizationIds } } });
     await prisma.organization.deleteMany({ where: { id: { in: organizationIds } } });
