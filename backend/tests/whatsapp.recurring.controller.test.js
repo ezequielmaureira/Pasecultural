@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { processInboundMessage } from "../src/controllers/whatsapp.controller.js";
+import { addCalendarDays } from "../src/utils/calendarDate.js";
 import {
     extractWhatsappReplyText,
     WHATSAPP_RECURRING_RANGE_PROMPT_TEXT,
@@ -22,6 +23,7 @@ import {
     parseWhatsappCompactDateRangeText,
     isRecurringToBeforeFrom,
     WHATSAPP_FUNCTIONS_LIST_ADD_ANOTHER_INVALID_TEXT,
+    getArgentinaTodayDateString,
 } from "../src/services/whatsappOrganizerBot.service.js";
 
 // Fase 3F/3K — árbol de decisión de processInboundMessage para
@@ -158,10 +160,32 @@ function baseDeps({ pendingStore, resumeConversation, ...overrides } = {}) {
     };
 }
 
-const RANGE_TEXT = "20/08 al 30/09";
-const FROM = "2026-08-20";
-const TO = "2026-09-30";
-const NOW = new Date("2026-08-12T15:00:00.000Z");
+// Bug fix (tests recurring fechados) — FROM/TO/RANGE_TEXT eran literales
+// fijos de 2026: los tests de las líneas 205+ ejercitan processInboundMessage,
+// que resuelve "DD/MM" (sin año) contra el reloj REAL sin ninguna forma de
+// inyectar `now` a través de esa ruta pública (parseWhatsappCompactDateRangeText
+// sólo recibe `now` explícito en la llamada DIRECTA de la primera prueba de
+// abajo) — apenas el calendario real alcanzó esos literales, la MISMA regla
+// de producción ("DD/MM sin año -> próxima ocurrencia futura", ver
+// parseWhatsappFunctionCardDateText) empezó a resolverlos un año más tarde,
+// rompiendo la comparación contra el literal fijo. Se calculan ahora
+// relativos a "hoy" (Argentina, misma función que usa la producción,
+// getArgentinaTodayDateString) con +30/+60 días de margen — nunca vuelven a
+// quedar en el pasado ni a cruzar el límite "hoy" mientras corre la suite,
+// sin depender de en qué fecha real se ejecute. Nunca se tocó ninguna regla
+// de negocio: NOW ahora es el reloj real (antes fijo), consistente con lo
+// que la ruta processInboundMessage sin `now` inyectable ya usaba de hecho.
+const NOW = new Date();
+const TODAY = getArgentinaTodayDateString(NOW);
+const FROM = addCalendarDays(TODAY, 30);
+const TO = addCalendarDays(TODAY, 60);
+
+function toCompactDDMM(calendarDateString) {
+    const [, month, day] = calendarDateString.split("-");
+    return `${day}/${month}`;
+}
+
+const RANGE_TEXT = `${toCompactDDMM(FROM)} al ${toCompactDDMM(TO)}`;
 
 // ==================================================
 // extractWhatsappReplyText — los inputTypes de RECURRING nunca muestran el
@@ -198,8 +222,8 @@ test("extractWhatsappReplyText shows the RECURRING-specific compact prompts for 
 
 test("parseWhatsappCompactDateRangeText parses 'DD/MM al DD/MM' and variants", () => {
     assert.deepEqual(parseWhatsappCompactDateRangeText(RANGE_TEXT, NOW), { from: FROM, to: TO });
-    assert.deepEqual(parseWhatsappCompactDateRangeText("20/08-30/09", NOW), { from: FROM, to: TO });
-    assert.deepEqual(parseWhatsappCompactDateRangeText("20/08 hasta 30/09", NOW), { from: FROM, to: TO });
+    assert.deepEqual(parseWhatsappCompactDateRangeText(`${toCompactDDMM(FROM)}-${toCompactDDMM(TO)}`, NOW), { from: FROM, to: TO });
+    assert.deepEqual(parseWhatsappCompactDateRangeText(`${toCompactDDMM(FROM)} hasta ${toCompactDDMM(TO)}`, NOW), { from: FROM, to: TO });
 });
 
 test("a valid compact range calls the engine exactly once with {from,to}, no pending is created", async () => {
@@ -236,7 +260,7 @@ test("a from-date before today (Argentina) is rejected as already past, never ca
 test("a to-date earlier than the from-date is rejected without ever calling the engine", async () => {
     const { deps, sendCalls } = baseDeps();
 
-    await processInboundMessage(textMessage({ text: "30/09 al 20/08" }), deps);
+    await processInboundMessage(textMessage({ text: `${toCompactDDMM(TO)} al ${toCompactDDMM(FROM)}` }), deps);
 
     assert.equal(deps.handleConversationInput.calls.length, 0);
     assert.equal(sendCalls[0].text, WHATSAPP_RECURRING_TO_BEFORE_FROM_TEXT);
@@ -251,7 +275,7 @@ test("isRecurringToBeforeFrom is a pure comparator reused by the subflow", () =>
 test("a to-date equal to from-date is accepted (same-day range)", async () => {
     const { deps } = baseDeps({ handleConversationInput: spy(WEEKDAYS_STEP_STATE) });
 
-    await processInboundMessage(textMessage({ text: "20/08 al 20/08" }), deps);
+    await processInboundMessage(textMessage({ text: `${toCompactDDMM(FROM)} al ${toCompactDDMM(FROM)}` }), deps);
 
     assert.equal(deps.handleConversationInput.calls.length, 1);
     assert.deepEqual(deps.handleConversationInput.calls[0][1], { value: { from: FROM, to: FROM } });
