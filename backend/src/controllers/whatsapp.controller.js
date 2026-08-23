@@ -174,7 +174,26 @@ export const verifyWhatsappWebhook = (req, res) => {
 // automáticamente las ~15 ramas de retorno de esa función sin tocar cada
 // una — nunca se llama a logger/perf si WHATSAPP_PERF_LOG no está activo
 // (ver isWhatsappPerfLogEnabled).
-async function sendBotReply({ sendText, to, from, messageId, text, engineAction, perf, conversationId }) {
+//
+// Bug fix (saludos espontáneos) — diagnóstico mínimo agregado en ESTE único
+// punto: es el único lugar de todo el proyecto que efectivamente manda un
+// mensaje de respuesta del bot (ver la auditoría del informe de entrega —
+// los ~15 `reply(...)` de processInboundMessage son los únicos callers).
+// `source: "INBOUND_MESSAGE"` es un literal fijo, nunca calculado: hace
+// EXPLÍCITA en el log la causalidad que hoy ya es cierta por construcción
+// (sendBotReply sólo existe dentro de processInboundMessage, que sólo se
+// invoca desde receiveWhatsappWebhook con un `message` real) — si en el
+// futuro apareciera otro caller que NO tenga un inboundMessageId real, esa
+// diferencia va a quedar visible acá en vez de asumida. `context` es
+// opcional y sólo lo usan los call sites que ya tienen ese dato a mano
+// (hoy, el saludo — ver GREETING más abajo, organizationId cuando aplica);
+// nunca obliga a tocar los demás ~13 call sites de `reply(...)`.
+function redactWaId(waId) {
+    if (typeof waId !== "string" || waId.length < 6) return "***";
+    return `${waId.slice(0, 4)}***${waId.slice(-2)}`;
+}
+
+async function sendBotReply({ sendText, to, from, messageId, text, engineAction, perf, conversationId, context = {} }) {
     perf?.mark("BUILD_REPLY");
     if (!text) {
         perf?.finish({ conversationId, engineAction, sent: false });
@@ -183,26 +202,24 @@ async function sendBotReply({ sendText, to, from, messageId, text, engineAction,
     const result = await sendText({ to, text });
     perf?.mark("META_SEND");
     const recipientNormalized = to !== from;
+    // Nunca el texto/teléfono completo/token — sólo lo necesario para
+    // diagnosticar en desarrollo (ver sección 12 del pedido de Fase 2E, y la
+    // sección "diagnóstico" del bug fix de saludos espontáneos).
+    const diagnosticFields = {
+        source: "INBOUND_MESSAGE",
+        inboundMessageId: messageId,
+        to: redactWaId(to),
+        engineAction,
+        conversationId,
+        recipientNormalized,
+        ...context,
+    };
     if (!result.success) {
-        // Nunca el texto/teléfono completo/token — sólo lo necesario para
-        // diagnosticar en desarrollo (ver sección 12 del pedido de Fase 2E).
-        logger.warn("WhatsApp organizer bot: Meta rechazó el envío", {
-            inboundMessageId: messageId,
-            engineAction,
-            success: false,
-            error: result.error,
-            recipientNormalized,
-        });
+        logger.warn("WhatsApp organizer bot: Meta rechazó el envío", { ...diagnosticFields, success: false, error: result.error });
         perf?.finish({ conversationId, engineAction, success: false });
         return;
     }
-    logger.info("WhatsApp organizer bot reply sent", {
-        inboundMessageId: messageId,
-        engineAction,
-        success: true,
-        outboundMessageId: result.messageId,
-        recipientNormalized,
-    });
+    logger.info("WhatsApp organizer bot reply sent", { ...diagnosticFields, success: true, outboundMessageId: result.messageId });
     perf?.finish({ conversationId, engineAction, success: true });
 }
 
@@ -1248,8 +1265,11 @@ export async function processInboundMessage(
     perf.mark("CLAIM_DEDUPE");
 
     let activeConversationId = null;
-    const reply = (replyText, engineAction) =>
-        sendBotReply({ sendText, to, from: message.from, messageId: message.messageId, text: replyText, engineAction, perf, conversationId: activeConversationId });
+    // `context` opcional (default {}) — hoy sólo lo pasan los call sites del
+    // saludo (organizationId, ver GREETING más abajo), nunca obliga a tocar
+    // los demás.
+    const reply = (replyText, engineAction, context) =>
+        sendBotReply({ sendText, to, from: message.from, messageId: message.messageId, text: replyText, engineAction, perf, conversationId: activeConversationId, context });
 
     let processingFailed = false;
     try {
@@ -1722,7 +1742,7 @@ export async function processInboundMessage(
                 return;
             }
 
-            await reply(buildKnownOrganizationGreetingText(personFirstName, organization.name), "GREETING");
+            await reply(buildKnownOrganizationGreetingText(personFirstName, organization.name), "GREETING", { organizationId: organization.organizationId });
             return;
         }
 
@@ -1737,7 +1757,13 @@ export async function processInboundMessage(
         }
 
         if (intent !== "AFFIRMATIVE") {
-            await reply(buildGenericPublishIntentGreetingText(personFirstName), "GREETING");
+            // Caso B: varias Organizations candidatas, ninguna elegida
+            // todavía — no hay un organizationId único que loguear, así que
+            // se deja constancia de las candidatas (nunca más de lo que ya
+            // resolvió discoverCandidates, nada nuevo que consultar).
+            await reply(buildGenericPublishIntentGreetingText(personFirstName), "GREETING", {
+                candidateOrganizationIds: candidates.map((candidate) => candidate.organizationId),
+            });
             return;
         }
 
