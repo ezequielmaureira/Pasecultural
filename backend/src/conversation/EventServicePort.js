@@ -6,6 +6,7 @@ import {
     getEventWithDetailsById,
     getMyOrganization,
 } from "../services/event.service.js";
+import { getDeveloperAlertConfigOrDefaults } from "../services/developerAlertConfig.service.js";
 import { SOCIAL_NETWORKS } from "../utils/eventCategories.js";
 import { combineCalendarDateTime } from "../utils/calendarDate.js";
 import { translateEventServiceError } from "./errorMessages.js";
@@ -105,12 +106,26 @@ function buildLinksInput(draft) {
 // ESA llamada puntual pide antes de confiar en él (ver resolveContext en
 // event.service.js) — nunca se debilitó ninguna autorización, sólo se dejó
 // de repetir una consulta cuyo resultado ya se conocía.
+// Fase 9 (perf) — `developerAlertConfig` se resuelve UNA sola vez acá,
+// mismo criterio exacto que `context` (Fase 8.1, comentario de arriba):
+// createEventService y syncEventScheduleService, dentro de un mismo
+// commit(), evaluaban cada una su propio chequeo de Alertas Developer (2C y
+// 2A respectivamente) pidiendo la MISMA fila singleton DeveloperAlertConfig
+// por separado — confirmado con evidencia real en
+// eventServicePort.commit.perf.test.js (dos DeveloperAlertConfig.findFirst
+// idénticos por commit). Ninguna alerta cambia de comportamiento: mismos
+// umbrales, mismo cooldown, mismas condiciones — sólo se dejó de repetir
+// una lectura cuyo resultado ya se conocía dentro de esta misma llamada
+// síncrona. Cualquier otro caller de checkAndAlertTooManyEvents/
+// checkAndAlertHighTicketPrices (Web directo, duplicateEventService) sigue
+// pidiendo su propia copia, sin cambios.
 export async function commit(clerkId, draftEvent, action, organizationId = null) {
     try {
         const context = await getMyOrganization(clerkId, organizationId);
         if (!context) {
             throw new Error("NO_ORGANIZATION");
         }
+        const developerAlertConfig = await getDeveloperAlertConfigOrDefaults();
 
         let event = await createEventService(
             clerkId,
@@ -123,7 +138,7 @@ export async function commit(clerkId, draftEvent, action, organizationId = null)
                 location: buildLocationInput(draftEvent.location),
             },
             organizationId,
-            { context }
+            { context, developerAlertConfig }
         );
 
         // Fase 3O — perf: acá nunca se usa el evento que devuelven estas dos
@@ -150,7 +165,7 @@ export async function commit(clerkId, draftEvent, action, organizationId = null)
                 ticketTypes: buildTicketTypesInput(draftEvent),
             },
             organizationId,
-            { returnEvent: false, context, skipDelete: true }
+            { returnEvent: false, context, skipDelete: true, developerAlertConfig }
         );
 
         if (action === "PUBLISH") {

@@ -374,7 +374,26 @@ testWithDb("syncEventScheduleService: default (sin opciones) sigue devolviendo e
 // operación, en el informe de entrega de esta fase — no son una suposición.
 // ==================================================================
 
-testWithDb("FASE 8.1/8.2) commit(DRAFT) with links: User+Organization se resuelven UNA sola vez y los deletes de agenda se saltean — 20 -> 14", async () => {
+// Fase 9 (perf) — investigación del bug "Developer Alert al crear
+// organización nueva" (ver el informe de entrega): auditando por qué este
+// archivo quedó en rojo se encontró, con evidencia real (dbCalls
+// impreso en el mensaje de fallo), que el conteo subió por TRES
+// operaciones nuevas, legítimas, ninguna relacionada con el bug
+// investigado:
+//   - geocoding.requestGeocode (×1): geocodificación de la ubicación del
+//     evento (buildLocationData -> geocodeLocationIfNeeded) — feature
+//     completamente aparte, sin ninguna relación con Alertas Developer.
+//   - Event.count (×1): Alertas Developer 2C (checkAndAlertTooManyEvents)
+//     — cuenta eventos de la organización en la ventana configurada.
+//     Necesaria, no removible sin debilitar esa alerta.
+//   - DeveloperAlertConfig.findFirst (×1, YA CORREGIDO acá mismo — antes
+//     eran 2): checkAndAlertHighTicketPrices (2A) y
+//     checkAndAlertTooManyEvents (2C) pedían cada una su propia copia de
+//     la MISMA fila singleton. EventServicePort.commit() ahora la resuelve
+//     UNA sola vez y la reenvía a las dos, mismo patrón exacto que
+//     `context` (Fase 8.1) — sin cambiar ningún umbral/cooldown/condición
+//     de ninguna alerta.
+testWithDb("FASE 8.1/8.2/9) commit(DRAFT) with links: User+Organization+DeveloperAlertConfig se resuelven UNA sola vez y los deletes de agenda se saltean — 20 -> 14 -> 16", async () => {
     const owner = await createUser();
     const org = await createOrganization(owner.id);
     let event;
@@ -383,10 +402,13 @@ testWithDb("FASE 8.1/8.2) commit(DRAFT) with links: User+Organization se resuelv
         event = result.event;
         const { dbCalls } = result;
 
-        assert.equal(dbCalls.length, 14, `dbCallCount esperado 14, dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
+        assert.equal(dbCalls.length, 16, `dbCallCount esperado 16, dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
         assert.equal(countCalls(dbCalls, "User.findUnique"), 1, "un único getMyOrganization para TODO commit(), reutilizado por las 4 llamadas");
         assert.equal(countCalls(dbCalls, "Organization.findUnique"), 1);
-        assert.equal(countCalls(dbCalls, "Event.findUnique"), 4, "slug-check + 2 ownership checks compartidos + la lectura final — sin cambios, 8.1/8.2 no tocan estos");
+        assert.equal(countCalls(dbCalls, "DeveloperAlertConfig.findFirst"), 1, "Fase 9 — 2A y 2C comparten UN solo fetch (antes 2), ver el comentario de arriba");
+        assert.equal(countCalls(dbCalls, "geocoding.requestGeocode"), 1, "geocodificación de la ubicación del evento — sin relación con Alertas Developer");
+        assert.equal(countCalls(dbCalls, "Event.count"), 1, "Alertas Developer 2C — ventana de eventos de la organización");
+        assert.equal(countCalls(dbCalls, "Event.findUnique"), 4, "slug-check + 2 ownership checks compartidos + la lectura final — sin cambios, 8.1/8.2/9 no tocan estos");
         assert.equal(countCalls(dbCalls, "EventFunction.deleteMany"), 0, "evento recién creado en esta misma llamada: nunca puede tener funciones previas que borrar");
         assert.equal(countCalls(dbCalls, "TicketType.deleteMany"), 0, "ídem para tipos de entrada");
         assert.equal(countCalls(dbCalls, "EventLink.deleteMany"), 1, "el deleteMany de links NO forma parte de 8.2 — sigue ejecutándose sin cambios");
@@ -400,7 +422,9 @@ testWithDb("FASE 8.1/8.2) commit(DRAFT) with links: User+Organization se resuelv
     }
 });
 
-testWithDb("FASE 8.1/8.2) commit(DRAFT) without links: mismo ahorro sin la rama de links — 15 -> 11", async () => {
+// Fase 9 (perf) — mismas 3 operaciones nuevas y misma justificación que el
+// test anterior (ver el comentario completo ahí).
+testWithDb("FASE 8.1/8.2/9) commit(DRAFT) without links: mismo ahorro sin la rama de links — 15 -> 11 -> 13", async () => {
     const owner = await createUser();
     const org = await createOrganization(owner.id);
     let event;
@@ -410,9 +434,12 @@ testWithDb("FASE 8.1/8.2) commit(DRAFT) without links: mismo ahorro sin la rama 
         event = result.event;
         const { dbCalls } = result;
 
-        assert.equal(dbCalls.length, 11, `dbCallCount esperado 11, dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
+        assert.equal(dbCalls.length, 13, `dbCallCount esperado 13, dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
         assert.equal(countCalls(dbCalls, "User.findUnique"), 1, "un único getMyOrganization para TODO commit()");
         assert.equal(countCalls(dbCalls, "Organization.findUnique"), 1);
+        assert.equal(countCalls(dbCalls, "DeveloperAlertConfig.findFirst"), 1, "Fase 9 — 2A y 2C comparten UN solo fetch (antes 2)");
+        assert.equal(countCalls(dbCalls, "geocoding.requestGeocode"), 1, "geocodificación de la ubicación del evento — sin relación con Alertas Developer");
+        assert.equal(countCalls(dbCalls, "Event.count"), 1, "Alertas Developer 2C — ventana de eventos de la organización");
         assert.equal(countCalls(dbCalls, "Event.findUnique"), 3, "slug-check + ownership de syncEventScheduleService + la lectura final");
         assert.equal(countCalls(dbCalls, "EventFunction.deleteMany"), 0);
         assert.equal(countCalls(dbCalls, "TicketType.deleteMany"), 0);
@@ -422,7 +449,9 @@ testWithDb("FASE 8.1/8.2) commit(DRAFT) without links: mismo ahorro sin la rama 
     }
 });
 
-testWithDb("FASE 8.1/8.2) commit(PUBLISH): mismo ahorro en la rama de publicación, ninguna validación de publicación se debilitó — 23 -> 15", async () => {
+// Fase 9 (perf) — mismas 3 operaciones nuevas y misma justificación que
+// arriba (ver el comentario completo junto al primer test de este bloque).
+testWithDb("FASE 8.1/8.2/9) commit(PUBLISH): mismo ahorro en la rama de publicación, ninguna validación de publicación se debilitó — 23 -> 15 -> 17", async () => {
     const owner = await createUser();
     const org = await createOrganization(owner.id);
     let event;
@@ -431,10 +460,13 @@ testWithDb("FASE 8.1/8.2) commit(PUBLISH): mismo ahorro en la rama de publicaci�
         event = result.event;
         const { dbCalls } = result;
 
-        assert.equal(dbCalls.length, 15, `PREVIEW_PUBLISH esperado 15 operaciones (antes 23), dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
+        assert.equal(dbCalls.length, 17, `PREVIEW_PUBLISH esperado 17 operaciones (antes 23, después 15), dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
         assert.equal(countCalls(dbCalls, "User.findUnique"), 1, "un único getMyOrganization para TODO commit(), incluyendo updateMyEventService");
         assert.equal(countCalls(dbCalls, "Organization.findUnique"), 1);
-        assert.equal(countCalls(dbCalls, "Event.findUnique"), 4, "sin cambios — 8.1/8.2 no tocan updateMyEventService.findUnique(EVENT_DETAIL_INCLUDE), eso es 8.3, no autorizado todavía");
+        assert.equal(countCalls(dbCalls, "DeveloperAlertConfig.findFirst"), 1, "Fase 9 — 2A y 2C comparten UN solo fetch (antes 2)");
+        assert.equal(countCalls(dbCalls, "geocoding.requestGeocode"), 1, "geocodificación de la ubicación del evento — sin relación con Alertas Developer");
+        assert.equal(countCalls(dbCalls, "Event.count"), 1, "Alertas Developer 2C — ventana de eventos de la organización");
+        assert.equal(countCalls(dbCalls, "Event.findUnique"), 4, "sin cambios — 8.1/8.2/9 no tocan updateMyEventService.findUnique(EVENT_DETAIL_INCLUDE), eso es 8.3, no autorizado todavía");
         assert.equal(countCalls(dbCalls, "Event.update"), 2, "recomputeEventSummary (dentro de la transacción) + la publicación real — sin cambios");
         assert.equal(countCalls(dbCalls, "EventFunction.deleteMany"), 0);
         assert.equal(countCalls(dbCalls, "TicketType.deleteMany"), 0);

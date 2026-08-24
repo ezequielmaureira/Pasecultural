@@ -20,9 +20,18 @@ import { getDeveloperAlertConfigOrDefaults } from "./developerAlertConfig.servic
 // createMany reemplaza TODOS los tipos de entrada en cada guardado (ver
 // syncEventScheduleService), así que sin cooldown cualquier edición no
 // relacionada del evento volvería a alertar sobre precios ya conocidos.
-async function checkAndAlertHighTicketPrices({ eventId, eventTitle, organizationId, organizationName, ticketTypeRows, assignmentRows }) {
+// Fase 9 (perf) — `providedConfig` opcional: EventServicePort.commit() lo
+// resuelve UNA sola vez (ver el comentario ahí) y lo reenvía tanto acá
+// como a checkAndAlertTooManyEvents, en vez de que cada chequeo vuelva a
+// pedir la MISMA fila singleton por su cuenta (ver el informe de entrega,
+// hallazgo de los perf tests de eventServicePort.commit — dos
+// DeveloperAlertConfig.findFirst idénticos dentro de un mismo commit()).
+// Cualquier otro caller (Web directo, duplicateEventService) sigue
+// exactamente igual: no pasa `providedConfig`, así que sigue pidiendo su
+// propia copia, comportamiento sin cambios.
+async function checkAndAlertHighTicketPrices({ eventId, eventTitle, organizationId, organizationName, ticketTypeRows, assignmentRows, providedConfig }) {
     try {
-        const config = await getDeveloperAlertConfigOrDefaults();
+        const config = providedConfig ?? (await getDeveloperAlertConfigOrDefaults());
         const priceByTicketTypeId = new Map(ticketTypeRows.map((tt) => [tt.id, { name: tt.name, price: Number(tt.price) }]));
         const effectivePrices = new Map(); // ticketTypeId -> {name, price} más alto entre funciones
 
@@ -65,9 +74,11 @@ async function checkAndAlertHighTicketPrices({ eventId, eventTitle, organization
 // configurada, contando el que se acaba de crear. Nunca bloquea la
 // creación — sólo informa (ver informe de entrega, sección "Best-effort
 // obligatorio"). Con cooldown persistente por organización.
-async function checkAndAlertTooManyEvents({ organizationId, organizationName }) {
+// Fase 9 (perf) — mismo criterio que checkAndAlertHighTicketPrices de
+// arriba: `providedConfig` opcional, reenviado por EventServicePort.commit().
+async function checkAndAlertTooManyEvents({ organizationId, organizationName, providedConfig }) {
     try {
-        const config = await getDeveloperAlertConfigOrDefaults();
+        const config = providedConfig ?? (await getDeveloperAlertConfigOrDefaults());
         const windowStart = new Date(Date.now() - config.eventsWindowHours * 60 * 60 * 1000);
         const count = await prisma.event.count({ where: { organizationId, createdAt: { gte: windowStart } } });
         if (count < config.eventsWindowCount) return;
@@ -303,7 +314,7 @@ async function buildEventData(input) {
     return data;
 }
 
-export const createEventService = async (clerkId, input, organizationId = null, { context: providedContext } = {}) => {
+export const createEventService = async (clerkId, input, organizationId = null, { context: providedContext, developerAlertConfig } = {}) => {
     const context = await resolveContext(clerkId, organizationId, providedContext);
     if (!context) {
         throw new Error("NO_ORGANIZATION");
@@ -335,7 +346,7 @@ export const createEventService = async (clerkId, input, organizationId = null, 
 
     // Alertas Developer — 2C, best-effort, nunca puede impedir que el
     // evento quede creado.
-    await checkAndAlertTooManyEvents({ organizationId: context.organization.id, organizationName: context.organization.name });
+    await checkAndAlertTooManyEvents({ organizationId: context.organization.id, organizationName: context.organization.name, providedConfig: developerAlertConfig });
 
     return event;
 };
@@ -551,7 +562,7 @@ function recomputeEventSummary(functionsInput, ticketTypesInput) {
 // cualquier otro caller (Web, `event.controller.js`, que reutiliza esta
 // misma función para REEMPLAZAR la agenda de un evento YA EXISTENTE — ahí
 // los deletes son necesarios de verdad y nunca se saltean).
-export const syncEventScheduleService = async (clerkId, eventId, input, organizationId = null, { returnEvent = true, context: providedContext, skipDelete = false } = {}) => {
+export const syncEventScheduleService = async (clerkId, eventId, input, organizationId = null, { returnEvent = true, context: providedContext, skipDelete = false, developerAlertConfig } = {}) => {
     const context = await resolveContext(clerkId, organizationId, providedContext);
     if (!context) return null;
 
@@ -661,6 +672,7 @@ export const syncEventScheduleService = async (clerkId, eventId, input, organiza
         organizationName: context.organization.name,
         ticketTypeRows,
         assignmentRows,
+        providedConfig: developerAlertConfig,
     });
 
     if (!returnEvent) return null;
