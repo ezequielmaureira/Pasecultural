@@ -152,6 +152,38 @@ export async function verifySaleRecoveryCode({ email, buyerDocument, code }) {
     return { sales, maskedEmail };
 }
 
+// "Pagué pero no recibí mis entradas" — segunda opción de la misma pantalla,
+// paso 1. Mismo contrato genérico que requestSaleRecoveryCode: nunca revela
+// si hay una compra real detrás. El paymentId NO viaja acá — recién en
+// verifyPaymentRecoveryCode, junto con el código (nunca se guarda en ningún
+// estado que sobreviva a un refresh, ver RecoverPurchase.jsx).
+export async function requestPaymentRecoveryCode({ email, buyerDocument }) {
+    const { maskedEmail } = await apiFetch("/api/sales/recover/payment", {
+        method: "POST",
+        body: JSON.stringify({ email, buyerDocument }),
+    });
+    return maskedEmail;
+}
+
+export async function resendPaymentRecoveryCode({ email, buyerDocument }) {
+    const { maskedEmail } = await apiFetch("/api/sales/recover/payment/resend", {
+        method: "POST",
+        body: JSON.stringify({ email, buyerDocument }),
+    });
+    return maskedEmail;
+}
+
+// Paso 2 — único llamado de este flujo que puede confirmar una compra real.
+// `matched` es `true` (con `recoveryToken`), `"pending_review"` (pago
+// recibido, sin stock — nunca se sobrevende) o `false` (genérico: cualquier
+// dato no coincidió, nunca se distingue cuál).
+export async function verifyPaymentRecoveryCode({ email, buyerDocument, code, paymentId }) {
+    return apiFetch("/api/sales/recover/payment/verify", {
+        method: "POST",
+        body: JSON.stringify({ email, buyerDocument, code, paymentId }),
+    });
+}
+
 // Botón "Reenviar correo" de la pantalla de recuperación — mismo modelo de
 // autorización que confirmSaleByBuyer/getSaleStatus (conocer el
 // recoveryToken alcanza). Nunca crea tickets ni una venta nueva, sólo

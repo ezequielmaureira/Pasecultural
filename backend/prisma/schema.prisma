@@ -101,6 +101,11 @@ enum MercadoPagoConfirmationSource {
   WEBHOOK
   RECONCILIATION_AUTO
   RECONCILIATION_MANUAL
+  // Ronda "recuperación de pagos" (parte 2) — el propio comprador, desde
+  // "Pagué pero no recibí mis entradas" (RecoverPurchase.jsx), después de
+  // verificar un código OTP y de que el pago se comprobó autoritativamente
+  // contra Mercado Pago (mercadoPagoBuyerRecovery.service.js).
+  BUYER_RECOVERY
 }
 
 // Estado del envío del email de confirmación (Resend) — independiente del
@@ -1201,6 +1206,40 @@ model SaleRecoveryVerification {
 
   @@unique([normalizedEmail, normalizedDocument])
   @@map("sale_recovery_verifications")
+}
+
+// Ronda "recuperación de pagos" — segundo factor (código de 6 dígitos) para
+// "Pagué pero no recibí mis entradas" (mercadoPagoBuyerRecovery.service.js).
+// Tabla PROPIA, deliberadamente separada de SaleRecoveryVerification de
+// arriba, aunque tenga exactamente la misma forma: comparte la clave
+// (normalizedEmail, normalizedDocument) con el flujo de "Reenviar mis
+// entradas", y una misma persona podría estar usando los dos flujos casi al
+// mismo tiempo (una compra vieja ya confirmada + una nueva que quedó
+// PENDING) — si compartieran la misma fila, un código pedido para un flujo
+// invalidaría/pisaría el cooldown del otro. Misma infraestructura reusada
+// (utils/verificationCode.js, utils/maskEmail.js) — nunca reescrita.
+//
+// A propósito NO tiene una columna para el paymentId ingresado por el
+// comprador: nunca se persiste entre el paso 1 (pedir código) y el paso 2
+// (verificar) — el propio navegador lo vuelve a mandar en la request de
+// verificación. Evita tener que cifrar/proteger un dato de pago que ni
+// siquiera hace falta guardar.
+model SalePaymentRecoveryVerification {
+  id String @id @default(cuid())
+
+  normalizedEmail    String
+  normalizedDocument String
+
+  codeHash      String?
+  codeExpiresAt DateTime?
+  attempts      Int       @default(0)
+  lastSentAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([normalizedEmail, normalizedDocument])
+  @@map("sale_payment_recovery_verifications")
 }
 
 // Botón de arrepentimiento — segundo factor (código de 6 dígitos) para

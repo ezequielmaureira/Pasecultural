@@ -272,6 +272,23 @@ export const ErrorCatalog = Object.freeze({
         userMessage: "Superaste el máximo de intentos. Pedí un código nuevo.",
     },
 
+    // --- "Pagué pero no recibí mis entradas" (ronda "recuperación de pagos", parte 2) ---
+    // El código OTP en sí reusa los cuatro RECOVER_VERIFICATION_* de arriba
+    // (misma condición de negocio exacta — verificar un código de 6 dígitos
+    // contra una sesión — sólo cambia la tabla detrás). Estos dos son
+    // específicos de este flujo: el paymentId es un dato adicional que los
+    // otros flujos de recuperación no piden.
+    BUYER_PAYMENT_RECOVERY_PAYMENT_ID_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "Buyer payment recovery verification attempted without a paymentId.",
+        userMessage: "Ingresá el número de operación o pago de Mercado Pago.",
+    },
+    MERCADOPAGO_RECOVERY_CHECK_FAILED: {
+        httpStatus: 502,
+        logMessage: "A transient failure (network/timeout, or Mercado Pago's own infra) prevented authoritatively checking the buyer-submitted paymentId — distinct from a genuine data mismatch, so it must not collapse into the generic \"no match\" response.",
+        userMessage: "No pudimos verificar tu pago en este momento. Probá de nuevo en unos minutos.",
+    },
+
     // --- Botón de arrepentimiento (WithdrawalRequest) --------------------
     // Mismo criterio de no-enumeración que la familia RECOVER_* de arriba:
     // ninguno de estos códigos distingue "el par no existe" de "el código

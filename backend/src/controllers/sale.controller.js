@@ -20,6 +20,11 @@ import {
     resendSaleRecoveryCodeService,
     verifySaleRecoveryCodeService,
 } from "../services/saleRecoveryVerification.service.js";
+import {
+    requestPaymentRecoveryCodeService,
+    resendPaymentRecoveryCodeService,
+    verifyPaymentRecoveryCodeService,
+} from "../services/mercadoPagoBuyerRecovery.service.js";
 
 // Sólo validan req, llaman al service y devuelven la respuesta. Toda la
 // validación de negocio vive en sale.service.js — acá no hay ningún if de
@@ -198,6 +203,48 @@ export const verifySaleRecoveryCode = async (req, res, next) => {
     try {
         const { email, buyerDocument, code } = req.body;
         const result = await verifySaleRecoveryCodeService({ email, buyerDocument, code });
+        res.status(200).json(result);
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
+
+// "Pagué pero no recibí mis entradas" (ronda "recuperación de pagos", parte
+// 2), paso 1 — mismo contrato genérico que requestSaleRecoveryCode. El
+// paymentId NUNCA se lee ni se usa acá (recién importa en el paso 2, ver
+// verifyPaymentRecoveryCode) — nunca se persiste entre pasos.
+export const requestPaymentRecoveryCode = async (req, res, next) => {
+    try {
+        const { email, buyerDocument } = req.body;
+        const result = await requestPaymentRecoveryCodeService({ email, buyerDocument });
+        res.status(200).json(result);
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
+
+export const resendPaymentRecoveryCode = async (req, res, next) => {
+    try {
+        const { email, buyerDocument } = req.body;
+        const result = await resendPaymentRecoveryCodeService({ email, buyerDocument });
+        res.status(200).json(result);
+    } catch (error) {
+        next(AppError.from(error));
+    }
+};
+
+// Paso 2 — único punto que realmente consulta/reconcilia/confirma/reenvía
+// una compra de Mercado Pago a partir del paymentId, y SOLO después de un
+// código OTP correcto (ver verifyPaymentRecoveryCodeService). La respuesta
+// { matched: false } es una respuesta pública NORMAL (200), no un error —
+// mismo criterio que "sales: []" en verifySaleRecoveryCode; un rate limit
+// excedido sigue devolviendo 429 (middleware), y una falla real de
+// Mercado Pago/infraestructura sigue propagando su propio código HTTP (ver
+// MERCADOPAGO_RECOVERY_CHECK_FAILED, 502) — nunca se fuerza 200 para todo.
+export const verifyPaymentRecoveryCode = async (req, res, next) => {
+    try {
+        const { email, buyerDocument, code, paymentId } = req.body;
+        const result = await verifyPaymentRecoveryCodeService({ email, buyerDocument, code, paymentId });
         res.status(200).json(result);
     } catch (error) {
         next(AppError.from(error));

@@ -11,6 +11,9 @@ import {
     requestSaleRecoveryCode,
     resendSaleRecoveryCode,
     verifySaleRecoveryCode,
+    requestPaymentRecoveryCode,
+    resendPaymentRecoveryCode,
+    verifyPaymentRecoveryCode,
     resendSaleEmailByToken,
     getSalePdfByToken,
     getPublicServiceFeeTiers,
@@ -29,6 +32,16 @@ const recoverSearchRateLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 8 });
 const recoverResendCodeRateLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 5 });
 const recoverVerifyRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
 const resendEmailRateLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 5 });
+// "Pagué pero no recibí mis entradas" (ronda "recuperación de pagos", parte
+// 2) — mismo criterio "de adivinanza" por IP que el resto de arriba para los
+// pasos 1/resend. El paso de verificación es el único que además puede
+// terminar consultando Mercado Pago (hasta MAX_CANDIDATE_SALES ×
+// MAX_CONNECTIONS_PER_ORGANIZATION veces, ver mercadoPagoBuyerRecovery.
+// service.js) — límite deliberadamente más estricto que recoverVerifyRateLimit
+// por ese costo externo real.
+const recoverPaymentSearchRateLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 8 });
+const recoverPaymentResendCodeRateLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 5 });
+const recoverPaymentVerifyRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 10 });
 // MP-2 — a diferencia del resto de arriba, este endpoint no es "de
 // adivinanza": llama a la API de Mercado Pago por request, así que un
 // límite por IP es sobre todo para no dejarlo como un vector barato de
@@ -88,6 +101,16 @@ router.post("/:id/resend-confirmation-email", requireRole("DEVELOPER", "ORGANIZE
 router.post("/recover", recoverSearchRateLimit, requestSaleRecoveryCode);
 router.post("/recover/resend", recoverResendCodeRateLimit, resendSaleRecoveryCode);
 router.post("/recover/verify", recoverVerifyRateLimit, verifySaleRecoveryCode);
+
+// "Pagué pero no recibí mis entradas" — segunda opción de la misma pantalla
+// pública, para Sales de Mercado Pago que quedaron PENDING (o ya CONFIRMED,
+// caso idempotente). Mismo modelo sin sesión, mismo OTP de por medio — ver
+// mercadoPagoBuyerRecovery.service.js. El paymentId SOLO viaja en el body de
+// /recover/payment/verify (junto al código), nunca antes: no se persiste ni
+// se consulta contra Mercado Pago hasta que el OTP sea correcto.
+router.post("/recover/payment", recoverPaymentSearchRateLimit, requestPaymentRecoveryCode);
+router.post("/recover/payment/resend", recoverPaymentResendCodeRateLimit, resendPaymentRecoveryCode);
+router.post("/recover/payment/verify", recoverPaymentVerifyRateLimit, verifyPaymentRecoveryCode);
 
 // Reenviar el correo desde la pantalla de recuperación — sin sesión,
 // autorizado por publicRecoveryToken (mismo modelo que confirm-by-buyer y

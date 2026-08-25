@@ -64,7 +64,11 @@ function extractApprovedPaymentIds({ merchantOrderResult, paymentsSearchResult }
 // webhook (bug fix "desconexión de Mercado Pago"): si la Organization
 // desconectó la cuenta que hizo el pago original y conectó otra, la ACTIVE
 // actual ya no sirve para encontrarlo.
-async function listCandidateConnectionsForOrganization(organizationId) {
+// Exportada — mercadoPagoBuyerRecovery.service.js ("Pagué pero no recibí
+// mis entradas") la reusa tal cual para el mismo problema (encontrar con qué
+// conexión de la organización probar un paymentId), sin duplicar el orden
+// ACTIVE→DISCONNECTED.
+export async function listCandidateConnectionsForOrganization(organizationId) {
     const [active, disconnected] = await Promise.all([
         prisma.mercadoPagoConnection.findMany({ where: { organizationId, status: "ACTIVE" } }),
         prisma.mercadoPagoConnection.findMany({ where: { organizationId, status: "DISCONNECTED" }, orderBy: { connectedAt: "desc" } }),
