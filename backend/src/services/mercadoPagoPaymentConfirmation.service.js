@@ -307,6 +307,10 @@ export async function confirmMercadoPagoPaymentIfEligible({ paymentId, candidate
             source,
             paymentStatus: payment.status,
             saleStatus: sale.status,
+            paymentStatusDetail: payment.statusDetail,
+            paymentMethodId: payment.paymentMethodId,
+            paymentTypeId: payment.paymentTypeId,
+            issuerId: payment.issuerId,
         });
         return { ok: true, action: "payment_attempt_failed", saleId: sale.id };
     }

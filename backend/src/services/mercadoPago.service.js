@@ -387,6 +387,12 @@ export async function getMercadoPagoPayment({ accessToken, paymentId }) {
         currencyId: payload.currency_id ?? null,
         externalReference: payload.external_reference ?? null,
         collectorId: payload.collector_id != null ? String(payload.collector_id) : null,
+        // Ronda de observabilidad (rechazos) — mismo criterio whitelist que
+        // el resto de este objeto: nunca payer/tarjeta/tokens, sólo estos
+        // tres campos adicionales no sensibles.
+        paymentMethodId: payload.payment_method_id ?? null,
+        paymentTypeId: payload.payment_type_id ?? null,
+        issuerId: payload.issuer_id ?? null,
     };
 }
 
