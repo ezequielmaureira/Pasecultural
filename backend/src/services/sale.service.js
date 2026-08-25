@@ -451,14 +451,16 @@ async function buildConfirmedSaleResult(saleId) {
 // el comportamiento es exactamente el de siempre: sendSaleConfirmationEmail
 // se dispara igual que hoy, sin excepciones.
 export const confirmSaleService = async (clerkId, saleId, options = {}) => {
-    // MP-3 — sólo lo pasa mercadoPagoWebhook.service.js, después de verificar
-    // el payment server-to-server. Null para los dos callers preexistentes
-    // (confirmSale/confirmSaleByBuyer, pago manual) — comportamiento exacto
-    // de siempre para ellos. @unique en Sale: si alguna vez dos Sale
-    // intentaran reclamar el mismo paymentId (no debería ser posible, ver
-    // el informe de MP-3), Postgres lo rechaza con un P2002 en vez de dejar
-    // pasar una inconsistencia silenciosa.
-    const { skipAutoEmail = false, mercadoPagoPaymentId = null } = options;
+    // MP-3 / ronda "recuperación de pagos" — mercadoPagoPaymentId y
+    // confirmationSource sólo los pasa mercadoPagoPaymentConfirmation.service.js
+    // (núcleo compartido por el webhook y por la reconciliación), después de
+    // verificar el payment server-to-server. Null para los dos callers
+    // preexistentes (confirmSale/confirmSaleByBuyer, pago manual) —
+    // comportamiento exacto de siempre para ellos. mercadoPagoPaymentId es
+    // @unique en Sale: si alguna vez dos Sale intentaran reclamar el mismo
+    // paymentId (no debería ser posible), Postgres lo rechaza con un P2002
+    // en vez de dejar pasar una inconsistencia silenciosa.
+    const { skipAutoEmail = false, mercadoPagoPaymentId = null, confirmationSource = null } = options;
     logger.info("confirmSaleService entered", { clerkId, saleId });
     const organizerUser = await getUserByClerkId(clerkId);
     if (!organizerUser) {
@@ -537,6 +539,7 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
                 confirmedAt: new Date(),
                 confirmedBy: organizerUser.id,
                 mercadoPagoPaymentId,
+                confirmationSource,
             },
         });
         if (updated.count === 0) {

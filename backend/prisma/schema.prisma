@@ -92,6 +92,17 @@ enum PaymentMethod {
   MERCADO_PAGO
 }
 
+// Ronda "recuperación de pagos" — ver el comentario de Sale.confirmationSource.
+// WEBHOOK = la notificación normal de Mercado Pago confirmó la venta.
+// RECONCILIATION_AUTO = la encontró el sweep periódico (script invocable,
+// todavía sin cron configurado). RECONCILIATION_MANUAL = un DEVELOPER la
+// disparó a mano desde Developer > Ventas para una Sale puntual.
+enum MercadoPagoConfirmationSource {
+  WEBHOOK
+  RECONCILIATION_AUTO
+  RECONCILIATION_MANUAL
+}
+
 // Estado del envío del email de confirmación (Resend) — independiente del
 // estado de la venta en sí. SENDING es un "lock" transitorio: lo toma la
 // operación atómica que reclama el intento (ver claimSaleConfirmationEmail
@@ -1062,6 +1073,16 @@ model Sale {
   // Null para toda venta manual (paymentMethod=MANUAL) y para cualquier
   // Sale de Mercado Pago que todavía no fue confirmada.
   mercadoPagoPaymentId String? @unique
+
+  // Ronda "recuperación de pagos" — distingue CÓMO se confirmó ESTA Sale de
+  // Mercado Pago: por el webhook normal, o por reconciliación (automática
+  // vía sweep, o manual desde Developer > Ventas) cuando el webhook nunca
+  // llegó a procesarse. NULL para toda Sale confirmada antes de este campo
+  // (nunca hay backfill retroactivo) y para MANUAL/Courtesy (no aplica —
+  // ver MercadoPagoConfirmationSource). Se escribe DENTRO de la misma
+  // transacción atómica que confirma la venta (confirmSaleService), igual
+  // que mercadoPagoPaymentId — nunca en un paso separado.
+  confirmationSource MercadoPagoConfirmationSource?
 
   // Email de confirmación con los tickets (Resend) — nunca se manda dentro
   // de la transacción que confirma la venta (ver confirmSaleService), y
