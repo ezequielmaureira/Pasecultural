@@ -7,6 +7,7 @@ import { createSaleForBuyer, confirmSaleService } from "../src/services/sale.ser
 import { encryptMercadoPagoSecret } from "../src/config/mercadoPagoEncryption.js";
 import { disconnectMercadoPagoConnectionService } from "../src/services/mercadoPagoConnection.service.js";
 import { replaceServiceFeeTiers } from "../src/services/serviceFee.service.js";
+import { formatFunctionDateTimeAR } from "../src/services/email/formatDateAR.js";
 
 // MP-2 — CRUD + transacciones + concurrencia real (Sale/TicketType/
 // MercadoPagoConnection), no expresable como funciones puras: se prueba
@@ -421,9 +422,16 @@ testWithDb("5/6/13/14) the backend recalculates price from the DB, ignores any c
         assert.equal(capturedBody.items[0].quantity, 3);
         assert.equal(capturedBody.items[0].unit_price, 7500);
         assert.equal(capturedBody.items[0].currency_id, "ARS");
+        // Recomendación de Mercado Pago (panel de Calidad de integración) —
+        // items.description, construida con datos ya públicos del evento.
+        assert.equal(
+            capturedBody.items[0].description,
+            `${event.title} — Platea — ${eventFunction.venue}, ${formatFunctionDateTimeAR(eventFunction.date)}`
+        );
         assert.equal(capturedBody.items[1].title, "Comisión de servicio PaseCultural");
         assert.equal(capturedBody.items[1].quantity, 1);
         assert.equal(capturedBody.items[1].unit_price, 1500);
+        assert.equal(capturedBody.items[1].description, `Comisión de servicio — ${event.title}`);
 
         const itemsSum = capturedBody.items.reduce((sum, item) => sum + item.unit_price * item.quantity, 0);
         assert.equal(itemsSum, Number(sale.total), "la suma de los items de la preferencia debe coincidir exacto con el total esperado por el webhook");

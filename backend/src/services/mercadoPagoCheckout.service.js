@@ -7,6 +7,7 @@ import { getValidMercadoPagoAccessTokenForOrganization } from "./mercadoPagoConn
 import { createMercadoPagoPreference } from "./mercadoPago.service.js";
 import { round2 } from "../utils/money.js";
 import { logger } from "../logging/logger.js";
+import { formatFunctionDateTimeAR } from "./email/formatDateAR.js";
 
 // MP-2.1 — Rapipago/Pago Fácil y demás medios en efectivo (payment_type_id
 // "ticket", confirmado contra la documentación oficial) pueden tardar 3+
@@ -153,6 +154,12 @@ export async function createMercadoPagoCheckoutService(buyerInfo, saleInput, ide
     const items = sale.items.map((item) => ({
         id: item.ticketTypeId,
         title: item.ticketType?.name || "Entrada",
+        // Recomendación oficial del panel de Calidad de integración de
+        // Mercado Pago ("Aprobación de pagos"): enviar items.description.
+        // Construida enteramente con datos ya cargados en este scope (sin
+        // queries nuevas) y públicos (aparecen en la página del evento) —
+        // nunca datos del comprador ni IDs internos.
+        description: `${event.title} — ${item.ticketType?.name || "Entrada"} — ${sale.function.venue}, ${formatFunctionDateTimeAR(sale.function.date)}`,
         quantity: item.quantity,
         unit_price: Number(item.unitPrice),
         currency_id: "ARS",
@@ -173,6 +180,7 @@ export async function createMercadoPagoCheckoutService(buyerInfo, saleInput, ide
         items.push({
             id: "service-fee",
             title: "Comisión de servicio PaseCultural",
+            description: `Comisión de servicio — ${event.title}`,
             quantity: 1,
             unit_price: serviceFeeAmount,
             currency_id: "ARS",
