@@ -38,8 +38,8 @@ export function buildLocationInput(location) {
     };
 }
 
-// FREE_ENTRY (el organizador respondió "No" en WANTS_FREE_TICKETS) ya no
-// fabrica ningún TicketType fantasma acá — event.service.js (
+// FREE_ENTRY (el organizador respondió "Gratuito" en EVENT_PRICING_TYPE) ya
+// no fabrica ningún TicketType fantasma acá — event.service.js (
 // assertPublishable/syncEventScheduleService) sabe publicar/guardar un
 // evento con catálogo genuinamente vacío cuando admissionType=FREE_ENTRY.
 function buildTicketTypesInput(draft) {
@@ -132,10 +132,10 @@ export async function commit(clerkId, draftEvent, action, organizationId = null)
                 customCategory: draftEvent.customCategory,
                 coverImage: draftEvent.coverImage,
                 location: buildLocationInput(draftEvent.location),
-                // WANTS_FREE_TICKETS ("No") es el único paso que escribe
-                // "FREE_ENTRY" en el draft — cualquier otro valor (incluido
-                // undefined, si el organizador todavía no llegó a ese paso)
-                // preserva el default TICKETED de siempre.
+                // EVENT_PRICING_TYPE ("Gratuito") es el único paso que
+                // escribe "FREE_ENTRY" en el draft — cualquier otro valor
+                // (incluido undefined, si el organizador todavía no llegó a
+                // ese paso) preserva el default TICKETED de siempre.
                 admissionType: draftEvent.admissionType,
             },
             organizationId,

@@ -302,7 +302,7 @@ export const STEPS = {
                 // pierden las entradas que ya había cargado (sólo arranca
                 // vacío la primera vez que elige esta rama). "De pago" es
                 // siempre TICKETED, sin importar qué termine cobrando cada
-                // entrada (incluso $0 — ver WANTS_FREE_TICKETS más abajo).
+                // entrada (incluso $0, cargada a mano en el catálogo normal).
                 return {
                     ...draft,
                     pricingType: "PAID",
@@ -311,14 +311,30 @@ export const STEPS = {
                     admissionType: "TICKETED",
                 };
             }
-            // "Gratuito" todavía no define la modalidad — eso lo decide
-            // WANTS_FREE_TICKETS un paso más adelante (con control de
-            // acceso real = TICKETED a $0; sin control = FREE_ENTRY).
-            return { ...draft, pricingType: "FREE", hasTickets: false, ticketTypes: draft.ticketTypes ?? [] };
+            // Corrección post-deploy (decisión de producto definitiva) —
+            // "Gratuito" ya NO pregunta nada de control de acceso: es
+            // SIEMPRE FREE_ENTRY, con catálogo vacío, de una sola vez.
+            // WANTS_FREE_TICKETS/FREE_TICKET_QUANTITY (acá abajo) ya no
+            // tienen ningún `next()` que apunte a ellos desde este fork —
+            // se conservan intactos únicamente como compatibilidad
+            // transitoria para una ConversationState vieja que ya estuviera
+            // parada en alguno de esos dos pasos antes de este fix (ver el
+            // comentario de cada uno). Nunca se borran en esta ronda.
+            return { ...draft, pricingType: "FREE", hasTickets: false, ticketTypes: [], admissionType: "FREE_ENTRY" };
         },
-        next: (draft, value) => (value === "PAID" ? "TICKET_NAME" : "WANTS_FREE_TICKETS"),
+        next: (draft, value) => (value === "PAID" ? "TICKET_NAME" : "PROMO_VIDEO_ASK"),
     },
 
+    // Compatibilidad transitoria — corrección post-deploy: desde la ronda
+    // anterior, "Gratuito" ofrecía esta pregunta ("¿control de acceso?");
+    // la decisión de producto cambió y ahora "Gratuito" es directo a
+    // FREE_ENTRY (ver EVENT_PRICING_TYPE#next, arriba), así que NINGÚN
+    // `next()` del motor apunta más a este paso. Se mantiene sin tocar,
+    // nunca se borra: si una ConversationState quedó parada acá (creada
+    // antes de este fix, en producción, antes del deploy de la corrección),
+    // tiene que poder seguir respondiendo exactamente igual que siempre —
+    // borrarla rompería esa conversación en curso (getStep tiraría
+    // UNKNOWN_STEP). No es alcanzable desde ningún camino nuevo.
     WANTS_FREE_TICKETS: {
         id: "WANTS_FREE_TICKETS",
         section: "ENTRADAS",
@@ -345,6 +361,11 @@ export const STEPS = {
 
     // Entrada gratuita: un único tipo, sin nombre ni precio a pedir (siempre
     // "Entrada gratuita" a $0), sólo el stock disponible.
+    //
+    // Compatibilidad transitoria — mismo motivo exacto que WANTS_FREE_TICKETS
+    // (ver el comentario ahí arriba): sólo alcanzable hoy por una
+    // ConversationState vieja que respondió "Sí" en ese paso antes de este
+    // fix. Nunca se llega acá desde ningún camino nuevo.
     FREE_TICKET_QUANTITY: {
         id: "FREE_TICKET_QUANTITY",
         section: "ENTRADAS",
