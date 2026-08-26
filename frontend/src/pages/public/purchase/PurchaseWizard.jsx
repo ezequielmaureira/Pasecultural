@@ -262,6 +262,15 @@ export default function PurchaseWizard() {
         setLoadError("Este evento no existe o ya no está disponible.");
         return;
       }
+      // Defensa de UX solamente — la seguridad real está en el backend
+      // (createSaleForBuyer/createMercadoPagoCheckoutService rechazan
+      // cualquier Sale sobre un evento FREE_ENTRY). Esto sólo evita que
+      // alguien navegando directo a /comprar?slug=... quede en un paso de
+      // selección de entradas vacío para un evento que nunca las tuvo.
+      if (data.admissionType === "FREE_ENTRY") {
+        setLoadError("Este evento es de entrada gratuita — no tiene sistema de venta de entradas.");
+        return;
+      }
       if (!data.functions || data.functions.length === 0) {
         setLoadError("Este evento todavía no tiene funciones disponibles para comprar.");
         return;

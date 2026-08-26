@@ -300,14 +300,20 @@ export const STEPS = {
             if (value === "PAID") {
                 // Si el organizador vuelve acá y reconfirma "De pago" no se
                 // pierden las entradas que ya había cargado (sólo arranca
-                // vacío la primera vez que elige esta rama).
+                // vacío la primera vez que elige esta rama). "De pago" es
+                // siempre TICKETED, sin importar qué termine cobrando cada
+                // entrada (incluso $0 — ver WANTS_FREE_TICKETS más abajo).
                 return {
                     ...draft,
                     pricingType: "PAID",
                     hasTickets: true,
                     ticketTypes: draft.hasTickets ? draft.ticketTypes ?? [] : [],
+                    admissionType: "TICKETED",
                 };
             }
+            // "Gratuito" todavía no define la modalidad — eso lo decide
+            // WANTS_FREE_TICKETS un paso más adelante (con control de
+            // acceso real = TICKETED a $0; sin control = FREE_ENTRY).
             return { ...draft, pricingType: "FREE", hasTickets: false, ticketTypes: draft.ticketTypes ?? [] };
         },
         next: (draft, value) => (value === "PAID" ? "TICKET_NAME" : "WANTS_FREE_TICKETS"),
@@ -322,11 +328,17 @@ export const STEPS = {
         // EVENT_PRICING_TYPE con otro sentido) para poder distinguir "no
         // contestado todavía" de "contestó que no".
         getValue: (draft) => draft.wantsFreeTickets,
+        // "Sí" (control de acceso real) sigue siendo un evento TICKETED con
+        // una entrada real a $0 — ver FREE_TICKET_QUANTITY. "No" es
+        // FREE_ENTRY de verdad: sin control de acceso, sin ticketing, sin
+        // ningún TicketType (ni siquiera uno fantasma — ver
+        // EventServicePort.js#buildTicketTypesInput, que ya no lo fabrica).
         setValue: (draft, value) => ({
             ...draft,
             wantsFreeTickets: value,
             hasTickets: value,
             ticketTypes: value ? draft.ticketTypes ?? [] : [],
+            admissionType: value ? "TICKETED" : "FREE_ENTRY",
         }),
         next: (draft, value) => (value ? "FREE_TICKET_QUANTITY" : "PROMO_VIDEO_ASK"),
     },

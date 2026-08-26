@@ -13,12 +13,6 @@ import { translateEventServiceError } from "./errorMessages.js";
 
 const SOCIAL_NETWORK_LABEL = Object.fromEntries(SOCIAL_NETWORKS.map((s) => [s.id, s.label]));
 
-// Un evento "gratuito" (el organizador respondió "No" en el paso de entradas)
-// igual necesita al menos un TicketType en EventService para poder
-// publicarse (ver assertPublishable en event.service.js) — se genera una
-// entrada general a precio 0 en vez de duplicar esa regla acá.
-const FREE_TICKET_DEFAULT_QUANTITY = 999999;
-
 // Fase 3J — exportada ÚNICAMENTE para poder testear la cadena real
 // Web/WhatsApp → EventServicePort → event.service.js#buildLocationData
 // (ver tests/eventLocation.persistence.test.js) sin pasar por Prisma real:
@@ -44,15 +38,17 @@ export function buildLocationInput(location) {
     };
 }
 
+// FREE_ENTRY (el organizador respondió "No" en WANTS_FREE_TICKETS) ya no
+// fabrica ningún TicketType fantasma acá — event.service.js (
+// assertPublishable/syncEventScheduleService) sabe publicar/guardar un
+// evento con catálogo genuinamente vacío cuando admissionType=FREE_ENTRY.
 function buildTicketTypesInput(draft) {
-    if (draft.hasTickets && draft.ticketTypes?.length) {
-        return draft.ticketTypes.map((tt) => ({
-            name: tt.name,
-            price: tt.price,
-            quantity: tt.quantity,
-        }));
-    }
-    return [{ name: "Entrada general", price: 0, quantity: FREE_TICKET_DEFAULT_QUANTITY }];
+    if (!draft.hasTickets || !draft.ticketTypes?.length) return [];
+    return draft.ticketTypes.map((tt) => ({
+        name: tt.name,
+        price: tt.price,
+        quantity: tt.quantity,
+    }));
 }
 
 // `fn.date` es una fecha de calendario ("YYYY-MM-DD"), nunca un instante —
@@ -136,6 +132,11 @@ export async function commit(clerkId, draftEvent, action, organizationId = null)
                 customCategory: draftEvent.customCategory,
                 coverImage: draftEvent.coverImage,
                 location: buildLocationInput(draftEvent.location),
+                // WANTS_FREE_TICKETS ("No") es el único paso que escribe
+                // "FREE_ENTRY" en el draft — cualquier otro valor (incluido
+                // undefined, si el organizador todavía no llegó a ese paso)
+                // preserva el default TICKETED de siempre.
+                admissionType: draftEvent.admissionType,
             },
             organizationId,
             { context, developerAlertConfig }

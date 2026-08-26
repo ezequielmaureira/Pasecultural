@@ -24,6 +24,10 @@ export const EVENT_SERVICE_ERROR_MESSAGES = {
     LINK_INVALID_URL: "Una de las URLs cargadas no es válida",
     LINK_INVALID_VIDEO: "Ese enlace de YouTube no tiene un video válido. Revisá la URL.",
     LINK_DUPLICATE_URL: "No podés cargar la misma URL dos veces en el mismo evento",
+    FREE_ENTRY_CANNOT_HAVE_TICKET_TYPES: "Un evento de entrada gratuita no puede tener tipos de entrada en el catálogo",
+    ADMISSION_TYPE_LOCKED: "La modalidad del evento (con entradas / gratuito) no se puede cambiar una vez que dejó de ser borrador",
+    ADMISSION_TYPE_HAS_REAL_DATA: "No se puede cambiar la modalidad de un evento que ya tiene ventas o entradas asociadas",
+    ADMISSION_TYPE_TICKET_TYPES_EXIST: "Para pasar este evento a gratuito primero tenés que vaciar el catálogo de tipos de entrada",
 };
 
 export function translateEventServiceError(error) {

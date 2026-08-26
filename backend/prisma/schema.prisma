@@ -51,6 +51,16 @@ enum EventVisibility {
   PRIVATE
 }
 
+// Modalidad de acceso del evento — nunca se representa con price=0: un
+// TICKETED con entradas a $0 sigue generando Sale/Ticket/QR reales (control
+// de acceso), mientras que FREE_ENTRY es informativo puro, sin ticketing.
+// Ver createSaleForBuyer (sale.service.js) para el guard que impide
+// cualquier Sale sobre un evento FREE_ENTRY.
+enum EventAdmissionType {
+  TICKETED
+  FREE_ENTRY
+}
+
 enum FunctionStatus {
   SCHEDULED
   CANCELLED
@@ -659,6 +669,13 @@ model Event {
   doorsOpenAt DateTime?
 
   isFree Boolean @default(false)
+
+  // @default(TICKETED) a propósito: cero impacto en eventos existentes,
+  // mismo criterio que Sale.origin/Ticket.origin más abajo en este archivo.
+  // Sólo se puede cambiar mientras status = DRAFT (ver
+  // assertAdmissionTypeChangeAllowed en event.service.js) — una vez
+  // publicado o cancelado, queda fijo para siempre.
+  admissionType EventAdmissionType @default(TICKETED)
 
   status      EventStatus     @default(DRAFT)
   visibility  EventVisibility @default(PUBLIC)

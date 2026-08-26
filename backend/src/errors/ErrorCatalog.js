@@ -30,6 +30,15 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Event not found.",
         userMessage: "El evento no existe.",
     },
+    // Guard autoritativo — ver createSaleForBuyer (sale.service.js): un
+    // evento FREE_ENTRY nunca puede generar una Sale, sin importar el
+    // camino (venta manual, Mercado Pago, cortesía). Único punto de choque
+    // de los tres, así que un único guard alcanza para blindear los tres.
+    EVENT_FREE_ENTRY_NO_SALES: {
+        httpStatus: 409,
+        logMessage: "Sale creation attempted for a FREE_ENTRY event (no ticketing system).",
+        userMessage: "Este evento es de entrada gratuita y no tiene sistema de venta de entradas.",
+    },
     FUNCTION_NOT_FOUND: {
         httpStatus: 404,
         logMessage: "Event function not found or does not belong to the given event.",

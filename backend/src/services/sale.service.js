@@ -167,6 +167,17 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
     const event = await prisma.event.findUnique({ where: { id: input?.eventId } });
     if (!event) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
 
+    // Guard autoritativo de FREE_ENTRY — punto único de choque de los tres
+    // caminos que pueden llegar acá (venta manual, Mercado Pago vía
+    // createGuestSaleService, y cortesías vía courtesy.service.js): un
+    // evento de entrada gratuita nunca puede generar una Sale, sin
+    // excepción. Chequeado ANTES de tocar tipos de entrada/stock — un
+    // FREE_ENTRY nunca tiene TicketTypes de todas formas, pero este guard
+    // da el mensaje correcto en vez de un genérico "entrada no encontrada".
+    if (event.admissionType === "FREE_ENTRY") {
+        throw new AppError(ErrorCodes.EVENT_FREE_ENTRY_NO_SALES);
+    }
+
     const eventFunction = await prisma.eventFunction.findUnique({ where: { id: input?.functionId } });
     if (!eventFunction || eventFunction.eventId !== event.id) {
         throw new AppError(ErrorCodes.FUNCTION_NOT_FOUND);

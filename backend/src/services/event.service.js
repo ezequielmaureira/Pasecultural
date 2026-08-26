@@ -333,12 +333,23 @@ export const createEventService = async (clerkId, input, organizationId = null, 
 
     const data = await buildEventData(input);
 
+    // Modalidad de acceso — libremente elegible en la creación (nada que
+    // perder todavía). FREE_ENTRY nunca representa "gratis" con isFree solo
+    // (eso sigue siendo un TICKETED con entradas a $0): fuerza isFree=true
+    // acá porque el público sí debe ver "Gratis" en las cards igual, aunque
+    // el mecanismo interno sea distinto (ver recomputeEventSummary).
+    const admissionType = input.admissionType === "FREE_ENTRY" ? "FREE_ENTRY" : "TICKETED";
+    if (admissionType === "FREE_ENTRY") {
+        data.isFree = true;
+    }
+
     const event = await prisma.event.create({
         data: {
             ...data,
             title: input.title,
             slug,
             status: "DRAFT",
+            admissionType,
             organizationId: context.organization.id,
             createdBy: context.user.id,
         },
@@ -433,6 +444,16 @@ function assertPublishable(event) {
     if (!event.functions || event.functions.length === 0) {
         throw new Error("NO_FUNCTIONS");
     }
+
+    // FREE_ENTRY — evento informativo, sin ticketing: fecha/hora/lugar
+    // siguen siendo obligatorios (ya validado arriba), pero nada de lo que
+    // sigue acá abajo aplica — no hay catálogo que exigir ni asignaciones
+    // que verificar. Ver createSaleForBuyer (sale.service.js) para el guard
+    // que impide que este evento entre al circuito de ventas.
+    if (event.admissionType === "FREE_ENTRY") {
+        return;
+    }
+
     if (!event.ticketTypes || event.ticketTypes.length === 0) {
         throw new Error("NO_TICKET_TYPES");
     }
@@ -449,6 +470,40 @@ function assertPublishable(event) {
         if (!hasEnabledAssignment) {
             throw new Error("FUNCTION_WITHOUT_TICKET_ASSIGNMENTS");
         }
+    }
+}
+
+// Cambio de modalidad (TICKETED <-> FREE_ENTRY) — primera versión,
+// deliberadamente simple y restrictiva:
+//   1) Sólo mientras el evento sigue en DRAFT. EventStatus también incluye
+//      SCHEDULED/FINISHED (nunca escritos hoy para Event.status — ver
+//      createEventService/updateMyEventService, sólo usan DRAFT/PUBLISHED/
+//      CANCELLED), así que en la práctica esta condición bloquea PUBLISHED
+//      y CANCELLED, los dos únicos estados reales además de DRAFT. Un
+//      evento publicado o cancelado nunca puede cambiar de modalidad, sin
+//      excepción.
+//   2) Nunca si ya existe una Sale o un Ticket real — mismo chequeo (y
+//      mismo motivo: RESTRICT sin CASCADE) que deleteMyEventService un poco
+//      más abajo en este archivo. Nunca se filtra por deletedAt: un soft-
+//      delete sigue siendo una fila real.
+//   3) Pasar a FREE_ENTRY exige que el catálogo ya esté vacío — nunca se
+//      borran TicketTypes en silencio, es responsabilidad del organizador
+//      vaciar el catálogo primero desde el wizard.
+async function assertAdmissionTypeChangeAllowed(event, nextAdmissionType) {
+    if (event.status !== "DRAFT") {
+        throw new Error("ADMISSION_TYPE_LOCKED");
+    }
+
+    const [existingSale, existingTicket] = await Promise.all([
+        prisma.sale.findFirst({ where: { eventId: event.id }, select: { id: true } }),
+        prisma.ticket.findFirst({ where: { eventId: event.id }, select: { id: true } }),
+    ]);
+    if (existingSale || existingTicket) {
+        throw new Error("ADMISSION_TYPE_HAS_REAL_DATA");
+    }
+
+    if (nextAdmissionType === "FREE_ENTRY" && event.ticketTypes?.length > 0) {
+        throw new Error("ADMISSION_TYPE_TICKET_TYPES_EXIST");
     }
 }
 
@@ -469,7 +524,18 @@ export const updateMyEventService = async (clerkId, id, input, organizationId = 
 
     assertValidCategory(input);
 
+    const changesAdmissionType = Object.hasOwn(input, "admissionType") && input.admissionType !== event.admissionType;
+    if (changesAdmissionType) {
+        await assertAdmissionTypeChangeAllowed(event, input.admissionType);
+    }
+
     const data = await buildEventData(input);
+    if (changesAdmissionType) {
+        data.admissionType = input.admissionType;
+        if (input.admissionType === "FREE_ENTRY") {
+            data.isFree = true;
+        }
+    }
 
     if (Object.hasOwn(input, "status")) {
         if (input.status === "PUBLISHED") {
@@ -529,14 +595,20 @@ function buildFunctionData(input) {
 // El "lugar base" (venue/address) del Event lo define el organizador en el paso
 // de información general y no se sobrescribe automáticamente: cada función puede
 // tener su propio lugar. Solo se derivan startDate (para ordenar/listar) e isFree.
-function recomputeEventSummary(functionsInput, ticketTypesInput) {
+function recomputeEventSummary(functionsInput, ticketTypesInput, admissionType) {
     const scheduled = functionsInput
         .filter((fn) => fn.status !== "CANCELLED")
         .sort((a, b) => new Date(a.date) - new Date(b.date));
 
     const first = scheduled[0] ?? functionsInput[0] ?? null;
+    // FREE_ENTRY siempre es "Gratis" para el público (EventCard/Home/filtro
+    // ?precio=gratis leen isFree, nunca admissionType — ver el informe de
+    // diseño) aunque no tenga ningún TicketType a $0 real: acá es donde se
+    // conecta ese caso con la fórmula ya existente para TICKETED, sin
+    // tocarla.
     const isFree =
-        ticketTypesInput.length > 0 && ticketTypesInput.every((tt) => Number(tt.price) === 0);
+        admissionType === "FREE_ENTRY" ||
+        (ticketTypesInput.length > 0 && ticketTypesInput.every((tt) => Number(tt.price) === 0));
 
     return {
         startDate: first?.date ? new Date(first.date) : null,
@@ -571,12 +643,20 @@ export const syncEventScheduleService = async (clerkId, eventId, input, organiza
 
     const ticketTypesInput = Array.isArray(input?.ticketTypes) ? input.ticketTypes : [];
     const functionsInput = Array.isArray(input?.functions) ? input.functions : [];
+    const isFreeEntry = event.admissionType === "FREE_ENTRY";
 
     if (functionsInput.length === 0) {
         throw new Error("NO_FUNCTIONS");
     }
-    if (ticketTypesInput.length === 0) {
+    // FREE_ENTRY nunca tiene catálogo — ni vacío es un error acá (a
+    // diferencia de TICKETED), ni se le exige. La UI nunca debería mandar
+    // nada en `ticketTypes` para un evento así, pero por las dudas nunca se
+    // ignora en silencio: un envío no vacío se rechaza explícito más abajo.
+    if (!isFreeEntry && ticketTypesInput.length === 0) {
         throw new Error("NO_TICKET_TYPES");
+    }
+    if (isFreeEntry && ticketTypesInput.length > 0) {
+        throw new Error("FREE_ENTRY_CANNOT_HAVE_TICKET_TYPES");
     }
 
     for (const fn of functionsInput) {
@@ -584,9 +664,11 @@ export const syncEventScheduleService = async (clerkId, eventId, input, organiza
             throw new Error("FUNCTION_MISSING_FIELDS");
         }
     }
-    for (const tt of ticketTypesInput) {
-        if (!tt.name || tt.price === undefined || tt.price === null || !tt.quantity) {
-            throw new Error("TICKET_TYPE_MISSING_FIELDS");
+    if (!isFreeEntry) {
+        for (const tt of ticketTypesInput) {
+            if (!tt.name || tt.price === undefined || tt.price === null || !tt.quantity) {
+                throw new Error("TICKET_TYPE_MISSING_FIELDS");
+            }
         }
     }
 
@@ -659,7 +741,7 @@ export const syncEventScheduleService = async (clerkId, eventId, input, organiza
             await tx.functionTicketType.createMany({ data: assignmentRows });
         }
 
-        const summary = recomputeEventSummary(functionsInput, ticketTypesInput);
+        const summary = recomputeEventSummary(functionsInput, ticketTypesInput, event.admissionType);
         await tx.event.update({ where: { id: eventId }, data: summary });
     });
 
@@ -1010,6 +1092,7 @@ export const duplicateEventService = async (clerkId, id) => {
                 longitude: source.longitude,
                 googlePlaceId: source.googlePlaceId,
                 isFree: source.isFree,
+                admissionType: source.admissionType,
                 status: "DRAFT",
                 organizationId: context.organization.id,
                 createdBy: context.user.id,

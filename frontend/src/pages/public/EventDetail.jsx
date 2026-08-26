@@ -178,21 +178,31 @@ export default function EventDetail() {
                 </span>
               </div>
 
-              <div className="border-t border-white/10 pt-4">
-                <p className="text-xs text-slate-500">Precio</p>
-                <p className="text-lg font-bold text-violet-400">
-                  {formatEventPrice(event)}
-                </p>
-              </div>
+              {event.admissionType === "FREE_ENTRY" ? (
+                <div className="border-t border-white/10 pt-4">
+                  <p className="text-xs text-slate-500">Precio</p>
+                  <p className="text-lg font-bold text-violet-400">Entrada gratuita</p>
+                  <p className="mt-1 text-xs text-slate-500">Ingreso por orden de llegada.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="border-t border-white/10 pt-4">
+                    <p className="text-xs text-slate-500">Precio</p>
+                    <p className="text-lg font-bold text-violet-400">
+                      {formatEventPrice(event)}
+                    </p>
+                  </div>
 
-              <Button
-                size="lg"
-                className="justify-center"
-                onClick={() => navigate(`/comprar?slug=${event.slug}&functionId=${event.functions?.[0]?.id}`)}
-              >
-                Comprar Entradas
-              </Button>
-              <p className="text-center text-xs text-slate-500">Irás al checkout para completar la compra.</p>
+                  <Button
+                    size="lg"
+                    className="justify-center"
+                    onClick={() => navigate(`/comprar?slug=${event.slug}&functionId=${event.functions?.[0]?.id}`)}
+                  >
+                    Comprar Entradas
+                  </Button>
+                  <p className="text-center text-xs text-slate-500">Irás al checkout para completar la compra.</p>
+                </>
+              )}
             </div>
           </Card>
         </div>

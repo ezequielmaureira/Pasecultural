@@ -263,6 +263,53 @@ testWithDb("2) an organization with no Mercado Pago connection cannot start a ch
 });
 
 // ==================================================================
+// D) Eventos gratuitos (FREE_ENTRY) — el guard temprano tiene que disparar
+// ANTES de intentar resolver la conexión de Mercado Pago: esta organización
+// NUNCA se conecta a MP en este test (a propósito), así que si el guard no
+// disparara primero, el error real sería MERCADOPAGO_NOT_CONNECTED en vez
+// del correcto EVENT_FREE_ENTRY_NO_SALES — la prueba de que el orden es el
+// esperado es justamente ver el código correcto acá.
+// ==================================================================
+
+testWithDb("D) FREE_ENTRY: el checkout de Mercado Pago falla ANTES de resolver la conexión, y no crea ninguna Sale", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const suffix = uniqueSuffix();
+    const event = await prisma.event.create({
+        data: {
+            title: `Feria libre ${suffix}`,
+            slug: `feria-libre-${suffix}`,
+            organizationId: org.id,
+            createdBy: owner.id,
+            status: "PUBLISHED",
+            visibility: "PUBLIC",
+            admissionType: "FREE_ENTRY",
+        },
+    });
+    const eventFunction = await prisma.eventFunction.create({
+        data: { eventId: event.id, date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), venue: "Plaza de prueba", status: "SCHEDULED" },
+    });
+
+    await assert.rejects(
+        () =>
+            createMercadoPagoCheckoutService(
+                BUYER,
+                { eventId: event.id, functionId: eventFunction.id, items: [], buyerDocument: "30111222" },
+                randomUUID()
+            ),
+        (error) => {
+            assert.equal(error.code, "EVENT_FREE_ENTRY_NO_SALES");
+            return true;
+        }
+    );
+
+    const salesCount = await prisma.sale.count({ where: { eventId: event.id } });
+    assert.equal(salesCount, 0, "un evento FREE_ENTRY nunca debe terminar con una Sale, ni siquiera colgada");
+
+    await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+});
+
+// ==================================================================
 // Bug fix (desconexión de Mercado Pago) — una organización que SÍ estuvo
 // conectada pero se desconectó debe fallar exactamente igual que una que
 // nunca se conectó (MERCADOPAGO_NOT_CONNECTED), nunca colgar una Sale, y

@@ -100,6 +100,12 @@ export default function OrganizerEventWizard() {
   const [duplicating, setDuplicating] = useState(false);
 
   const [step, setStep] = useState(1);
+  // Sólo lectura en esta pantalla por ahora: la modalidad se decide en la
+  // creación conversacional (chat/WhatsApp), este wizard es exclusivamente
+  // de edición y todavía no ofrece cambiarla. Default TICKETED reproduce el
+  // comportamiento de siempre mientras el fetch de abajo no resuelve.
+  const [admissionType, setAdmissionType] = useState("TICKETED");
+  const isFreeEntry = admissionType === "FREE_ENTRY";
   const [general, setGeneral] = useState(createEmptyGeneralForm);
   const [location, setLocation] = useState(createEmptyLocation);
   const [locationError, setLocationError] = useState("");
@@ -193,6 +199,7 @@ export default function OrganizerEventWizard() {
         if (cancelled || !event) return;
 
         setArchivedAt(event.archivedAt ?? null);
+        setAdmissionType(event.admissionType || "TICKETED");
         // Estar editando este evento lo convierte en el Evento Activo para
         // el resto del panel — salvo que esté archivado (no tiene sentido
         // que las demás pantallas operativas apunten a algo que no pueden
@@ -236,17 +243,24 @@ export default function OrganizerEventWizard() {
             : []
         );
 
-        const loadedCatalog = event.ticketTypes?.length
-          ? event.ticketTypes.map((tt) => ({
-              _key: tt.id,
-              name: tt.name || "",
-              price: tt.price ?? "",
-              quantity: tt.quantity ?? "",
-              maxPerPurchase: tt.maxPerPurchase ?? 10,
-              description: tt.description || "",
-              visible: tt.visible ?? true,
-            }))
-          : [createEmptyTicketType()];
+        // FREE_ENTRY nunca tiene catálogo: el arranque en blanco de un
+        // TicketType vacío (createEmptyTicketType) es sólo para el caso
+        // TICKETED sin entradas cargadas todavía — para FREE_ENTRY sería un
+        // catálogo fantasma que este evento no debe tener nunca.
+        const loadedCatalog =
+          event.admissionType === "FREE_ENTRY"
+            ? []
+            : event.ticketTypes?.length
+              ? event.ticketTypes.map((tt) => ({
+                  _key: tt.id,
+                  name: tt.name || "",
+                  price: tt.price ?? "",
+                  quantity: tt.quantity ?? "",
+                  maxPerPurchase: tt.maxPerPurchase ?? 10,
+                  description: tt.description || "",
+                  visible: tt.visible ?? true,
+                }))
+              : [createEmptyTicketType()];
 
         const loadedFunctions = event.functions?.length
           ? event.functions.map((fn) => {
@@ -522,6 +536,7 @@ export default function OrganizerEventWizard() {
   }
 
   function validateStep3() {
+    if (isFreeEntry) return true; // sin catálogo, nada que validar
     return (
       catalog.length > 0 &&
       catalog.every((tt) => tt.name.trim() && tt.price !== "" && tt.quantity !== "")
@@ -536,7 +551,7 @@ export default function OrganizerEventWizard() {
           fn.date &&
           fn.startTime &&
           fn.venue.trim() &&
-          fn.ticketAssignments.some((a) => a.enabled)
+          (isFreeEntry || fn.ticketAssignments.some((a) => a.enabled))
       )
     );
   }
@@ -589,14 +604,20 @@ export default function OrganizerEventWizard() {
 
   function buildSchedulePayload() {
     return {
-      ticketTypes: catalog.map((tt) => ({
-        name: tt.name,
-        price: Number(tt.price),
-        quantity: Number(tt.quantity),
-        maxPerPurchase: Number(tt.maxPerPurchase) || 10,
-        description: tt.description || null,
-        visible: Boolean(tt.visible),
-      })),
+      // FREE_ENTRY nunca manda catálogo, sin importar qué haya en `catalog`
+      // localmente (siempre debería ser [] para estos eventos, ver la carga
+      // inicial más arriba) — event.service.js rechaza explícito cualquier
+      // ticketTypes no vacío para un evento FREE_ENTRY.
+      ticketTypes: isFreeEntry
+        ? []
+        : catalog.map((tt) => ({
+            name: tt.name,
+            price: Number(tt.price),
+            quantity: Number(tt.quantity),
+            maxPerPurchase: Number(tt.maxPerPurchase) || 10,
+            description: tt.description || null,
+            visible: Boolean(tt.visible),
+          })),
       functions: functions.map((fn) => ({
         date: toDateTime(fn.date, fn.startTime),
         doorsOpenAt: fn.doorsOpenTime ? toDateTime(fn.date, fn.doorsOpenTime) : null,
@@ -909,7 +930,17 @@ export default function OrganizerEventWizard() {
           />
         )}
 
-        {step === 3 && (
+        {step === 3 && isFreeEntry && (
+          <div className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/5 p-4">
+            <p className="text-sm font-semibold text-white">Entrada gratuita</p>
+            <p className="text-sm text-slate-400">
+              Este evento es de ingreso libre, por orden de llegada. No tiene catálogo de
+              entradas ni control de acceso — podés avanzar directamente al siguiente paso.
+            </p>
+          </div>
+        )}
+
+        {step === 3 && !isFreeEntry && (
           <TicketCatalogEditor
             catalog={catalog}
             onAdd={addCatalogItem}
@@ -1048,6 +1079,11 @@ export default function OrganizerEventWizard() {
                   </div>
 
                   <div className="mt-2 flex flex-col gap-1.5">
+                    {isFreeEntry && (
+                      <p className="text-xs font-medium text-violet-300">
+                        Entrada gratuita · Ingreso por orden de llegada
+                      </p>
+                    )}
                     {catalog.map((tt, ticketIndex) => {
                       const assignment = fn.ticketAssignments[ticketIndex];
                       if (!assignment?.enabled) return null;

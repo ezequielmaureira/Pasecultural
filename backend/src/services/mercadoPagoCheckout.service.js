@@ -107,6 +107,16 @@ export async function createMercadoPagoCheckoutService(buyerInfo, saleInput, ide
     const event = await prisma.event.findUnique({ where: { id: saleInput?.eventId } });
     if (!event) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
 
+    // Guard temprano de FREE_ENTRY — sólo por UX (createSaleForBuyer, más
+    // abajo en la cadena, ya bloquea esto de forma autoritativa). Se chequea
+    // ACÁ, antes de resolver la conexión de Mercado Pago: un organizador
+    // FREE_ENTRY nunca necesita conectar MP (no vende nada), así que sin
+    // este guard temprano vería un confuso "Mercado Pago no conectado" en
+    // vez del mensaje correcto.
+    if (event.admissionType === "FREE_ENTRY") {
+        throw new AppError(ErrorCodes.EVENT_FREE_ENTRY_NO_SALES);
+    }
+
     const accessToken = await getValidMercadoPagoAccessTokenForOrganization(event.organizationId);
 
     // 3) Crear la Sale PENDING — reusa EXACTO el mismo núcleo de
