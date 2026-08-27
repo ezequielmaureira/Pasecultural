@@ -3,6 +3,7 @@ import AppShell from "./components/layout/AppShell.jsx";
 import PublicShell from "./components/layout/PublicShell.jsx";
 import RequireAuth from "./components/auth/RequireAuth.jsx";
 import RoleGuard from "./components/auth/RoleGuard.jsx";
+import PreLaunchGate from "./components/launch/PreLaunchGate.jsx";
 import Home from "./pages/Home.jsx";
 import OrganizersLanding from "./pages/OrganizersLanding.jsx";
 import SignInPage from "./pages/SignIn.jsx";
@@ -70,21 +71,35 @@ export default function App() {
       <ToastProvider>
       <AuthProvider>
         <Routes>
-          <Route element={<PublicShell />}>
-            <Route path="/" element={<Home />} />
-            <Route path="/eventos" element={<EventsList />} />
-            <Route path="/evento/:slug" element={<EventDetail />} />
-            {/* Sin RequireAuth a propósito: comprar nunca exige cuenta. */}
-            <Route path="/comprar" element={<PurchaseWizard />} />
-            <Route element={<RequireAuth />}>
-              <Route path="/mis-entradas" element={<MyTickets />} />
+          {/* Modo Prelanzamiento — SOLO las rutas comerciales/de descubrimiento
+              quedan detrás de PreLaunchGate (ver ese componente). El resto de
+              PublicShell (login, legal, informativas) vive en un segundo
+              bloque más abajo, deliberadamente FUERA de este gate: es el
+              camino que Developer/Organizer necesitan conservar siempre
+              disponible para poder autenticarse. */}
+          <Route element={<PreLaunchGate />}>
+            <Route element={<PublicShell />}>
+              <Route path="/" element={<Home />} />
+              <Route path="/eventos" element={<EventsList />} />
+              <Route path="/evento/:slug" element={<EventDetail />} />
+              {/* Sin RequireAuth a propósito: comprar nunca exige cuenta. */}
+              <Route path="/comprar" element={<PurchaseWizard />} />
+              <Route element={<RequireAuth />}>
+                <Route path="/mis-entradas" element={<MyTickets />} />
+              </Route>
+              <Route path="/recuperar-compra" element={<RecoverPurchase />} />
+              <Route path="/arrepentimiento" element={<WithdrawalRequest />} />
             </Route>
-            <Route path="/recuperar-compra" element={<RecoverPurchase />} />
-            <Route path="/arrepentimiento" element={<WithdrawalRequest />} />
+          </Route>
+
+          <Route element={<PublicShell />}>
             {/* Público a propósito: tiene que mostrar "vas a operar como
                 scanner de X" antes del login — RequireAuth la mandaría
                 directo a /iniciar-sesion sin ese contexto. La propia
-                pantalla pide sesión sólo para el botón "Aceptar". */}
+                pantalla pide sesión sólo para el botón "Aceptar". No detrás
+                de PreLaunchGate: es operativo (scanners ya invitados por un
+                organizador), nunca descubrimiento de eventos para un
+                visitante anónimo. */}
             <Route path="/scanner/invitacion/:token" element={<ScannerInvitationClaim />} />
             {/* Acceso RECURRENTE de un scanner ya registrado — "Soy Scanner"
                 desde el Home. Email + código de 6 dígitos, misma

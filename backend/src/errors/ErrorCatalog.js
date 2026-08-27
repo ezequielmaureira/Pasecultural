@@ -639,6 +639,30 @@ export const ErrorCatalog = Object.freeze({
         userMessage: "La configuración de alertas tiene errores. Revisá los valores e intentá de nuevo.",
     },
 
+    // Modo Prelanzamiento — mismo motivo que DEVELOPER_ALERT_CONFIG_MISSING:
+    // sólo puede pasar si la fila singleton fue borrada a mano (la
+    // migración la siembra). isPublicLaunchEnabledOrDefault() (el único
+    // punto que usa el resto del sistema para decidir si bloquea algo)
+    // nunca lanza esto — falla cerrado en silencio, ver el service.
+    PUBLIC_LAUNCH_SETTINGS_MISSING: {
+        httpStatus: 500,
+        logMessage: "No PublicLaunchSettings row exists — the singleton row was likely deleted manually (the migration seeds it).",
+        userMessage: "No pudimos cargar el estado público de PaseCultural.",
+    },
+    PUBLIC_LAUNCH_SETTINGS_INVALID: {
+        httpStatus: 400,
+        logMessage: "The proposed publicLaunchEnabled value was not a boolean.",
+        userMessage: "El valor enviado no es válido.",
+    },
+    // Superficie pública bloqueada mientras dura el prelanzamiento — nunca
+    // un error real, es el estado esperado hasta que un DEVELOPER habilite
+    // el sitio desde Developer > Configuración.
+    PUBLIC_LAUNCH_DISABLED: {
+        httpStatus: 503,
+        logMessage: "Public request blocked: publicLaunchEnabled is false (or unreadable, fail-closed).",
+        userMessage: "PaseCultural todavía no está disponible públicamente.",
+    },
+
     ORGANIZER_NOTIFICATION_SETTINGS_NO_ORGANIZATION: {
         httpStatus: 409,
         logMessage: "Organizer notification settings requested/updated by a user with no organization of their own.",

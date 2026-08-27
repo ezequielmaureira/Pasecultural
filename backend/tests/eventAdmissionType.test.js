@@ -5,6 +5,7 @@ import prisma from "../src/config/prisma.js";
 import { createEventService, syncEventScheduleService, updateMyEventService } from "../src/services/event.service.js";
 import { createSaleForBuyer } from "../src/services/sale.service.js";
 import { commit } from "../src/conversation/EventServicePort.js";
+import { setPublicLaunchEnabledService } from "../src/services/publicLaunchSettings.service.js";
 
 // Eventos gratuitos (FREE_ENTRY) — primera versión funcional. CRUD +
 // transacciones reales (Event/EventFunction/TicketType/Sale), no expresable
@@ -94,6 +95,28 @@ async function cleanup({ eventIds = [], organizationIds = [], userIds = [] }) {
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
 }
 
+// Modo Prelanzamiento (ronda posterior a FREE_ENTRY) — createSaleForBuyer
+// ahora también bloquea origin=SALE (default) cuando publicLaunchEnabled
+// es false (ver sale.service.js), ANTES incluso de llegar al guard de
+// FREE_ENTRY. Este archivo prueba específicamente el guard de FREE_ENTRY,
+// no el de prelanzamiento (ese vive en publicLaunchSettings.test.js) — así
+// que los dos tests de acá que crean una Sale real (C, H) necesitan
+// publicLaunchEnabled=true mientras dura esa llamada puntual, para que el
+// guard de prelanzamiento no enmascare lo que realmente se está probando.
+// Restaura el valor previo siempre, nunca deja la fila de TEST distinta a
+// como la encontró.
+async function withPublicLaunchEnabled(run) {
+    const before = await prisma.publicLaunchSettings.findFirst({ orderBy: { createdAt: "asc" } });
+    await setPublicLaunchEnabledService(null, true);
+    try {
+        return await run();
+    } finally {
+        if (before) {
+            await prisma.publicLaunchSettings.update({ where: { id: before.id }, data: { publicLaunchEnabled: before.publicLaunchEnabled, updatedByUserId: before.updatedByUserId } });
+        }
+    }
+}
+
 // ==================================================================
 // A) FREE_ENTRY: guardar la agenda con ticketTypes=[] y publicar sin
 // catálogo tiene que funcionar de punta a punta (create -> schedule ->
@@ -180,12 +203,14 @@ testWithDb("C) createSaleForBuyer rechaza un evento FREE_ENTRY y no crea ninguna
     });
 
     try {
-        await assert.rejects(
-            () => createSaleForBuyer(buyer, { eventId: event.id, functionId: eventFunction.id, items: [], buyerDocument: "30111222" }),
-            (error) => {
-                assert.equal(error.code, "EVENT_FREE_ENTRY_NO_SALES");
-                return true;
-            }
+        await withPublicLaunchEnabled(() =>
+            assert.rejects(
+                () => createSaleForBuyer(buyer, { eventId: event.id, functionId: eventFunction.id, items: [], buyerDocument: "30111222" }),
+                (error) => {
+                    assert.equal(error.code, "EVENT_FREE_ENTRY_NO_SALES");
+                    return true;
+                }
+            )
         );
 
         const salesCount = await prisma.sale.count({ where: { eventId: event.id } });
@@ -325,12 +350,14 @@ testWithDb("H) cambio de admissionType sólo permitido en DRAFT, sin ventas real
         { functions: [{ date: "2099-01-01T20:00:00-03:00", venue: "V" }], ticketTypes: [{ name: "General", price: 1000, quantity: 10 }] },
         org.id
     );
-    await createSaleForBuyer(buyer, {
-        eventId: eventC.id,
-        functionId: syncedC.functions[0].id,
-        items: [{ ticketTypeId: syncedC.ticketTypes[0].id, quantity: 1 }],
-        buyerDocument: "30111222",
-    });
+    await withPublicLaunchEnabled(() =>
+        createSaleForBuyer(buyer, {
+            eventId: eventC.id,
+            functionId: syncedC.functions[0].id,
+            items: [{ ticketTypeId: syncedC.ticketTypes[0].id, quantity: 1 }],
+            buyerDocument: "30111222",
+        })
+    );
     await assert.rejects(
         () => updateMyEventService(owner.clerkId, eventC.id, { admissionType: "FREE_ENTRY" }, org.id),
         (error) => {

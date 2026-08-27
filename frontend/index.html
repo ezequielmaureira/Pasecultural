@@ -3,6 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Modo Prelanzamiento — estático a propósito: esta es una SPA de Vite
+         sin renderizado por request, así que no puede seguir en vivo al
+         flag publicLaunchEnabled de la base (eso requeriría SSR/una función
+         edge, infraestructura nueva que esta ronda no construye). Se
+         retira a mano como parte del mismo deploy del lanzamiento público
+         real — ver también /public/robots.txt y el aviso en Developer >
+         Configuración. -->
+    <meta name="robots" content="noindex, nofollow" />
     <title>PaseCultural</title>
   </head>
   <body>

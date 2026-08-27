@@ -7,6 +7,7 @@ import InlineErrorNotice from "../../components/ui/InlineErrorNotice.jsx";
 import { formatCurrencyARS, formatDateTime } from "../../lib/format.js";
 import { getServiceFeeConfig, updateServiceFeeConfig } from "../../lib/developerServiceFeeApi.js";
 import { getDeveloperAlertConfig, updateDeveloperAlertConfig } from "../../lib/developerAlertConfigApi.js";
+import { getDeveloperLaunchStatus, updateDeveloperLaunchStatus } from "../../lib/publicLaunchApi.js";
 
 // MP-6 — Developer > Configuración. Única sección hoy (comisión de
 // servicio de Mercado Pago); pensada como el punto de entrada para
@@ -66,6 +67,117 @@ function PreviewRow({ example, rows }) {
       <td className="py-2 pr-3 text-slate-400">{incomplete ? "—" : formatCurrencyARS(fee)}</td>
       <td className="py-2 font-medium text-white">{incomplete ? "Rango incompleto" : formatCurrencyARS(subtotal + fee)}</td>
     </tr>
+  );
+}
+
+// Modo Prelanzamiento — Developer > Configuración. Sección pequeña,
+// booleano único (ver backend/src/services/publicLaunchSettings.service.js).
+// Temporal a propósito: protege la superficie pública mientras terminamos
+// Premium/pruebas/revisión legal-fiscal, nunca el futuro modo
+// mantenimiento real (ese sería un sistema distinto, con compradores/pagos
+// reales en juego).
+function PublicLaunchSection() {
+  const { getToken } = useAuth();
+
+  const [enabled, setEnabled] = useState(null);
+  const [updatedAt, setUpdatedAt] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+
+  async function load() {
+    setLoading(true);
+    setLoadError(false);
+    try {
+      const token = await getToken();
+      const settings = await getDeveloperLaunchStatus(token);
+      setEnabled(settings.publicLaunchEnabled);
+      setUpdatedAt(settings.updatedAt);
+    } catch (err) {
+      console.error("No se pudo cargar el estado público de PaseCultural", err);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleToggle() {
+    setSaveError("");
+    setSaving(true);
+    try {
+      const token = await getToken();
+      const settings = await updateDeveloperLaunchStatus(token, !enabled);
+      setEnabled(settings.publicLaunchEnabled);
+      setUpdatedAt(settings.updatedAt);
+    } catch (err) {
+      setSaveError(err.message || "No pudimos actualizar el estado público.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return <p className="text-sm text-slate-400">Cargando estado público...</p>;
+  }
+
+  if (loadError) {
+    return <InlineErrorNotice message="No pudimos cargar el estado público de PaseCultural." onRetry={load} />;
+  }
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-[#0B1120]/90 p-5">
+      <div className="mb-4 flex flex-col gap-1">
+        <h2 className="text-sm font-semibold text-white">Estado público de Pase Cultural</h2>
+        <p className="text-xs leading-relaxed text-slate-500">
+          Controla si un visitante anónimo puede navegar el sitio público (eventos, compra, recuperación) o ve
+          "Próximamente". Nunca afecta el acceso interno: Developer y Organizer siguen entrando normalmente por
+          /iniciar-sesion.
+        </p>
+        {updatedAt && <p className="text-xs text-slate-600">Última modificación: {formatDateTime(updatedAt)}</p>}
+      </div>
+
+      {saveError && (
+        <div className="mb-4 rounded-lg border border-rose-500/20 bg-rose-500/5 p-3">
+          <p className="text-sm text-rose-300">{saveError}</p>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          {enabled ? (
+            <>
+              <p className="text-sm font-medium text-emerald-400">🟢 Sitio público habilitado</p>
+              <p className="mt-1 text-xs text-slate-500">Cualquier visitante puede navegar y comprar.</p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-medium text-amber-400">🟠 Prelanzamiento activo</p>
+              <p className="mt-1 text-xs text-slate-500">El sitio público está oculto mientras continuamos las pruebas.</p>
+            </>
+          )}
+        </div>
+        <Button onClick={handleToggle} loading={saving} loadingText="Guardando...">
+          {enabled ? "Activar prelanzamiento" : "Habilitar sitio público"}
+        </Button>
+      </div>
+
+      {/* Ajuste 2 — advertencia SIEMPRE visible, no sólo en documentación
+          técnica: este toggle NUNCA controla robots.txt/meta noindex (SPA
+          estática, sin infraestructura de renderizado por request — ver el
+          informe de auditoría). Habilitar el sitio acá no habilita
+          indexación por sí solo. */}
+      <p className="mt-4 text-xs leading-relaxed text-amber-300/80">
+        ⚠️ El sitio público puede habilitarse desde aquí. La indexación en buscadores continúa bloqueada hasta el
+        deploy de lanzamiento.
+      </p>
+    </div>
   );
 }
 
@@ -447,6 +559,8 @@ export default function DeveloperSettings() {
           </table>
         </div>
       </div>
+
+      <PublicLaunchSection />
 
       <DeveloperAlertConfigSection />
     </div>

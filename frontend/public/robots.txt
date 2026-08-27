@@ -1,0 +1,7 @@
+# Modo Prelanzamiento — estático a propósito (Vite SPA sin renderizado por
+# request, no sigue en vivo al flag publicLaunchEnabled de la base). Se
+# retira/reemplaza a mano como parte del mismo deploy del lanzamiento
+# público real. Ver también el <meta name="robots"> en index.html y el
+# aviso en Developer > Configuración.
+User-agent: *
+Disallow: /

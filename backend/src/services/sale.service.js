@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import prisma from "../config/prisma.js";
 import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
+import { isPublicLaunchEnabledOrDefault } from "./publicLaunchSettings.service.js";
 import { getUserByClerkId } from "../utils/getUserByClerkId.js";
 import { runArchiveSelfHeal } from "./eventArchive.service.js";
 import { isValidEmail } from "../utils/validateEmail.js";
@@ -164,6 +165,20 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
         // se usa para calcular nada.
         expectedTotals = null,
     } = options;
+
+    // Modo Prelanzamiento — guard autoritativo: una Sale pública nueva
+    // (origin=SALE, el checkout real de un visitante anónimo — venta
+    // manual o Mercado Pago, ambas llegan acá con este mismo origin) nunca
+    // puede crearse mientras el sitio esté cerrado. Cortesías
+    // (origin=COURTESY, courtesy.service.js) NUNCA pasan por este chequeo:
+    // Organizer/Developer necesitan seguir emitiéndolas durante las
+    // pruebas internas sin que este flag las afecte. Chequeado antes de
+    // tocar la base (ni siquiera busca el evento) — fail-closed, ver
+    // publicLaunchSettings.service.js.
+    if (origin === "SALE" && !(await isPublicLaunchEnabledOrDefault())) {
+        throw new AppError(ErrorCodes.PUBLIC_LAUNCH_DISABLED);
+    }
+
     const event = await prisma.event.findUnique({ where: { id: input?.eventId } });
     if (!event) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
 

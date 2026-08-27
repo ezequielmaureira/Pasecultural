@@ -39,10 +39,19 @@ import {
     getMyTicketTypesSales,
 } from "../controllers/functionCapacity.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
+import { requirePublicLaunch } from "../middlewares/requirePublicLaunch.js";
 
 const router = Router();
 
 // Marketplace público (sin autenticación) — deben declararse antes de "/:id"
+// Modo Prelanzamiento — router.use con prefijo "/public" cubre AMBAS rutas
+// de abajo (Express matchea "/public" y cualquier sub-path, ej.
+// "/public/:slug") con un único guard: mientras publicLaunchEnabled sea
+// false, ningún visitante anónimo puede listar ni ver el detalle de un
+// evento por acá. Verificado sin ningún consumidor Organizer/Developer
+// (ambos usan endpoints autenticados aparte, GET /api/events/:id vía
+// requireAuth) — no hace falta ninguna excepción de rol.
+router.use("/public", requirePublicLaunch);
 router.get("/public", getPublicEvents);
 router.get("/public/:slug", getPublicEventBySlug);
 router.get("/categories", getEventCategories);

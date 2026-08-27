@@ -190,6 +190,10 @@ model User {
   // intento (ver los modelos más abajo).
   organizationPhoneVerificationsRequested        OrganizationPhoneVerification[]
   organizationPhoneChangeAuthorizationsRequested OrganizationPhoneChangeAuthorization[]
+  // Modo Prelanzamiento — trazabilidad de quién cambió el estado público
+  // por última vez (ver PublicLaunchSettings más abajo). Mismo criterio que
+  // developerAlertConfigsUpdated.
+  publicLaunchSettingsUpdated                    PublicLaunchSettings[]
 }
 
 model Organization {
@@ -1503,6 +1507,40 @@ model DeveloperAlertConfig {
   updatedBy       User?   @relation(fields: [updatedByUserId], references: [id])
 
   @@map("developer_alert_config")
+}
+
+// Modo Prelanzamiento — fila única ("singleton"), mismo criterio exacto que
+// DeveloperAlertConfig de acá arriba. Controla si la superficie pública de
+// PaseCultural (marketplace de eventos, compra, recuperación) está
+// accesible para un visitante anónimo mientras terminamos Premium,
+// pruebas, revisión legal/fiscal y preparación del lanzamiento — NUNCA
+// afecta el acceso interno de DEVELOPER/ORGANIZER (ver
+// publicLaunchSettings.service.js). Temporal a propósito: cuando
+// PaseCultural se lance de verdad, esta fila queda en `true` para siempre
+// y esta infraestructura puede retirarse — no es el futuro modo
+// mantenimiento real (ese deberá diseñarse considerando compradores/pagos
+// reales en curso, fuera de alcance acá).
+//
+// false = prelanzamiento activo, sitio público cerrado (default de la
+// migración: es el estado real hoy). true = sitio público habilitado.
+// La lectura operativa (isPublicLaunchEnabledOrDefault) FALLA CERRADO: si
+// esta fila no se puede leer, se trata como false — al revés del criterio
+// de DeveloperAlertConfig (que falla abierto a DEFAULTS), porque acá "no
+// sé el estado" tiene que significar "protegido", nunca "dejar pasar".
+model PublicLaunchSettings {
+  id String @id @default(cuid())
+
+  publicLaunchEnabled Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Nullable por el mismo motivo que DeveloperAlertConfig.updatedByUserId:
+  // la fila inicial que trae la migración no la guardó ningún DEVELOPER real.
+  updatedByUserId String?
+  updatedBy       User?   @relation(fields: [updatedByUserId], references: [id])
+
+  @@map("public_launch_settings")
 }
 
 // Alertas Developer — deduplicación/cooldown de las alertas repetibles por

@@ -25,6 +25,8 @@ import developerScannersRoutes from "./routes/developerScanners.routes.js";
 import developerSalesRoutes from "./routes/developerSales.routes.js";
 import developerServiceFeeRoutes from "./routes/developerServiceFee.routes.js";
 import developerAlertConfigRoutes from "./routes/developerAlertConfig.routes.js";
+import publicLaunchSettingsRoutes from "./routes/publicLaunchSettings.routes.js";
+import publicLaunchStatusRoutes from "./routes/publicLaunchStatus.routes.js";
 import whatsappRoutes from "./routes/whatsapp.routes.js";
 import mercadoPagoRoutes from "./routes/mercadoPago.routes.js";
 import { errorHandler } from "./errors/index.js";
@@ -132,6 +134,16 @@ app.use("/api/developer", developerServiceFeeRoutes);
 // por ventana de tiempo, cooldown). Exclusivo DEVELOPER. Ver
 // developerAlertConfig.service.js.
 app.use("/api/developer", developerAlertConfigRoutes);
+// Mismo prefijo "/api/developer", octavo router en paralelo (sin tocar
+// ninguno de los anteriores) — Modo Prelanzamiento, Developer >
+// Configuración: GET/PUT /api/developer/launch-status (estado público de
+// PaseCultural). Exclusivo DEVELOPER. Ver publicLaunchSettings.service.js.
+app.use("/api/developer", publicLaunchSettingsRoutes);
+// Router propio, prefijo nuevo "/api/public" — SIN auth: GET
+// /api/public/launch-status, lo necesita cualquier visitante anónimo antes
+// de que exista sesión. Nunca agregar otros endpoints públicos de datos
+// acá — ver publicLaunchStatus.routes.js.
+app.use("/api/public", publicLaunchStatusRoutes);
 // Webhook de Meta WhatsApp Cloud API — Fase 2A: sólo verificación GET y
 // recepción POST del webhook, público (Meta no manda ningún header de
 // sesión de PaseCultural). No conecta EventCreationEngine/EventServicePort
