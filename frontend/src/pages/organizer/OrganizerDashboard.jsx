@@ -122,6 +122,36 @@ export default function OrganizerDashboard() {
     reloadEventsStats,
   } = useOrganizerData();
 
+  // Premium — Fase 1 (fix): `organization` NO viene de useOrganizerData
+  // (ese contexto sólo trae events/sales/stats, nunca la organización en
+  // sí) ni está en el scope de este componente por ningún otro lado — el
+  // único `organization` que existía en este archivo pertenece al closure
+  // propio de OrganizationStatusBanner (más arriba), un componente
+  // hermano, no un padre. Mismo patrón exacto que ya usa ese componente
+  // (y OrganizerSettings.jsx/OrganizerEvents.jsx/OrganizerEventWizard.jsx,
+  // ver el diagnóstico) para obtener la organización — no se inventa
+  // ningún fetch ni contexto nuevo, se replica el ya existente.
+  const { getToken } = useAuth();
+  const [organization, setOrganization] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const token = await getToken();
+        const { organization: org } = await apiFetch("/api/organizations/me", { token });
+        if (!cancelled) setOrganization(org);
+      } catch (error) {
+        console.error("No se pudo obtener la organización", error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken]);
+
   // Ya no se memoiza con `[]`: la Fase 4 (polling) y el Timeline (fechas
   // relativas en vivo) necesitan que "ahora" avance en cada re-render, no
   // que quede congelado en el momento del montaje. El cálculo en sí es
