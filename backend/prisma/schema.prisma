@@ -38,6 +38,18 @@ enum OrganizationType {
   OTRO
 }
 
+// Premium — Fase 1 (infraestructura + administración manual, ver el
+// informe de auditoría). Activación exclusivamente manual por DEVELOPER
+// (nunca autoservicio del Organizer, ver UPDATABLE_FIELDS en
+// organization.service.js) — todavía NO gobierna ninguna restricción ni
+// beneficio funcional, sólo se persiste y se muestra. Concepto
+// completamente independiente de EventAdmissionType (por Event) y de
+// PublicLaunchSettings (global, singleton) — nunca mezclar los tres.
+enum OrganizationPlan {
+  FREE
+  PREMIUM
+}
+
 enum EventStatus {
   DRAFT
   SCHEDULED
@@ -164,7 +176,10 @@ model User {
   status        UserStatus     @default(ACTIVE)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
-  organizations Organization[]
+  // Nombrada ("OrganizationOwner") por el mismo motivo que Organization.owner
+  // — ver el comentario ahí. Mismo campo/comportamiento de siempre, sólo
+  // sintaxis nueva para desambiguar frente a planOrganizationsUpdated.
+  organizations Organization[] @relation("OrganizationOwner")
 
   salesAsBuyer                                   Sale[]
   ticketsAsBuyer                                 Ticket[]                               @relation("TicketBuyer")
@@ -194,6 +209,10 @@ model User {
   // por última vez (ver PublicLaunchSettings más abajo). Mismo criterio que
   // developerAlertConfigsUpdated.
   publicLaunchSettingsUpdated                    PublicLaunchSettings[]
+  // Premium — trazabilidad de quién cambió el plan de cada Organization
+  // por última vez (ver Organization.planUpdatedBy más abajo). Mismo
+  // criterio que publicLaunchSettingsUpdated/developerAlertConfigsUpdated.
+  planOrganizationsUpdated                       Organization[]                         @relation("OrganizationPlanUpdatedBy")
 }
 
 model Organization {
@@ -234,8 +253,27 @@ model Organization {
   approvedAt DateTime?
   approvedBy String?
 
+  // Premium — Fase 1. @default(FREE) a propósito: cero impacto en
+  // organizaciones existentes, mismo criterio ya usado en este archivo
+  // para Event.admissionType/tickets.origin/sales.origin. Sólo
+  // updateOrganizationPlanService (organization.service.js) escribe estos
+  // 3 campos — nunca updateMyOrganizationService (el self-service del
+  // Organizer, ver UPDATABLE_FIELDS). planUpdatedAt/planUpdatedByUserId
+  // nullable porque un Organization recién creado nunca tuvo su plan
+  // cambiado por nadie todavía (sigue siendo el default de la migración).
+  plan                OrganizationPlan @default(FREE)
+  planUpdatedAt       DateTime?
+  planUpdatedByUserId String?
+  planUpdatedBy       User?            @relation("OrganizationPlanUpdatedBy", fields: [planUpdatedByUserId], references: [id])
+
   ownerId String
-  owner   User   @relation(fields: [ownerId], references: [id])
+  // Nombrada explícitamente ("OrganizationOwner") sólo porque Premium
+  // agrega una segunda relación a User en este mismo modelo
+  // (planUpdatedBy, más arriba) — Prisma exige nombrar ambas relaciones
+  // cuando hay más de una hacia el mismo modelo. Mismo mecanismo ya usado
+  // en el schema para Ticket.owner ("TicketOwner"). Ningún cambio de
+  // comportamiento: mismo campo, mismo FK, misma semántica de siempre.
+  owner   User   @relation("OrganizationOwner", fields: [ownerId], references: [id])
 
   events Event[]
 

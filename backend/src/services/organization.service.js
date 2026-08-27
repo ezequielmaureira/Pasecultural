@@ -252,6 +252,34 @@ export const updateOrganizationStatusService = async (
     });
 };
 
+// Premium — Fase 1, mismo patrón exacto que updateOrganizationStatusService
+// de acá arriba: sólo DEVELOPER llega a llamar esto (ver requireRole en
+// organization.routes.js). Actualiza EXCLUSIVAMENTE plan/planUpdatedAt/
+// planUpdatedByUserId — nunca toca status/approvedAt/approvedBy/ownerId ni
+// ningún otro dato comercial de la Organization. `plan` ya viene validado
+// por el controller (FREE/PREMIUM) antes de llegar acá, mismo criterio que
+// `status` en updateOrganizationStatusService.
+export const updateOrganizationPlanService = async (
+    id,
+    plan,
+    developerUserId
+) => {
+    const organization = await prisma.organization.findUnique({
+        where: { id },
+    });
+
+    if (!organization) return null;
+
+    return prisma.organization.update({
+        where: { id },
+        data: {
+            plan,
+            planUpdatedAt: new Date(),
+            planUpdatedByUserId: developerUserId,
+        },
+    });
+};
+
 export const deleteOrganizationService = async (id) => {
     await prisma.organization.delete({ where: { id } });
 };

@@ -7,11 +7,13 @@ import {
     getOrganizationsService,
     getOrganizationByIdService,
     updateOrganizationStatusService,
+    updateOrganizationPlanService,
     deleteOrganizationService,
 } from "../services/organization.service.js";
 import { validateOrganizationInput } from "../utils/validateOrganization.js";
 
 const VALID_STATUSES = new Set(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"]);
+const VALID_PLANS = new Set(["FREE", "PREMIUM"]);
 
 export const getMyOrganization = async (req, res) => {
     try {
@@ -199,6 +201,41 @@ export const updateOrganizationStatus = async (req, res) => {
 
         res.status(500).json({
             message: "Error al actualizar el estado de la organización",
+        });
+    }
+};
+
+// Premium — Fase 1, mismo patrón exacto que updateOrganizationStatus de
+// acá arriba. req.dbUser ya viene resuelto por requireRole("DEVELOPER")
+// (ver organization.routes.js) — nunca se vuelve a resolver acá.
+export const updateOrganizationPlan = async (req, res) => {
+    try {
+        const { plan } = req.body;
+
+        if (!VALID_PLANS.has(plan)) {
+            return res.status(400).json({
+                message: "Plan inválido",
+            });
+        }
+
+        const organization = await updateOrganizationPlanService(
+            req.params.id,
+            plan,
+            req.dbUser.id
+        );
+
+        if (!organization) {
+            return res.status(404).json({
+                message: "Organización no encontrada",
+            });
+        }
+
+        res.status(200).json({ organization });
+    } catch (error) {
+        console.error(error);
+
+        res.status(500).json({
+            message: "Error al actualizar el plan de la organización",
         });
     }
 };

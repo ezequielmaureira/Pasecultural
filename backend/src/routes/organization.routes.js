@@ -7,6 +7,7 @@ import {
     getOrganizations,
     getOrganizationById,
     updateOrganizationStatus,
+    updateOrganizationPlan,
     deleteOrganization,
 } from "../controllers/organization.controller.js";
 import { getWhatsappLinkStatus, linkWhatsappOrganizer } from "../controllers/organizationWhatsapp.controller.js";
@@ -76,6 +77,12 @@ router.post("/me/phone-verification/delete", requireRole("ORGANIZER"), deleteOrg
 router.get("/", requireRole("DEVELOPER"), getOrganizations);
 router.get("/:id", requireRole("DEVELOPER"), getOrganizationById);
 router.patch("/:id/status", requireRole("DEVELOPER"), updateOrganizationStatus);
+// Premium — Fase 1: administración manual exclusiva de DEVELOPER (ver
+// organization.service.js#updateOrganizationPlanService). No hay ningún
+// endpoint equivalente para ORGANIZER — su plan sólo se lee, nunca vía
+// PATCH /me (ver UPDATABLE_FIELDS, que deliberadamente nunca incluye
+// plan/planUpdatedAt/planUpdatedByUserId).
+router.patch("/:id/plan", requireRole("DEVELOPER"), updateOrganizationPlan);
 router.delete("/:id", requireRole("DEVELOPER"), deleteOrganization);
 
 export default router;

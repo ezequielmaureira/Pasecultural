@@ -11,6 +11,7 @@ import {
   ORG_STATUS_STYLES,
   ORG_STATUS_FILTERS,
 } from "../../lib/organizationStatus.js";
+import { ORG_PLAN_LABEL, ORG_PLAN_STYLES } from "../../lib/organizationPlan.js";
 import { useToast } from "../../context/ToastContext.jsx";
 
 function Pill({ status }) {
@@ -21,6 +22,18 @@ function Pill({ status }) {
       }`}
     >
       {ORG_STATUS_LABEL[status] ?? status}
+    </span>
+  );
+}
+
+function PlanPill({ plan }) {
+  return (
+    <span
+      className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
+        ORG_PLAN_STYLES[plan] ?? "bg-white/10 text-slate-400"
+      }`}
+    >
+      {ORG_PLAN_LABEL[plan] ?? plan}
     </span>
   );
 }
@@ -49,6 +62,7 @@ export default function DeveloperOrganizations() {
   const [error, setError] = useState("");
   const [selected, setSelected] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
+  const [pendingPlanChange, setPendingPlanChange] = useState(null);
   const [updatingId, setUpdatingId] = useState(null);
   const [updatingAction, setUpdatingAction] = useState(null);
 
@@ -99,6 +113,36 @@ export default function DeveloperOrganizations() {
     } catch (err) {
       console.error("No se pudo actualizar la organización", err);
       setError(err.message || "No se pudo actualizar la organización.");
+    } finally {
+      setUpdatingId(null);
+      setUpdatingAction(null);
+    }
+  }
+
+  // Premium — Fase 1, mismo patrón exacto que changeStatus: el cambio
+  // efectivo sólo ocurre acá, después de que el ConfirmDialog de abajo
+  // confirma el pendingPlanChange armado por OrganizationDetailModal.
+  async function confirmPlanChange() {
+    if (!pendingPlanChange) return;
+    const { organization: org, nextPlan } = pendingPlanChange;
+    setUpdatingId(org.id);
+    setUpdatingAction(nextPlan);
+    try {
+      const token = await getToken();
+      const { organization } = await apiFetch(`/api/organizations/${org.id}/plan`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({ plan: nextPlan }),
+      });
+      setOrganizations((prev) =>
+        prev.map((o) => (o.id === org.id ? organization : o))
+      );
+      setSelected((prev) => (prev && prev.id === org.id ? organization : prev));
+      setPendingPlanChange(null);
+      toast.success(nextPlan === "PREMIUM" ? "Organización activada como Premium." : "Organización vuelta a Free.");
+    } catch (err) {
+      console.error("No se pudo actualizar el plan de la organización", err);
+      setError(err.message || "No se pudo actualizar el plan de la organización.");
     } finally {
       setUpdatingId(null);
       setUpdatingAction(null);
@@ -164,6 +208,7 @@ export default function DeveloperOrganizations() {
                 <th className="px-6 py-3 font-medium">Responsable</th>
                 <th className="px-6 py-3 font-medium">Email</th>
                 <th className="px-6 py-3 font-medium">Estado</th>
+                <th className="px-6 py-3 font-medium">Plan</th>
                 <th className="px-6 py-3 font-medium">Registro</th>
                 <th className="px-6 py-3 font-medium text-right">Acciones</th>
               </tr>
@@ -172,7 +217,7 @@ export default function DeveloperOrganizations() {
               {loading &&
                 Array.from({ length: 3 }).map((_, i) => (
                   <tr key={i}>
-                    <td className="px-6 py-4" colSpan={7}>
+                    <td className="px-6 py-4" colSpan={8}>
                       <div className="h-5 w-full max-w-sm animate-pulse rounded bg-white/5" />
                     </td>
                   </tr>
@@ -207,6 +252,9 @@ export default function DeveloperOrganizations() {
                     <td className="px-6 py-4 text-slate-300">{org.email}</td>
                     <td className="px-6 py-4">
                       <Pill status={org.status} />
+                    </td>
+                    <td className="px-6 py-4">
+                      <PlanPill plan={org.plan} />
                     </td>
                     <td className="px-6 py-4 text-slate-300">
                       {new Date(org.createdAt).toLocaleDateString("es-AR")}
@@ -259,7 +307,7 @@ export default function DeveloperOrganizations() {
 
               {!loading && organizations.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-10 text-center text-slate-500">
+                  <td colSpan={8} className="px-6 py-10 text-center text-slate-500">
                     No hay organizaciones para este filtro.
                   </td>
                 </tr>
@@ -275,8 +323,24 @@ export default function DeveloperOrganizations() {
           organization={selected}
           onClose={() => setSelected(null)}
           onChangeStatus={changeStatus}
+          onChangePlan={(org, nextPlan) => setPendingPlanChange({ organization: org, nextPlan })}
           onDelete={(org) => setPendingDelete(org)}
           updating={updatingId === selected.id}
+        />
+      )}
+
+      {pendingPlanChange && (
+        <ConfirmDialog
+          title={pendingPlanChange.nextPlan === "PREMIUM" ? "Activar Premium" : "Cambiar a Free"}
+          description={
+            pendingPlanChange.nextPlan === "PREMIUM"
+              ? `¿Activar Premium para ${pendingPlanChange.organization.name}?`
+              : `¿Cambiar ${pendingPlanChange.organization.name} a Free?`
+          }
+          confirmLabel={pendingPlanChange.nextPlan === "PREMIUM" ? "Activar Premium" : "Cambiar a Free"}
+          loading={updatingId === pendingPlanChange.organization.id}
+          onConfirm={confirmPlanChange}
+          onClose={() => setPendingPlanChange(null)}
         />
       )}
 

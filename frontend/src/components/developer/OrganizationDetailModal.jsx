@@ -17,6 +17,7 @@ import {
   ORG_STATUS_LABEL,
   ORG_STATUS_STYLES,
 } from "../../lib/organizationStatus.js";
+import { ORG_PLAN_LABEL, ORG_PLAN_STYLES } from "../../lib/organizationPlan.js";
 import { ORGANIZATION_TYPE_LABEL } from "../../lib/organizationTypes.js";
 
 function ChecklistItem({ label, done }) {
@@ -74,6 +75,7 @@ export default function OrganizationDetailModal({
   organization,
   onClose,
   onChangeStatus,
+  onChangePlan,
   onDelete,
   updating,
 }) {
@@ -111,13 +113,22 @@ export default function OrganizationDetailModal({
               {ORGANIZATION_TYPE_LABEL[organization.type] ?? "Sin tipo"}
             </p>
           </div>
-          <span
-            className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
-              ORG_STATUS_STYLES[organization.status] ?? "bg-white/10 text-slate-400"
-            }`}
-          >
-            {ORG_STATUS_LABEL[organization.status] ?? organization.status}
-          </span>
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <span
+              className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                ORG_STATUS_STYLES[organization.status] ?? "bg-white/10 text-slate-400"
+              }`}
+            >
+              {ORG_STATUS_LABEL[organization.status] ?? organization.status}
+            </span>
+            <span
+              className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                ORG_PLAN_STYLES[organization.plan] ?? "bg-white/10 text-slate-400"
+              }`}
+            >
+              {ORG_PLAN_LABEL[organization.plan] ?? organization.plan}
+            </span>
+          </div>
         </div>
 
         {organization.description && (
@@ -208,6 +219,15 @@ export default function OrganizationDetailModal({
             {organization.status === "SUSPENDED" || organization.status === "REJECTED"
               ? "Reactivar"
               : "Aprobar"}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() =>
+              onChangePlan(organization, organization.plan === "PREMIUM" ? "FREE" : "PREMIUM")
+            }
+            disabled={updating}
+          >
+            {organization.plan === "PREMIUM" ? "Volver a Free" : "Activar Premium"}
           </Button>
           <Button
             className="bg-rose-600 text-white hover:bg-rose-500"

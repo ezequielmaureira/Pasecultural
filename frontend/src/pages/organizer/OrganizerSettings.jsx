@@ -41,6 +41,10 @@ export default function OrganizerSettings() {
   const toast = useToast();
   const [org, setOrg] = useState(EMPTY_ORG);
   const [orgId, setOrgId] = useState(null);
+  // Premium — Fase 1: sólo lectura, deliberadamente separado de `org`
+  // (el form editable de arriba) para que nunca viaje en el PATCH /me de
+  // handleSave — el Organizer no tiene ningún camino para modificar esto.
+  const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -55,6 +59,7 @@ export default function OrganizerSettings() {
         const { organization } = await apiFetch("/api/organizations/me", { token });
         if (!cancelled && organization) {
           setOrgId(organization.id);
+          setPlan(organization.plan || "FREE");
           setOrg({
             logo: organization.logo || "",
             name: organization.name || "",
@@ -114,6 +119,12 @@ export default function OrganizerSettings() {
           <p className="text-sm text-slate-400">
             Datos del organizador y de cobro
           </p>
+          {/* Premium — Fase 1: sólo informativo, nunca editable desde acá. */}
+          {plan && (
+            <p className="mt-1 text-xs text-slate-500">
+              Plan <span className={plan === "PREMIUM" ? "font-medium text-violet-300" : "font-medium text-slate-400"}>{plan === "PREMIUM" ? "Premium" : "Free"}</span>
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {saveError && <span className="text-xs text-rose-400">{saveError}</span>}

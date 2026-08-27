@@ -242,7 +242,17 @@ export default function OrganizerDashboard() {
       <div className="flex flex-col gap-4">
         <OrganizationStatusBanner />
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">Panel del organizador</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight text-white">Panel del organizador</h1>
+            {/* Premium — Fase 1: sólo informa, nunca restringe nada acá.
+                Para FREE, deliberadamente no se muestra nada (ver el
+                informe de auditoría). */}
+            {organization?.plan === "PREMIUM" && (
+              <span className="rounded-full bg-violet-500/10 px-2.5 py-1 text-xs font-medium text-violet-300">
+                Premium
+              </span>
+            )}
+          </div>
           <p className="mt-1 text-sm text-slate-400">Centro de control de tus eventos</p>
         </div>
       </div>
