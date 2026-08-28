@@ -31,4 +31,6 @@ export const DB_TEST_FILES = [
     "organizationPhoneVerification.crud.test.js",
     "organizationPhoneVerificationChatbotSync.crud.test.js",
     "organizationDeveloperAlert.crud.test.js",
+    "organizationPlanLimits.crud.test.js",
+    "organizationSlug.crud.test.js",
 ];

@@ -673,4 +673,60 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "The proposed organizer notification settings failed validation (non-boolean flag, or non-positive/out-of-range numeric field).",
         userMessage: "La configuración de notificaciones tiene errores. Revisá los valores e intentá de nuevo.",
     },
+
+    // --- Premium — Fase 2A (guards preparados; sin consumidor activo
+    // todavía salvo Plan Limits — ver organizationPlanPolicy.js). Cada uno
+    // sigue el mismo criterio ya usado en el catálogo para su clase de
+    // condición: 403 para "función exclusiva de un plan" (mismo status
+    // que *_FORBIDDEN), 409 para "tope de plan alcanzado" (mismo status
+    // que MERCADOPAGO_NOT_CONNECTED/EVENT_FREE_ENTRY_NO_SALES), 404 para
+    // "página pública no disponible" (mismo status que EVENT_NOT_FOUND). ---
+    PREMIUM_FEATURE_REQUIRED: {
+        httpStatus: 403,
+        logMessage: "A Premium-only feature was attempted by an organization whose plan is not PREMIUM.",
+        userMessage: "Esta función es exclusiva de PaseCultural Premium.",
+    },
+    PLAN_ACTIVE_EVENT_LIMIT_REACHED: {
+        httpStatus: 409,
+        logMessage: "Publishing attempted while the organization is already at (or above) its plan's active event limit.",
+        userMessage: "Alcanzaste el máximo de eventos activos de tu plan.",
+    },
+    PLAN_COURTESY_LIMIT_REACHED: {
+        httpStatus: 409,
+        logMessage: "Courtesy issuance attempted while the event is already at (or above) the organization's plan courtesy limit.",
+        userMessage: "Alcanzaste el máximo de cortesías de tu plan para este evento.",
+    },
+    PLAN_SCANNER_LIMIT_REACHED: {
+        httpStatus: 409,
+        logMessage: "Scanner creation attempted while the event is already at (or above) the organization's plan scanner limit.",
+        userMessage: "Alcanzaste el máximo de scanners de tu plan para este evento.",
+    },
+    ORGANIZATION_PUBLIC_PAGE_NOT_AVAILABLE: {
+        httpStatus: 404,
+        logMessage: "Public organization page requested for a slug that does not resolve to a PREMIUM organization.",
+        userMessage: "Esta organización no tiene una página pública disponible.",
+    },
+
+    // --- Configuración de límites por plan (Developer > Configuración,
+    // Fase 2A — ÚNICOS con consumidor real en esta ronda) ---
+    PLAN_LIMITS_INVALID_PLAN: {
+        httpStatus: 400,
+        logMessage: "Plan limits update attempted with a plan value other than FREE/PREMIUM.",
+        userMessage: "Plan inválido.",
+    },
+    PLAN_LIMITS_INVALID: {
+        httpStatus: 400,
+        logMessage: "The proposed OrganizationPlanLimits values failed validation (negative, float, empty, or non-integer).",
+        userMessage: "La configuración de límites tiene errores. Revisá los valores e intentá de nuevo.",
+    },
+    // Sólo puede pasar si alguna de las 2 filas singleton (FREE/PREMIUM)
+    // fue borrada a mano (la migración las siembra). El panel Developer
+    // necesita saberlo explícito para poder recrearlas; el resto del
+    // sistema nunca ve esto — usa getPlanLimits/getOrganizationPlanLimits,
+    // que no lanzan (ver organizationPlanPolicy.js).
+    PLAN_LIMITS_MISSING: {
+        httpStatus: 500,
+        logMessage: "No OrganizationPlanLimits row exists for FREE and/or PREMIUM — the seeded singleton rows were likely deleted manually.",
+        userMessage: "No pudimos cargar la configuración de límites por plan.",
+    },
 });

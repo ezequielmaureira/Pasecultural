@@ -1,6 +1,7 @@
 import prisma from "../config/prisma.js";
 import { logger } from "../logging/logger.js";
 import { sendDeveloperAlert, DeveloperAlertType } from "./email/sendDeveloperAlert.service.js";
+import { generateUniqueSlug } from "../utils/generateSlug.js";
 
 const ORGANIZATION_STATUSES = new Set([
     "PENDING",
@@ -66,9 +67,23 @@ export const createOrganizationService = async (
         return { organization: existing, user };
     }
 
+    // Premium — Fase 2A. Generado UNA vez acá, para TODA Organization
+    // nueva sin importar el plan (default FREE) — mismo mecanismo
+    // (generateUniqueSlug, utils/generateSlug.js) ya usado por
+    // createEventService para Event.slug, sin reescribirlo. Igual que ahí:
+    // el check-then-create no está envuelto en un retry explícito ante una
+    // colisión de carrera — la constraint UNIQUE de la base
+    // (Organization.slug) sigue siendo la última garantía real, mismo
+    // criterio exacto que el ya establecido para Event.slug.
+    const slug = await generateUniqueSlug(name, async (candidate) => {
+        const existingSlug = await prisma.organization.findUnique({ where: { slug: candidate } });
+        return Boolean(existingSlug);
+    });
+
     const organization = await prisma.organization.create({
         data: {
             name,
+            slug,
             type: type || null,
             description: description || null,
             logo: logo || null,

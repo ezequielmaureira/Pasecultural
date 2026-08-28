@@ -213,6 +213,11 @@ model User {
   // por última vez (ver Organization.planUpdatedBy más abajo). Mismo
   // criterio que publicLaunchSettingsUpdated/developerAlertConfigsUpdated.
   planOrganizationsUpdated                       Organization[]                         @relation("OrganizationPlanUpdatedBy")
+  // Premium — Fase 2A — trazabilidad de quién guardó por última vez la
+  // configuración GENERAL de límites de cada plan (ver
+  // OrganizationPlanLimits más abajo). Mismo criterio que
+  // planOrganizationsUpdated/serviceFeeTiersUpdated/developerAlertConfigsUpdated.
+  organizationPlanLimitsUpdated                  OrganizationPlanLimits[]
 }
 
 model Organization {
@@ -275,6 +280,41 @@ model Organization {
   // comportamiento: mismo campo, mismo FK, misma semántica de siempre.
   owner   User   @relation("OrganizationOwner", fields: [ownerId], references: [id])
 
+  // Premium — Fase 2A (infraestructura para la futura página pública, ver
+  // el informe de auditoría/entrega). Generado UNA vez al crearse la
+  // Organization (createOrganizationService, reutiliza generateUniqueSlug
+  // de utils/generateSlug.js — mismo mecanismo que Event.slug), SIEMPRE,
+  // sin importar el plan: FREE también tiene slug — sólo una fase
+  // posterior decide si la página se SIRVE según `plan`, esto sólo
+  // garantiza que el identificador exista y sea estable. Nunca se
+  // regenera automáticamente si cambia `name` (ver createOrganizationService/
+  // updateMyOrganizationService — UPDATABLE_FIELDS nunca incluye `slug`),
+  // ni cuando cambia `plan` (updateOrganizationPlanService no lo toca).
+  // Organizations existentes (previas a esta migración) reciben un slug
+  // vía backfill collision-safe dentro de la propia migración — ver
+  // migration.sql.
+  //
+  // Nullable A NIVEL DE COLUMNA a propósito, aunque la garantía real de
+  // negocio ("toda Organization tiene slug") se sostiene a nivel de
+  // aplicación (createOrganizationService SIEMPRE lo genera, y el
+  // backfill ya cubrió las 36 Organizations existentes en TEST al
+  // aplicarse esta migración) — NOT NULL en la columna rompería los 16
+  // archivos de test + 1 script que crean una Organization directo vía
+  // prisma.organization.create(...) sin pasar por el service (ver el
+  // informe de entrega, sección "premisa incorrecta detectada"). Ninguno
+  // de ellos necesita ni lee slug — dejarlos con NULL ahí es inofensivo.
+  slug String? @unique
+
+  // Premium — Fase 2A (infraestructura para el branding de la futura
+  // página pública Premium). Nullable: ninguna Organization lo tiene
+  // todavía — el endpoint que lo escribe queda para una fase posterior
+  // (ver el informe de entrega, sección "por qué no se agrega el endpoint
+  // de branding todavía": Organization.findFirst({where:{ownerId}}) es
+  // ambiguo para un owner con más de una Organization). Cuando exista ese
+  // endpoint, sólo debe aceptar el formato validado por
+  // utils/colorValidation.js (#RRGGBB exacto) — nunca CSS libre.
+  brandPrimaryColor String?
+
   events Event[]
 
   // Botón de arrepentimiento — solicitudes de las compras de ESTA
@@ -328,6 +368,45 @@ model Organization {
   // (ver organizerNotificationSettings.service.js), nunca se siembra una
   // fila por organización existente en la migración.
   notificationSettings OrganizerNotificationSettings?
+}
+
+// Premium — Fase 2A. Configuración GENERAL por plan (nunca por
+// Organization individual, ver el informe de auditoría/entrega) —
+// exactamente 2 filas vivas ("FREE" y "PREMIUM", sembradas por la
+// migración), editables por DEVELOPER sin redeploy (Developer >
+// Configuración). `plan` es @unique a propósito: a diferencia de
+// ServiceFeeTier/DeveloperAlertConfig (findFirst por createdAt, sin clave
+// natural), acá sí hay una — resolver "cuál fila" es siempre
+// findUnique({where:{plan}}), nunca ambiguo.
+//
+// null en cualquiera de los 3 límites = SIN LÍMITE ("ilimitado"). 0 =
+// no se permiten altas nuevas para esa capacidad. Nunca -1 ni Infinity
+// como sentinel — ver organizationPlanPolicy.js, que además define el
+// fallback seguro (también "sin límite") si llegara a faltar la fila de
+// un plan.
+//
+// Esta tabla en sí NUNCA cuenta ni aplica nada — sólo persiste los 3
+// números. Contar eventos/cortesías/scanners y comparar contra estos
+// límites es responsabilidad de una fase posterior (Fase 2D), en los
+// services de negocio correspondientes, no acá.
+model OrganizationPlanLimits {
+  id   String           @id @default(cuid())
+  plan OrganizationPlan @unique
+
+  maxActiveEvents       Int?
+  maxCourtesiesPerEvent Int?
+  maxScannersPerEvent   Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  // Nullable por el mismo motivo que ServiceFeeTier.updatedByUserId/
+  // DeveloperAlertConfig.updatedByUserId/PublicLaunchSettings.updatedByUserId:
+  // las 2 filas iniciales que trae la migración no las guardó ningún
+  // DEVELOPER real.
+  updatedByUserId String?
+  updatedBy       User?   @relation(fields: [updatedByUserId], references: [id])
+
+  @@map("organization_plan_limits")
 }
 
 // Fase 2F — challenge efímero para vincular un wa_id a una organización.

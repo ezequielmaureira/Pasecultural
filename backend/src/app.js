@@ -25,6 +25,7 @@ import developerScannersRoutes from "./routes/developerScanners.routes.js";
 import developerSalesRoutes from "./routes/developerSales.routes.js";
 import developerServiceFeeRoutes from "./routes/developerServiceFee.routes.js";
 import developerAlertConfigRoutes from "./routes/developerAlertConfig.routes.js";
+import developerPlanLimitsRoutes from "./routes/developerPlanLimits.routes.js";
 import publicLaunchSettingsRoutes from "./routes/publicLaunchSettings.routes.js";
 import publicLaunchStatusRoutes from "./routes/publicLaunchStatus.routes.js";
 import whatsappRoutes from "./routes/whatsapp.routes.js";
@@ -139,6 +140,14 @@ app.use("/api/developer", developerAlertConfigRoutes);
 // Configuración: GET/PUT /api/developer/launch-status (estado público de
 // PaseCultural). Exclusivo DEVELOPER. Ver publicLaunchSettings.service.js.
 app.use("/api/developer", publicLaunchSettingsRoutes);
+// Mismo prefijo "/api/developer", noveno router en paralelo (sin tocar
+// ninguno de los anteriores) — Premium Fase 2A, Developer > Configuración:
+// GET/PATCH /api/developer/plan-limits (límites GENERALES de FREE/PREMIUM
+// — eventos activos, cortesías y scanners por evento; nunca por
+// Organization individual). Exclusivo DEVELOPER. Todavía sin ningún guard
+// que consuma estos límites (eso es una fase posterior) — ver
+// organizationPlanPolicy.js.
+app.use("/api/developer", developerPlanLimitsRoutes);
 // Router propio, prefijo nuevo "/api/public" — SIN auth: GET
 // /api/public/launch-status, lo necesita cualquier visitante anónimo antes
 // de que exista sesión. Nunca agregar otros endpoints públicos de datos

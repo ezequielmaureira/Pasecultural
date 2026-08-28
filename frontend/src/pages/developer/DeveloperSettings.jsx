@@ -8,6 +8,7 @@ import { formatCurrencyARS, formatDateTime } from "../../lib/format.js";
 import { getServiceFeeConfig, updateServiceFeeConfig } from "../../lib/developerServiceFeeApi.js";
 import { getDeveloperAlertConfig, updateDeveloperAlertConfig } from "../../lib/developerAlertConfigApi.js";
 import { getDeveloperLaunchStatus, updateDeveloperLaunchStatus } from "../../lib/publicLaunchApi.js";
+import { getDeveloperPlanLimits, updateDeveloperPlanLimits } from "../../lib/developerPlanLimitsApi.js";
 
 // MP-6 — Developer > Configuración. Única sección hoy (comisión de
 // servicio de Mercado Pago); pensada como el punto de entrada para
@@ -331,6 +332,192 @@ function DeveloperAlertConfigSection() {
   );
 }
 
+// Premium — Fase 2A — límites GENERALES por plan (ver
+// backend/src/services/organizationPlanPolicy.js). Sección aparte, propia,
+// dentro del mismo panel "Configuración" (nunca un panel/ruta nuevos) —
+// mismo criterio de autorización DEVELOPER que el resto de esta pantalla.
+// Todavía sin ningún guard que consuma estos números (Fase 2A es sólo
+// infraestructura) — esta pantalla sólo los persiste.
+const PLAN_LIMIT_FIELDS = [
+  { key: "maxActiveEvents", label: "Eventos activos" },
+  { key: "maxCourtesiesPerEvent", label: "Cortesías por evento" },
+  { key: "maxScannersPerEvent", label: "Scanners por evento" },
+];
+
+const PLAN_LABELS = { FREE: "Plan Free", PREMIUM: "Plan Premium" };
+
+// value: number|null -> fila de edición { value: string, unlimited: bool }.
+// "Sin límite" es un checkbox explícito, nunca un input vacío — así el
+// Developer nunca tiene que escribir "null" a mano ni confundirse con un
+// campo en blanco.
+function limitsRowFromValue(value) {
+  return value === null || value === undefined ? { value: "", unlimited: true } : { value: String(value), unlimited: false };
+}
+
+function formFromLimits(limits) {
+  return Object.fromEntries(PLAN_LIMIT_FIELDS.map((f) => [f.key, limitsRowFromValue(limits ? limits[f.key] : null)]));
+}
+
+function PlanLimitsPlanBlock({ plan, initialLimits, getToken, onSaved }) {
+  const [form, setForm] = useState(() => formFromLimits(initialLimits));
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [validationErrors, setValidationErrors] = useState([]);
+  const [savedMessage, setSavedMessage] = useState("");
+
+  useEffect(() => {
+    setForm(formFromLimits(initialLimits));
+  }, [initialLimits]);
+
+  function handleValueChange(key, value) {
+    setForm((prev) => ({ ...prev, [key]: { ...prev[key], value } }));
+    setSavedMessage("");
+  }
+
+  function handleUnlimitedChange(key, unlimited) {
+    setForm((prev) => ({ ...prev, [key]: { value: unlimited ? "" : prev[key].value, unlimited } }));
+    setSavedMessage("");
+  }
+
+  async function handleSave() {
+    setSaveError("");
+    setValidationErrors([]);
+    setSavedMessage("");
+    setSaving(true);
+    try {
+      const token = await getToken();
+      const payload = Object.fromEntries(PLAN_LIMIT_FIELDS.map((f) => [f.key, form[f.key].unlimited ? null : form[f.key].value]));
+      const updated = await updateDeveloperPlanLimits(token, plan, payload);
+      setForm(formFromLimits(updated));
+      setSavedMessage("Límites guardados.");
+      onSaved?.(updated);
+    } catch (err) {
+      if (Array.isArray(err.errors) && err.errors.length > 0) {
+        setValidationErrors(err.errors);
+      } else {
+        setSaveError(err.message || "No pudimos guardar los límites.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+      <h3 className="mb-3 text-sm font-semibold text-white">{PLAN_LABELS[plan]}</h3>
+
+      {(saveError || validationErrors.length > 0) && (
+        <div className="mb-3 rounded-lg border border-rose-500/20 bg-rose-500/5 p-3">
+          {saveError && <p className="text-sm text-rose-300">{saveError}</p>}
+          {validationErrors.length > 0 && (
+            <ul className="mt-1 list-inside list-disc text-sm text-rose-300">
+              {validationErrors.map((message, i) => (
+                <li key={i}>{message}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {savedMessage && (
+        <div className="mb-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+          <p className="text-sm text-emerald-300">{savedMessage}</p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {PLAN_LIMIT_FIELDS.map((f) => (
+          <Field key={f.key} label={f.label}>
+            <input
+              type="number"
+              min={0}
+              step="1"
+              className={inputClass}
+              value={form[f.key].value}
+              disabled={form[f.key].unlimited}
+              onChange={(e) => handleValueChange(f.key, e.target.value)}
+            />
+            <label className="mt-1.5 flex w-fit items-center gap-2 text-xs text-slate-400">
+              <input type="checkbox" checked={form[f.key].unlimited} onChange={(e) => handleUnlimitedChange(f.key, e.target.checked)} />
+              Sin límite
+            </label>
+          </Field>
+        ))}
+      </div>
+
+      <div className="mt-4 flex justify-end">
+        <Button onClick={handleSave} loading={saving} loadingText="Guardando...">
+          <Save className="h-4 w-4" />
+          Guardar {PLAN_LABELS[plan].toLowerCase()}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function PlanLimitsSection() {
+  const { getToken } = useAuth();
+
+  const [limits, setLimits] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    setLoadError(false);
+    try {
+      const token = await getToken();
+      const data = await getDeveloperPlanLimits(token);
+      setLimits(data);
+    } catch (err) {
+      console.error("No se pudo cargar la configuración de límites por plan", err);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (loading) {
+    return <p className="text-sm text-slate-400">Cargando límites por plan...</p>;
+  }
+
+  if (loadError) {
+    return <InlineErrorNotice message="No pudimos cargar la configuración de límites por plan." onRetry={load} />;
+  }
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-[#0B1120]/90 p-5">
+      <div className="mb-4 flex flex-col gap-1">
+        <h2 className="text-sm font-semibold text-white">Límites por plan</h2>
+        <p className="text-xs leading-relaxed text-slate-500">
+          Reglas GENERALES de FREE y PREMIUM — nunca configurables por organización individual. "Sin límite" deja esa
+          capacidad ilimitada; 0 impide nuevas altas (los eventos/cortesías/scanners ya existentes nunca se tocan).
+          Todavía no se aplican en ningún lado — esta pantalla sólo prepara la configuración para una fase posterior.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-4">
+        <PlanLimitsPlanBlock
+          plan="FREE"
+          initialLimits={limits.FREE}
+          getToken={getToken}
+          onSaved={(updated) => setLimits((prev) => ({ ...prev, FREE: updated }))}
+        />
+        <PlanLimitsPlanBlock
+          plan="PREMIUM"
+          initialLimits={limits.PREMIUM}
+          getToken={getToken}
+          onSaved={(updated) => setLimits((prev) => ({ ...prev, PREMIUM: updated }))}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function DeveloperSettings() {
   const { getToken } = useAuth();
 
@@ -563,6 +750,8 @@ export default function DeveloperSettings() {
       <PublicLaunchSection />
 
       <DeveloperAlertConfigSection />
+
+      <PlanLimitsSection />
     </div>
   );
 }

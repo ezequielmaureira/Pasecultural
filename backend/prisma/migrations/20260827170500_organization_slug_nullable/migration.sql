@@ -1,0 +1,19 @@
+-- Corrección inmediata a la migración anterior
+-- (20260827170000_organization_plan_limits_and_slug), descubierta durante
+-- la propia implementación de Fase 2A, ANTES de cualquier commit — ver el
+-- informe de entrega, sección "premisa incorrecta detectada".
+--
+-- Organization.slug se había declarado NOT NULL. Al auditar el impacto
+-- real se encontraron 16 archivos de test + 1 script (backend/scripts/
+-- whatsappPreviewPublishBenchmark.js) que crean una Organization
+-- DIRECTAMENTE vía prisma.organization.create(...), sin pasar por
+-- createOrganizationService (el único lugar que ahora genera el slug) —
+-- todos habrían roto con NOT NULL. La app real SIEMPRE genera un slug
+-- para toda Organization nueva (ver organization.service.js), y el
+-- backfill de la migración anterior ya le dio slug único a las 36
+-- Organizations existentes en TEST al aplicarse. La garantía real de
+-- "toda Organization tiene slug" se sostiene a nivel de aplicación, no
+-- como constraint de base — evita forzar un cambio de gran superficie
+-- sobre fixtures de test ajenos al alcance de esta ronda ("infraestructura
+-- + configuración Developer").
+ALTER TABLE "Organization" ALTER COLUMN "slug" DROP NOT NULL;
