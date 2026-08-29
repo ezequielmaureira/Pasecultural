@@ -33,6 +33,7 @@ import ScannerInvitationClaim from "./pages/scanner/ScannerInvitationClaim.jsx";
 import ScannerPortal from "./pages/scanner/ScannerPortal.jsx";
 import EventsList from "./pages/public/EventsList.jsx";
 import EventDetail from "./pages/public/EventDetail.jsx";
+import OrganizationProfile from "./pages/public/OrganizationProfile.jsx";
 import PurchaseWizard from "./pages/public/purchase/PurchaseWizard.jsx";
 import MyTickets from "./pages/public/MyTickets.jsx";
 import RecoverPurchase from "./pages/public/RecoverPurchase.jsx";
@@ -82,6 +83,7 @@ export default function App() {
               <Route path="/" element={<Home />} />
               <Route path="/eventos" element={<EventsList />} />
               <Route path="/evento/:slug" element={<EventDetail />} />
+              <Route path="/organizacion/:slug" element={<OrganizationProfile />} />
               {/* Sin RequireAuth a propósito: comprar nunca exige cuenta. */}
               <Route path="/comprar" element={<PurchaseWizard />} />
               <Route element={<RequireAuth />}>

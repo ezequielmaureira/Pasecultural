@@ -9,6 +9,8 @@ import {
     updateOrganizationStatus,
     updateOrganizationPlan,
     deleteOrganization,
+    getPublicOrganizationBySlug,
+    updateOrganizationBranding,
 } from "../controllers/organization.controller.js";
 import { getWhatsappLinkStatus, linkWhatsappOrganizer } from "../controllers/organizationWhatsapp.controller.js";
 import { getMercadoPagoStatus, startMercadoPagoConnect, disconnectMercadoPagoConnection } from "../controllers/organizationMercadoPago.controller.js";
@@ -22,8 +24,17 @@ import {
     deleteOrganizationPhone,
 } from "../controllers/organizationPhoneVerification.controller.js";
 import { requireRole } from "../middlewares/requireRole.js";
+import { requirePublicLaunch } from "../middlewares/requirePublicLaunch.js";
 
 const router = Router();
+
+// Premium — Fase 2D. Mismo patrón exacto que event.routes.js: prefijo fijo
+// "/public" montado ANTES de "/:id" para que Express nunca lo confunda con
+// una ruta parametrizada, y requirePublicLaunch reutilizado tal cual (mismo
+// gate de "Modo Prelanzamiento" que ya protege el resto del contenido
+// comercial público).
+router.use("/public", requirePublicLaunch);
+router.get("/public/:slug", getPublicOrganizationBySlug);
 
 router.get("/me", getMyOrganization);
 router.patch("/me", updateMyOrganization);
@@ -73,6 +84,14 @@ router.post("/me/phone-verification/cancel", requireRole("ORGANIZER"), cancelOrg
 // DISTINTO de /cancel: cancel sólo descarta un intento EN CURSO y nunca
 // toca Organization.phone; esto sí lo hace (ver el informe de entrega).
 router.post("/me/phone-verification/delete", requireRole("ORGANIZER"), deleteOrganizationPhone);
+
+// Premium — Fase 2D. ":id" explícito a propósito (nunca "/me/branding") para
+// no dejar ambigüedad a futuro si un owner llegara a tener más de una
+// Organization. requireRole("ORGANIZER") alcanza para exigir sesión+rol; la
+// pertenencia real (organization.ownerId === user.id) y CUSTOM_BRANDING se
+// verifican dentro del service — DEVELOPER deliberadamente no tiene acceso
+// a esta ruta en esta fase.
+router.patch("/:id/branding", requireRole("ORGANIZER"), updateOrganizationBranding);
 
 router.get("/", requireRole("DEVELOPER"), getOrganizations);
 router.get("/:id", requireRole("DEVELOPER"), getOrganizationById);

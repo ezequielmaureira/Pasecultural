@@ -37,4 +37,6 @@ export const DB_TEST_FILES = [
     "scannerPlanLimits.test.js",
     "courtesyPlanLimits.test.js",
     "whatsappPremiumGate.test.js",
+    "organizationPublicPage.test.js",
+    "organizationBranding.crud.test.js",
 ];

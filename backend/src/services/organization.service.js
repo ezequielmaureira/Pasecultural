@@ -2,6 +2,8 @@ import prisma from "../config/prisma.js";
 import { logger } from "../logging/logger.js";
 import { sendDeveloperAlert, DeveloperAlertType } from "./email/sendDeveloperAlert.service.js";
 import { generateUniqueSlug } from "../utils/generateSlug.js";
+import { isFeatureAvailable, PremiumFeature } from "./organizationPlanPolicy.js";
+import { isValidHexColor } from "../utils/colorValidation.js";
 
 const ORGANIZATION_STATUSES = new Set([
     "PENDING",
@@ -297,4 +299,134 @@ export const updateOrganizationPlanService = async (
 
 export const deleteOrganizationService = async (id) => {
     await prisma.organization.delete({ where: { id } });
+};
+
+// Premium — Fase 2D. Selección SIEMPRE por slug (findUnique), nunca por
+// ownerId/findFirst — evita cualquier ambigüedad de qué Organization es "la"
+// del owner. `plan` se selecciona acá SOLO para evaluar isFeatureAvailable
+// más abajo — nunca se incluye en el objeto `organization` devuelto al
+// caller. Mismo código de error (ORGANIZATION_PUBLIC_PAGE_NOT_AVAILABLE)
+// para slug inexistente y para Organization no-PREMIUM: la respuesta pública
+// nunca puede distinguir "no existe" de "existe pero es FREE".
+export const getPublicOrganizationBySlugService = async (slug) => {
+    if (!slug) {
+        throw new Error("ORGANIZATION_PUBLIC_PAGE_NOT_AVAILABLE");
+    }
+
+    const organization = await prisma.organization.findUnique({
+        where: { slug },
+        select: {
+            id: true,
+            name: true,
+            slug: true,
+            description: true,
+            city: true,
+            province: true,
+            website: true,
+            instagram: true,
+            facebook: true,
+            tiktok: true,
+            logo: true,
+            brandPrimaryColor: true,
+            plan: true,
+        },
+    });
+
+    if (!organization || !isFeatureAvailable(organization, PremiumFeature.PUBLIC_ORGANIZATION_PAGE)) {
+        throw new Error("ORGANIZATION_PUBLIC_PAGE_NOT_AVAILABLE");
+    }
+
+    // Predicado replicado del listado público real (getPublicEventsService,
+    // event.service.js): status PUBLISHED + visibility PUBLIC + (sin fecha
+    // de inicio O fecha de inicio todavía no pasada). Duplicado acá a
+    // propósito — extraerlo a un helper compartido tocaría event.service.js
+    // fuera del alcance de esta fase; NO se está definiendo una segunda
+    // semántica de "evento público", es la misma exacta. archivedAt NO se
+    // filtra acá, a propósito: /eventos tampoco lo filtra hoy y esta fase no
+    // corrige eso (fix transversal separado, fuera de alcance).
+    const now = new Date();
+    const events = await prisma.event.findMany({
+        where: {
+            organizationId: organization.id,
+            status: "PUBLISHED",
+            visibility: "PUBLIC",
+            OR: [{ startDate: null }, { startDate: { gte: now } }],
+        },
+        orderBy: { startDate: "asc" },
+    });
+
+    const brandingAvailable = isFeatureAvailable(organization, PremiumFeature.CUSTOM_BRANDING);
+
+    return {
+        organization: {
+            id: organization.id,
+            name: organization.name,
+            slug: organization.slug,
+            description: organization.description,
+            city: organization.city,
+            province: organization.province,
+            website: organization.website,
+            instagram: organization.instagram,
+            facebook: organization.facebook,
+            tiktok: organization.tiktok,
+        },
+        branding: brandingAvailable
+            ? { logo: organization.logo, primaryColor: organization.brandPrimaryColor }
+            : { logo: null, primaryColor: null },
+        events: events.map((event) => ({
+            ...event,
+            organization: { id: organization.id, name: organization.name },
+        })),
+    };
+};
+
+// Premium — Fase 2D. Whitelist EXCLUSIVA: logo y brandPrimaryColor. Nada de
+// website/redes/description/name/slug acá — esos siguen siendo datos
+// generales de Organization (PATCH /me). El downgrade PREMIUM→FREE nunca
+// borra logo/brandPrimaryColor ya guardados: sólo deja de permitir que se
+// sigan editando (y de exponerlos en la página pública) hasta que la
+// Organization vuelva a ser PREMIUM.
+export const updateOrganizationBrandingService = async (clerkId, organizationId, input) => {
+    const user = await getUserByClerkId(clerkId);
+
+    if (!user) {
+        throw new Error("USER_NOT_SYNCED");
+    }
+
+    const organization = await prisma.organization.findUnique({
+        where: { id: organizationId },
+    });
+
+    if (!organization) {
+        throw new Error("ORGANIZATION_NOT_FOUND");
+    }
+
+    if (organization.ownerId !== user.id) {
+        throw new Error("ORGANIZATION_BRANDING_FORBIDDEN");
+    }
+
+    if (!isFeatureAvailable(organization, PremiumFeature.CUSTOM_BRANDING)) {
+        throw new Error("PREMIUM_FEATURE_REQUIRED");
+    }
+
+    const data = {};
+
+    if (Object.hasOwn(input, "logo")) {
+        data.logo = input.logo || null;
+    }
+
+    if (Object.hasOwn(input, "brandPrimaryColor")) {
+        const value = input.brandPrimaryColor;
+        if (value !== null && !isValidHexColor(value)) {
+            throw new Error("ORGANIZATION_BRANDING_INVALID_COLOR");
+        }
+        data.brandPrimaryColor = value;
+    }
+
+    const updated = await prisma.organization.update({
+        where: { id: organizationId },
+        data,
+    });
+
+    return { id: updated.id, logo: updated.logo, brandPrimaryColor: updated.brandPrimaryColor };
 };

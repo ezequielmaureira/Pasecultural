@@ -9,8 +9,11 @@ import {
     updateOrganizationStatusService,
     updateOrganizationPlanService,
     deleteOrganizationService,
+    getPublicOrganizationBySlugService,
+    updateOrganizationBrandingService,
 } from "../services/organization.service.js";
 import { validateOrganizationInput } from "../utils/validateOrganization.js";
+import { ErrorCatalog } from "../errors/ErrorCatalog.js";
 
 const VALID_STATUSES = new Set(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"]);
 const VALID_PLANS = new Set(["FREE", "PREMIUM"]);
@@ -236,6 +239,92 @@ export const updateOrganizationPlan = async (req, res) => {
 
         res.status(500).json({
             message: "Error al actualizar el plan de la organización",
+        });
+    }
+};
+
+// Premium — Fase 2D. Cache-Control: no-store se fija SIEMPRE, incluso en el
+// 404 — un cambio de plan (PREMIUM→FREE o al revés) tiene que reflejarse en
+// la siguiente request, sin que un proxy/navegador sirva una respuesta
+// vieja cacheada.
+export const getPublicOrganizationBySlug = async (req, res) => {
+    res.set("Cache-Control", "no-store");
+
+    try {
+        const data = await getPublicOrganizationBySlugService(req.params.slug);
+
+        res.status(200).json(data);
+    } catch (error) {
+        console.error(error);
+
+        if (error.message === "ORGANIZATION_PUBLIC_PAGE_NOT_AVAILABLE") {
+            const entry = ErrorCatalog.ORGANIZATION_PUBLIC_PAGE_NOT_AVAILABLE;
+            return res.status(entry.httpStatus).json({ message: entry.userMessage });
+        }
+
+        res.status(500).json({
+            message: "Error al obtener la organización",
+        });
+    }
+};
+
+// Premium — Fase 2D. La autorización real (dueño + CUSTOM_BRANDING) vive en
+// el service; acá sólo se mapean sus errores. No existe un código genérico
+// "no sos dueño de esta Organization" reutilizable en ErrorCatalog (cada
+// dominio existente — ticket, teléfono, Mercado Pago — tiene el suyo
+// dedicado); en vez de agregar uno nuevo al catálogo para esta fase, se
+// sigue el mismo patrón legacy que ya usa el resto de este controller
+// (mensaje fijo acá, sin pasar por ErrorCatalog) para no ampliar el alcance
+// de archivos tocados.
+export const updateOrganizationBranding = async (req, res) => {
+    try {
+        const { userId } = getAuth(req);
+
+        if (!userId) {
+            return res.status(401).json({ message: "No autenticado" });
+        }
+
+        const branding = await updateOrganizationBrandingService(
+            userId,
+            req.params.id,
+            req.body
+        );
+
+        res.status(200).json({ organization: branding });
+    } catch (error) {
+        console.error(error);
+
+        if (error.message === "USER_NOT_SYNCED") {
+            return res.status(409).json({
+                message: "Usuario no sincronizado. Volvé a iniciar sesión.",
+            });
+        }
+
+        if (error.message === "ORGANIZATION_NOT_FOUND") {
+            return res.status(404).json({
+                message: "Organización no encontrada",
+            });
+        }
+
+        if (error.message === "ORGANIZATION_BRANDING_FORBIDDEN") {
+            return res.status(403).json({
+                message: "No tenés permiso para modificar el branding de esta organización.",
+            });
+        }
+
+        if (error.message === "PREMIUM_FEATURE_REQUIRED") {
+            const entry = ErrorCatalog.PREMIUM_FEATURE_REQUIRED;
+            return res.status(entry.httpStatus).json({ message: entry.userMessage });
+        }
+
+        if (error.message === "ORGANIZATION_BRANDING_INVALID_COLOR") {
+            return res.status(400).json({
+                message: "El color debe tener el formato #RRGGBB.",
+            });
+        }
+
+        res.status(500).json({
+            message: "Error al actualizar el branding de la organización",
         });
     }
 };
