@@ -28,6 +28,12 @@ export const EVENT_SERVICE_ERROR_MESSAGES = {
     ADMISSION_TYPE_LOCKED: "La modalidad del evento (con entradas / gratuito) no se puede cambiar una vez que dejó de ser borrador",
     ADMISSION_TYPE_HAS_REAL_DATA: "No se puede cambiar la modalidad de un evento que ya tiene ventas o entradas asociadas",
     ADMISSION_TYPE_TICKET_TYPES_EXIST: "Para pasar este evento a gratuito primero tenés que vaciar el catálogo de tipos de entrada",
+    // Premium — Fase 2B. Mismo userMessage que ErrorCatalog.PLAN_ACTIVE_EVENT_LIMIT_REACHED
+    // (backend/src/errors/ErrorCatalog.js) — event.service.js todavía lanza estos
+    // errores como `throw new Error(CODE)` legacy (no AppError), así que este
+    // mapeo es lo único que le da texto tanto al controller REST como al
+    // Event Creation Engine de WhatsApp.
+    PLAN_ACTIVE_EVENT_LIMIT_REACHED: "Alcanzaste el máximo de eventos activos de tu plan.",
 };
 
 export function translateEventServiceError(error) {

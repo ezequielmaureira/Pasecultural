@@ -160,6 +160,14 @@ export const updateMyEvent = async (req, res) => {
             return res.status(409).json({ message: ErrorCatalog.EVENT_ARCHIVED.userMessage });
         }
 
+        // Premium — Fase 2B. Antes de este branch caía en el fallback
+        // genérico PUBLISH_ERROR_MESSAGES (400) — el código real en
+        // ErrorCatalog.js es 409 ("tope de plan alcanzado", misma familia
+        // que EVENT_ARCHIVED de arriba).
+        if (error.message === "PLAN_ACTIVE_EVENT_LIMIT_REACHED") {
+            return res.status(409).json({ message: ErrorCatalog.PLAN_ACTIVE_EVENT_LIMIT_REACHED.userMessage });
+        }
+
         if (error.message === "CUSTOM_CATEGORY_REQUIRED") {
             return res.status(400).json({ message: CUSTOM_CATEGORY_REQUIRED_MESSAGE });
         }
@@ -316,6 +324,13 @@ export const restoreEvent = async (req, res) => {
         res.status(200).json({ event });
     } catch (error) {
         console.error(error);
+
+        // Premium — Fase 2B. Antes de este branch, cualquier error acá caía
+        // en el 500 genérico de abajo (restoreEvent nunca tuvo mapeo propio).
+        if (error.message === "PLAN_ACTIVE_EVENT_LIMIT_REACHED") {
+            return res.status(409).json({ message: ErrorCatalog.PLAN_ACTIVE_EVENT_LIMIT_REACHED.userMessage });
+        }
+
         res.status(500).json({ message: "Error al restaurar el evento" });
     }
 };

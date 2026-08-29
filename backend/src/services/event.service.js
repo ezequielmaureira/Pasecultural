@@ -10,6 +10,49 @@ import { timeExternalCall } from "../utils/whatsappPerf.js";
 import { logger } from "../logging/logger.js";
 import { sendDeveloperAlert, DeveloperAlertType, tryClaimDeveloperAlertCooldown } from "./email/sendDeveloperAlert.service.js";
 import { getDeveloperAlertConfigOrDefaults } from "./developerAlertConfig.service.js";
+import { getLimitForOrganization, PlanLimitKey } from "./organizationPlanPolicy.js";
+
+// Premium — Fase 2B. "Evento activo" (lo único que consume cupo de
+// maxActiveEvents) = status PUBLISHED && archivedAt IS NULL. Advisory lock
+// scoped por Organization: serializa ÚNICAMENTE dos altas de cupo
+// concurrentes de la MISMA Organization (dos publicaciones, o una
+// publicación + una restauración) — nunca bloquea a otra Organization.
+// Mismo mecanismo exacto que acquireMercadoPagoConnectionLock
+// (mercadoPagoConnection.service.js): DEBE tomarse con `tx`, dentro de la
+// MISMA transacción que hace el conteo y el update — se libera solo al
+// terminar esa transacción (commit o rollback).
+async function acquireActiveEventsLock(tx, organizationId) {
+    await tx.$queryRawUnsafe(
+        `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS locked`,
+        `active_events:${organizationId}`
+    );
+}
+
+// Sólo se llama cuando la operación puede INCREMENTAR la cantidad de
+// eventos activos de la Organization (ver callers). Si el plan no tiene
+// límite configurado (null = sin límite, fallback seguro de Fase 2A si
+// falta la fila), no abre transacción ni toma lock — cero costo extra para
+// el caso por default (ambos planes arrancan en null). Si hay límite
+// numérico, cuenta DENTRO de la transacción, después de tomar el lock, para
+// cerrar la carrera clásica "count() -> comparar -> update()" entre dos
+// altas concurrentes de la misma Organization.
+async function resolveActiveEventsQuotaCheck(organization, organizationId) {
+    const limit = await getLimitForOrganization(organization, PlanLimitKey.ACTIVE_EVENTS);
+    if (limit === null) return null;
+
+    // Corre DENTRO de la transacción del caller, después de tomar el lock:
+    // lanza si ya no queda cupo, nunca devuelve nada (el caller sólo la
+    // invoca por su efecto).
+    return async (tx) => {
+        await acquireActiveEventsLock(tx, organizationId);
+        const activeCount = await tx.event.count({
+            where: { organizationId, status: "PUBLISHED", archivedAt: null },
+        });
+        if (activeCount >= limit) {
+            throw new Error("PLAN_ACTIVE_EVENT_LIMIT_REACHED");
+        }
+    };
+}
 
 // Alertas Developer — evaluado sobre el precio AUTORITATIVO ya persistido
 // para cada (función, tipo de entrada): FunctionTicketType.priceOverride
@@ -566,6 +609,25 @@ export const updateMyEventService = async (clerkId, id, input, organizationId = 
         data.visibility = input.visibility;
     }
 
+    // Premium — Fase 2B. Sólo cuenta como "nueva alta de cupo" una
+    // transición REAL hacia activo: el evento no estaba PUBLISHED antes
+    // (event.archivedAt ya se validó null más arriba) y pasa a estarlo
+    // ahora. Volver a guardar un evento que YA está PUBLISHED (edición
+    // ordinaria de título/descripción/etc, reenviando status: "PUBLISHED"
+    // tal cual lo devolvió el wizard) nunca pasa por acá — no debe
+    // bloquearse sólo porque la Organization esté por encima del límite
+    // por un downgrade previo (ver el informe de diseño).
+    const isNewActivation = Object.hasOwn(input, "status") && input.status === "PUBLISHED" && event.status !== "PUBLISHED";
+    if (isNewActivation) {
+        const quotaCheck = await resolveActiveEventsQuotaCheck(context.organization, event.organizationId);
+        if (quotaCheck) {
+            return prisma.$transaction(async (tx) => {
+                await quotaCheck(tx);
+                return tx.event.update({ where: { id }, data, include: EVENT_DETAIL_INCLUDE });
+            });
+        }
+    }
+
     return prisma.event.update({ where: { id }, data, include: EVENT_DETAIL_INCLUDE });
 };
 
@@ -1043,6 +1105,25 @@ export const restoreEventService = async (clerkId, id) => {
 
     const event = await prisma.event.findUnique({ where: { id } });
     if (!event || event.organizationId !== context.organization.id) return null;
+
+    // Premium — Fase 2B. Restaurar limpia archivedAt: para un evento
+    // PUBLISHED archivado, eso es una segunda puerta hacia "activo" además
+    // de publish (ver updateMyEventService) — sin este guard, un evento
+    // podría reactivarse sin pasar nunca por el chequeo de maxActiveEvents.
+    // Sólo aplica si de verdad estaba archivado (idempotente: restaurar algo
+    // que ya no estaba archivado no incrementa nada, no hace falta chequeo)
+    // y si su status es PUBLISHED (un DRAFT/CANCELLED archivado, si alguna
+    // vez existiera, no vuelve a contar como activo al restaurarse).
+    const isReactivation = event.archivedAt !== null && event.status === "PUBLISHED";
+    if (isReactivation) {
+        const quotaCheck = await resolveActiveEventsQuotaCheck(context.organization, event.organizationId);
+        if (quotaCheck) {
+            return prisma.$transaction(async (tx) => {
+                await quotaCheck(tx);
+                return tx.event.update({ where: { id }, data: { archivedAt: null }, include: EVENT_DETAIL_INCLUDE });
+            });
+        }
+    }
 
     return prisma.event.update({ where: { id }, data: { archivedAt: null }, include: EVENT_DETAIL_INCLUDE });
 };

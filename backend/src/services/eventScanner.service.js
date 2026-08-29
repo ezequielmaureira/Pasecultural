@@ -5,6 +5,7 @@ import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { getUserByClerkId } from "../utils/getUserByClerkId.js";
 import { logger } from "../logging/logger.js";
 import { runArchiveSelfHeal } from "./eventArchive.service.js";
+import { getLimitForOrganization, PlanLimitKey } from "./organizationPlanPolicy.js";
 
 // Cuánto dura una invitación sin reclamar antes de considerarse vencida —
 // "vencimiento configurable" del requerimiento: el campo lo soporta
@@ -86,6 +87,20 @@ async function findOwnedScanner(eventId, scannerId) {
     return scanner;
 }
 
+// Premium — Fase 2B. Scanner que consume cupo de maxScannersPerEvent:
+// deletedAt IS NULL AND status != REVOKED (decisión de producto aprobada —
+// INVITED/ACTIVE/DISABLED cuentan, una invitación sin reclamar ocupa un
+// lugar igual). Advisory lock scoped por evento: serializa únicamente altas
+// concurrentes de scanners del MISMO evento, nunca bloquea otro evento.
+// Mismo mecanismo que acquireMercadoPagoConnectionLock
+// (mercadoPagoConnection.service.js) — DEBE tomarse con `tx`.
+async function acquireScannerQuotaLock(tx, eventId) {
+    await tx.$queryRawUnsafe(
+        `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS locked`,
+        `scanners:${eventId}`
+    );
+}
+
 // Eventos que el asistente conversacional ofrece en el Paso 1 — "activos"
 // significa que todavía tiene sentido asignarles un scanner (no
 // cancelado, no ya terminado). DRAFT/SCHEDULED/PUBLISHED cuentan: un
@@ -160,25 +175,57 @@ export const createScannerInvitationsService = async (clerkId, eventId, { gate, 
         throw new AppError(ErrorCodes.SCANNER_QUANTITY_INVALID);
     }
 
-    // Cuántos scanners ya existen (no eliminados) para esta puerta, para
-    // seguir la numeración en vez de reiniciar en #1 cada vez que se genera
-    // otro lote para la misma puerta.
-    const existingForGate = await prisma.eventScanner.count({
-        where: { eventId, gate: trimmedGate, deletedAt: null },
-    });
+    const buildRows = (existingForGate) => {
+        const expiresAt = new Date(Date.now() + INVITATION_TTL_MS);
+        return Array.from({ length: parsedQuantity }, (_, i) => ({
+            eventId,
+            gate: trimmedGate,
+            name: `${trimmedGate} #${existingForGate + i + 1}`,
+            status: "INVITED",
+            invitationToken: generateInvitationToken(),
+            invitationExpiresAt: expiresAt,
+            createdBy: owned.user.id,
+        }));
+    };
 
-    const expiresAt = new Date(Date.now() + INVITATION_TTL_MS);
-    const rows = Array.from({ length: parsedQuantity }, (_, i) => ({
-        eventId,
-        gate: trimmedGate,
-        name: `${trimmedGate} #${existingForGate + i + 1}`,
-        status: "INVITED",
-        invitationToken: generateInvitationToken(),
-        invitationExpiresAt: expiresAt,
-        createdBy: owned.user.id,
-    }));
+    // Premium — Fase 2B. `limit` se lee ANTES de decidir si hace falta
+    // transacción/lock: si el plan no tiene tope configurado (null = sin
+    // límite, fallback seguro de Fase 2A), el camino queda IDÉNTICO al de
+    // antes de esta fase (mismas 2 llamadas sueltas, sin transacción) — cero
+    // costo extra para el caso por default. Sólo cuando hay un número real
+    // se paga el lock + el segundo count, y TODO (lock, conteo, createMany)
+    // pasa a ocurrir dentro de la MISMA transacción para cerrar la carrera
+    // "count() -> comparar -> createMany()" entre dos altas concurrentes del
+    // mismo evento. `quantity` completo se valida contra el remanente ANTES
+    // de crear nada: una request que excede el cupo se rechaza entera, nunca
+    // crea parcialmente.
+    const limit = await getLimitForOrganization(owned.organization, PlanLimitKey.SCANNERS_PER_EVENT);
 
-    await prisma.eventScanner.createMany({ data: rows });
+    let rows;
+    if (limit === null) {
+        const existingForGate = await prisma.eventScanner.count({
+            where: { eventId, gate: trimmedGate, deletedAt: null },
+        });
+        rows = buildRows(existingForGate);
+        await prisma.eventScanner.createMany({ data: rows });
+    } else {
+        rows = await prisma.$transaction(async (tx) => {
+            await acquireScannerQuotaLock(tx, eventId);
+
+            const [existingForGate, activeCount] = await Promise.all([
+                tx.eventScanner.count({ where: { eventId, gate: trimmedGate, deletedAt: null } }),
+                tx.eventScanner.count({ where: { eventId, deletedAt: null, status: { not: "REVOKED" } } }),
+            ]);
+
+            if (activeCount + parsedQuantity > limit) {
+                throw new AppError(ErrorCodes.PLAN_SCANNER_LIMIT_REACHED);
+            }
+
+            const newRows = buildRows(existingForGate);
+            await tx.eventScanner.createMany({ data: newRows });
+            return newRows;
+        });
+    }
 
     logger.info("createScannerInvitationsService completed", {
         eventId,

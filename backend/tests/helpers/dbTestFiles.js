@@ -33,4 +33,7 @@ export const DB_TEST_FILES = [
     "organizationDeveloperAlert.crud.test.js",
     "organizationPlanLimits.crud.test.js",
     "organizationSlug.crud.test.js",
+    "eventPlanLimits.test.js",
+    "scannerPlanLimits.test.js",
+    "courtesyPlanLimits.test.js",
 ];

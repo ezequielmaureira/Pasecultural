@@ -10,6 +10,7 @@ import { normalizeBuyerDocument, isValidBuyerDocument } from "../utils/validateB
 import { buildTicketNumber } from "../utils/ticketNumber.js";
 import { encryptSecret, decryptSecret } from "../config/qrEncryption.js";
 import { effectiveCapacity, SOLD_TICKET_STATUSES, acquireTicketTypeFunctionLock, getUnavailableCount } from "./functionCapacity.service.js";
+import { getLimitForOrganization, PlanLimitKey } from "./organizationPlanPolicy.js";
 import { logger } from "../logging/logger.js";
 import { sendSaleConfirmationEmail, getSaleEmailData } from "./email/sendSaleConfirmationEmail.service.js";
 import { buildTicketQrImages } from "./email/ticketQrImages.js";
@@ -393,6 +394,31 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
     return sale;
 }
 
+// Premium — Fase 2B. Advisory lock scoped por evento, exclusivo del chequeo
+// de maxCourtesiesPerEvent — sólo se toma cuando confirmSaleService recibe
+// options.courtesyQuota (ver más abajo). Mismo mecanismo exacto que
+// acquireTicketTypeFunctionLock/acquireMercadoPagoConnectionLock: DEBE
+// tomarse con `tx`, dentro de la MISMA transacción que hace el conteo y la
+// creación de Ticket — se libera solo al terminar esa transacción.
+//
+// Orden de locks — SIEMPRE el mismo, sin excepción: los locks de stock
+// (acquireTicketTypeFunctionLock, paso 1 de confirmSaleService) se toman
+// primero, incondicionalmente, para TODO caller (venta real o cortesía).
+// Este lock de cortesías recién se toma después (ver el paso agregado más
+// abajo, entre el re-chequeo de stock y la generación de Tickets) y
+// ÚNICAMENTE cuando options.courtesyQuota === true. Como es la única línea
+// de código de todo el repo que adquiere este lock, y siempre corre después
+// de los locks de stock dentro de la misma transacción secuencial (nunca en
+// otro orden, no hay ninguna rama que los invierta), dos confirmaciones
+// concurrentes nunca pueden intentar tomarlos en orden distinto entre sí —
+// no hay ciclo posible, no hay riesgo de deadlock conocido.
+async function acquireCourtesyQuotaLock(tx, eventId) {
+    await tx.$queryRawUnsafe(
+        `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS locked`,
+        `courtesies:${eventId}`
+    );
+}
+
 const finalizeConfirmSale = (saleId, organizerUserId) => {
     logger.info("confirmSaleService completed", { saleId, organizerUserId });
     return { saleId, status: "CONFIRMED" };
@@ -486,7 +512,18 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
     // @unique en Sale: si alguna vez dos Sale intentaran reclamar el mismo
     // paymentId (no debería ser posible), Postgres lo rechaza con un P2002
     // en vez de dejar pasar una inconsistencia silenciosa.
-    const { skipAutoEmail = false, mercadoPagoPaymentId = null, confirmationSource = null } = options;
+    // Premium — Fase 2B — courtesyQuota: opción específica y explícita,
+    // EXCLUSIVA del caso de negocio de cortesías (nunca un hook genérico de
+    // callback) — sólo courtesy.service.js#issueCourtesyService la pasa
+    // (true). Con el default `false` de acá, confirmSaleService no ejecuta
+    // NINGUNA query/lock nuevo — comportamiento y costo idénticos a antes de
+    // esta fase para cualquier otro caller (venta manual, Mercado Pago,
+    // recuperación de compras, webhooks, reconciliación). No necesita
+    // recibir eventId/organization por parámetro: los deriva de `sale`
+    // (`sale.eventId`, `sale.event.organization`), ya cargada y ya
+    // verificada más abajo — nunca confía en nada que un caller pudiera
+    // pasar mal.
+    const { skipAutoEmail = false, mercadoPagoPaymentId = null, confirmationSource = null, courtesyQuota = false } = options;
     logger.info("confirmSaleService entered", { clerkId, saleId });
     const organizerUser = await getUserByClerkId(clerkId);
     if (!organizerUser) {
@@ -627,6 +664,38 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
         // pide una sola vez para TODAS las unidades de la venta
         // (generate_series), no una vez por ticket.
         const totalQuantity = sale.items.reduce((sum, item) => sum + item.quantity, 0);
+
+        // Premium — Fase 2B. maxCourtesiesPerEvent: sólo corre si el caller
+        // pidió explícitamente courtesyQuota (ver arriba) — nunca para una
+        // venta real. `totalQuantity` de acá arriba YA es la cantidad
+        // server-side autoritativa que se va a usar para generar los
+        // Tickets reales (nunca algo mandado libremente por el cliente).
+        // Dentro de la MISMA transacción que crea los Tickets (nunca antes,
+        // nunca en un chequeo separado que libere el lock y deje una
+        // ventana): se toma el lock, se cuenta el historial (Ticket.origin
+        // = COURTESY para este evento, sin filtrar por status — cancelar/
+        // usar/lo que sea NUNCA devuelve cupo, ver courtesy.service.js) y
+        // se valida contra el límite de la Organization DUEÑA DEL EVENTO
+        // (sale.event.organization, nunca la del actor — cubre el caso
+        // DEVELOPER emitiendo para una organización ajena). Si excede, tira
+        // acá mismo: hace rollback de TODA la transacción, incluida la
+        // transición PENDING -> CONFIRMED del paso 2 — la Sale queda
+        // PENDING, exactamente el mismo desenlace que ya tienen
+        // INSUFFICIENT_STOCK/MAX_PER_PURCHASE_EXCEEDED más arriba en esta
+        // misma función para cualquier otra venta.
+        if (courtesyQuota) {
+            await acquireCourtesyQuotaLock(tx, sale.eventId);
+            const limit = await getLimitForOrganization(sale.event.organization, PlanLimitKey.COURTESIES_PER_EVENT);
+            if (limit !== null) {
+                const historicalIssued = await tx.ticket.count({
+                    where: { eventId: sale.eventId, origin: "COURTESY" },
+                });
+                if (historicalIssued + totalQuantity > limit) {
+                    throw new AppError(ErrorCodes.PLAN_COURTESY_LIMIT_REACHED);
+                }
+            }
+        }
+
         const sequenceRows = await tx.$queryRawUnsafe(
             `SELECT nextval('tickets_sequence_seq') AS seq FROM generate_series(1, $1)`,
             totalQuantity

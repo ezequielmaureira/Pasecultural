@@ -146,7 +146,15 @@ export const issueCourtesyService = async (clerkId, input) => {
     // "Compartir" nunca dispara el correo automático de confirmación — el
     // operador ni siquiera pidió un email. "Enviar por correo" sí, y es
     // EXACTAMENTE el mismo correo que recibe un comprador real.
-    const confirmed = await confirmSaleService(clerkId, sale.id, { skipAutoEmail: deliveryMethod === "SHARE" });
+    // courtesyQuota: true — Premium Fase 2B, único caller de todo el repo
+    // que la pasa. Aplica maxCourtesiesPerEvent atómicamente dentro de la
+    // MISMA transacción que crea los Tickets (ver sale.service.js); si
+    // excede el límite, confirmSaleService lanza PLAN_COURTESY_LIMIT_REACHED
+    // y la Sale queda PENDING sin generar ningún Ticket.
+    const confirmed = await confirmSaleService(clerkId, sale.id, {
+        skipAutoEmail: deliveryMethod === "SHARE",
+        courtesyQuota: true,
+    });
 
     await prisma.courtesyIssuance.create({
         data: {
