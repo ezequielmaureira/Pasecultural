@@ -51,10 +51,13 @@ function baseDeps(overrides = {}) {
     return {
         deps: {
             sendText,
-            findActiveConversation: spy({ id: "conv1", userId: "user_123" }),
+            findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }),
             resumeConversation: spy(IMAGE_URL_PROMPT_RESULT),
             handleConversationInput: spy(BACK_RESULT),
             cancelConversation: spy(undefined),
+            // Premium — Fase 2C. Este archivo no prueba el feature gate —
+            // por default PREMIUM preserva el comportamiento histórico.
+            getOrganizationPlanForWhatsapp: spy({ plan: "PREMIUM" }),
             uploadImage: spy({ success: true, url: "https://res.cloudinary.com/pasecultural/image/upload/v1/pasecultural/abc123.jpg" }),
             findReusableLocation: spy(null),
             resetPendingStepInput: spy(undefined),

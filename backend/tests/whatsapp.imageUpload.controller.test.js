@@ -5,6 +5,7 @@ import {
     WHATSAPP_IMAGE_NOT_EXPECTED_TEXT,
     buildWhatsappImageUploadErrorText,
     WHATSAPP_LOCATION_METHOD_PROMPT_TEXT,
+    WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT,
 } from "../src/services/whatsappOrganizerBot.service.js";
 
 // Bug fix (carga de imagen del evento) — árbol de decisión de
@@ -66,7 +67,7 @@ function baseDeps(overrides = {}) {
     return {
         deps: {
             sendText,
-            findActiveConversation: spy({ id: "conv1", userId: "user_123" }),
+            findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }),
             resumeConversation: spy(IMAGE_URL_PROMPT_RESULT),
             // El step real después de COVER_IMAGE es LOCATION, pero acá se
             // simula un step neutro a propósito: el renderizado específico
@@ -82,6 +83,9 @@ function baseDeps(overrides = {}) {
             cancelConversation: spy(undefined),
             uploadImage: spy({ success: true, url: "https://res.cloudinary.com/pasecultural/image/upload/v1/pasecultural/abc123.jpg" }),
             resetPendingStepInput: spy(undefined),
+            // Premium — Fase 2C. Este archivo no prueba el feature gate —
+            // por default PREMIUM preserva el comportamiento histórico.
+            getOrganizationPlanForWhatsapp: spy({ plan: "PREMIUM" }),
             ...overrides,
         },
         sendCalls,
@@ -147,17 +151,32 @@ test("the state starts empty: no pending is pre-created (nor pre-filled) when la
     assert.equal(deps.resetPendingStepInput.calls.length, 0, "el pending se sigue creando recién con el próximo mensaje (tryHandleLocationSubflow), nunca acá con datos precargados");
 });
 
-test("the direct method selector is shown the same way with or without organizationId on the active conversation", async () => {
+// Premium — Fase 2C. Hasta antes de esta fase, organizationId era
+// irrelevante para este renderizado puntual (por eso el test original
+// comparaba "con y sin organizationId" y esperaba el MISMO selector de
+// ubicación en ambos casos — ver el commit anterior a Fase 2C). Eso ya no
+// es válido a propósito: toda ConversationState de WHATSAPP recibe
+// organizationId obligatorio desde EventCreationEngine.start (resuelto
+// ANTES por el choke point 1 de Fase 2C, ver whatsapp.controller.js) — que
+// una conversación activa llegue SIN organizationId es una anomalía que
+// nunca debería ocurrir en producción, y el comportamiento correcto es
+// fail-safe: nunca se asume PREMIUM, nunca se sube la imagen, nunca se
+// avanza el motor. Nunca se inventa un organizationId acá — el test sigue
+// verificando exactamente el caso corrupto/incompleto, sólo que ahora la
+// expectativa correcta es que se bloquee, no que se ignore.
+test("an active conversation without organizationId is an unresolved-Organization anomaly — fail-safe: the image is never uploaded, the engine never advances", async () => {
     const { deps, sendCalls } = baseDeps({
-        findActiveConversation: spy({ id: "conv1", userId: "user_123" }), // sin organizationId
+        findActiveConversation: spy({ id: "conv1", userId: "user_123" }), // sin organizationId, a propósito
         handleConversationInput: spy(LOCATION_PROMPT_RESULT),
         findReusableLocation: spy(REUSABLE_LOCATION),
     });
 
     await processInboundMessage(imageMessage(), deps);
 
+    assert.equal(deps.uploadImage.calls.length, 0, "nunca debe subirse la imagen sin poder confirmar la Organization");
+    assert.equal(deps.handleConversationInput.calls.length, 0, "el motor nunca debe avanzar sin poder confirmar la Organization");
     assert.equal(deps.findReusableLocation.calls.length, 0);
-    assert.equal(sendCalls[0].text, WHATSAPP_LOCATION_METHOD_PROMPT_TEXT);
+    assert.equal(sendCalls[0].text, WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT, "debe responder el mensaje seguro de Organization no encontrada, nunca el selector de ubicación");
 });
 
 test("no pending is created when the engine advances to a step other than LOCATION", async () => {

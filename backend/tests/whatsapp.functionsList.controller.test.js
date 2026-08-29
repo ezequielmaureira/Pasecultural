@@ -106,10 +106,14 @@ function baseDeps({ pendingStore, ...overrides } = {}) {
     return {
         deps: {
             sendText,
-            findActiveConversation: spy({ id: "conv1", userId: "user_123" }),
+            findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }),
             resumeConversation: spy(FUNCTIONS_LIST_STEP_STATE),
             handleConversationInput: spy(PRICING_TYPE_RESULT),
             cancelConversation: spy(undefined),
+            // Premium — Fase 2C. Este archivo prueba el sub-flujo de lista de
+            // funciones, no el feature gate — por default PREMIUM preserva
+            // el comportamiento histórico.
+            getOrganizationPlanForWhatsapp: spy({ plan: "PREMIUM" }),
             getPendingStepInput: store.getPendingStepInput,
             resetPendingStepInput: store.resetPendingStepInput,
             updatePendingStepInputStatus: store.updatePendingStepInputStatus,

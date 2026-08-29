@@ -1,4 +1,6 @@
 import { logger } from "../logging/logger.js";
+import prisma from "../config/prisma.js";
+import { isFeatureAvailable, PremiumFeature } from "../services/organizationPlanPolicy.js";
 import {
     evaluateWebhookVerification,
     getWhatsappVerifyToken,
@@ -35,6 +37,7 @@ import {
     buildGenericPublishIntentGreetingText,
     WHATSAPP_DECLINE_TEXT,
     WHATSAPP_CANCEL_TEXT,
+    WHATSAPP_EVENT_CREATION_PREMIUM_REQUIRED_TEXT,
     WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT,
     WHATSAPP_SELECTION_INVALID_TEXT,
     WHATSAPP_IMAGE_NOT_EXPECTED_TEXT,
@@ -1124,6 +1127,51 @@ async function tryHandlePreviewSubflow({ conversationId, text, reply, handleConv
     return { handled: true };
 }
 
+// Premium — Fase 2C. Lectura FRESCA y mínima de Organization.plan por cada
+// mensaje que pueda arrancar/continuar el asistente de creación de eventos
+// — nunca cacheada en ConversationState (el plan puede cambiar mientras la
+// conversación sigue activa) y nunca vía ownerId/findFirst (siempre por el
+// organizationId ya inequívoco de ESTE flujo: candidato único, selección ya
+// validada, o active.organizationId). `select: { plan: true }` alcanza para
+// isFeatureAvailable — no hace falta la Organization completa acá. Devuelve
+// `null` si la Organization ya no existe (mismo caso límite que ya maneja
+// resolveOrganizationOwner más abajo, nunca se interpreta como FREE).
+async function getOrganizationPlanForWhatsapp(organizationId) {
+    return prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: { plan: true },
+    });
+}
+
+// Premium — Fase 2C. Único chequeo para las TRES ramas que pueden tocar una
+// conversación YA activa (texto, imagen, ubicación) — no sólo la de texto:
+// tanto la rama de imagen (COVER_IMAGE) como la de ubicación pueden llegar a
+// handleConversationInput y mutar el draft/evento igual que el fallback de
+// texto, así que las tres necesitan exactamente el mismo guard, en el mismo
+// punto relativo (después de CANCEL cuando aplica, antes de resumeConversation/
+// cualquier mutación). Devuelve `true` si el mensaje quedó bloqueado (ya
+// respondido — el caller debe hacer `return` de inmediato); `false` si puede
+// seguir su curso normal. Nunca cachea nada: una lectura fresca por mensaje.
+async function blockIfWhatsappEventCreationUnavailable(active, reply, getOrganizationPlanForWhatsappDep) {
+    if (!active.organizationId) {
+        // Anomalía: una ConversationState de WHATSAPP siempre debería tener
+        // organizationId resuelto desde que arrancó (Fase 2G). Nunca se
+        // asume FREE ni PREMIUM ante esto.
+        await reply(WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT, "ORGANIZATION_NOT_FOUND");
+        return true;
+    }
+    const organization = await getOrganizationPlanForWhatsappDep(active.organizationId);
+    if (!organization) {
+        await reply(WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT, "ORGANIZATION_NOT_FOUND");
+        return true;
+    }
+    if (!isFeatureAvailable(organization, PremiumFeature.WHATSAPP_EVENT_CREATION)) {
+        await reply(WHATSAPP_EVENT_CREATION_PREMIUM_REQUIRED_TEXT, "PREMIUM_REQUIRED");
+        return true;
+    }
+    return false;
+}
+
 // Único punto que conecta WhatsApp con EventCreationEngine — Fase 2E.
 // WhatsApp es sólo OTRO CANAL: nunca reimplementa pasos/preguntas propias,
 // sólo decide (a) si hay que iniciar el motor o no, y (b) reenvía lo que el
@@ -1159,6 +1207,12 @@ export async function processInboundMessage(
         createPendingSelection = createPendingOrganizationSelection,
         clearPendingSelection = clearPendingOrganizationSelection,
         resolveOwner = resolveOrganizationOwner,
+        // Premium — Fase 2C. Mismo criterio que el resto de las dependencias
+        // de acá arriba: la lectura real de Organization.plan queda
+        // inyectable para poder testear la orquestación (choke points 1/2)
+        // sin tocar Prisma real — ver getOrganizationPlanForWhatsapp más
+        // arriba en este archivo para la implementación real (default).
+        getOrganizationPlanForWhatsapp: getOrganizationPlanForWhatsappDep = getOrganizationPlanForWhatsapp,
         uploadImage = uploadWhatsappImageMessage,
         getPendingStepInput: getPendingStepInputDep = getPendingStepInput,
         resetPendingStepInput: resetPendingStepInputDep = resetPendingStepInput,
@@ -1288,6 +1342,11 @@ export async function processInboundMessage(
         // no reconocido (mismo comportamiento que antes de este fix).
         if (isProcessableImage) {
             if (!active) return;
+            // Premium — Fase 2C. Mismo guard que la rama de texto: una imagen
+            // en el paso COVER_IMAGE también puede llegar a
+            // handleConversationInput (línea de abajo) y mutar el draft —
+            // nunca debe saltearse este chequeo sólo por no ser texto.
+            if (await blockIfWhatsappEventCreationUnavailable(active, reply, getOrganizationPlanForWhatsappDep)) return;
 
             const currentState = await resumeConversation(active.id);
             perf.mark("RESUME");
@@ -1317,6 +1376,10 @@ export async function processInboundMessage(
         // acá" con el prompt vigente, igual que antes.
         if (isProcessableLocation) {
             if (!active) return;
+            // Premium — Fase 2C. Mismo guard que la rama de texto:
+            // tryHandleLocationSubflow (más abajo) también puede llegar a
+            // handleConversationInput y mutar el draft.
+            if (await blockIfWhatsappEventCreationUnavailable(active, reply, getOrganizationPlanForWhatsappDep)) return;
 
             // Fase 3H — un único resume acá: es el único sub-flujo invocado
             // en esta rama (mensaje type==="location"), así que no había
@@ -1403,6 +1466,22 @@ export async function processInboundMessage(
             if (isCancelCommand(text)) {
                 await cancelConversation(active.id, active.userId);
                 await reply(WHATSAPP_CANCEL_TEXT, "CANCEL");
+                return;
+            }
+
+            // Premium — Fase 2C. Choke point 2: cubre el downgrade a mitad de
+            // conversación (PREMIUM -> FREE mientras el organizador ya tenía
+            // un draft en curso). Va DESPUÉS de CANCEL (que siempre debe
+            // funcionar, sin excepción) y ANTES de resumeConversation/BACK/
+            // los 8 sub-flujos/handleConversationInput — ninguno de esos
+            // puede tocar draftEvent/currentStepId/Event si la Organization
+            // ya no es Premium. No borra ni modifica ConversationState: sólo
+            // intercepta este mensaje puntual y responde. Si más adelante la
+            // Organization vuelve a PREMIUM, el próximo mensaje pasa este
+            // mismo chequeo sin cambios y retoma exactamente donde estaba
+            // (currentStepId/draftEvent intactos) — no hace falta ninguna
+            // lógica especial de "resume".
+            if (await blockIfWhatsappEventCreationUnavailable(active, reply, getOrganizationPlanForWhatsappDep)) {
                 return;
             }
 
@@ -1685,6 +1764,28 @@ export async function processInboundMessage(
                 return;
             }
 
+            // Premium — Fase 2C. Choke point 1 (caso B, selección explícita):
+            // choice.organizationId es el mismo id ya validado por índice
+            // contra la lista mostrada (nunca ownerId/findFirst) — se
+            // verifica el plan ANTES de startConversation. Una selección
+            // VÁLIDA de Organization se considera consumida aunque el plan
+            // la bloquee (decisión de producto: dejar el pending vivo haría
+            // que el próximo mensaje se reinterprete como índice de
+            // selección, algo confuso después de ya haber recibido "Premium
+            // requerido") — por eso clearPendingSelection corre en ambas
+            // ramas, elegible o no.
+            const organizationForGate = await getOrganizationPlanForWhatsappDep(choice.organizationId);
+            if (!organizationForGate) {
+                await clearPendingSelection(channelRef);
+                await reply(WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT, "SELECTION_ORG_UNAVAILABLE");
+                return;
+            }
+            if (!isFeatureAvailable(organizationForGate, PremiumFeature.WHATSAPP_EVENT_CREATION)) {
+                await clearPendingSelection(channelRef);
+                await reply(WHATSAPP_EVENT_CREATION_PREMIUM_REQUIRED_TEXT, "PREMIUM_REQUIRED");
+                return;
+            }
+
             // Bug fix (confirmación redundante): elegir una organización del
             // selector YA ES la confirmación explícita del organizador — no
             // hace falta volver a preguntar "¿Vamos a publicar con X? Sí/No"
@@ -1726,6 +1827,22 @@ export async function processInboundMessage(
             const [organization] = candidates;
 
             if (intent === "AFFIRMATIVE") {
+                // Premium — Fase 2C. Choke point 1 (caso A, candidato único):
+                // organizationId ya es inequívoco acá (viene directo de
+                // discoverCandidates, nunca de ownerId/findFirst) — se
+                // verifica el plan JUSTO ANTES de crear cualquier
+                // ConversationState. Si no está disponible, no se llama a
+                // startConversation ni se crea ningún draft/estado.
+                const organizationForGate = await getOrganizationPlanForWhatsappDep(organization.organizationId);
+                if (!organizationForGate) {
+                    await reply(WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT, "ORGANIZATION_NOT_FOUND");
+                    return;
+                }
+                if (!isFeatureAvailable(organizationForGate, PremiumFeature.WHATSAPP_EVENT_CREATION)) {
+                    await reply(WHATSAPP_EVENT_CREATION_PREMIUM_REQUIRED_TEXT, "PREMIUM_REQUIRED");
+                    return;
+                }
+
                 const startResult = await startConversation({
                     clerkId: organization.clerkId,
                     channel: WHATSAPP_CHANNEL,

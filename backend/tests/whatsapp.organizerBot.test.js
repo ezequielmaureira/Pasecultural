@@ -70,6 +70,10 @@ function baseDeps(overrides = {}) {
             createPendingSelection: spy(undefined),
             clearPendingSelection: spy(undefined),
             resolveOwner: spy({ name: "Elvis Bar", clerkId: "user_123" }),
+            // Premium — Fase 2C. Este archivo no prueba el feature gate
+            // (salvo los tests explícitos de esta sección) — por default
+            // PREMIUM preserva el comportamiento histórico.
+            getOrganizationPlanForWhatsapp: spy({ plan: "PREMIUM" }),
             // Fase 3C — el sub-flujo de FUNCTIONS_SINGLE_CARD se consulta
             // SIEMPRE que hay conversación activa (ver
             // whatsapp.controller.js#tryHandleFunctionCardSubflow). Ninguno
@@ -709,7 +713,7 @@ test("pending AWAITING_SELECTION + a valid index whose organization stopped bein
 // (el organizationId ya viaja adentro del ConversationState, ver
 // EventCreationEngine).
 test("an active conversation skips discovery entirely and routes straight into handleInput", async () => {
-    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }) });
+    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }) });
 
     await processInboundMessage(textMessage({ text: "Mi evento genial" }), deps);
 
@@ -752,7 +756,7 @@ function categorySingleSelectEngine() {
 
 test("replying '1' on an active SINGLE_SELECT step resolves to the first real option and advances the engine", async () => {
     const handleConversationInput = categorySingleSelectEngine();
-    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }), handleConversationInput });
+    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }), handleConversationInput });
 
     await processInboundMessage(textMessage({ text: "1" }), deps);
 
@@ -764,7 +768,7 @@ test("replying '1' on an active SINGLE_SELECT step resolves to the first real op
 
 test("replying the last index on an active SINGLE_SELECT step resolves to the last real option", async () => {
     const handleConversationInput = categorySingleSelectEngine();
-    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }), handleConversationInput });
+    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }), handleConversationInput });
 
     await processInboundMessage(textMessage({ text: String(CATEGORY_OPTIONS.length) }), deps);
 
@@ -775,7 +779,7 @@ test("replying the last index on an active SINGLE_SELECT step resolves to the la
 
 test("replying index 0 on an active SINGLE_SELECT step is rejected without a retry", async () => {
     const handleConversationInput = categorySingleSelectEngine();
-    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }), handleConversationInput });
+    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }), handleConversationInput });
 
     await processInboundMessage(textMessage({ text: "0" }), deps);
 
@@ -786,7 +790,7 @@ test("replying index 0 on an active SINGLE_SELECT step is rejected without a ret
 
 test("replying an out-of-range index on an active SINGLE_SELECT step is rejected without a retry", async () => {
     const handleConversationInput = categorySingleSelectEngine();
-    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }), handleConversationInput });
+    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }), handleConversationInput });
 
     await processInboundMessage(textMessage({ text: "99" }), deps);
 
@@ -796,7 +800,7 @@ test("replying an out-of-range index on an active SINGLE_SELECT step is rejected
 
 test("invalid free text on an active SINGLE_SELECT step never silently selects another option", async () => {
     const handleConversationInput = categorySingleSelectEngine();
-    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }), handleConversationInput });
+    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }), handleConversationInput });
 
     await processInboundMessage(textMessage({ text: "asdkjh" }), deps);
 
@@ -832,7 +836,7 @@ test("the numeric-index retry works generically on a different SINGLE_SELECT ste
             },
         };
     });
-    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }), handleConversationInput });
+    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }), handleConversationInput });
 
     await processInboundMessage(textMessage({ text: "2" }), deps);
 
@@ -846,7 +850,7 @@ test("a plain non-SINGLE_SELECT validation error (ej. SHORT_TEXT) never triggers
         conversationId: "conv1",
         prompt: { stepId: "NAME", type: "QUESTION", text: "¿Cómo se llama tu evento?", error: "Contame un poco más, no puede quedar vacío." },
     });
-    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }), handleConversationInput });
+    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }), handleConversationInput });
 
     await processInboundMessage(textMessage({ text: "1" }), deps);
 
@@ -855,7 +859,7 @@ test("a plain non-SINGLE_SELECT validation error (ej. SHORT_TEXT) never triggers
 });
 
 test("'Sí' with an active conversation is treated as plain input, never re-triggers start", async () => {
-    const { deps } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }) });
+    const { deps } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }) });
 
     await processInboundMessage(textMessage({ text: "Sí" }), deps);
 
@@ -865,7 +869,7 @@ test("'Sí' with an active conversation is treated as plain input, never re-trig
 });
 
 test("'cancelar' with an active conversation calls EventCreationEngine.cancel and confirms it", async () => {
-    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123" }) });
+    const { deps, sendCalls } = baseDeps({ findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }) });
 
     await processInboundMessage(textMessage({ text: "cancelar" }), deps);
 
@@ -900,6 +904,7 @@ test("two inbound messages in the same payload are processed independently, each
         cancelConversation: spy(undefined),
         discoverCandidates: spy([{ organizationId: "org_1", name: "Elvis Bar", clerkId: "user_123" }]),
         getPendingSelection: spy(null),
+        getOrganizationPlanForWhatsapp: spy({ plan: "PREMIUM" }),
     };
     const messages = [
         textMessage({ messageId: "wamid.IN1", from: "5491100000001", text: "Sí" }),

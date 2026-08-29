@@ -58,10 +58,13 @@ function baseDeps({ resumeConversation, handleConversationInput, getPendingStepI
     const { sendText } = fakeSender();
     return {
         sendText,
-        findActiveConversation: spy({ id: "conv1", userId: "user_123" }),
+        findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }),
         resumeConversation: resumeConversation ?? spy(stepState("NAME", "SHORT_TEXT")),
         handleConversationInput: handleConversationInput ?? spy(stepState("DESCRIPTION", "SHORT_TEXT")),
         cancelConversation: spy(undefined),
+        // Premium — Fase 2C. Este archivo no prueba el feature gate — por
+        // default PREMIUM preserva el comportamiento histórico.
+        getOrganizationPlanForWhatsapp: spy({ plan: "PREMIUM" }),
         getPendingStepInput: getPendingStepInputOverride ?? spy(null),
         resetPendingStepInput: spy(null),
         updatePendingStepInputStatus: spy(null),
@@ -225,6 +228,9 @@ function identityDeps(overrides = {}) {
         createPendingSelection: async () => undefined,
         clearPendingSelection: async () => undefined,
         resolveOwner: async () => ({ name: "Elvis Bar", clerkId: "user_123" }),
+        // Premium — Fase 2C. Estos tests no prueban el feature gate — por
+        // default PREMIUM preserva el comportamiento histórico.
+        getOrganizationPlanForWhatsapp: async () => ({ plan: "PREMIUM" }),
         ...overrides,
     };
 }

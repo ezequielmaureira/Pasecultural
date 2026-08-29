@@ -158,6 +158,10 @@ function baseDeps({ pendingStore, ...overrides } = {}) {
             updatePendingStepInputStatus: store.updatePendingStepInputStatus,
             deletePendingStepInput: store.deletePendingStepInput,
             findReusableLocation: spy(null),
+            // Premium — Fase 2C. Este archivo prueba el sub-flujo de
+            // ubicación, no el feature gate — por default PREMIUM preserva
+            // el comportamiento histórico.
+            getOrganizationPlanForWhatsapp: spy({ plan: "PREMIUM" }),
             ...overrides,
         },
         sendCalls,

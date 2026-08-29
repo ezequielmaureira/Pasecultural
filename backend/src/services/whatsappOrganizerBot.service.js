@@ -12,6 +12,15 @@ export const WHATSAPP_DECLINE_TEXT = "Perfecto 👍 Cuando quieras publicar un e
 
 export const WHATSAPP_CANCEL_TEXT = "❌ Cancelamos la creación de tu evento. Cuando quieras, escribime para empezar de nuevo.";
 
+// Premium — Fase 2C. Único texto para los dos choke points de
+// whatsapp.controller.js (arranque de conversación nueva y conversación ya
+// activa) — nunca repetido literal en más de un lugar. No incluye ningún
+// link: no hay una URL del panel organizador ya armada en el repo para
+// reutilizar acá (a diferencia de buildWhatsappPublicEventUrl, que sí tiene
+// FRONTEND_URL + slug de evento).
+export const WHATSAPP_EVENT_CREATION_PREMIUM_REQUIRED_TEXT =
+    "✨ Crear y gestionar eventos por WhatsApp es una función Premium. Podés seguir creando y administrando tus eventos desde el panel web.";
+
 // Fase 3G, sección 5 — "volver" ya existía (Fase 3D) pero nunca se le
 // avisaba al organizador que existía. Se agrega, de forma consistente, a
 // las preguntas principales de cada sub-flujo conversacional adaptado a

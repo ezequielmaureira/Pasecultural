@@ -145,10 +145,13 @@ function baseDeps({ pendingStore, resumeConversation, ...overrides } = {}) {
     return {
         deps: {
             sendText,
-            findActiveConversation: spy({ id: "conv1", userId: "user_123" }),
+            findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }),
             resumeConversation: resumeConversation ?? spy(RANGE_STEP_STATE),
             handleConversationInput: spy(WEEKDAYS_STEP_STATE),
             cancelConversation: spy(undefined),
+            // Premium — Fase 2C. Este archivo no prueba el feature gate —
+            // por default PREMIUM preserva el comportamiento histórico.
+            getOrganizationPlanForWhatsapp: spy({ plan: "PREMIUM" }),
             getPendingStepInput: store.getPendingStepInput,
             resetPendingStepInput: store.resetPendingStepInput,
             updatePendingStepInputStatus: store.updatePendingStepInputStatus,

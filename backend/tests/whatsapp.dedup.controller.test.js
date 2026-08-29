@@ -112,6 +112,10 @@ function baseDeps(overrides = {}) {
             claimInboundMessage: store.claimInboundMessage,
             completeInboundMessageClaim: store.completeInboundMessageClaim,
             failInboundMessageClaim: store.failInboundMessageClaim,
+            // Premium — Fase 2C. Este archivo prueba idempotencia, no el
+            // feature gate — por default PREMIUM preserva el comportamiento
+            // histórico.
+            getOrganizationPlanForWhatsapp: spy({ plan: "PREMIUM" }),
             ...overrides,
         },
         sendCalls,
@@ -170,7 +174,7 @@ test("2/6/7) the same wamid delivered sequentially is ignored the second time �
 test("5) a duplicate image message never re-uploads the image nor re-touches the engine", async () => {
     const uploadImage = spy({ success: true, url: "https://res.cloudinary.com/pasecultural/image/upload/v1/abc.jpg" });
     const { deps, sendCalls } = baseDeps({
-        findActiveConversation: spy({ id: "conv1", userId: "user_123" }),
+        findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }),
         resumeConversation: spy({ conversationId: "conv1", prompt: { stepId: "COVER_IMAGE", type: "QUESTION", inputType: "IMAGE_URL", text: "Mandame la imagen." }, canGoBack: true, sections: [] }),
         handleConversationInput: spy({ conversationId: "conv1", prompt: { stepId: "LOCATION", type: "QUESTION", inputType: "LOCATION", text: "Ubicación." }, canGoBack: true, sections: [] }),
         uploadImage,
@@ -220,6 +224,7 @@ test("13/14) a batch with new and duplicate wamids processes only the new ones, 
         claimInboundMessage: store.claimInboundMessage,
         completeInboundMessageClaim: store.completeInboundMessageClaim,
         failInboundMessageClaim: store.failInboundMessageClaim,
+        getOrganizationPlanForWhatsapp: spy({ plan: "PREMIUM" }),
     };
 
     const messages = [
@@ -326,7 +331,7 @@ test("a duplicate logs a safe [WA_DEDUP] DUPLICATE_IGNORED line, never containin
 // ==================================================================
 test("17) the reply text for a normal (non-duplicate) message is untouched by this phase", async () => {
     const { deps, sendCalls } = baseDeps({
-        findActiveConversation: spy({ id: "conv1", userId: "user_123" }),
+        findActiveConversation: spy({ id: "conv1", userId: "user_123", organizationId: "org_1" }),
         resumeConversation: spy({ conversationId: "conv1", prompt: { stepId: "NAME", type: "QUESTION", inputType: "SHORT_TEXT", text: "¿Cómo se llama tu evento?" }, canGoBack: false, sections: [] }),
         handleConversationInput: spy({ conversationId: "conv1", prompt: { stepId: "DESCRIPTION", type: "QUESTION", inputType: "SHORT_TEXT", text: "Contame de qué se trata." }, canGoBack: true, sections: [] }),
     });
