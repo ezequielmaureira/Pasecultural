@@ -150,12 +150,19 @@ function TopNavItem({ label, icon: Icon, path, end }) {
   );
 }
 
-export default function Sidebar({ open = false, onClose }) {
+export default function Sidebar({ open = false, onClose, coldStart = false }) {
   const { backendUser } = useBackendUser();
   const location = useLocation();
   const role = backendUser?.role?.toLowerCase();
   const navItems = NAV_BY_ROLE[role] ?? [];
-  const { organization, brandingEnabled } = useOrganizationTheme();
+  const { organization, visualBranding, brandingEnabled } = useOrganizationTheme();
+  // Confirmado por el server (tiene slug/name reales) vs. optimista (sólo
+  // colores/logo del cache, todavía sin confirmar) — Premium Fase 2D.1.2.
+  // El link a /organizacion/:slug y el nombre real SÓLO se muestran cuando
+  // `organization` ya está confirmada; nunca se inventa un nombre/slug a
+  // partir del cache.
+  const isConfirmedBranding = brandingEnabled && Boolean(organization);
+  const isOptimisticBranding = brandingEnabled && !organization;
 
   // "Crear evento" ya está resuelto por react-router cuando cambia de
   // pantalla (ver el efecto `startFresh` en ConversationView.jsx). Pero si
@@ -200,7 +207,19 @@ export default function Sidebar({ open = false, onClose }) {
             <ChevronsLeft className="h-4 w-4" />
           </button>
 
-        {brandingEnabled && organization ? (
+        {coldStart ? (
+          // Cold start — Premium Fase 2D.1.2: ni cache ni confirmación
+          // server todavía. Nunca se pinta ni el bloque PaseCultural ni un
+          // bloque branded como si fuera definitivo acá — placeholder
+          // neutro mínimo, mismas dimensiones que el resto de los casos.
+          <div className="flex items-center gap-3 px-5 pb-6 pt-6">
+            <div className="h-10 w-10 shrink-0 animate-pulse rounded-xl bg-white/10" />
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="h-3.5 w-24 animate-pulse rounded bg-white/10" />
+              <div className="h-2.5 w-32 animate-pulse rounded bg-white/5" />
+            </div>
+          </div>
+        ) : isConfirmedBranding ? (
           <div className="flex flex-col gap-1 px-5 pb-6 pt-6">
             <Link to={`/organizacion/${organization.slug}`} className="flex items-center gap-3">
               {organization.logo ? (
@@ -235,6 +254,35 @@ export default function Sidebar({ open = false, onClose }) {
             >
               Powered by PaseCultural
             </Link>
+          </div>
+        ) : isOptimisticBranding ? (
+          // Bootstrap optimista (cache) — Premium Fase 2D.1.2: los COLORES
+          // ya se aplican (fondo del aside, acentos), y el logo cacheado se
+          // muestra si existe, pero NUNCA se inventa nombre/slug — no hay
+          // Link a /organizacion/:slug hasta que `organization` esté
+          // confirmada por el server.
+          <div className="flex items-center gap-3 px-5 pb-6 pt-6">
+            {visualBranding?.logo ? (
+              <img
+                src={visualBranding.logo}
+                alt=""
+                className="h-10 w-10 shrink-0 rounded-xl object-cover"
+              />
+            ) : (
+              <div
+                className="h-10 w-10 shrink-0 animate-pulse rounded-xl"
+                style={{ backgroundColor: "var(--org-primary)" }}
+              />
+            )}
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <div
+                className="h-3.5 w-24 animate-pulse rounded opacity-40"
+                style={{ backgroundColor: "var(--org-on-secondary)" }}
+              />
+              <p className="truncate text-xs opacity-70" style={{ color: "var(--org-on-secondary)" }}>
+                Plataforma de gestión
+              </p>
+            </div>
           </div>
         ) : (
           <Link to="/" className="flex items-center gap-3 px-5 pb-6 pt-6">

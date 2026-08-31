@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Outlet } from "react-router-dom";
 import Sidebar from "./Sidebar.jsx";
 import Topbar from "./Topbar.jsx";
-import { useBackendUser } from "../../context/AuthContext.jsx";
 import { OrganizationThemeProvider, useOrganizationTheme } from "../../context/OrganizationThemeContext.jsx";
 import { ORG_THEME_CLASS } from "../../lib/organizationTheme.js";
 
@@ -10,14 +9,24 @@ import { ORG_THEME_CLASS } from "../../lib/organizationTheme.js";
 // se vuelve un panel off-canvas que se abre/cierra con este estado, en vez
 // de ocupar la mitad del ancho disponible de un celular.
 //
-// Organization Theme (dashboard) — Premium Fase 2D.1. `useOrganizationTheme`
-// devuelve el default seguro (brandingEnabled: false) cuando no hay
-// OrganizationThemeProvider como ancestro — por eso este mismo componente
-// sirve para Developer sin necesidad de una segunda copia del layout: sin
-// Provider, el wrapper de abajo nunca gana la clase/estilo org-theme.
+// Organization Theme (dashboard) — Premium Fase 2D.1/2D.1.2. El Provider se
+// monta siempre (ver el `export default` más abajo) — para Developer (o
+// cualquier cuenta sin Organization propia), `organization` simplemente
+// queda `null` tras el fetch y `brandingEnabled` es `false`, mismo
+// resultado visual que antes.
 function AppShellContent() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { brandingEnabled, themeStyle } = useOrganizationTheme();
+  const { brandingEnabled, themeStyle, confirmed } = useOrganizationTheme();
+
+  // Cold start — Premium Fase 2D.1.2: ni el server confirmó todavía NI hay
+  // branding visual optimista (cache) disponible. Es el único caso en el
+  // que ni siquiera sabemos si corresponde tema estándar o branded — nunca
+  // pintamos el tema estándar como si fuera definitivo acá, Sidebar recibe
+  // `coldStart` y muestra un shell neutro mínimo en su lugar (ver
+  // Sidebar.jsx). Apenas `confirmed` o `brandingEnabled` pasan a true, este
+  // shell desaparece — no es un estado adicional que el usuario deba
+  // "esperar" más de lo que ya esperaba antes de 2D.1.2.
+  const coldStart = !confirmed && !brandingEnabled;
 
   const rootStyle = brandingEnabled
     ? { ...themeStyle, backgroundColor: "var(--org-background)" }
@@ -28,7 +37,7 @@ function AppShellContent() {
       style={rootStyle}
       className={`min-h-screen bg-[#05070B] ${brandingEnabled ? ORG_THEME_CLASS : ""}`}
     >
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} coldStart={coldStart} />
       <Topbar onOpenSidebar={() => setSidebarOpen(true)} />
       <main className="pt-[var(--topbar-height)] lg:pl-[var(--sidebar-width)]">
         <div className="p-4 sm:p-6 lg:p-8">
@@ -39,17 +48,23 @@ function AppShellContent() {
   );
 }
 
-// El Provider SOLO se monta para role === "organizer" — Developer nunca
-// dispara el fetch de /organizations/me ni queda expuesto a ningún --org-*
-// token (mismo AppShell, cero diferencia visual/funcional para Developer).
+// Premium Fase 2D.1.2 — corrección de bug visual: ANTES el Provider sólo se
+// montaba para role === "organizer", y `backendUser` (de dónde sale ese
+// role) depende de que resuelva POST /api/auth/sync — un fetch enteramente
+// ajeno al branding. Eso significaba que el bootstrap visual (que sólo
+// necesita el `userId` de Clerk, resuelto localmente sin red) quedaba
+// bloqueado detrás de ESE fetch extra, y el usuario veía un frame
+// negro/neutro hasta que /auth/sync Y /organizations/me terminaran, en vez
+// de branding inmediato desde el cache. Se monta el Provider SIEMPRE
+// (mismo componente para Developer/Organizer) para que su bootstrap por
+// `userId` (Clerk) arranque en cuanto sea posible, sin esperar a
+// `backendUser`/rol — el Provider sigue sin usar el cache ni el rol para
+// autorizar nada: `isFeatureAvailable` sigue siendo exclusivamente
+// server-side, y GET /api/organizations/me (que ya devuelve `organization:
+// null` para cualquier cuenta que no sea owner de una Organization) es el
+// único cambio de comportamiento real para Developer — un fetch adicional
+// inofensivo, no una fuga de datos ni de autorización.
 export default function AppShell() {
-  const { backendUser } = useBackendUser();
-  const isOrganizer = backendUser?.role?.toLowerCase() === "organizer";
-
-  if (!isOrganizer) {
-    return <AppShellContent />;
-  }
-
   return (
     <OrganizationThemeProvider>
       <AppShellContent />
