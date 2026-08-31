@@ -57,7 +57,12 @@ export default function Navbar() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [mobileOpen]);
 
-  const themeStyle = branding?.theme ? toOrgThemeStyle(branding.theme) : undefined;
+  // secondary = estructura (header branded) — background-color real, no un
+  // derivado oscurecido, para que el segundo color también tenga presencia
+  // evidente (ver lib/organizationTheme.js).
+  const themeStyle = branding?.theme
+    ? { ...toOrgThemeStyle(branding.theme), backgroundColor: "var(--org-secondary)" }
+    : undefined;
 
   return (
     <header
@@ -83,13 +88,19 @@ export default function Navbar() {
                   <Ticket className="h-5 w-5" />
                 </div>
               )}
-              <span className="block truncate text-lg font-bold text-white">{branding.name}</span>
+              <span
+                className="block truncate text-lg font-bold"
+                style={{ color: "var(--org-on-secondary)" }}
+              >
+                {branding.name}
+              </span>
             </Link>
             {/* Salida explícita del espacio de la Organization — nunca se
                 oculta ni se reemplaza, sólo pasa a discreta. */}
             <Link
               to="/"
-              className="hidden shrink-0 whitespace-nowrap text-[11px] text-slate-500 hover:text-slate-300 sm:block"
+              className="hidden shrink-0 whitespace-nowrap text-[11px] opacity-70 hover:opacity-100 sm:block"
+              style={{ color: "var(--org-on-secondary)" }}
             >
               Ir a PaseCultural
             </Link>

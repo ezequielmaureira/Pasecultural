@@ -19,9 +19,13 @@ function AppShellContent() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { brandingEnabled, themeStyle } = useOrganizationTheme();
 
+  const rootStyle = brandingEnabled
+    ? { ...themeStyle, backgroundColor: "var(--org-background)" }
+    : undefined;
+
   return (
     <div
-      style={brandingEnabled ? themeStyle : undefined}
+      style={rootStyle}
       className={`min-h-screen bg-[#05070B] ${brandingEnabled ? ORG_THEME_CLASS : ""}`}
     >
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />

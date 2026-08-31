@@ -315,6 +315,15 @@ model Organization {
   // utils/colorValidation.js (#RRGGBB exacto) — nunca CSS libre.
   brandPrimaryColor String?
 
+  // Premium — Fase 2D.1.1. Segundo color del branding Premium (estructura:
+  // header/sidebar/navbar branded), independiente de brandPrimaryColor
+  // (identidad/acento). Mismo contrato: nullable, #RRGGBB validado por
+  // utils/colorValidation.js, nunca CSS libre. Organizations de 2D.1 que
+  // sólo configuraron brandPrimaryColor quedan con este campo en NULL — el
+  // frontend deriva un secondary de fallback a partir de primary (ver
+  // frontend/src/lib/organizationTheme.js), nunca se backfillea acá.
+  brandSecondaryColor String?
+
   events Event[]
 
   // Botón de arrepentimiento — solicitudes de las compras de ESTA

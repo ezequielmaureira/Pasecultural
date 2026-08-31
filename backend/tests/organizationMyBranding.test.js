@@ -45,7 +45,7 @@ async function cleanup({ organizationIds = [], userIds = [] }) {
     if (cleanUserIds.length) await prisma.user.deleteMany({ where: { id: { in: cleanUserIds } } });
 }
 
-testWithDb("PRIVATE-THEME-A: Organization con CUSTOM_BRANDING habilitado -> /organizations/me trae branding.enabled=true y valores visuales", async () => {
+testWithDb("PRIVATE-THEME-A / COLOR-A: Organization con CUSTOM_BRANDING habilitado -> /organizations/me trae branding.enabled=true y ambos colores", async () => {
     const owner = await createUser();
     let org;
     try {
@@ -53,12 +53,14 @@ testWithDb("PRIVATE-THEME-A: Organization con CUSTOM_BRANDING habilitado -> /org
             plan: "PREMIUM",
             logo: "https://cdn.example.com/logo.png",
             brandPrimaryColor: "#0000FF",
+            brandSecondaryColor: "#000000",
         });
 
         const result = await getMyOrganizationService(owner.clerkId);
         assert.equal(result.branding.enabled, true);
         assert.equal(result.logo, "https://cdn.example.com/logo.png");
         assert.equal(result.brandPrimaryColor, "#0000FF");
+        assert.equal(result.brandSecondaryColor, "#000000");
     } finally {
         await cleanup({ organizationIds: [org?.id], userIds: [owner.id] });
     }
@@ -72,6 +74,7 @@ testWithDb("PRIVATE-THEME-B: Organization sin CUSTOM_BRANDING -> branding.enable
             plan: "FREE",
             logo: "https://cdn.example.com/legacy-logo.png",
             brandPrimaryColor: "#00FF00",
+            brandSecondaryColor: "#111111",
         });
 
         const result = await getMyOrganizationService(owner.clerkId);
@@ -80,6 +83,7 @@ testWithDb("PRIVATE-THEME-B: Organization sin CUSTOM_BRANDING -> branding.enable
         // página pública) — lo que cambia es que el frontend no debe
         // activar el theme con esto.
         assert.equal(result.logo, "https://cdn.example.com/legacy-logo.png");
+        assert.equal(result.brandSecondaryColor, "#111111");
     } finally {
         await cleanup({ organizationIds: [org?.id], userIds: [owner.id] });
     }

@@ -1,59 +1,61 @@
-// Organization Theme — Premium Fase 2D.1. Función pura: recibe la semilla
-// (brandPrimaryColor, un #RRGGBB) y devuelve un set chico de tokens
-// derivados en HSL. Nunca escribe en :root/document.documentElement/body —
-// el caller es responsable de aplicar el resultado como CSS custom
-// properties en un wrapper React scoped (ver toOrgThemeStyle). Sin
-// dependencias externas: manipulación de color casera, a propósito, para no
-// sumar una librería sólo para esto.
+// Organization Theme — Premium Fase 2D.1.1 (dos colores reales). Función
+// pura: recibe primary/secondary (#RRGGBB) y devuelve tokens de interfaz.
+// Nunca escribe en :root/document.documentElement/body — el caller aplica
+// el resultado como CSS custom properties en un wrapper React scoped (ver
+// toOrgThemeStyle). Sin dependencias externas.
+//
+// Corrección post-2D.1: la versión anterior clampeaba background/surface a
+// una luminancia fija muy baja (3%/7%/10%), descartando la luminosidad real
+// de la semilla — por eso un color brillante como #BBFF00 terminaba
+// prácticamente negro. Acá primary/secondary se conservan TAL CUAL fueron
+// elegidos (nunca se les recorta luminancia/saturación); sólo los tokens
+// AUXILIARES (background/surface/border/hover/muted) se derivan mezclando
+// ambos colores reales entre sí o con su propio color de contraste — nunca
+// sustituyendo primary/secondary por otra cosa.
 
 const HEX_RE = /^#([0-9a-fA-F]{6})$/;
 
+function normalizeHex(value) {
+  if (typeof value !== "string") return null;
+  const match = HEX_RE.exec(value);
+  return match ? `#${match[1].toUpperCase()}` : null;
+}
+
 function hexToRgb(hex) {
-  const match = HEX_RE.exec(hex);
-  if (!match) return null;
-  const int = parseInt(match[1], 16);
+  const normalized = normalizeHex(hex);
+  if (!normalized) return null;
+  const int = parseInt(normalized.slice(1), 16);
   return { r: (int >> 16) & 255, g: (int >> 8) & 255, b: int & 255 };
 }
 
-function rgbToHsl({ r, g, b }) {
-  const rn = r / 255;
-  const gn = g / 255;
-  const bn = b / 255;
-  const max = Math.max(rn, gn, bn);
-  const min = Math.min(rn, gn, bn);
-  const l = (max + min) / 2;
-  if (max === min) return { h: 0, s: 0, l };
-
-  const d = max - min;
-  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-  let h;
-  switch (max) {
-    case rn:
-      h = (gn - bn) / d + (gn < bn ? 6 : 0);
-      break;
-    case gn:
-      h = (bn - rn) / d + 2;
-      break;
-    default:
-      h = (rn - gn) / d + 4;
-  }
-  return { h: h * 60, s, l };
+function rgbToHex({ r, g, b }) {
+  const toHex = (c) => Math.round(Math.min(255, Math.max(0, c))).toString(16).padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
 }
 
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
+// Mezcla lineal de canales RGB — `ratio` es cuánto de `hexB` se mezcla
+// dentro de `hexA` (0 = hexA puro, 1 = hexB puro). Determinístico, sin
+// gamma-correction (no hace falta precisión fotométrica para tokens de UI).
+function mixHex(hexA, hexB, ratio) {
+  const a = hexToRgb(hexA);
+  const b = hexToRgb(hexB);
+  if (!a || !b) return a ? rgbToHex(a) : b ? rgbToHex(b) : "#000000";
+  const t = Math.min(1, Math.max(0, ratio));
+  return rgbToHex({
+    r: a.r + (b.r - a.r) * t,
+    g: a.g + (b.g - a.g) * t,
+    b: a.b + (b.b - a.b) * t,
+  });
 }
 
-function hsl(h, s, l) {
-  return `hsl(${Math.round(h)} ${Math.round(clamp(s, 0, 1) * 100)}% ${Math.round(clamp(l, 0, 1) * 100)}%)`;
+function rgbaFromHex(hex, alpha) {
+  const rgb = hexToRgb(hex) || { r: 0, g: 0, b: 0 };
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${Math.min(1, Math.max(0, alpha))})`;
 }
 
-function hsla(h, s, l, a) {
-  return `hsl(${Math.round(h)} ${Math.round(clamp(s, 0, 1) * 100)}% ${Math.round(clamp(l, 0, 1) * 100)}% / ${clamp(a, 0, 1)})`;
-}
-
-// WCAG relative luminance sobre el color semilla tal cual (no el derivado):
-// decide si un texto puesto ENCIMA de --org-primary debe ser claro u oscuro.
+// WCAG relative luminance — decide si un texto puesto ENCIMA de un color
+// dado debe ser claro u oscuro. Pura, no asume nada sobre el color de
+// entrada (no hardcodea "primary es claro"/"secondary es oscuro").
 function relativeLuminance({ r, g, b }) {
   const channel = (c) => {
     const cs = c / 255;
@@ -62,54 +64,77 @@ function relativeLuminance({ r, g, b }) {
   return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
 }
 
-// Fallback neutro (gris azulado, el mismo espíritu que el tema estándar de
-// Smarticket) para semillas inválidas o ausentes — nunca undefined/NaN en
-// los tokens devueltos.
-const FALLBACK_HSL = { h: 258, s: 0.6, l: 0.56 }; // ~violeta actual del tema
+const LIGHT_TEXT = "#F8FAFC";
+const DARK_TEXT = "#0B1120";
 
-// Tokens conceptuales — background/surface mantienen la estética oscura de
-// Smarticket (luminancia baja fija) y sólo adoptan el matiz de la semilla,
-// nunca su luminancia/saturación cruda: así un color muy claro o muy
-// saturado no puede "blanquear" ni saturar en exceso el fondo.
-export function buildOrganizationTheme(brandPrimaryColor) {
-  const rgb = hexToRgb(brandPrimaryColor || "");
-  const seed = rgb ? rgbToHsl(rgb) : FALLBACK_HSL;
+// Función pura exportada — determina automáticamente si un color de fondo
+// necesita texto claro u oscuro encima, por luminancia real (nunca casos
+// hardcodeados). Ejemplos: #BBFF00 → oscuro, #000000 → claro, #0000FF →
+// claro, #FFFFFF → oscuro.
+export function getContrastText(hexColor) {
+  const rgb = hexToRgb(hexColor);
+  if (!rgb) return LIGHT_TEXT;
+  return relativeLuminance(rgb) > 0.5 ? DARK_TEXT : LIGHT_TEXT;
+}
 
-  // Primary/accent: hue de la semilla, saturación acotada, luminancia
-  // clampeada a un rango donde el color sigue siendo legible como fondo de
-  // botón y como acento sobre fondo oscuro (ni casi negro ni casi blanco).
-  const primaryL = clamp(seed.l, 0.4, 0.62);
-  const primaryS = clamp(seed.s, 0.35, 0.85);
+// Semilla de fallback (mismo violeta que ya era el tema estándar) — sólo
+// para cuando no hay NINGÚN color configurado (defensivo; CUSTOM_BRANDING
+// habilitado sin colores no debería ocurrir en la práctica).
+const FALLBACK_PRIMARY = "#7C3AED";
 
-  const primary = hsl(seed.h, primaryS, primaryL);
-  const hover = hsl(seed.h, primaryS, clamp(primaryL - 0.08, 0.28, 0.7));
-  const accent = primary;
+// Fase 2D.1.1: organizaciones que sólo configuraron un color (todas las de
+// 2D.1) no deben romperse. Si sólo hay primary, se deriva un secondary
+// ESTRUCTURAL oscuro mezclando el propio primary hacia negro — conserva la
+// relación de matiz con la marca en vez de un negro genérico, y reproduce
+// la estética oscura que esas organizaciones ya tenían, SIN tocar el
+// primary en sí (que sigue siendo el color real elegido).
+function deriveSecondaryFromPrimary(primaryHex) {
+  return mixHex(primaryHex, "#000000", 0.8);
+}
 
-  const background = hsl(seed.h, clamp(seed.s, 0.25, 0.5), 0.03);
-  const surface = hsl(seed.h, clamp(seed.s, 0.2, 0.45), 0.07);
-  const surfaceAlt = hsl(seed.h, clamp(seed.s, 0.2, 0.45), 0.1);
-  const border = hsla(seed.h, clamp(seed.s, 0.2, 0.5), 0.4, 0.35);
+export function buildOrganizationTheme(primaryColorInput, secondaryColorInput) {
+  const primaryHex = normalizeHex(primaryColorInput) || FALLBACK_PRIMARY;
+  const secondaryHex =
+    normalizeHex(secondaryColorInput) || deriveSecondaryFromPrimary(primaryHex);
 
-  const textPrimary = "hsl(0 0% 98%)";
-  const textMuted = hsl(seed.h, 0.12, 0.68);
+  const onPrimary = getContrastText(primaryHex);
+  const onSecondary = getContrastText(secondaryHex);
 
-  // Contraste: se calcula sobre el RGB real de la semilla (no sobre el HSL
-  // clampeado) — es el color que efectivamente va a estar detrás del texto
-  // en botones/acentos "on-primary".
-  const luminance = rgb ? relativeLuminance(rgb) : relativeLuminance({ r: 124, g: 58, b: 237 });
-  const textOnPrimary = luminance > 0.5 ? "hsl(222 47% 8%)" : "hsl(0 0% 100%)";
+  // Estructura (fondo/superficies) derivada predominantemente de secondary,
+  // con un 15-22% de mezcla hacia primary — así ambos colores quedan
+  // presentes en la composición general sin que ninguno "gane" del todo.
+  const background = mixHex(secondaryHex, primaryHex, 0.15);
+  const surface = mixHex(secondaryHex, primaryHex, 0.08);
+  const surfaceAlt = mixHex(secondaryHex, primaryHex, 0.22);
+
+  // Separadores (borde/muted) derivados del color de CONTRASTE de secondary
+  // (no de primary/secondary directo) — así siguen siendo visibles incluso
+  // en el caso límite primary===secondary o colores casi idénticos (ver
+  // combinaciones difíciles): onSecondary siempre contrasta, por
+  // definición, contra background/surface (que están basados en secondary).
+  const border = rgbaFromHex(onSecondary, 0.18);
+  const text = onSecondary;
+  const muted = mixHex(onSecondary, background, 0.45);
+
+  // Hover: primary desplazado hacia su propio color de contraste — cambia
+  // de forma visible al pasar el mouse incluso en combinaciones extremas
+  // (primary blanco sobre fondo blanco, etc.), sin dejar de ser
+  // reconociblemente "primary".
+  const hover = mixHex(primaryHex, onPrimary, 0.18);
 
   return {
-    primary,
+    primary: primaryHex,
+    secondary: secondaryHex,
+    onPrimary,
+    onSecondary,
     background,
     surface,
     surfaceAlt,
     border,
-    accent,
+    accent: primaryHex,
     hover,
-    textPrimary,
-    textMuted,
-    textOnPrimary,
+    text,
+    muted,
   };
 }
 
@@ -120,19 +145,24 @@ export function buildOrganizationTheme(brandPrimaryColor) {
 export function toOrgThemeStyle(theme) {
   return {
     "--org-primary": theme.primary,
-    "--org-bg": theme.background,
+    "--org-secondary": theme.secondary,
+    "--org-on-primary": theme.onPrimary,
+    "--org-on-secondary": theme.onSecondary,
+    "--org-background": theme.background,
     "--org-surface": theme.surface,
     "--org-surface-alt": theme.surfaceAlt,
     "--org-border": theme.border,
     "--org-accent": theme.accent,
     "--org-hover": theme.hover,
-    "--org-text-primary": theme.textPrimary,
-    "--org-text-muted": theme.textMuted,
-    "--org-text-on-primary": theme.textOnPrimary,
-    // Retro-compatibilidad con el único uso previo (OrganizationProfile,
-    // Fase 2D) — mismo valor que --org-primary, se mantiene para no romper
-    // el arbitrary value hover:border-[var(--brand-color,...)] ya en uso.
+    "--org-text": theme.text,
+    "--org-muted": theme.muted,
+    // Retro-compatibilidad — mismos valores, nombres previos a 2D.1.1,
+    // usados por el único arbitrary-value Tailwind que ya existía
+    // (OrganizationProfile.jsx) y por lecturas externas que puedan quedar.
     "--brand-color": theme.primary,
+    "--org-text-on-primary": theme.onPrimary,
+    "--org-text-primary": theme.text,
+    "--org-text-muted": theme.muted,
   };
 }
 

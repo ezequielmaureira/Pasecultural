@@ -194,6 +194,100 @@ testWithDb("BR-H: el upgrade a PREMIUM vuelve a exponer el branding previo, sin 
     }
 });
 
+testWithDb("COLOR-F: el PATCH acepta primary + secondary válidos en la misma llamada", async () => {
+    const owner = await createUser();
+    let org;
+    try {
+        org = await createOrganization(owner.id, { plan: "PREMIUM" });
+        const result = await updateOrganizationBrandingService(owner.clerkId, org.id, {
+            brandPrimaryColor: "#BBFF00",
+            brandSecondaryColor: "#000000",
+        });
+        assert.equal(result.brandPrimaryColor, "#BBFF00");
+        assert.equal(result.brandSecondaryColor, "#000000");
+
+        const stored = await prisma.organization.findUnique({ where: { id: org.id } });
+        assert.equal(stored.brandPrimaryColor, "#BBFF00");
+        assert.equal(stored.brandSecondaryColor, "#000000");
+    } finally {
+        await cleanup({ organizationIds: [org?.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("COLOR-G: primary inválido es rechazado incluso si secondary es válido", async () => {
+    const owner = await createUser();
+    let org;
+    try {
+        org = await createOrganization(owner.id, { plan: "PREMIUM" });
+        await assert.rejects(
+            () =>
+                updateOrganizationBrandingService(owner.clerkId, org.id, {
+                    brandPrimaryColor: "not-a-color",
+                    brandSecondaryColor: "#000000",
+                }),
+            (err) => err.message === "ORGANIZATION_BRANDING_INVALID_COLOR"
+        );
+    } finally {
+        await cleanup({ organizationIds: [org?.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("COLOR-H: secondary inválido es rechazado incluso si primary es válido", async () => {
+    const owner = await createUser();
+    let org;
+    try {
+        org = await createOrganization(owner.id, { plan: "PREMIUM" });
+        await assert.rejects(
+            () =>
+                updateOrganizationBrandingService(owner.clerkId, org.id, {
+                    brandPrimaryColor: "#BBFF00",
+                    brandSecondaryColor: "rgb(0,0,0)",
+                }),
+            (err) => err.message === "ORGANIZATION_BRANDING_INVALID_COLOR"
+        );
+
+        // El rechazo es atómico — ni siquiera primary quedó guardado.
+        const stored = await prisma.organization.findUnique({ where: { id: org.id } });
+        assert.equal(stored.brandPrimaryColor, null);
+    } finally {
+        await cleanup({ organizationIds: [org?.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("COLOR-I: brandSecondaryColor null se acepta, igual contrato que brandPrimaryColor", async () => {
+    const owner = await createUser();
+    let org;
+    try {
+        org = await createOrganization(owner.id, { plan: "PREMIUM", brandSecondaryColor: "#000000" });
+        const result = await updateOrganizationBrandingService(owner.clerkId, org.id, {
+            brandSecondaryColor: null,
+        });
+        assert.equal(result.brandSecondaryColor, null);
+    } finally {
+        await cleanup({ organizationIds: [org?.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("COLOR-J: downgrade a FREE no borra brandSecondaryColor ya guardado", async () => {
+    const owner = await createUser();
+    let org;
+    try {
+        org = await createOrganization(owner.id, {
+            plan: "PREMIUM",
+            brandPrimaryColor: "#BBFF00",
+            brandSecondaryColor: "#000000",
+        });
+
+        await prisma.organization.update({ where: { id: org.id }, data: { plan: "FREE" } });
+
+        const stored = await prisma.organization.findUnique({ where: { id: org.id } });
+        assert.equal(stored.brandPrimaryColor, "#BBFF00");
+        assert.equal(stored.brandSecondaryColor, "#000000");
+    } finally {
+        await cleanup({ organizationIds: [org?.id], userIds: [owner.id] });
+    }
+});
+
 testWithDb("BR-I: el PATCH ignora en silencio campos fuera de la whitelist (logo/brandPrimaryColor)", async () => {
     const owner = await createUser();
     let org;

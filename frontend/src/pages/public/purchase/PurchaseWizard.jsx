@@ -140,6 +140,7 @@ export default function PurchaseWizard() {
     name: event?.organization?.name,
     logo: event?.organization?.branding?.logo,
     primaryColor: event?.organization?.branding?.primaryColor,
+    secondaryColor: event?.organization?.branding?.secondaryColor,
   });
 
   // Clave de idempotencia de un intento de compra en curso — una por click

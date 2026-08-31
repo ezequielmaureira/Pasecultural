@@ -50,7 +50,7 @@ export default function OrganizerSettings() {
   // UNA vez del mismo GET /me — separado de `org` a propósito, para que
   // OrganizationBrandingCard tenga su propio estado y no dependa del form
   // general de arriba.
-  const [initialBranding, setInitialBranding] = useState({ logo: "", brandPrimaryColor: "" });
+  const [initialBranding, setInitialBranding] = useState({ logo: "", brandPrimaryColor: "", brandSecondaryColor: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -69,6 +69,7 @@ export default function OrganizerSettings() {
           setInitialBranding({
             logo: organization.logo || "",
             brandPrimaryColor: organization.brandPrimaryColor || "",
+            brandSecondaryColor: organization.brandSecondaryColor || "",
           });
           setOrg({
             logo: organization.logo || "",
@@ -237,6 +238,7 @@ export default function OrganizerSettings() {
           plan={plan}
           initialLogo={initialBranding.logo}
           initialColor={initialBranding.brandPrimaryColor}
+          initialSecondaryColor={initialBranding.brandSecondaryColor}
         />
       )}
 

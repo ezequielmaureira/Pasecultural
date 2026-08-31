@@ -81,7 +81,7 @@ export default function OrganizationProfile() {
           slug: data.organization.slug,
           name: data.organization.name,
           logo: data.branding.logo,
-          theme: buildOrganizationTheme(data.branding.primaryColor),
+          theme: buildOrganizationTheme(data.branding.primaryColor, data.branding.secondaryColor),
         }
       : null;
   useRegisterPublicBranding(publicBranding);
@@ -118,7 +118,7 @@ export default function OrganizationProfile() {
   // Organization FREE (o slug sin branding) sigue heredando el fondo
   // estándar de PublicShell (#05070B), sin masa de color agregada.
   const rootStyle = publicBranding
-    ? { ...toOrgThemeStyle(publicBranding.theme), backgroundColor: "var(--org-bg)", borderRadius: "1.5rem" }
+    ? { ...toOrgThemeStyle(publicBranding.theme), backgroundColor: "var(--org-background)", borderRadius: "1.5rem" }
     : undefined;
   const rootClassName = publicBranding ? ORG_THEME_CLASS : "";
 
@@ -135,24 +135,46 @@ export default function OrganizationProfile() {
       className={`${rootClassName} mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10`}
     >
       <div className="flex flex-col items-center gap-4 text-center">
-        {/* Logo SÓLO desde branding.logo, nunca organization.logo — es lo
-            que mantiene CUSTOM_BRANDING realmente independiente de
-            PUBLIC_ORGANIZATION_PAGE. */}
-        {branding.logo && (
-          <img
-            src={branding.logo}
-            alt={organization.name}
-            className="h-20 w-20 rounded-full border border-white/10 object-cover"
-          />
-        )}
-        <div>
-          <h1 className="text-2xl font-bold text-white sm:text-3xl">{organization.name}</h1>
-          {(organization.city || organization.province) && (
-            <p className="mt-1 flex items-center justify-center gap-1.5 text-sm text-slate-400">
-              <MapPin className="h-3.5 w-3.5 shrink-0" />
-              {[organization.city, organization.province].filter(Boolean).join(", ")}
-            </p>
+        {/* Área principal de la Organization — Premium Fase 2D.1.1: cuando
+            hay branding, este bloque usa --org-primary como fondo REAL (no
+            un derivado oscurecido), con --org-on-primary para el texto
+            encima, para que el color elegido tenga presencia visual
+            evidente en vez de sólo teñir un fondo casi negro. Sin branding,
+            es transparente (fondo estándar de PublicShell). */}
+        <div
+          style={
+            publicBranding
+              ? { backgroundColor: "var(--org-primary)", color: "var(--org-on-primary)" }
+              : undefined
+          }
+          className={`flex flex-col items-center gap-4 ${publicBranding ? "w-full rounded-2xl px-6 py-8" : ""}`}
+        >
+          {/* Logo SÓLO desde branding.logo, nunca organization.logo — es lo
+              que mantiene CUSTOM_BRANDING realmente independiente de
+              PUBLIC_ORGANIZATION_PAGE. */}
+          {branding.logo && (
+            <img
+              src={branding.logo}
+              alt={organization.name}
+              className={`h-20 w-20 rounded-full object-cover ${publicBranding ? "" : "border border-white/10"}`}
+              style={publicBranding ? { border: "2px solid var(--org-on-primary)" } : undefined}
+            />
           )}
+          <div>
+            <h1 className={`text-2xl font-bold sm:text-3xl ${publicBranding ? "" : "text-white"}`}>
+              {organization.name}
+            </h1>
+            {(organization.city || organization.province) && (
+              <p
+                className={`mt-1 flex items-center justify-center gap-1.5 text-sm ${
+                  publicBranding ? "opacity-80" : "text-slate-400"
+                }`}
+              >
+                <MapPin className="h-3.5 w-3.5 shrink-0" />
+                {[organization.city, organization.province].filter(Boolean).join(", ")}
+              </p>
+            )}
+          </div>
         </div>
         {organization.description && (
           <p className="max-w-xl whitespace-pre-line text-sm text-slate-300">

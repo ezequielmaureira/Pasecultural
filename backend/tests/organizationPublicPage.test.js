@@ -254,7 +254,7 @@ testWithDb("PUB-J: upgrade FREE->PREMIUM hace que la siguiente request quede dis
     }
 });
 
-testWithDb("PUB-M: con CUSTOM_BRANDING disponible, logo y color de marca aparecen correctamente", async () => {
+testWithDb("PUB-M / COLOR-B: con CUSTOM_BRANDING disponible, logo y ambos colores de marca aparecen correctamente", async () => {
     const owner = await createUser();
     let org;
     try {
@@ -262,10 +262,12 @@ testWithDb("PUB-M: con CUSTOM_BRANDING disponible, logo y color de marca aparece
             plan: "PREMIUM",
             logo: "https://cdn.example.com/logo.png",
             brandPrimaryColor: "#7C3AED",
+            brandSecondaryColor: "#000000",
         });
         const result = await getPublicOrganizationBySlugService(org.slug);
         assert.equal(result.branding.logo, "https://cdn.example.com/logo.png");
         assert.equal(result.branding.primaryColor, "#7C3AED");
+        assert.equal(result.branding.secondaryColor, "#000000");
     } finally {
         await cleanup({ organizationIds: [org?.id], userIds: [owner.id] });
     }
@@ -281,7 +283,7 @@ testWithDb("PUB-M: con CUSTOM_BRANDING disponible, logo y color de marca aparece
 // hoy y se prueba acá: un logo/brandPrimaryColor ya guardado en una
 // Organization FREE nunca puede filtrarse por este endpoint, porque la
 // página entera no está disponible.
-testWithDb("PUB-L/PUB-Q: logo/brandPrimaryColor de una Organization FREE nunca se filtran (la página entera no está disponible)", async () => {
+testWithDb("PUB-L/PUB-Q / COLOR-E: logo/brandPrimaryColor/brandSecondaryColor de una Organization FREE nunca se filtran (la página entera no está disponible)", async () => {
     const owner = await createUser();
     let org;
     try {
@@ -289,6 +291,7 @@ testWithDb("PUB-L/PUB-Q: logo/brandPrimaryColor de una Organization FREE nunca s
             plan: "FREE",
             logo: "https://cdn.example.com/leak.png",
             brandPrimaryColor: "#123456",
+            brandSecondaryColor: "#654321",
         });
         await assert.rejects(
             () => getPublicOrganizationBySlugService(org.slug),

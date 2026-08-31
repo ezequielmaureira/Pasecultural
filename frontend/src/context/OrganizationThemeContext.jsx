@@ -62,8 +62,11 @@ export function OrganizationThemeProvider({ children }) {
   // getMyOrganizationService (backend/src/services/organization.service.js).
   const brandingEnabled = Boolean(organization?.branding?.enabled);
   const theme = useMemo(
-    () => (brandingEnabled ? buildOrganizationTheme(organization?.brandPrimaryColor) : null),
-    [brandingEnabled, organization?.brandPrimaryColor]
+    () =>
+      brandingEnabled
+        ? buildOrganizationTheme(organization?.brandPrimaryColor, organization?.brandSecondaryColor)
+        : null,
+    [brandingEnabled, organization?.brandPrimaryColor, organization?.brandSecondaryColor]
   );
   const themeStyle = theme ? toOrgThemeStyle(theme) : undefined;
 

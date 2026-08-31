@@ -909,7 +909,15 @@ const PUBLIC_ORGANIZATION_SELECT = {
 // sale de este service hacia el controller/frontend (mismo criterio que
 // getPublicOrganizationBySlugService en organization.service.js).
 const PUBLIC_EVENT_ORGANIZATION_SELECT = {
-    select: { id: true, name: true, slug: true, logo: true, brandPrimaryColor: true, plan: true },
+    select: {
+        id: true,
+        name: true,
+        slug: true,
+        logo: true,
+        brandPrimaryColor: true,
+        brandSecondaryColor: true,
+        plan: true,
+    },
 };
 
 const SORTABLE_FIELDS = {
@@ -1043,18 +1051,19 @@ async function attachTicketAvailability(event) {
     };
 }
 
-// Organization Theme — Premium Fase 2D.1. `organization.plan` NUNCA sale de
-// acá: se usa sólo para evaluar isFeatureAvailable y se descarta. `logo`
+// Organization Theme — Premium Fase 2D.1 / 2D.1.1. `organization.plan`
+// NUNCA sale de acá: se usa sólo para evaluar isFeatureAvailable y se
+// descarta, igual que brandPrimaryColor/brandSecondaryColor crudos. `logo`
 // legacy de FREE (comportamiento previo a 2D) tampoco habilita branding por
 // sí solo — sólo isFeatureAvailable(CUSTOM_BRANDING) decide `branding`.
 function serializePublicEventOrganization(organization) {
-    const { plan, brandPrimaryColor, ...safeFields } = organization;
+    const { plan, brandPrimaryColor, brandSecondaryColor, ...safeFields } = organization;
     const brandingAvailable = isFeatureAvailable(organization, PremiumFeature.CUSTOM_BRANDING);
     return {
         ...safeFields,
         branding: brandingAvailable
-            ? { logo: organization.logo, primaryColor: brandPrimaryColor }
-            : { logo: null, primaryColor: null },
+            ? { logo: organization.logo, primaryColor: brandPrimaryColor, secondaryColor: brandSecondaryColor }
+            : { logo: null, primaryColor: null, secondaryColor: null },
     };
 }
 

@@ -188,7 +188,10 @@ export default function Sidebar({ open = false, onClose }) {
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="relative flex h-full flex-col overflow-hidden rounded-[28px] bg-[#0B1120] shadow-xl shadow-black/30">
+        <div
+          style={brandingEnabled ? { backgroundColor: "var(--org-secondary)" } : undefined}
+          className="relative flex h-full flex-col overflow-hidden rounded-[28px] bg-[#0B1120] shadow-xl shadow-black/30"
+        >
           <button
             type="button"
             onClick={onClose}
@@ -212,15 +215,24 @@ export default function Sidebar({ open = false, onClose }) {
                 </div>
               )}
               <div className="min-w-0">
-                <p className="truncate text-base font-bold leading-tight text-white">
+                <p
+                  className="truncate text-base font-bold leading-tight"
+                  style={{ color: "var(--org-on-secondary)" }}
+                >
                   {organization.name}
                 </p>
-                <p className="truncate text-xs text-slate-400">Plataforma de gestión</p>
+                <p className="truncate text-xs opacity-70" style={{ color: "var(--org-on-secondary)" }}>
+                  Plataforma de gestión
+                </p>
               </div>
             </Link>
             {/* Discreto a propósito — PaseCultural queda como plataforma
                 secundaria, nunca oculta del todo. */}
-            <Link to="/" className="pl-[52px] text-[11px] text-slate-500 hover:text-slate-300">
+            <Link
+              to="/"
+              className="pl-[52px] text-[11px] opacity-60 hover:opacity-100"
+              style={{ color: "var(--org-on-secondary)" }}
+            >
               Powered by PaseCultural
             </Link>
           </div>

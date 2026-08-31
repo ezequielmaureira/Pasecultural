@@ -57,6 +57,7 @@ export function useRegisterPublicBranding(brandingOrNull) {
     brandingOrNull?.slug,
     brandingOrNull?.name,
     brandingOrNull?.logo,
-    brandingOrNull?.primaryColor,
+    brandingOrNull?.theme?.primary,
+    brandingOrNull?.theme?.secondary,
   ]);
 }

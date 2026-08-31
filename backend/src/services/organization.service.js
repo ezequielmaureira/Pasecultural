@@ -345,6 +345,7 @@ export const getPublicOrganizationBySlugService = async (slug) => {
             tiktok: true,
             logo: true,
             brandPrimaryColor: true,
+            brandSecondaryColor: true,
             plan: true,
         },
     });
@@ -388,8 +389,12 @@ export const getPublicOrganizationBySlugService = async (slug) => {
             tiktok: organization.tiktok,
         },
         branding: brandingAvailable
-            ? { logo: organization.logo, primaryColor: organization.brandPrimaryColor }
-            : { logo: null, primaryColor: null },
+            ? {
+                  logo: organization.logo,
+                  primaryColor: organization.brandPrimaryColor,
+                  secondaryColor: organization.brandSecondaryColor,
+              }
+            : { logo: null, primaryColor: null, secondaryColor: null },
         events: events.map((event) => ({
             ...event,
             organization: { id: organization.id, name: organization.name },
@@ -397,12 +402,13 @@ export const getPublicOrganizationBySlugService = async (slug) => {
     };
 };
 
-// Premium — Fase 2D. Whitelist EXCLUSIVA: logo y brandPrimaryColor. Nada de
-// website/redes/description/name/slug acá — esos siguen siendo datos
-// generales de Organization (PATCH /me). El downgrade PREMIUM→FREE nunca
-// borra logo/brandPrimaryColor ya guardados: sólo deja de permitir que se
-// sigan editando (y de exponerlos en la página pública) hasta que la
-// Organization vuelva a ser PREMIUM.
+// Premium — Fase 2D / 2D.1.1. Whitelist EXCLUSIVA: logo, brandPrimaryColor
+// y brandSecondaryColor. Nada de website/redes/description/name/slug acá —
+// esos siguen siendo datos generales de Organization (PATCH /me). El
+// downgrade PREMIUM→FREE nunca borra logo/brandPrimaryColor/
+// brandSecondaryColor ya guardados: sólo deja de permitir que se sigan
+// editando (y de exponerlos en la página pública) hasta que la Organization
+// vuelva a ser PREMIUM.
 export const updateOrganizationBrandingService = async (clerkId, organizationId, input) => {
     const user = await getUserByClerkId(clerkId);
 
@@ -440,10 +446,23 @@ export const updateOrganizationBrandingService = async (clerkId, organizationId,
         data.brandPrimaryColor = value;
     }
 
+    if (Object.hasOwn(input, "brandSecondaryColor")) {
+        const value = input.brandSecondaryColor;
+        if (value !== null && !isValidHexColor(value)) {
+            throw new Error("ORGANIZATION_BRANDING_INVALID_COLOR");
+        }
+        data.brandSecondaryColor = value;
+    }
+
     const updated = await prisma.organization.update({
         where: { id: organizationId },
         data,
     });
 
-    return { id: updated.id, logo: updated.logo, brandPrimaryColor: updated.brandPrimaryColor };
+    return {
+        id: updated.id,
+        logo: updated.logo,
+        brandPrimaryColor: updated.brandPrimaryColor,
+        brandSecondaryColor: updated.brandSecondaryColor,
+    };
 };
