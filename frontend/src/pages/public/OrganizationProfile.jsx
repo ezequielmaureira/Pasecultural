@@ -3,6 +3,8 @@ import { useParams } from "react-router-dom";
 import { Camera, ThumbsUp, Clapperboard, Globe, MapPin, Ticket } from "lucide-react";
 import { apiFetch } from "../../lib/api.js";
 import EventCard from "../../components/marketplace/EventCard.jsx";
+import { buildOrganizationTheme, toOrgThemeStyle, ORG_THEME_CLASS } from "../../lib/organizationTheme.js";
+import { useRegisterPublicBranding } from "../../context/PublicBrandingContext.jsx";
 
 // Mismo patrón que PrivacyPolicy.jsx/DataDeletion.jsx: no hay ninguna
 // librería de metadata en el proyecto, así que esto es el único punto que
@@ -69,6 +71,21 @@ export default function OrganizationProfile() {
 
   usePageTitle(data?.organization?.name ? `${data.organization.name} | PaseCultural` : "PaseCultural");
 
+  // branding.primaryColor sólo llega no-nulo cuando el backend ya evaluó
+  // CUSTOM_BRANDING disponible (ver getPublicOrganizationBySlugService) —
+  // acá nunca se vuelve a chequear plan, sólo se reacciona a lo que el
+  // backend ya autorizó.
+  const publicBranding =
+    data?.branding?.primaryColor
+      ? {
+          slug: data.organization.slug,
+          name: data.organization.name,
+          logo: data.branding.logo,
+          theme: buildOrganizationTheme(data.branding.primaryColor),
+        }
+      : null;
+  useRegisterPublicBranding(publicBranding);
+
   if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center text-sm text-slate-400">
@@ -93,10 +110,17 @@ export default function OrganizationProfile() {
 
   const { organization, branding, events } = data;
 
-  // Color scope acotado a este subárbol vía custom property inline — nunca
-  // toca document.documentElement/body/:root ni ningún estado global, y no
-  // deja nada vivo después de desmontar (no es un efecto, es sólo estilo).
-  const rootStyle = branding.primaryColor ? { "--brand-color": branding.primaryColor } : undefined;
+  // Organization Theme scope acotado a este subárbol vía custom properties
+  // inline (ver lib/organizationTheme.js) — nunca toca
+  // document.documentElement/body/:root ni ningún estado global, y no deja
+  // nada vivo después de desmontar (no es un efecto, es sólo estilo).
+  // El fondo/superficie derivados sólo se pintan cuando hay theme —
+  // Organization FREE (o slug sin branding) sigue heredando el fondo
+  // estándar de PublicShell (#05070B), sin masa de color agregada.
+  const rootStyle = publicBranding
+    ? { ...toOrgThemeStyle(publicBranding.theme), backgroundColor: "var(--org-bg)", borderRadius: "1.5rem" }
+    : undefined;
+  const rootClassName = publicBranding ? ORG_THEME_CLASS : "";
 
   const safeSocialLinks = SOCIAL_FIELDS.map(({ key, label, Icon }) => ({
     key,
@@ -106,7 +130,10 @@ export default function OrganizationProfile() {
   })).filter((link) => isSafeExternalUrl(link.url));
 
   return (
-    <div style={rootStyle} className="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10">
+    <div
+      style={rootStyle}
+      className={`${rootClassName} mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10`}
+    >
       <div className="flex flex-col items-center gap-4 text-center">
         {/* Logo SÓLO desde branding.logo, nunca organization.logo — es lo
             que mantiene CUSTOM_BRANDING realmente independiente de

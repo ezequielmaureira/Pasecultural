@@ -108,3 +108,37 @@ select option {
 .code-outline-highlight {
   stroke: #8b5cf6 !important;
 }
+
+/* Organization Theme — Premium Fase 2D.1. Los tokens (--org-*) llegan como
+   inline style de un wrapper puntual (ver lib/organizationTheme.js) —
+   NUNCA se define ningún --org-* acá ni en :root/body. Este bloque sólo
+   remapea, vía cascada descendente, las clases utilitarias violeta que ya
+   usan Button/Sidebar/Navbar para que consuman esos tokens cuando están
+   dentro de un contenedor .org-theme. Fuera de ese contenedor (Developer,
+   Scanner, Customer, cualquier Organization FREE) estas reglas nunca
+   matchean nada y el tema estándar sigue intacto. */
+.org-theme .bg-violet-600 {
+  background-color: var(--org-primary);
+  color: var(--org-text-on-primary);
+}
+.org-theme .bg-violet-600:hover,
+.org-theme .hover\:bg-violet-500:hover {
+  background-color: var(--org-hover);
+}
+.org-theme .text-violet-400,
+.org-theme .text-violet-300 {
+  color: var(--org-primary);
+}
+.org-theme .bg-violet-500\/10 {
+  background-color: color-mix(in srgb, var(--org-primary) 15%, transparent);
+}
+.org-theme .bg-violet-500 {
+  background-color: var(--org-primary);
+}
+.org-theme .border-violet-500,
+.org-theme .hover\:border-violet-500:hover {
+  border-color: var(--org-primary);
+}
+.org-theme .focus-visible\:ring-violet-400:focus-visible {
+  --tw-ring-color: var(--org-primary);
+}

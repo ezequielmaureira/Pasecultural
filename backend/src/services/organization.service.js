@@ -20,16 +20,33 @@ async function getUserByClerkId(clerkId) {
     });
 }
 
+// Organization Theme (dashboard) — Premium Fase 2D.1. Cambio ADITIVO: se
+// mantiene devolviendo el registro completo (plan, logo, brandPrimaryColor,
+// etc. — consumido tal cual por OrganizerSettings/OrganizationBrandingCard/
+// functionCapacity.service/organizerNotificationSettings.service, que sólo
+// leen campos puntuales o `.id`). Se agrega `branding.enabled`, la ÚNICA
+// autoridad server-side de CUSTOM_BRANDING para el panel privado del propio
+// dueño — resuelta con la misma policy que ya usa el path público
+// (getPublicOrganizationBySlugService), nunca con `plan === "PREMIUM"`
+// hardcodeado en otro lado. El frontend (OrganizationThemeContext) consume
+// `organization.branding.enabled`, nunca `organization.plan`, para decidir
+// si el Organization Theme se activa.
 export const getMyOrganizationService = async (clerkId) => {
     const user = await getUserByClerkId(clerkId);
 
     if (!user) return null;
 
-    return prisma.organization.findFirst({
+    const organization = await prisma.organization.findFirst({
         where: {
             ownerId: user.id,
         },
     });
+    if (!organization) return null;
+
+    return {
+        ...organization,
+        branding: { enabled: isFeatureAvailable(organization, PremiumFeature.CUSTOM_BRANDING) },
+    };
 };
 
 export const createOrganizationService = async (

@@ -8,6 +8,8 @@ import UserMenu from "./UserMenu.jsx";
 import { NAVBAR_CATEGORIES } from "../../lib/eventCategories.js";
 import { EXPLORE_EVENTS_OPTIONS } from "../../lib/navbarData.js";
 import { useBackendUser } from "../../context/AuthContext.jsx";
+import { usePublicBranding } from "../../context/PublicBrandingContext.jsx";
+import { toOrgThemeStyle, ORG_THEME_CLASS } from "../../lib/organizationTheme.js";
 
 const CATEGORY_ITEMS = NAVBAR_CATEGORIES.map((c) => ({
   label: c.label,
@@ -24,6 +26,7 @@ const navLinkClassName = ({ isActive }) =>
 
 export default function Navbar() {
   const { backendUser } = useBackendUser();
+  const branding = usePublicBranding();
   const isOrganizer = backendUser?.role?.toLowerCase() === "organizer";
   const isDeveloper = backendUser?.role?.toLowerCase() === "developer";
   const [scrolled, setScrolled] = useState(false);
@@ -54,28 +57,58 @@ export default function Navbar() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [mobileOpen]);
 
+  const themeStyle = branding?.theme ? toOrgThemeStyle(branding.theme) : undefined;
+
   return (
     <header
-      className={`sticky top-0 z-20 border-b transition-all duration-300 ${
+      style={themeStyle}
+      className={`sticky top-0 z-20 border-b transition-all duration-300 ${branding?.theme ? ORG_THEME_CLASS : ""} ${
         scrolled
           ? "border-white/10 bg-[#05070B]/90 shadow-lg shadow-black/40 backdrop-blur-xl"
           : "border-white/5 bg-[#05070B]/95 backdrop-blur"
       }`}
     >
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-6 px-3 sm:px-6 lg:px-8">
-        <Link to="/" className="flex shrink-0 items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 text-white">
-            <Ticket className="h-5 w-5" />
+        {branding ? (
+          <div className="flex min-w-0 shrink-0 items-center gap-3">
+            <Link to={`/organizacion/${branding.slug}`} className="flex min-w-0 items-center gap-2">
+              {branding.logo ? (
+                <img
+                  src={branding.logo}
+                  alt={branding.name}
+                  className="h-9 w-9 shrink-0 rounded-xl object-cover"
+                />
+              ) : (
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 text-white">
+                  <Ticket className="h-5 w-5" />
+                </div>
+              )}
+              <span className="block truncate text-lg font-bold text-white">{branding.name}</span>
+            </Link>
+            {/* Salida explícita del espacio de la Organization — nunca se
+                oculta ni se reemplaza, sólo pasa a discreta. */}
+            <Link
+              to="/"
+              className="hidden shrink-0 whitespace-nowrap text-[11px] text-slate-500 hover:text-slate-300 sm:block"
+            >
+              Ir a PaseCultural
+            </Link>
           </div>
-          <div className="leading-tight">
-            <span className="block text-lg font-bold text-white">
-              Pase<span className="text-violet-400">Cultural</span>
-            </span>
-            <span className="hidden text-[11px] italic text-slate-500 sm:block">
-              Descubrí, organizá y viví eventos.
-            </span>
-          </div>
-        </Link>
+        ) : (
+          <Link to="/" className="flex shrink-0 items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 text-white">
+              <Ticket className="h-5 w-5" />
+            </div>
+            <div className="leading-tight">
+              <span className="block text-lg font-bold text-white">
+                Pase<span className="text-violet-400">Cultural</span>
+              </span>
+              <span className="hidden text-[11px] italic text-slate-500 sm:block">
+                Descubrí, organizá y viví eventos.
+              </span>
+            </div>
+          </Link>
+        )}
 
         <nav aria-label="Navegación principal" className="hidden items-center gap-6 lg:flex">
           <NavbarDropdown label="Explorar eventos" items={EXPLORE_EVENTS_OPTIONS} />

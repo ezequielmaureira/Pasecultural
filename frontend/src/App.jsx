@@ -16,6 +16,7 @@ import DataDeletion from "./pages/DataDeletion.jsx";
 import Profile from "./pages/Profile.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
 import { ToastProvider } from "./context/ToastContext.jsx";
+import { PublicBrandingProvider } from "./context/PublicBrandingContext.jsx";
 import { OrganizerDataProvider } from "./context/OrganizerDataContext.jsx";
 import { ActiveEventProvider } from "./context/ActiveEventContext.jsx";
 import DashboardDeveloper from "./pages/DashboardDeveloper.jsx";
@@ -71,6 +72,12 @@ export default function App() {
     <BrowserRouter>
       <ToastProvider>
       <AuthProvider>
+      {/* Organization Theme (público) — Premium Fase 2D.1. Montado una sola
+          vez acá (no en PublicShell.jsx, sin tocarlo) porque Navbar y las
+          páginas que anuncian branding (OrganizationProfile/EventDetail/
+          PurchaseWizard) sólo se renderizan bajo rutas públicas de todos
+          modos — mismo alcance efectivo, un archivo menos que tocar. */}
+      <PublicBrandingProvider>
         <Routes>
           {/* Modo Prelanzamiento — SOLO las rutas comerciales/de descubrimiento
               quedan detrás de PreLaunchGate (ver ese componente). El resto de
@@ -188,6 +195,7 @@ export default function App() {
             </Route>
           </Route>
         </Routes>
+      </PublicBrandingProvider>
       </AuthProvider>
       </ToastProvider>
     </BrowserRouter>

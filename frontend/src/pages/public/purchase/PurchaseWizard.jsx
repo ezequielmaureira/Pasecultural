@@ -9,6 +9,7 @@ import { getSaleStatus } from "../../../lib/saleApi.js";
 import { getPublicServiceFeeTiers } from "../../../lib/serviceFeeApi.js";
 import { estimateServiceFeeForUnitPrice } from "../../../lib/serviceFee.js";
 import { processPayment } from "../../../lib/payment/paymentGateway.js";
+import { useOrganizationThemeProps } from "../../../hooks/useOrganizationThemeProps.js";
 import PurchaseOverlay from "./PurchaseOverlay.jsx";
 import SelectFunctionStep from "./steps/SelectFunctionStep.jsx";
 import SelectTicketsStep from "./steps/SelectTicketsStep.jsx";
@@ -130,6 +131,16 @@ export default function PurchaseWizard() {
   const [recoveryAttempt, setRecoveryAttempt] = useState(0);
 
   const publishFlow = usePublishFlow();
+
+  // Continuidad visual del Organization Theme desde EventDetail — mismo
+  // criterio: siempre según la Organization dueña del evento. Sólo
+  // continuidad visual, no toca lógica de compra/precio/stock/pago.
+  const { className: themeClassName, style: themeStyle } = useOrganizationThemeProps({
+    slug: event?.organization?.slug,
+    name: event?.organization?.name,
+    logo: event?.organization?.branding?.logo,
+    primaryColor: event?.organization?.branding?.primaryColor,
+  });
 
   // Clave de idempotencia de un intento de compra en curso — una por click
   // en "Confirmar compra" (no una por request): se genera lazy la primera
@@ -515,7 +526,7 @@ export default function PurchaseWizard() {
   }
 
   return (
-    <div className="mx-auto max-w-lg px-3 py-6 sm:px-4 sm:py-10">
+    <div style={themeStyle} className={`${themeClassName} mx-auto max-w-lg px-3 py-6 sm:px-4 sm:py-10`}>
       {phase !== "success" && phase !== "purchase-error" && (
         <Link
           to={`/evento/${event.slug}`}

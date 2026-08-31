@@ -10,7 +10,7 @@ import { timeExternalCall } from "../utils/whatsappPerf.js";
 import { logger } from "../logging/logger.js";
 import { sendDeveloperAlert, DeveloperAlertType, tryClaimDeveloperAlertCooldown } from "./email/sendDeveloperAlert.service.js";
 import { getDeveloperAlertConfigOrDefaults } from "./developerAlertConfig.service.js";
-import { getLimitForOrganization, PlanLimitKey } from "./organizationPlanPolicy.js";
+import { getLimitForOrganization, PlanLimitKey, isFeatureAvailable, PremiumFeature } from "./organizationPlanPolicy.js";
 
 // Premium — Fase 2B. "Evento activo" (lo único que consume cupo de
 // maxActiveEvents) = status PUBLISHED && archivedAt IS NULL. Advisory lock
@@ -902,6 +902,16 @@ const PUBLIC_ORGANIZATION_SELECT = {
     select: { id: true, name: true, logo: true },
 };
 
+// Organization Theme — Premium Fase 2D.1. Sólo para el DETALLE de un
+// evento (getPublicEventBySlugService) — el listado (getPublicEventsService)
+// sigue usando PUBLIC_ORGANIZATION_SELECT tal cual, sin tocarlo. `plan` se
+// selecciona acá SOLO para evaluar isFeatureAvailable más abajo — nunca
+// sale de este service hacia el controller/frontend (mismo criterio que
+// getPublicOrganizationBySlugService en organization.service.js).
+const PUBLIC_EVENT_ORGANIZATION_SELECT = {
+    select: { id: true, name: true, slug: true, logo: true, brandPrimaryColor: true, plan: true },
+};
+
 const SORTABLE_FIELDS = {
     recientes: { createdAt: "desc" },
     fecha: { startDate: "asc" },
@@ -986,7 +996,7 @@ export const getPublicEventsService = async ({ category, search, sort, when, pri
 // antes este endpoint no traía nada de esto y el botón "Comprar entradas"
 // de EventDetail.jsx quedaba armado con datos inexistentes.
 const PUBLIC_EVENT_DETAIL_INCLUDE = {
-    organization: PUBLIC_ORGANIZATION_SELECT,
+    organization: PUBLIC_EVENT_ORGANIZATION_SELECT,
     links: { orderBy: { order: "asc" } },
     ticketTypes: { orderBy: { createdAt: "asc" } },
     functions: {
@@ -1033,6 +1043,21 @@ async function attachTicketAvailability(event) {
     };
 }
 
+// Organization Theme — Premium Fase 2D.1. `organization.plan` NUNCA sale de
+// acá: se usa sólo para evaluar isFeatureAvailable y se descarta. `logo`
+// legacy de FREE (comportamiento previo a 2D) tampoco habilita branding por
+// sí solo — sólo isFeatureAvailable(CUSTOM_BRANDING) decide `branding`.
+function serializePublicEventOrganization(organization) {
+    const { plan, brandPrimaryColor, ...safeFields } = organization;
+    const brandingAvailable = isFeatureAvailable(organization, PremiumFeature.CUSTOM_BRANDING);
+    return {
+        ...safeFields,
+        branding: brandingAvailable
+            ? { logo: organization.logo, primaryColor: brandPrimaryColor }
+            : { logo: null, primaryColor: null },
+    };
+}
+
 export const getPublicEventBySlugService = async (slug) => {
     const event = await prisma.event.findUnique({
         where: { slug },
@@ -1043,7 +1068,8 @@ export const getPublicEventBySlugService = async (slug) => {
         return null;
     }
 
-    return attachTicketAvailability(event);
+    const withAvailability = await attachTicketAvailability(event);
+    return { ...withAvailability, organization: serializePublicEventOrganization(event.organization) };
 };
 
 // Sale.eventId y Ticket.eventId son ON DELETE RESTRICT a propósito (nunca

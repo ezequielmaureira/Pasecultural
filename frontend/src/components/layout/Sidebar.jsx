@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useBackendUser } from "../../context/AuthContext.jsx";
 import { NEW_EVENT_REQUEST_EVENT } from "../../lib/eventChatEvents.js";
+import { useOrganizationTheme } from "../../context/OrganizationThemeContext.jsx";
 
 const NAV_BY_ROLE = {
   developer: [
@@ -154,6 +155,7 @@ export default function Sidebar({ open = false, onClose }) {
   const location = useLocation();
   const role = backendUser?.role?.toLowerCase();
   const navItems = NAV_BY_ROLE[role] ?? [];
+  const { organization, brandingEnabled } = useOrganizationTheme();
 
   // "Crear evento" ya está resuelto por react-router cuando cambia de
   // pantalla (ver el efecto `startFresh` en ConversationView.jsx). Pero si
@@ -195,19 +197,48 @@ export default function Sidebar({ open = false, onClose }) {
             <ChevronsLeft className="h-4 w-4" />
           </button>
 
-        <Link to="/" className="flex items-center gap-3 px-5 pb-6 pt-6">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 text-lg font-extrabold text-white">
-            P
+        {brandingEnabled && organization ? (
+          <div className="flex flex-col gap-1 px-5 pb-6 pt-6">
+            <Link to={`/organizacion/${organization.slug}`} className="flex items-center gap-3">
+              {organization.logo ? (
+                <img
+                  src={organization.logo}
+                  alt={organization.name}
+                  className="h-10 w-10 shrink-0 rounded-xl object-cover"
+                />
+              ) : (
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 text-lg font-extrabold text-white">
+                  {organization.name?.[0] ?? "O"}
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="truncate text-base font-bold leading-tight text-white">
+                  {organization.name}
+                </p>
+                <p className="truncate text-xs text-slate-400">Plataforma de gestión</p>
+              </div>
+            </Link>
+            {/* Discreto a propósito — PaseCultural queda como plataforma
+                secundaria, nunca oculta del todo. */}
+            <Link to="/" className="pl-[52px] text-[11px] text-slate-500 hover:text-slate-300">
+              Powered by PaseCultural
+            </Link>
           </div>
-          <div className="min-w-0">
-            <p className="truncate text-base font-bold leading-tight text-white">
-              PaseCultural
-            </p>
-            <p className="truncate text-xs text-slate-400">
-              Plataforma de gestión
-            </p>
-          </div>
-        </Link>
+        ) : (
+          <Link to="/" className="flex items-center gap-3 px-5 pb-6 pt-6">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 text-lg font-extrabold text-white">
+              P
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-base font-bold leading-tight text-white">
+                PaseCultural
+              </p>
+              <p className="truncate text-xs text-slate-400">
+                Plataforma de gestión
+              </p>
+            </div>
+          </Link>
+        )}
 
         <nav className="flex-1 space-y-2 overflow-y-auto px-4">
           {/* onClick acá, no en cada link: cualquier navegación cierra el

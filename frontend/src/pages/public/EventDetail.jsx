@@ -13,6 +13,7 @@ import {
   formatEventLocation,
   formatEventPrice,
 } from "../../lib/eventFormat.js";
+import { useOrganizationThemeProps } from "../../hooks/useOrganizationThemeProps.js";
 
 export default function EventDetail() {
   const { slug } = useParams();
@@ -43,6 +44,16 @@ export default function EventDetail() {
     };
   }, [slug]);
 
+  // Theme SIEMPRE según la Organization dueña del evento, nunca según el
+  // origen de navegación (Home, /eventos, link directo o compartido) — el
+  // evento pertenece a esa Organization y esa es su identidad.
+  const { className: themeClassName, style: themeStyle } = useOrganizationThemeProps({
+    slug: event?.organization?.slug,
+    name: event?.organization?.name,
+    logo: event?.organization?.branding?.logo,
+    primaryColor: event?.organization?.branding?.primaryColor,
+  });
+
   if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center text-sm text-slate-400">
@@ -69,7 +80,7 @@ export default function EventDetail() {
   }
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-10">
+    <div style={themeStyle} className={`${themeClassName} mx-auto flex max-w-5xl flex-col gap-6 px-6 py-10`}>
       <Link
         to="/eventos"
         className="flex w-fit items-center gap-1.5 text-sm text-slate-400 hover:text-white"

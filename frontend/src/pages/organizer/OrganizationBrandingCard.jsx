@@ -7,6 +7,7 @@ import ImageUploader from "../../components/ui/ImageUploader.jsx";
 import { Field, inputClass } from "../../components/ui/FormField.jsx";
 import { apiFetch } from "../../lib/api.js";
 import { useToast } from "../../context/ToastContext.jsx";
+import { useOrganizationTheme } from "../../context/OrganizationThemeContext.jsx";
 
 const HEX_COLOR_REGEX = /^#[0-9A-Fa-f]{6}$/;
 
@@ -19,6 +20,7 @@ const HEX_COLOR_REGEX = /^#[0-9A-Fa-f]{6}$/;
 export default function OrganizationBrandingCard({ organizationId, plan, initialLogo, initialColor }) {
   const { getToken } = useAuth();
   const toast = useToast();
+  const { applyBrandingUpdate } = useOrganizationTheme();
   const isPremium = plan === "PREMIUM";
 
   const [logo, setLogo] = useState(initialLogo || "");
@@ -45,6 +47,9 @@ export default function OrganizationBrandingCard({ organizationId, plan, initial
       });
       setLogo(organization.logo || "");
       setColor(organization.brandPrimaryColor || "");
+      // Organization Theme (dashboard) — Premium Fase 2D.1: propaga al
+      // Context compartido (Sidebar/AppShell) sin logout/login/refresh.
+      applyBrandingUpdate({ logo: organization.logo, brandPrimaryColor: organization.brandPrimaryColor });
       toast.success("Branding actualizado.");
     } catch (err) {
       setError(err.message || "No pudimos guardar el branding. Probá de nuevo.");
