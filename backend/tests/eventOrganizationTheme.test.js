@@ -76,6 +76,7 @@ testWithDb("THEME-A: evento de Organization PREMIUM con CUSTOM_BRANDING expone b
 
         const result = await getPublicEventBySlugService(event.slug);
         assert.equal(result.organization.slug, org.slug);
+        assert.equal(result.organization.branding.enabled, true);
         assert.equal(result.organization.branding.logo, "https://cdn.example.com/logo.png");
         assert.equal(result.organization.branding.primaryColor, "#0000FF");
         assert.equal(result.organization.branding.secondaryColor, "#000000");
@@ -97,7 +98,30 @@ testWithDb("THEME-B: evento de Organization FREE no expone/aplica branding Premi
         event = await createEvent(org, owner);
 
         const result = await getPublicEventBySlugService(event.slug);
+        assert.equal(result.organization.branding.enabled, false);
         assert.equal(result.organization.branding.logo, null);
+        assert.equal(result.organization.branding.primaryColor, null);
+        assert.equal(result.organization.branding.secondaryColor, null);
+    } finally {
+        await cleanup({ eventIds: [event?.id], organizationIds: [org?.id], userIds: [owner.id] });
+    }
+});
+
+// Premium Light Theme fijo — corrección del bug de activación: una
+// Organization PREMIUM que nunca configuró brandPrimaryColor/
+// brandSecondaryColor (Caso A del informe) debe seguir exponiendo
+// branding.enabled === true. El frontend usa EXCLUSIVAMENTE ese booleano
+// para activar el theme — nunca Boolean(primaryColor) — así que este caso
+// es el que efectivamente arregla esta ronda.
+testWithDb("THEME-G: PREMIUM sin colores configurados igual expone branding.enabled === true", async () => {
+    const owner = await createUser();
+    let org, event;
+    try {
+        org = await createOrganization(owner.id, { plan: "PREMIUM" });
+        event = await createEvent(org, owner);
+
+        const result = await getPublicEventBySlugService(event.slug);
+        assert.equal(result.organization.branding.enabled, true);
         assert.equal(result.organization.branding.primaryColor, null);
         assert.equal(result.organization.branding.secondaryColor, null);
     } finally {

@@ -9,7 +9,7 @@ import { NAVBAR_CATEGORIES } from "../../lib/eventCategories.js";
 import { EXPLORE_EVENTS_OPTIONS } from "../../lib/navbarData.js";
 import { useBackendUser } from "../../context/AuthContext.jsx";
 import { usePublicBranding } from "../../context/PublicBrandingContext.jsx";
-import { toOrgThemeStyle, ORG_THEME_CLASS } from "../../lib/organizationTheme.js";
+import { ORG_THEME_CLASS } from "../../lib/organizationTheme.js";
 
 const CATEGORY_ITEMS = NAVBAR_CATEGORIES.map((c) => ({
   label: c.label,
@@ -57,17 +57,9 @@ export default function Navbar() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [mobileOpen]);
 
-  // secondary = estructura (header branded) — background-color real, no un
-  // derivado oscurecido, para que el segundo color también tenga presencia
-  // evidente (ver lib/organizationTheme.js).
-  const themeStyle = branding?.theme
-    ? { ...toOrgThemeStyle(branding.theme), backgroundColor: "var(--org-secondary)" }
-    : undefined;
-
   return (
     <header
-      style={themeStyle}
-      className={`sticky top-0 z-20 border-b transition-all duration-300 ${branding?.theme ? ORG_THEME_CLASS : ""} ${
+      className={`sticky top-0 z-20 border-b transition-all duration-300 ${branding ? ORG_THEME_CLASS : ""} ${
         scrolled
           ? "border-white/10 bg-[#05070B]/90 shadow-lg shadow-black/40 backdrop-blur-xl"
           : "border-white/5 bg-[#05070B]/95 backdrop-blur"
@@ -88,19 +80,13 @@ export default function Navbar() {
                   <Ticket className="h-5 w-5" />
                 </div>
               )}
-              <span
-                className="block truncate text-lg font-bold"
-                style={{ color: "var(--org-on-secondary)" }}
-              >
-                {branding.name}
-              </span>
+              <span className="block truncate text-lg font-bold text-white">{branding.name}</span>
             </Link>
             {/* Salida explícita del espacio de la Organization — nunca se
                 oculta ni se reemplaza, sólo pasa a discreta. */}
             <Link
               to="/"
-              className="hidden shrink-0 whitespace-nowrap text-[11px] opacity-70 hover:opacity-100 sm:block"
-              style={{ color: "var(--org-on-secondary)" }}
+              className="hidden shrink-0 whitespace-nowrap text-[11px] text-slate-400 opacity-80 hover:opacity-100 sm:block"
             >
               Ir a PaseCultural
             </Link>

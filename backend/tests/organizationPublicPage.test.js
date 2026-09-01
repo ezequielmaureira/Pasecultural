@@ -265,9 +265,30 @@ testWithDb("PUB-M / COLOR-B: con CUSTOM_BRANDING disponible, logo y ambos colore
             brandSecondaryColor: "#000000",
         });
         const result = await getPublicOrganizationBySlugService(org.slug);
+        assert.equal(result.branding.enabled, true);
         assert.equal(result.branding.logo, "https://cdn.example.com/logo.png");
         assert.equal(result.branding.primaryColor, "#7C3AED");
         assert.equal(result.branding.secondaryColor, "#000000");
+    } finally {
+        await cleanup({ organizationIds: [org?.id], userIds: [owner.id] });
+    }
+});
+
+// Premium Light Theme fijo — corrección del bug de activación: una
+// Organization PREMIUM que nunca configuró brandPrimaryColor/
+// brandSecondaryColor (Caso A del informe) debe seguir exponiendo
+// branding.enabled === true. El frontend usa EXCLUSIVAMENTE ese booleano
+// para activar el theme — nunca Boolean(primaryColor) — así que este caso
+// es el que efectivamente arregla esta ronda.
+testWithDb("PUB-N: PREMIUM sin colores configurados igual expone branding.enabled === true", async () => {
+    const owner = await createUser();
+    let org;
+    try {
+        org = await createOrganization(owner.id, { plan: "PREMIUM" });
+        const result = await getPublicOrganizationBySlugService(org.slug);
+        assert.equal(result.branding.enabled, true);
+        assert.equal(result.branding.primaryColor, null);
+        assert.equal(result.branding.secondaryColor, null);
     } finally {
         await cleanup({ organizationIds: [org?.id], userIds: [owner.id] });
     }

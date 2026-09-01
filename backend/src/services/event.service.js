@@ -1062,8 +1062,8 @@ function serializePublicEventOrganization(organization) {
     return {
         ...safeFields,
         branding: brandingAvailable
-            ? { logo: organization.logo, primaryColor: brandPrimaryColor, secondaryColor: brandSecondaryColor }
-            : { logo: null, primaryColor: null, secondaryColor: null },
+            ? { enabled: true, logo: organization.logo, primaryColor: brandPrimaryColor, secondaryColor: brandSecondaryColor }
+            : { enabled: false, logo: null, primaryColor: null, secondaryColor: null },
     };
 }
 

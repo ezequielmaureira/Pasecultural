@@ -46,11 +46,12 @@ export default function OrganizerSettings() {
   // (el form editable de arriba) para que nunca viaje en el PATCH /me de
   // handleSave — el Organizer no tiene ningún camino para modificar esto.
   const [plan, setPlan] = useState(null);
-  // Premium — Fase 2D: valores iniciales de branding (logo/color), leídos
-  // UNA vez del mismo GET /me — separado de `org` a propósito, para que
-  // OrganizationBrandingCard tenga su propio estado y no dependa del form
-  // general de arriba.
-  const [initialBranding, setInitialBranding] = useState({ logo: "", brandPrimaryColor: "", brandSecondaryColor: "" });
+  // Premium: valor inicial de identidad (logo), leído UNA vez del mismo
+  // GET /me — separado de `org` a propósito, para que OrganizationBrandingCard
+  // tenga su propio estado y no dependa del form general de arriba. Los
+  // colores de marca quedaron cancelados como dirección de producto (ver
+  // OrganizationBrandingCard.jsx).
+  const [initialBranding, setInitialBranding] = useState({ logo: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -66,11 +67,7 @@ export default function OrganizerSettings() {
         if (!cancelled && organization) {
           setOrgId(organization.id);
           setPlan(organization.plan || "FREE");
-          setInitialBranding({
-            logo: organization.logo || "",
-            brandPrimaryColor: organization.brandPrimaryColor || "",
-            brandSecondaryColor: organization.brandSecondaryColor || "",
-          });
+          setInitialBranding({ logo: organization.logo || "" });
           setOrg({
             logo: organization.logo || "",
             name: organization.name || "",
@@ -233,13 +230,7 @@ export default function OrganizerSettings() {
       {!loading && orgId && <OrganizationPhoneVerificationCard organizationId={orgId} />}
 
       {!loading && orgId && (
-        <OrganizationBrandingCard
-          organizationId={orgId}
-          plan={plan}
-          initialLogo={initialBranding.logo}
-          initialColor={initialBranding.brandPrimaryColor}
-          initialSecondaryColor={initialBranding.brandSecondaryColor}
-        />
+        <OrganizationBrandingCard organizationId={orgId} plan={plan} initialLogo={initialBranding.logo} />
       )}
 
       {/* MP-1 — onboarding OAuth de Mercado Pago (reemplaza el placeholder

@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { Camera, ThumbsUp, Clapperboard, Globe, MapPin, Ticket } from "lucide-react";
 import { apiFetch } from "../../lib/api.js";
 import EventCard from "../../components/marketplace/EventCard.jsx";
-import { buildOrganizationTheme, toOrgThemeStyle, ORG_THEME_CLASS } from "../../lib/organizationTheme.js";
+import { ORG_THEME_CLASS } from "../../lib/organizationTheme.js";
 import { useRegisterPublicBranding } from "../../context/PublicBrandingContext.jsx";
 
 // Mismo patrón que PrivacyPolicy.jsx/DataDeletion.jsx: no hay ninguna
@@ -71,18 +71,15 @@ export default function OrganizationProfile() {
 
   usePageTitle(data?.organization?.name ? `${data.organization.name} | PaseCultural` : "PaseCultural");
 
-  // branding.primaryColor sólo llega no-nulo cuando el backend ya evaluó
-  // CUSTOM_BRANDING disponible (ver getPublicOrganizationBySlugService) —
-  // acá nunca se vuelve a chequear plan, sólo se reacciona a lo que el
-  // backend ya autorizó.
+  // branding.enabled es la ÚNICA señal de activación — llega directo del
+  // backend (isFeatureAvailable(CUSTOM_BRANDING), ver
+  // getPublicOrganizationBySlugService). Nunca se deriva de primaryColor/
+  // secondaryColor/logo: una Organization Premium sin colores configurados
+  // debe activar el mismo Light Theme fijo (ORG_THEME_CLASS) que una con
+  // colores legacy guardados.
   const publicBranding =
-    data?.branding?.primaryColor
-      ? {
-          slug: data.organization.slug,
-          name: data.organization.name,
-          logo: data.branding.logo,
-          theme: buildOrganizationTheme(data.branding.primaryColor, data.branding.secondaryColor),
-        }
+    data?.branding?.enabled === true
+      ? { slug: data.organization.slug, name: data.organization.name, logo: data.branding.logo }
       : null;
   useRegisterPublicBranding(publicBranding);
 
@@ -110,17 +107,12 @@ export default function OrganizationProfile() {
 
   const { organization, branding, events } = data;
 
-  // Organization Theme scope acotado a este subárbol vía custom properties
-  // inline (ver lib/organizationTheme.js) — nunca toca
-  // document.documentElement/body/:root ni ningún estado global, y no deja
-  // nada vivo después de desmontar (no es un efecto, es sólo estilo).
-  // El fondo/superficie derivados sólo se pintan cuando hay theme —
-  // Organization FREE (o slug sin branding) sigue heredando el fondo
-  // estándar de PublicShell (#05070B), sin masa de color agregada.
-  const rootStyle = publicBranding
-    ? { ...toOrgThemeStyle(publicBranding.theme), backgroundColor: "var(--org-background)", borderRadius: "1.5rem" }
-    : undefined;
-  const rootClassName = publicBranding ? ORG_THEME_CLASS : "";
+  // Organization Theme scope acotado a este subárbol vía la clase
+  // ORG_THEME_CLASS (ver lib/organizationTheme.js y styles/index.css) —
+  // nunca toca document.documentElement/body/:root ni ningún estado
+  // global. Premium usa siempre el Light Theme FIJO; FREE (o slug sin
+  // branding) sigue heredando el fondo estándar de PublicShell (#05070B).
+  const rootClassName = publicBranding ? `${ORG_THEME_CLASS} rounded-2xl bg-[#0B1120]` : "";
 
   const safeSocialLinks = SOCIAL_FIELDS.map(({ key, label, Icon }) => ({
     key,
@@ -130,24 +122,17 @@ export default function OrganizationProfile() {
   })).filter((link) => isSafeExternalUrl(link.url));
 
   return (
-    <div
-      style={rootStyle}
-      className={`${rootClassName} mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10`}
-    >
+    <div className={`${rootClassName} mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10`}>
       <div className="flex flex-col items-center gap-4 text-center">
-        {/* Área principal de la Organization — Premium Fase 2D.1.1: cuando
-            hay branding, este bloque usa --org-primary como fondo REAL (no
-            un derivado oscurecido), con --org-on-primary para el texto
-            encima, para que el color elegido tenga presencia visual
-            evidente en vez de sólo teñir un fondo casi negro. Sin branding,
-            es transparente (fondo estándar de PublicShell). */}
+        {/* Área principal de la Organization — Premium Light Theme fijo:
+            cuando hay branding, este bloque es una superficie clara con
+            texto oscuro (ver .org-theme en styles/index.css), nunca un
+            color elegido por la organización. Sin branding, es transparente
+            (fondo estándar de PublicShell). */}
         <div
-          style={
-            publicBranding
-              ? { backgroundColor: "var(--org-primary)", color: "var(--org-on-primary)" }
-              : undefined
-          }
-          className={`flex flex-col items-center gap-4 ${publicBranding ? "w-full rounded-2xl px-6 py-8" : ""}`}
+          className={`flex flex-col items-center gap-4 ${
+            publicBranding ? "w-full rounded-2xl bg-white/5 px-6 py-8 text-white" : ""
+          }`}
         >
           {/* Logo SÓLO desde branding.logo, nunca organization.logo — es lo
               que mantiene CUSTOM_BRANDING realmente independiente de
@@ -156,20 +141,13 @@ export default function OrganizationProfile() {
             <img
               src={branding.logo}
               alt={organization.name}
-              className={`h-20 w-20 rounded-full object-cover ${publicBranding ? "" : "border border-white/10"}`}
-              style={publicBranding ? { border: "2px solid var(--org-on-primary)" } : undefined}
+              className="h-20 w-20 rounded-full border border-white/10 object-cover"
             />
           )}
           <div>
-            <h1 className={`text-2xl font-bold sm:text-3xl ${publicBranding ? "" : "text-white"}`}>
-              {organization.name}
-            </h1>
+            <h1 className="text-2xl font-bold text-white sm:text-3xl">{organization.name}</h1>
             {(organization.city || organization.province) && (
-              <p
-                className={`mt-1 flex items-center justify-center gap-1.5 text-sm ${
-                  publicBranding ? "opacity-80" : "text-slate-400"
-                }`}
-              >
+              <p className="mt-1 flex items-center justify-center gap-1.5 text-sm text-slate-400">
                 <MapPin className="h-3.5 w-3.5 shrink-0" />
                 {[organization.city, organization.province].filter(Boolean).join(", ")}
               </p>

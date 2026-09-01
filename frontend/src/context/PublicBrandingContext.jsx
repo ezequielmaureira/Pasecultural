@@ -52,12 +52,5 @@ export function useRegisterPublicBranding(brandingOrNull) {
     if (!brandingOrNull) return undefined;
     return registerBranding(brandingOrNull);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    registerBranding,
-    brandingOrNull?.slug,
-    brandingOrNull?.name,
-    brandingOrNull?.logo,
-    brandingOrNull?.theme?.primary,
-    brandingOrNull?.theme?.secondary,
-  ]);
+  }, [registerBranding, brandingOrNull?.slug, brandingOrNull?.name, brandingOrNull?.logo]);
 }

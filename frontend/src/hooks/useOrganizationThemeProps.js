@@ -1,15 +1,17 @@
-import { buildOrganizationTheme, toOrgThemeStyle, ORG_THEME_CLASS } from "../lib/organizationTheme.js";
+import { ORG_THEME_CLASS } from "../lib/organizationTheme.js";
 import { useRegisterPublicBranding } from "../context/PublicBrandingContext.jsx";
 
-// Organization Theme (público) — Premium Fase 2D.1 / 2D.1.1. Compartido por
+// Organization Theme (público) — Premium Light Theme fijo. Compartido por
 // EventDetail y PurchaseWizard (OrganizationProfile tiene su propio cálculo
 // porque su shape de datos ya viene separado en organization/branding).
-// `primaryColor` no-nulo es la única señal que llega del backend cuando
-// CUSTOM_BRANDING está disponible — nunca se vuelve a chequear plan acá.
-export function useOrganizationThemeProps({ slug, name, logo, primaryColor, secondaryColor } = {}) {
-  const publicBranding = primaryColor
-    ? { slug, name, logo, theme: buildOrganizationTheme(primaryColor, secondaryColor) }
-    : null;
+// `enabled` es la ÚNICA señal de activación — llega directo de
+// `branding.enabled` (server, isFeatureAvailable(CUSTOM_BRANDING)). Nunca
+// se deriva de primaryColor/secondaryColor/logo: una Organization Premium
+// sin colores configurados debe activar el mismo Light Theme que una con
+// colores legacy guardados.
+export function useOrganizationThemeProps({ slug, name, logo, enabled } = {}) {
+  const isEnabled = enabled === true;
+  const publicBranding = isEnabled ? { slug, name, logo } : null;
 
   useRegisterPublicBranding(publicBranding);
 
@@ -20,6 +22,6 @@ export function useOrganizationThemeProps({ slug, name, logo, primaryColor, seco
   return {
     publicBranding,
     className: ORG_THEME_CLASS,
-    style: { ...toOrgThemeStyle(publicBranding.theme), backgroundColor: "var(--org-background)" },
+    style: undefined,
   };
 }

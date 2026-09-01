@@ -51,8 +51,7 @@ export default function EventDetail() {
     slug: event?.organization?.slug,
     name: event?.organization?.name,
     logo: event?.organization?.branding?.logo,
-    primaryColor: event?.organization?.branding?.primaryColor,
-    secondaryColor: event?.organization?.branding?.secondaryColor,
+    enabled: event?.organization?.branding?.enabled,
   });
 
   if (loading) {

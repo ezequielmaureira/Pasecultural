@@ -390,11 +390,12 @@ export const getPublicOrganizationBySlugService = async (slug) => {
         },
         branding: brandingAvailable
             ? {
+                  enabled: true,
                   logo: organization.logo,
                   primaryColor: organization.brandPrimaryColor,
                   secondaryColor: organization.brandSecondaryColor,
               }
-            : { logo: null, primaryColor: null, secondaryColor: null },
+            : { enabled: false, logo: null, primaryColor: null, secondaryColor: null },
         events: events.map((event) => ({
             ...event,
             organization: { id: organization.id, name: organization.name },

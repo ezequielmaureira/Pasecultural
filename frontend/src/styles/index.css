@@ -109,49 +109,106 @@ select option {
   stroke: #8b5cf6 !important;
 }
 
-/* Organization Theme — Premium Fase 2D.1.1 (dos colores reales). Los
-   tokens (--org-*) llegan como inline style de un wrapper puntual (ver
-   lib/organizationTheme.js) — NUNCA se define ningún --org-* acá ni en
-   :root/body. Este bloque sólo remapea, vía cascada descendente, las
-   clases utilitarias violeta que ya usan Button/Sidebar/Navbar para que
-   consuman esos tokens cuando están dentro de un contenedor .org-theme.
-   Fuera de ese contenedor (Developer, Scanner, Customer, cualquier
-   Organization FREE) estas reglas nunca matchean nada y el tema estándar
-   sigue intacto.
+/* Premium Light Theme — FIJO. Reemplaza la personalización de colores por
+   organización (brandPrimaryColor/brandSecondaryColor, cancelada como
+   dirección de producto). Los tokens --org-* ya NO se calculan por
+   organización ni llegan como inline style: se definen acá mismo, fijos,
+   sobre la clase .org-theme (ver lib/organizationTheme.js, ORG_THEME_CLASS).
+   Cualquier Organization Premium recibe exactamente el mismo light theme,
+   sin transición entre cache/colores — server confirma Premium → se aplica
+   esta clase → light theme fijo, siempre igual.
 
-   Distribución: primary = identidad/acento dominante (botones, active
-   states, bordes/anillos, links destacados). secondary = estructura
-   (header/sidebar branded — aplicado directamente por Navbar.jsx/
-   Sidebar.jsx como background-color, no acá, porque son elementos
-   puntuales, no clases utilitarias repetidas). */
+   Este bloque remapea, vía cascada descendente, las clases utilitarias
+   oscuras que ya usan AppShell/Sidebar/Navbar/Card/inputs para que se vean
+   claras dentro de un contenedor .org-theme. Fuera de ese contenedor
+   (Developer, Scanner, Customer, cualquier Organization FREE) estas reglas
+   nunca matchean nada y el tema oscuro estándar de PaseCultural sigue
+   intacto. */
+.org-theme {
+  --org-background: #F8FAFC;
+  --org-surface: #FFFFFF;
+  --org-surface-alt: #F1F5F9;
+  --org-text: #0F172A;
+  --org-muted: #64748B;
+  --org-border: #E2E8F0;
+  --org-accent: #7C3AED;
+  --org-accent-hover: #6D28D9;
+  --org-on-accent: #FFFFFF;
+  background-color: var(--org-background);
+  color: var(--org-text);
+}
+
+/* Superficies oscuras -> superficies claras (AppShell root, Sidebar,
+   Card.jsx, Topbar.jsx, Navbar.jsx). */
+.org-theme .bg-\[\#05070B\],
+.org-theme .bg-\[\#0B1120\] {
+  background-color: var(--org-surface);
+}
+.org-theme .bg-\[\#05070B\]\/90,
+.org-theme .bg-\[\#05070B\]\/95 {
+  background-color: color-mix(in srgb, var(--org-surface) 96%, transparent);
+}
+
+/* Texto */
+.org-theme .text-white,
+.org-theme .text-gray-100 {
+  color: var(--org-text);
+}
+.org-theme .text-slate-300,
+.org-theme .text-slate-400,
+.org-theme .text-slate-500,
+.org-theme .text-slate-600 {
+  color: var(--org-muted);
+}
+.org-theme .placeholder\:text-slate-500::placeholder {
+  color: var(--org-muted);
+}
+
+/* Bordes y superficies translúcidas oscuras -> equivalentes claros
+   (usados por inputs, botones secundarios, dropdowns, tablas). */
+.org-theme .border-white\/5,
+.org-theme .border-white\/10 {
+  border-color: var(--org-border);
+}
+.org-theme .bg-white\/5,
+.org-theme .bg-white\/10 {
+  background-color: var(--org-surface-alt);
+}
+.org-theme .hover\:bg-white\/5:hover,
+.org-theme .hover\:bg-white\/10:hover,
+.org-theme .hover\:bg-white\/15:hover {
+  background-color: var(--org-border);
+}
+.org-theme .hover\:text-white:hover {
+  color: var(--org-text);
+}
+
+/* Accent violeta oficial de PaseCultural — fijo, ya no derivado de ningún
+   color elegido por la organización. */
 .org-theme .bg-violet-600 {
-  background-color: var(--org-primary);
-  color: var(--org-on-primary);
+  background-color: var(--org-accent);
+  color: var(--org-on-accent);
 }
 .org-theme .bg-violet-600:hover,
 .org-theme .hover\:bg-violet-500:hover {
-  background-color: var(--org-hover);
+  background-color: var(--org-accent-hover);
 }
 .org-theme .text-violet-400,
 .org-theme .text-violet-300 {
-  color: var(--org-primary);
+  color: var(--org-accent);
 }
 .org-theme .bg-violet-500\/10 {
-  background-color: color-mix(in srgb, var(--org-primary) 15%, transparent);
+  background-color: color-mix(in srgb, var(--org-accent) 12%, transparent);
 }
 .org-theme .bg-violet-500 {
-  background-color: var(--org-primary);
+  background-color: var(--org-accent);
 }
 .org-theme .border-violet-500,
-.org-theme .hover\:border-violet-500:hover {
-  border-color: var(--org-primary);
+.org-theme .hover\:border-violet-500:hover,
+.org-theme .focus\:border-violet-500:focus {
+  border-color: var(--org-accent);
 }
-.org-theme .focus-visible\:ring-violet-400:focus-visible {
-  --tw-ring-color: var(--org-primary);
-}
-/* Superficies (Card.jsx: bg-[#0B1120] hardcodeado) — se tematizan con
-   surface/surfaceAlt (derivados de secondary+primary), nunca con primary
-   puro, para no convertir la pantalla en una masa de un solo color. */
-.org-theme .bg-\[\#0B1120\] {
-  background-color: var(--org-surface);
+.org-theme .focus-visible\:ring-violet-400:focus-visible,
+.org-theme .focus\:ring-violet-500\/20:focus {
+  --tw-ring-color: var(--org-accent);
 }

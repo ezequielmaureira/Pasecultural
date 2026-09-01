@@ -155,14 +155,12 @@ export default function Sidebar({ open = false, onClose, coldStart = false }) {
   const location = useLocation();
   const role = backendUser?.role?.toLowerCase();
   const navItems = NAV_BY_ROLE[role] ?? [];
-  const { organization, visualBranding, brandingEnabled } = useOrganizationTheme();
-  // Confirmado por el server (tiene slug/name reales) vs. optimista (sólo
-  // colores/logo del cache, todavía sin confirmar) — Premium Fase 2D.1.2.
-  // El link a /organizacion/:slug y el nombre real SÓLO se muestran cuando
-  // `organization` ya está confirmada; nunca se inventa un nombre/slug a
-  // partir del cache.
+  const { organization, brandingEnabled } = useOrganizationTheme();
+  // Premium Light Theme fijo: `brandingEnabled` sólo llega en true cuando
+  // el server ya confirmó la Organization (ver OrganizationThemeContext) —
+  // no hay más un estado "optimista" intermedio (se eliminó junto con el
+  // cache visual de colores).
   const isConfirmedBranding = brandingEnabled && Boolean(organization);
-  const isOptimisticBranding = brandingEnabled && !organization;
 
   // "Crear evento" ya está resuelto por react-router cuando cambia de
   // pantalla (ver el efecto `startFresh` en ConversationView.jsx). Pero si
@@ -195,10 +193,7 @@ export default function Sidebar({ open = false, onClose, coldStart = false }) {
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div
-          style={brandingEnabled ? { backgroundColor: "var(--org-secondary)" } : undefined}
-          className="relative flex h-full flex-col overflow-hidden rounded-[28px] bg-[#0B1120] shadow-xl shadow-black/30"
-        >
+        <div className="relative flex h-full flex-col overflow-hidden rounded-[28px] bg-[#0B1120] shadow-xl shadow-black/30">
           <button
             type="button"
             onClick={onClose}
@@ -234,55 +229,20 @@ export default function Sidebar({ open = false, onClose, coldStart = false }) {
                 </div>
               )}
               <div className="min-w-0">
-                <p
-                  className="truncate text-base font-bold leading-tight"
-                  style={{ color: "var(--org-on-secondary)" }}
-                >
+                <p className="truncate text-base font-bold leading-tight text-white">
                   {organization.name}
                 </p>
-                <p className="truncate text-xs opacity-70" style={{ color: "var(--org-on-secondary)" }}>
-                  Plataforma de gestión
-                </p>
+                <p className="truncate text-xs text-slate-400">Plataforma de gestión</p>
               </div>
             </Link>
             {/* Discreto a propósito — PaseCultural queda como plataforma
                 secundaria, nunca oculta del todo. */}
             <Link
               to="/"
-              className="pl-[52px] text-[11px] opacity-60 hover:opacity-100"
-              style={{ color: "var(--org-on-secondary)" }}
+              className="pl-[52px] text-[11px] text-slate-500 opacity-80 hover:opacity-100"
             >
               Powered by PaseCultural
             </Link>
-          </div>
-        ) : isOptimisticBranding ? (
-          // Bootstrap optimista (cache) — Premium Fase 2D.1.2: los COLORES
-          // ya se aplican (fondo del aside, acentos), y el logo cacheado se
-          // muestra si existe, pero NUNCA se inventa nombre/slug — no hay
-          // Link a /organizacion/:slug hasta que `organization` esté
-          // confirmada por el server.
-          <div className="flex items-center gap-3 px-5 pb-6 pt-6">
-            {visualBranding?.logo ? (
-              <img
-                src={visualBranding.logo}
-                alt=""
-                className="h-10 w-10 shrink-0 rounded-xl object-cover"
-              />
-            ) : (
-              <div
-                className="h-10 w-10 shrink-0 animate-pulse rounded-xl"
-                style={{ backgroundColor: "var(--org-primary)" }}
-              />
-            )}
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <div
-                className="h-3.5 w-24 animate-pulse rounded opacity-40"
-                style={{ backgroundColor: "var(--org-on-secondary)" }}
-              />
-              <p className="truncate text-xs opacity-70" style={{ color: "var(--org-on-secondary)" }}>
-                Plataforma de gestión
-              </p>
-            </div>
           </div>
         ) : (
           <Link to="/" className="flex items-center gap-3 px-5 pb-6 pt-6">

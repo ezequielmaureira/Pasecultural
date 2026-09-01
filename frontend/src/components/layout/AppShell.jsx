@@ -16,27 +16,18 @@ import { ORG_THEME_CLASS } from "../../lib/organizationTheme.js";
 // resultado visual que antes.
 function AppShellContent() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { brandingEnabled, themeStyle, confirmed } = useOrganizationTheme();
+  const { brandingEnabled, confirmed } = useOrganizationTheme();
 
-  // Cold start — Premium Fase 2D.1.2: ni el server confirmó todavía NI hay
-  // branding visual optimista (cache) disponible. Es el único caso en el
-  // que ni siquiera sabemos si corresponde tema estándar o branded — nunca
-  // pintamos el tema estándar como si fuera definitivo acá, Sidebar recibe
-  // `coldStart` y muestra un shell neutro mínimo en su lugar (ver
-  // Sidebar.jsx). Apenas `confirmed` o `brandingEnabled` pasan a true, este
-  // shell desaparece — no es un estado adicional que el usuario deba
-  // "esperar" más de lo que ya esperaba antes de 2D.1.2.
-  const coldStart = !confirmed && !brandingEnabled;
-
-  const rootStyle = brandingEnabled
-    ? { ...themeStyle, backgroundColor: "var(--org-background)" }
-    : undefined;
+  // Cold start: el server todavía no confirmó si esta Organization es
+  // Premium (Light Theme fijo) o FREE (dark estándar) — sin cache visual
+  // de por medio (se eliminó junto con la personalización de colores), no
+  // hay nada que pintar como definitivo todavía. Sidebar recibe
+  // `coldStart` y muestra un shell neutro mínimo mientras tanto (ver
+  // Sidebar.jsx). Apenas `confirmed` pasa a true, este estado desaparece.
+  const coldStart = !confirmed;
 
   return (
-    <div
-      style={rootStyle}
-      className={`min-h-screen bg-[#05070B] ${brandingEnabled ? ORG_THEME_CLASS : ""}`}
-    >
+    <div className={`min-h-screen bg-[#05070B] ${brandingEnabled ? ORG_THEME_CLASS : ""}`}>
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} coldStart={coldStart} />
       <Topbar onOpenSidebar={() => setSidebarOpen(true)} />
       <main className="pt-[var(--topbar-height)] lg:pl-[var(--sidebar-width)]">
