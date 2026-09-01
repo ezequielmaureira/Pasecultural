@@ -148,6 +148,26 @@ select option {
 .org-theme .bg-\[\#05070B\]\/95 {
   background-color: color-mix(in srgb, var(--org-surface) 96%, transparent);
 }
+/* `bg-[#0B1120]/NN` es una clase Tailwind DISTINTA de `bg-[#0B1120]` (no la
+   cubre la regla de arriba) — usada por paneles de filtros del dashboard
+   organizer (OrganizerSales/OrganizerTickets/OrganizerWithdrawalRequests).
+   Sin esto quedaban como islas oscuras permanentes dentro del Light Theme. */
+.org-theme .bg-\[\#0B1120\]\/90 {
+  background-color: color-mix(in srgb, var(--org-surface) 90%, transparent);
+}
+/* EventCoverImage.jsx (hero/cards de eventos organizer): fondo base detrás
+   de la foto de portada (visible mientras la imagen carga o cuando el
+   evento no tiene foto) — era la causa concreta del "contenido oscuro"
+   reportado en la superficie de eventos del dashboard Premium. */
+.org-theme .bg-slate-900 {
+  background-color: var(--org-surface-alt);
+}
+.org-theme .to-slate-900 {
+  --tw-gradient-to: var(--org-surface-alt);
+}
+.org-theme .text-white\/30 {
+  color: var(--org-muted);
+}
 
 /* Texto */
 .org-theme .text-white,

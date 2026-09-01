@@ -4,7 +4,7 @@ import { Camera, ThumbsUp, Clapperboard, Globe, MapPin, Ticket } from "lucide-re
 import { apiFetch } from "../../lib/api.js";
 import EventCard from "../../components/marketplace/EventCard.jsx";
 import { ORG_THEME_CLASS } from "../../lib/organizationTheme.js";
-import { useRegisterPublicBranding } from "../../context/PublicBrandingContext.jsx";
+import { useRegisterPublicBranding, useRegisterPublicBrandingPending } from "../../context/PublicBrandingContext.jsx";
 
 // Mismo patrón que PrivacyPolicy.jsx/DataDeletion.jsx: no hay ninguna
 // librería de metadata en el proyecto, así que esto es el único punto que
@@ -70,6 +70,12 @@ export default function OrganizationProfile() {
   }, [slug]);
 
   usePageTitle(data?.organization?.name ? `${data.organization.name} | PaseCultural` : "PaseCultural");
+
+  // Mientras `loading` es true todavía no sabemos si esta Organization es
+  // Premium — PublicShell cubre Navbar/fondo/Footer con BootstrapScreen
+  // hasta que este mismo `loading` (ya usado por el `finally` del fetch de
+  // arriba) cae a `false`, sea éxito, 404 o error de red.
+  useRegisterPublicBrandingPending(loading);
 
   // branding.enabled es la ÚNICA señal de activación — llega directo del
   // backend (isFeatureAvailable(CUSTOM_BRANDING), ver
