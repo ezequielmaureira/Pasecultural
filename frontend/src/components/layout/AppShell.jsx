@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar.jsx";
 import Topbar from "./Topbar.jsx";
 import { OrganizationThemeProvider, useOrganizationTheme } from "../../context/OrganizationThemeContext.jsx";
 import { ORG_THEME_CLASS } from "../../lib/organizationTheme.js";
+import { useBackendUser } from "../../context/AuthContext.jsx";
+import BootstrapScreen from "../shared/BootstrapScreen.jsx";
 
 // El sidebar es fijo (280px) sólo a partir de `lg`; en pantallas más chicas
 // se vuelve un panel off-canvas que se abre/cierra con este estado, en vez
@@ -17,13 +19,28 @@ import { ORG_THEME_CLASS } from "../../lib/organizationTheme.js";
 function AppShellContent() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { brandingEnabled, confirmed } = useOrganizationTheme();
+  const { backendUser, syncing } = useBackendUser();
+  const location = useLocation();
 
-  // Cold start: el server todavía no confirmó si esta Organization es
-  // Premium (Light Theme fijo) o FREE (dark estándar) — sin cache visual
-  // de por medio (se eliminó junto con la personalización de colores), no
-  // hay nada que pintar como definitivo todavía. Sidebar recibe
-  // `coldStart` y muestra un shell neutro mínimo mientras tanto (ver
-  // Sidebar.jsx). Apenas `confirmed` pasa a true, este estado desaparece.
+  // Sólo la ruta organizer necesita el resultado FREE/PREMIUM confirmado
+  // ANTES de montar Sidebar/Topbar/dashboard — es la única superficie con
+  // dos resultados visuales distintos. Developer nunca tiene branding
+  // (siempre termina en dark), así que bloquear su shell por esto sería
+  // una espera nueva e innecesaria (ver informe "eliminar flash dark→light",
+  // punto 11) — Developer sigue exactamente igual que antes.
+  const isOrganizerRoute = location.pathname.startsWith("/organizador");
+  const organizerBootstrapPending = isOrganizerRoute && (syncing || !backendUser || !confirmed);
+
+  if (organizerBootstrapPending) {
+    return <BootstrapScreen />;
+  }
+
+  // Cold start (Developer únicamente a partir de acá): el server todavía
+  // no confirmó `organization` — sin cache visual de por medio, no hay
+  // nada que pintar como definitivo todavía. Sidebar recibe `coldStart` y
+  // muestra un shell neutro mínimo mientras tanto (ver Sidebar.jsx). En
+  // rutas organizer este valor siempre es `false` acá: el gate de arriba
+  // ya garantizó `confirmed === true` antes de llegar a este punto.
   const coldStart = !confirmed;
 
   return (
