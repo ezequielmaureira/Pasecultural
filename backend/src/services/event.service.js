@@ -1027,8 +1027,10 @@ const PUBLIC_EVENT_DETAIL_INCLUDE = {
 // nunca CANCELLED/REFUNDED). Se calcula al vuelo con una sola consulta
 // agrupada por (ticketTypeId, functionId) para todas las funciones del
 // evento, no una consulta por asignación.
-async function attachTicketAvailability(event) {
+// Performance Investigation 3 — `timer` opcional, ver nota arriba.
+async function attachTicketAvailability(event, timer) {
     const functionIds = event.functions.map((fn) => fn.id);
+    timer?.mark("attachTicketAvailability.prepare");
     if (functionIds.length === 0) return event;
 
     const soldGroups = await prisma.ticket.groupBy({
@@ -1036,9 +1038,10 @@ async function attachTicketAvailability(event) {
         where: { functionId: { in: functionIds }, status: { in: SOLD_TICKET_STATUSES } },
         _count: { _all: true },
     });
+    timer?.mark("ticket.groupBy");
     const soldByKey = new Map(soldGroups.map((g) => [`${g.ticketTypeId}:${g.functionId}`, g._count._all]));
 
-    return {
+    const result = {
         ...event,
         functions: event.functions.map((fn) => ({
             ...fn,
@@ -1049,6 +1052,8 @@ async function attachTicketAvailability(event) {
             }),
         })),
     };
+    timer?.mark("attachTicketAvailability.postProcess");
+    return result;
 }
 
 // Organization Theme — Premium Fase 2D.1 / 2D.1.1. `organization.plan`
@@ -1067,17 +1072,28 @@ function serializePublicEventOrganization(organization) {
     };
 }
 
-export const getPublicEventBySlugService = async (slug) => {
+// Performance Investigation 3 — `timer` es instrumentación TEMPORAL (ver
+// utils/publicEventPerf.js), opcional (`undefined` para cualquier otro
+// caller que no sea getPublicEventBySlug) y no-op salvo
+// PUBLIC_EVENT_PERF_LOG=true. El `SELECT 1` aísla la latencia base
+// Render→Prisma→Postgres→Render, independiente de cualquier query real.
+export const getPublicEventBySlugService = async (slug, timer) => {
+    if (timer?.enabled) {
+        await prisma.$queryRaw`SELECT 1`;
+        timer.mark("selectOneBaseline");
+    }
+
     const event = await prisma.event.findUnique({
         where: { slug },
         include: PUBLIC_EVENT_DETAIL_INCLUDE,
     });
+    timer?.mark("event.findUnique");
 
     if (!event || event.status !== "PUBLISHED" || event.visibility !== "PUBLIC") {
         return null;
     }
 
-    const withAvailability = await attachTicketAvailability(event);
+    const withAvailability = await attachTicketAvailability(event, timer);
     return { ...withAvailability, organization: serializePublicEventOrganization(event.organization) };
 };
 

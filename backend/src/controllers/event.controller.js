@@ -16,6 +16,7 @@ import {
     restoreEventService,
     duplicateEventService,
 } from "../services/event.service.js";
+import { startPublicEventPerfTimer } from "../utils/publicEventPerf.js";
 
 const PUBLISH_ERROR_MESSAGES = EVENT_SERVICE_ERROR_MESSAGES;
 
@@ -47,16 +48,25 @@ export const getPublicEvents = async (req, res) => {
     }
 };
 
+// Performance Investigation 3 — `timer` (ver utils/publicEventPerf.js) es
+// instrumentación TEMPORAL, no-op salvo PUBLIC_EVENT_PERF_LOG=true. Ver el
+// plan de retiro en ese archivo.
 export const getPublicEventBySlug = async (req, res) => {
+    const timer = startPublicEventPerfTimer(req.params.slug);
     try {
-        const event = await getPublicEventBySlugService(req.params.slug);
+        const event = await getPublicEventBySlugService(req.params.slug, timer);
+        timer.mark("controller.afterService");
         if (!event) {
+            timer.finish();
             return res.status(404).json({ message: "Evento no encontrado" });
         }
 
         res.status(200).json({ event });
+        timer.mark("controller.responseSent");
+        timer.finish();
     } catch (error) {
         console.error(error);
+        timer.finish();
         res.status(500).json({ message: "Error al obtener el evento" });
     }
 };
