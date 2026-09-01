@@ -34,6 +34,30 @@ const SALE_FAILED_MESSAGE_BY_STATUS = {
   EXPIRED: "Esta compra venció antes de confirmarse.",
 };
 
+// Bug fix — "volver desde Mercado Pago sin pagar deja el Wizard esperando
+// para siempre" (en la práctica, hasta SALE_POLL_TIMEOUT_MS). Mercado Pago
+// agrega SUS PROPIOS query params (payment_id/collection_id/status/
+// collection_status) a CUALQUIERA de los tres back_urls (éxito/pendiente/
+// falla) — nuestro propio back_urls (ver mercadoPagoCheckoutService.js)
+// sólo agrega `slug`/`saleToken`, idénticos en los tres, así que estos son
+// la única señal real de "¿hubo al menos un intento de pago en Mercado
+// Pago?". Cuando el comprador vuelve/cancela ANTES de intentar pagar, MP
+// igual redirige al back_url de "failure" pero con estos params vacíos —
+// y por venir de URLSearchParams son SIEMPRE strings: "null"/"undefined"
+// (el literal, no el valor) o "" cuentan como AUSENTES, nunca como un
+// identificador real.
+//
+// IMPORTANTE — esto NUNCA decide que un pago fue aprobado (esa autoridad
+// sigue siendo exclusivamente getSaleStatus/el webhook, ver el efecto de
+// recuperación más abajo): sólo decide si vale la pena seguir esperando
+// una confirmación que evidentemente nunca va a llegar, en vez de dejar
+// al comprador mirando un spinner hasta que venza el timeout.
+function isBlankMpParam(value) {
+  if (value == null) return true;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "" || normalized === "null" || normalized === "undefined";
+}
+
 function buildSteps(hasMultipleFunctions) {
   const steps = [];
   let id = 1;
@@ -81,6 +105,16 @@ export default function PurchaseWizard() {
   // ver mercadoPagoCheckout.service.js en el backend). Nunca el `id`
   // interno del Sale (ver sale.service.js#getSaleStatusService).
   const resumeToken = searchParams.get("saleToken");
+  // Ver isBlankMpParam más arriba — evidencia de que Mercado Pago registró
+  // al menos un intento de pago real, nunca de que haya sido APROBADO.
+  // Fijo por request (la URL no cambia durante el ciclo de recuperación de
+  // más abajo), calculado una sola vez acá y capturado por closure en el
+  // efecto — nunca se vuelve a leer de `searchParams` en cada poll.
+  const hasMpAttemptEvidence =
+    !isBlankMpParam(searchParams.get("payment_id")) ||
+    !isBlankMpParam(searchParams.get("collection_id")) ||
+    !isBlankMpParam(searchParams.get("status")) ||
+    !isBlankMpParam(searchParams.get("collection_status"));
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -119,10 +153,15 @@ export default function PurchaseWizard() {
 
   // Ciclo de vida de recuperar una venta ya creada por su saleToken (URL):
   // "idle" (nada que recuperar) | "checking" (primera consulta en curso) |
-  // "pending" (CONFIRMED todavía no — reintentando cada pocos segundos) |
-  // "check-error" (falló la consulta en sí, red/servidor) | "poll-timeout"
-  // (siguió PENDING más de SALE_POLL_TIMEOUT_MS) | "sale-failed" (CANCELLED
-  // o EXPIRED — terminal, ya no tiene sentido seguir preguntando).
+  // "pending" (CONFIRMED todavía no, pero SÍ hay evidencia de un intento
+  // real en Mercado Pago — reintentando cada pocos segundos) |
+  // "no-payment-attempt" (sigue PENDING en el backend pero la URL no trae
+  // NINGUNA evidencia de intento de pago — el comprador volvió/canceló
+  // antes de pagar; terminal, no tiene sentido pollear algo que nunca se
+  // intentó) | "check-error" (falló la consulta en sí, red/servidor) |
+  // "poll-timeout" (siguió PENDING con evidencia real más de
+  // SALE_POLL_TIMEOUT_MS) | "sale-failed" (CANCELLED o EXPIRED — terminal,
+  // ya no tiene sentido seguir preguntando).
   const [saleRecoveryState, setSaleRecoveryState] = useState(resumeToken ? "checking" : "idle");
   const [saleRecoveryMessage, setSaleRecoveryMessage] = useState("");
   // Cambiarlo re-dispara todo el efecto de abajo desde cero: es lo que usan
@@ -207,8 +246,23 @@ export default function PurchaseWizard() {
           return;
         }
 
-        // PENDING (o, en teoría, CONFIRMED sin tickets todavía): sigue viva,
-        // hay que seguir esperando.
+        // PENDING (o, en teoría, CONFIRMED sin tickets todavía) sin NINGUNA
+        // evidencia de un intento real en Mercado Pago — el comprador
+        // volvió/canceló antes de pagar. Nunca vale la pena pollear algo
+        // que nunca se intentó: se corta acá, sin esperar
+        // SALE_POLL_TIMEOUT_MS, y se ofrece reintentar la compra. La Sale
+        // NUNCA se toca (sigue PENDING, sin cancelar/confirmar) — sigue
+        // siendo recuperable por este mismo saleToken si el comprador
+        // vuelve a intentar desde el link de Mercado Pago más tarde.
+        if (!hasMpAttemptEvidence) {
+          stopPolling();
+          setSaleRecoveryState("no-payment-attempt");
+          return;
+        }
+
+        // PENDING con evidencia real de un intento en Mercado Pago: sigue
+        // viva, hay que seguir esperando (el webhook puede tardar unos
+        // segundos más que el redirect del navegador).
         setSaleRecoveryState("pending");
         startPollingIfNeeded();
       } catch (err) {
@@ -304,6 +358,19 @@ export default function PurchaseWizard() {
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-slate-400">
         <Spinner size="lg" />
         <p className="text-sm">Recuperando tu compra...</p>
+      </div>
+    );
+  }
+
+  if (saleRecoveryState === "no-payment-attempt") {
+    return (
+      <div className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
+        <ErrorStep
+          message="No se completó el pago en Mercado Pago. Podés intentarlo nuevamente."
+          retryLabel="Reintentar compra"
+          onRetry={handleRestartAfterFailedSale}
+          onBackToEvent={() => navigate(slug ? `/evento/${slug}` : "/eventos")}
+        />
       </div>
     );
   }
