@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import prisma from "../src/config/prisma.js";
-import { setPublicLaunchEnabledService, isPublicLaunchEnabledOrDefault } from "../src/services/publicLaunchSettings.service.js";
+import {
+    setPublicLaunchEnabledService,
+    isPublicLaunchEnabledOrDefault,
+    __setPublicLaunchCacheTtlMsForTests,
+} from "../src/services/publicLaunchSettings.service.js";
 import { getDeveloperLaunchStatus, updateDeveloperLaunchStatus, getPublicLaunchStatus } from "../src/controllers/publicLaunchSettings.controller.js";
 import { requirePublicLaunch } from "../src/middlewares/requirePublicLaunch.js";
 import { requireRole } from "../src/middlewares/requireRole.js";
@@ -347,5 +351,67 @@ testWithDb("isPublicLaunchEnabledOrDefault nunca lanza, y con la fila real setea
         await setPublicLaunchEnabledService(null, false);
         const result = await isPublicLaunchEnabledOrDefault();
         assert.equal(result, false);
+    });
+});
+
+// ==================================================================
+// Cache en memoria (TTL 60s) de isPublicLaunchEnabledOrDefault — mutamos
+// la fila DIRECTO por Prisma (bypaseando setPublicLaunchEnabledService,
+// que invalida el cache) para poder distinguir "leyó la DB de nuevo" de
+// "sirvió el valor cacheado", que es justamente lo que estos 4 casos
+// necesitan probar.
+// ==================================================================
+
+testWithDb("CACHE-A) cache miss consulta la DB: primera lectura después de un cambio ve el valor real", async () => {
+    await withRestoredPublicLaunchState(async () => {
+        await setPublicLaunchEnabledService(null, true); // invalida + escribe true
+        const result = await isPublicLaunchEnabledOrDefault(); // cache estaba invalidado -> lee DB
+        assert.equal(result, true);
+    });
+});
+
+testWithDb("CACHE-B) cache hit NO vuelve a consultar la DB dentro del TTL", async () => {
+    await withRestoredPublicLaunchState(async () => {
+        await setPublicLaunchEnabledService(null, true);
+        assert.equal(await isPublicLaunchEnabledOrDefault(), true); // cachea true
+
+        // Cambio DIRECTO por Prisma, sin pasar por el service (nunca invalida).
+        const row = await prisma.publicLaunchSettings.findFirst({ orderBy: { createdAt: "asc" } });
+        await prisma.publicLaunchSettings.update({ where: { id: row.id }, data: { publicLaunchEnabled: false } });
+
+        // Todavía dentro del TTL: debe seguir sirviendo el valor cacheado
+        // (true), no el que ya está realmente en la fila (false).
+        assert.equal(await isPublicLaunchEnabledOrDefault(), true);
+    });
+});
+
+testWithDb("CACHE-C) al expirar el TTL, la siguiente lectura vuelve a consultar la DB", async () => {
+    __setPublicLaunchCacheTtlMsForTests(50);
+    try {
+        await withRestoredPublicLaunchState(async () => {
+            await setPublicLaunchEnabledService(null, true);
+            assert.equal(await isPublicLaunchEnabledOrDefault(), true); // cachea true
+
+            const row = await prisma.publicLaunchSettings.findFirst({ orderBy: { createdAt: "asc" } });
+            await prisma.publicLaunchSettings.update({ where: { id: row.id }, data: { publicLaunchEnabled: false } });
+
+            await new Promise((resolve) => setTimeout(resolve, 80)); // > TTL de prueba (50ms)
+
+            assert.equal(await isPublicLaunchEnabledOrDefault(), false);
+        });
+    } finally {
+        __setPublicLaunchCacheTtlMsForTests(60_000);
+    }
+});
+
+testWithDb("CACHE-D) actualizar el valor invalida el cache de inmediato, sin esperar el TTL", async () => {
+    await withRestoredPublicLaunchState(async () => {
+        await setPublicLaunchEnabledService(null, true);
+        assert.equal(await isPublicLaunchEnabledOrDefault(), true); // cachea true
+
+        await setPublicLaunchEnabledService(null, false); // invalida + escribe false
+
+        // Sin esperar nada: debe reflejar el cambio inmediatamente.
+        assert.equal(await isPublicLaunchEnabledOrDefault(), false);
     });
 });
