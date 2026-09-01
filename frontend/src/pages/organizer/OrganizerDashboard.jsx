@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useAuth } from "@clerk/clerk-react";
 import { Clock3, DollarSign, Ticket, ScanLine, Gauge, CalendarDays, Receipt, Activity, Layers, XCircle } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
@@ -17,7 +16,6 @@ import ActivityTimeline from "../../components/organizer/ActivityTimeline.jsx";
 import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
 import { useActiveEvent } from "../../context/ActiveEventContext.jsx";
 import { useSessionStorageState } from "../../hooks/useSessionStorageState.js";
-import { apiFetch } from "../../lib/api.js";
 import { formatCurrencyARS } from "../../lib/format.js";
 import { groupEventsByCategory, findEventCategoryPosition, buildActivityFeed } from "./dashboard/dashboardMetrics.js";
 import { buildEventStatsKpis, buildIssuedByOriginBreakdown } from "../../components/organizer/functionStatsSelectors.js";
@@ -44,28 +42,11 @@ const ORG_STATUS_BANNER = {
   },
 };
 
-function OrganizationStatusBanner() {
-  const { getToken } = useAuth();
-  const [organization, setOrganization] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const token = await getToken();
-        const { organization: org } = await apiFetch("/api/organizations/me", { token });
-        if (!cancelled) setOrganization(org);
-      } catch (error) {
-        console.error("No se pudo obtener la organización", error);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [getToken]);
-
+// Fuente única: `organization` viene de OrganizerDataContext (cargada UNA
+// vez por sesión del panel, ver el informe de entrega del botón de
+// WhatsApp) — este componente ya NO dispara su propio GET /api/organizations/me,
+// sólo lee el status de la organización que el Provider ya resolvió.
+function OrganizationStatusBanner({ organization }) {
   if (organization?.status === "APPROVED") {
     return (
       <div className="flex w-fit items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300">
@@ -120,37 +101,8 @@ export default function OrganizerDashboard() {
     loadingEventsStats,
     eventsStatsError,
     reloadEventsStats,
+    organization,
   } = useOrganizerData();
-
-  // Premium — Fase 1 (fix): `organization` NO viene de useOrganizerData
-  // (ese contexto sólo trae events/sales/stats, nunca la organización en
-  // sí) ni está en el scope de este componente por ningún otro lado — el
-  // único `organization` que existía en este archivo pertenece al closure
-  // propio de OrganizationStatusBanner (más arriba), un componente
-  // hermano, no un padre. Mismo patrón exacto que ya usa ese componente
-  // (y OrganizerSettings.jsx/OrganizerEvents.jsx/OrganizerEventWizard.jsx,
-  // ver el diagnóstico) para obtener la organización — no se inventa
-  // ningún fetch ni contexto nuevo, se replica el ya existente.
-  const { getToken } = useAuth();
-  const [organization, setOrganization] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const token = await getToken();
-        const { organization: org } = await apiFetch("/api/organizations/me", { token });
-        if (!cancelled) setOrganization(org);
-      } catch (error) {
-        console.error("No se pudo obtener la organización", error);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [getToken]);
 
   // Ya no se memoiza con `[]`: la Fase 4 (polling) y el Timeline (fechas
   // relativas en vivo) necesitan que "ahora" avance en cada re-render, no
@@ -270,7 +222,7 @@ export default function OrganizerDashboard() {
     // bloques iguales — ver auditoría de la Iteración 0.5.
     <div className="flex flex-col gap-8 lg:gap-10">
       <div className="flex flex-col gap-4">
-        <OrganizationStatusBanner />
+        <OrganizationStatusBanner organization={organization} />
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight text-white">Panel del organizador</h1>

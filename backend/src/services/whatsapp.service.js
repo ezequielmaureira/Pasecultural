@@ -368,6 +368,21 @@ export function getWhatsappDisplayPhoneNumber() {
     return cachedDisplayPhoneNumber;
 }
 
+// Atajo global Organizer ("Cargá tu evento con WhatsApp") — a diferencia de
+// buildOrganizationPhoneVerificationDeepLink (organizationPhoneVerification.
+// service.js), este link NO lleva token: la identidad de la Organization se
+// resuelve del lado del bot por coincidencia de teléfono/WhatsappOrganizerLink
+// (ver processInboundMessage en whatsapp.controller.js), nunca por un
+// parámetro de esta URL. El texto prearmado es sólo UX — cualquier mensaje
+// entrante sin conversación activa dispara el mismo saludo (AUTO_REPLY_TEXT,
+// más abajo), así que este texto no es la única puerta de entrada al flujo.
+export const WHATSAPP_EVENT_CREATION_PREFILLED_TEXT = "Quiero publicar un evento";
+
+export function buildWhatsappEventCreationLink() {
+    const officialNumber = getWhatsappDisplayPhoneNumber();
+    return `https://wa.me/${officialNumber}?text=${encodeURIComponent(WHATSAPP_EVENT_CREATION_PREFILLED_TEXT)}`;
+}
+
 // ==================================================================
 // Respuesta automática mínima — Fase 2D. Sigue sin EventCreationEngine/
 // EventServicePort/Prisma: sólo decide "¿a este mensaje le corresponde

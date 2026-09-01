@@ -499,6 +499,11 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "WHATSAPP_DISPLAY_PHONE_NUMBER is missing/misconfigured — could not build the organization phone verification wa.me deep link.",
         userMessage: "No pudimos generar el enlace de verificación por WhatsApp. Probá de nuevo en unos minutos.",
     },
+    WHATSAPP_EVENT_CREATION_LINK_UNAVAILABLE: {
+        httpStatus: 502,
+        logMessage: "WHATSAPP_DISPLAY_PHONE_NUMBER is missing/misconfigured — could not build the organizer WhatsApp event-creation shortcut link.",
+        userMessage: "No pudimos generar el enlace de WhatsApp. Probá de nuevo en unos minutos.",
+    },
     ORGANIZATION_PHONE_EMAIL_SEND_FAILED: {
         httpStatus: 502,
         logMessage: "Resend failed to deliver the organization phone change authorization OTP email.",

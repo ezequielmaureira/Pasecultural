@@ -18,6 +18,7 @@ import { AuthProvider } from "./context/AuthContext.jsx";
 import { ToastProvider } from "./context/ToastContext.jsx";
 import { OrganizerDataProvider } from "./context/OrganizerDataContext.jsx";
 import { ActiveEventProvider } from "./context/ActiveEventContext.jsx";
+import OrganizerWhatsAppShortcutButton from "./components/organizer/OrganizerWhatsAppShortcutButton.jsx";
 import DashboardDeveloper from "./pages/DashboardDeveloper.jsx";
 import DeveloperOrganizations from "./pages/developer/DeveloperOrganizations.jsx";
 import DeveloperUsers from "./pages/developer/DeveloperUsers.jsx";
@@ -161,6 +162,12 @@ export default function App() {
                     <OrganizerDataProvider>
                       <ActiveEventProvider>
                         <Outlet />
+                        {/* Atajo global "Cargá tu evento con WhatsApp" —
+                            montado UNA sola vez acá, en el shell de TODO el
+                            panel Organizer (ver informe de entrega), nunca
+                            página por página. Cualquier ruta nueva agregada
+                            debajo de "/organizador" lo hereda automáticamente. */}
+                        <OrganizerWhatsAppShortcutButton />
                       </ActiveEventProvider>
                     </OrganizerDataProvider>
                   }

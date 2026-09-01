@@ -11,7 +11,7 @@ import {
     deleteOrganization,
     getPublicOrganizationBySlug,
 } from "../controllers/organization.controller.js";
-import { getWhatsappLinkStatus, linkWhatsappOrganizer } from "../controllers/organizationWhatsapp.controller.js";
+import { getWhatsappLinkStatus, linkWhatsappOrganizer, getWhatsappEventCreationLink } from "../controllers/organizationWhatsapp.controller.js";
 import { getMercadoPagoStatus, startMercadoPagoConnect, disconnectMercadoPagoConnection } from "../controllers/organizationMercadoPago.controller.js";
 import {
     getOrganizationPhoneStatus,
@@ -46,6 +46,13 @@ router.post("/", createOrganization);
 // puntual del usuario se resuelve adentro del service, nunca desde el body.
 router.get("/me/whatsapp-link", requireRole("ORGANIZER"), getWhatsappLinkStatus);
 router.post("/me/whatsapp-link", requireRole("ORGANIZER"), linkWhatsappOrganizer);
+
+// Botón flotante global "Cargá tu evento con WhatsApp" (panel Organizer,
+// ver OrganizerWhatsAppShortcutButton.jsx) — sólo arma la URL wa.me con el
+// número oficial ya configurado (WHATSAPP_DISPLAY_PHONE_NUMBER). El gating
+// FREE/PREMIUM real sigue viviendo en el bot (whatsapp.controller.js), no
+// acá: ver el comentario del controller.
+router.get("/me/whatsapp-event-link", requireRole("ORGANIZER"), getWhatsappEventCreationLink);
 
 // Las rutas /me/whatsapp-number/change/* (número de WhatsApp autorizado
 // del chatbot, OTP-vía-WhatsApp) fueron RETIRADAS — ver el informe de
