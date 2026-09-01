@@ -1,13 +1,20 @@
 import { MessageCircle, Lock } from "lucide-react";
-import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
+import { useBackendUser } from "../../context/AuthContext.jsx";
+import { useOrganizerSession } from "../../context/OrganizerSessionContext.jsx";
 import { useToast } from "../../context/ToastContext.jsx";
 
-// Atajo global del panel Organizer — flotante, montado UNA sola vez en el
-// shell de "/organizador" (ver App.jsx), nunca página por página: cualquier
-// pantalla futura que cuelgue de ese mismo shell lo hereda automáticamente.
-// `organization`/`whatsappEventLink` vienen de OrganizerDataContext (ya
-// cargados una vez para todo el panel) — este componente nunca dispara su
-// propio fetch.
+// Atajo GLOBAL — montado UNA sola vez en App.jsx, por ENCIMA de la
+// separación entre rutas públicas/AppShell/panel Organizer (ver el informe
+// de entrega "globalización del botón"), nunca dentro de una rama de rutas.
+// Por eso sigue visible cuando un Organizer autenticado navega de su panel a
+// la Home pública, /eventos, el detalle de un evento, etc. — y no cuando
+// cambia de "/organizador" a "/" (esa era la causa real del bug detectado:
+// antes vivía dentro de la rama de rutas de "/organizador", que se
+// desmonta por completo al navegar a cualquier ruta pública).
+//
+// `organization`/`whatsappEventLink` vienen de OrganizerSessionContext
+// (fuente global y liviana, nunca carga events/sales/stats) — este
+// componente nunca dispara su propio fetch.
 //
 // PREMIUM real vs FREE se sigue decidiendo en el backend (el bot de
 // WhatsApp, ver blockIfWhatsappEventCreationUnavailable en
@@ -15,12 +22,20 @@ import { useToast } from "../../context/ToastContext.jsx";
 // la UX (abrir WhatsApp vs. mostrar el aviso) — un FREE que se salteara este
 // botón y armara la URL a mano igual sería frenado por el bot.
 export default function OrganizerWhatsAppShortcutButton() {
-  const { organization, loadingOrganization, whatsappEventLink } = useOrganizerData();
+  const { backendUser, syncing } = useBackendUser();
+  const { organization, loadingOrganization, whatsappEventLink } = useOrganizerSession();
   const toast = useToast();
 
-  // Nada que mostrar todavía (primer render) o no hay Organization
-  // resuelta (nunca debería pasar dentro de "/organizador", pero evita un
-  // botón roto si el fetch de arriba falló).
+  const role = backendUser?.role?.toLowerCase();
+
+  // Mientras el rol todavía no se conoce (syncing), o el rol resuelto no es
+  // "organizer" (incluye no autenticado, tras logout, u otro rol): nunca
+  // renderizar nada — ni siquiera fugazmente.
+  if (syncing || role !== "organizer") return null;
+
+  // Organizer confirmado, pero `organization`/`plan` todavía no llegó (o el
+  // fetch falló): tampoco se muestra. Evita tratar a un Organizer PREMIUM
+  // como FREE por un instante mientras carga.
   if (loadingOrganization || !organization) return null;
 
   const isPremium = organization.plan === "PREMIUM";

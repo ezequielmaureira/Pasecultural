@@ -3,7 +3,7 @@ import { useAuth } from "@clerk/clerk-react";
 import { apiFetch } from "../lib/api.js";
 import { listOrganizerSales } from "../lib/saleAdminApi.js";
 import { getMyEventsStats } from "../lib/functionStatsApi.js";
-import { getWhatsappEventCreationLink } from "../lib/organizerWhatsappEventLinkApi.js";
+import { useOrganizerSession } from "./OrganizerSessionContext.jsx";
 
 const OrganizerDataContext = createContext(null);
 
@@ -35,19 +35,12 @@ export function OrganizerDataProvider({ children }) {
   const [eventsStats, setEventsStats] = useState([]);
   const [loadingEventsStats, setLoadingEventsStats] = useState(true);
   const [eventsStatsError, setEventsStatsError] = useState(false);
-  // Botón flotante global "Cargá tu evento con WhatsApp" (ver
-  // OrganizerWhatsAppShortcutButton.jsx) — `organization` se carga UNA sola
-  // vez acá (mismo GET /me que ya usan otras pantallas, ver
-  // organization.service.js) para que ninguna pantalla del panel dispare su
-  // propio fetch sólo para saber `plan` al navegar entre Dashboard/Eventos/
-  // Ventas/Configuración. `whatsappEventLink` es un segundo fetch, pero
-  // deliberadamente LAZY: sólo se pide si `organization.plan === "PREMIUM"`
-  // (ver el efecto de abajo) — un Organizer FREE nunca necesita la URL real
-  // (su click siempre termina en un aviso, nunca abre WhatsApp), así que no
-  // tiene sentido pedirla para él.
-  const [organization, setOrganization] = useState(null);
-  const [loadingOrganization, setLoadingOrganization] = useState(true);
-  const [whatsappEventLink, setWhatsappEventLink] = useState(null);
+  // `organization` YA NO se pide acá: viene de OrganizerSessionContext
+  // (montado globalmente en App.jsx, fuente única de Organization para
+  // todo Smarticket — ver el informe de entrega del botón flotante de
+  // WhatsApp). Este Provider sólo REUTILIZA ese valor, nunca vuelve a
+  // llamar GET /api/organizations/me.
+  const { organization, loadingOrganization } = useOrganizerSession();
 
   const loadEvents = useCallback(async () => {
     setLoadingEvents(true);
@@ -110,48 +103,11 @@ export function OrganizerDataProvider({ children }) {
     }
   }, [getToken]);
 
-  const loadOrganization = useCallback(async () => {
-    setLoadingOrganization(true);
-    try {
-      const token = await getToken();
-      const { organization: org } = await apiFetch("/api/organizations/me", { token });
-      setOrganization(org);
-    } catch (error) {
-      console.error("No se pudo cargar la organización", error);
-      setOrganization(null);
-    } finally {
-      setLoadingOrganization(false);
-    }
-  }, [getToken]);
-
   useEffect(() => {
     loadEvents();
     loadSales();
     loadEventsStats();
-    loadOrganization();
-  }, [loadEvents, loadSales, loadEventsStats, loadOrganization]);
-
-  // Lazy a propósito (ver el comentario del estado más arriba): sólo dispara
-  // cuando ya sabemos que la Organization es PREMIUM, y sólo una vez (nunca
-  // vuelve a pedirlo si `organization` se releyera con el mismo plan).
-  useEffect(() => {
-    if (organization?.plan !== "PREMIUM" || whatsappEventLink) return;
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const token = await getToken();
-        const { url } = await getWhatsappEventCreationLink(token);
-        if (!cancelled) setWhatsappEventLink(url);
-      } catch (error) {
-        console.error("No se pudo obtener el enlace de WhatsApp para carga de eventos", error);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [organization?.plan, whatsappEventLink, getToken]);
+  }, [loadEvents, loadSales, loadEventsStats]);
 
   const value = useMemo(
     () => ({
@@ -169,7 +125,6 @@ export function OrganizerDataProvider({ children }) {
       reloadEventsStats: loadEventsStats,
       organization,
       loadingOrganization,
-      whatsappEventLink,
     }),
     [
       events,
@@ -186,7 +141,6 @@ export function OrganizerDataProvider({ children }) {
       loadEventsStats,
       organization,
       loadingOrganization,
-      whatsappEventLink,
     ]
   );
 

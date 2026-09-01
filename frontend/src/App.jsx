@@ -16,6 +16,7 @@ import DataDeletion from "./pages/DataDeletion.jsx";
 import Profile from "./pages/Profile.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
 import { ToastProvider } from "./context/ToastContext.jsx";
+import { OrganizerSessionProvider } from "./context/OrganizerSessionContext.jsx";
 import { OrganizerDataProvider } from "./context/OrganizerDataContext.jsx";
 import { ActiveEventProvider } from "./context/ActiveEventContext.jsx";
 import OrganizerWhatsAppShortcutButton from "./components/organizer/OrganizerWhatsAppShortcutButton.jsx";
@@ -72,6 +73,7 @@ export default function App() {
     <BrowserRouter>
       <ToastProvider>
       <AuthProvider>
+      <OrganizerSessionProvider>
         <Routes>
           {/* Modo Prelanzamiento — SOLO las rutas comerciales/de descubrimiento
               quedan detrás de PreLaunchGate (ver ese componente). El resto de
@@ -162,12 +164,6 @@ export default function App() {
                     <OrganizerDataProvider>
                       <ActiveEventProvider>
                         <Outlet />
-                        {/* Atajo global "Cargá tu evento con WhatsApp" —
-                            montado UNA sola vez acá, en el shell de TODO el
-                            panel Organizer (ver informe de entrega), nunca
-                            página por página. Cualquier ruta nueva agregada
-                            debajo de "/organizador" lo hereda automáticamente. */}
-                        <OrganizerWhatsAppShortcutButton />
                       </ActiveEventProvider>
                     </OrganizerDataProvider>
                   }
@@ -195,6 +191,12 @@ export default function App() {
             </Route>
           </Route>
         </Routes>
+        {/* Atajo global "Cargá tu evento con WhatsApp" — montado UNA sola
+            vez acá, junto a <Routes> (nunca dentro de una rama de rutas),
+            para que un Organizer autenticado lo siga viendo sin importar si
+            está en su panel o en cualquier pantalla pública de Smarticket. */}
+        <OrganizerWhatsAppShortcutButton />
+      </OrganizerSessionProvider>
       </AuthProvider>
       </ToastProvider>
     </BrowserRouter>
