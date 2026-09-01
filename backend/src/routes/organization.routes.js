@@ -10,6 +10,7 @@ import {
     updateOrganizationPlan,
     deleteOrganization,
     getPublicOrganizationBySlug,
+    getFeaturedOrganizations,
     updateOrganizationBranding,
 } from "../controllers/organization.controller.js";
 import { getWhatsappLinkStatus, linkWhatsappOrganizer } from "../controllers/organizationWhatsapp.controller.js";
@@ -34,6 +35,11 @@ const router = Router();
 // gate de "Modo Prelanzamiento" que ya protege el resto del contenido
 // comercial público).
 router.use("/public", requirePublicLaunch);
+// Premium 2E — ruta ESTÁTICA registrada ANTES que "/public/:slug" a
+// propósito: Express matchea rutas en orden de registro, y ":slug" es un
+// wildcard de un segmento que capturaría literalmente "featured" como si
+// fuera un slug si se registrara después.
+router.get("/public/featured", getFeaturedOrganizations);
 router.get("/public/:slug", getPublicOrganizationBySlug);
 
 router.get("/me", getMyOrganization);

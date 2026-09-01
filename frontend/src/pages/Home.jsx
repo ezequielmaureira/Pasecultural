@@ -4,6 +4,7 @@ import { ChevronRight, ShieldCheck, Ticket, UserCheck, Headset, Search, ScanLine
 import HeroCarousel from "../components/marketplace/HeroCarousel.jsx";
 import CategoryFilterBar from "../components/marketplace/CategoryFilterBar.jsx";
 import EventsCarousel from "../components/marketplace/EventsCarousel.jsx";
+import FeaturedOrganizations from "../components/marketplace/FeaturedOrganizations.jsx";
 import Button from "../components/ui/Button.jsx";
 import { apiFetch } from "../lib/api.js";
 import { TRUST_FEATURES } from "../data/publicMockData.js";
@@ -59,6 +60,38 @@ function AllEventsSection({ events }) {
     <section className={`${SECTION} ${SECTION_SPACING}`}>
       <SectionHeader title="Todos los eventos" viewAllHref="/eventos" />
       <EventsCarousel events={events} />
+    </section>
+  );
+}
+
+// Premium 2E — "Organizaciones destacadas". Sección independiente del
+// listado de eventos: NO comparte loading/error con `events` a propósito
+// (ver Home() más abajo) — que este endpoint tarde o falle nunca debe
+// retrasar ni romper el resto de la Home. Cero resultados -> la sección
+// entera desaparece (nunca un título "Organizaciones destacadas" con un
+// espacio vacío debajo).
+function FeaturedOrganizationsSection({ organizations }) {
+  if (organizations.length === 0) return null;
+  return (
+    <section className={`${SECTION} ${SECTION_SPACING}`}>
+      <SectionHeader title="Organizaciones destacadas" />
+      <FeaturedOrganizations organizations={organizations} />
+    </section>
+  );
+}
+
+function FeaturedOrganizationsSkeleton() {
+  return (
+    <section className={`${SECTION} ${SECTION_SPACING}`}>
+      <div className="mb-4 h-6 w-52 animate-pulse rounded bg-white/10" />
+      <div className="flex gap-4 overflow-hidden">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="flex w-24 shrink-0 flex-col items-center gap-2 sm:w-28">
+            <div className="h-16 w-16 shrink-0 animate-pulse rounded-full bg-white/5 sm:h-20 sm:w-20" />
+            <div className="h-3 w-16 animate-pulse rounded bg-white/5" />
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -152,6 +185,13 @@ export default function Home() {
   const navigate = useNavigate();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Premium 2E — independiente de `events`/`loading` a propósito: un fallo
+  // o demora de este endpoint secundario nunca debe bloquear ni romper el
+  // resto de la Home (ver FeaturedOrganizationsSection). Ante error, se
+  // loguea y `featuredOrganizations` queda en `[]` — la sección
+  // simplemente no se muestra, sin ningún mensaje técnico al visitante.
+  const [featuredOrganizations, setFeaturedOrganizations] = useState([]);
+  const [loadingFeatured, setLoadingFeatured] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -163,6 +203,23 @@ export default function Home() {
       .catch((err) => console.error("No se pudieron cargar los eventos", err))
       .finally(() => {
         if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    apiFetch("/api/organizations/public/featured")
+      .then(({ organizations: list }) => {
+        if (!cancelled) setFeaturedOrganizations(list);
+      })
+      .catch((err) => console.error("No se pudieron cargar las organizaciones destacadas", err))
+      .finally(() => {
+        if (!cancelled) setLoadingFeatured(false);
       });
 
     return () => {
@@ -195,6 +252,12 @@ export default function Home() {
           onChange={(id) => navigate(id === "ALL" ? "/eventos" : `/eventos?categoria=${id}`)}
         />
       </section>
+
+      {loadingFeatured ? (
+        <FeaturedOrganizationsSkeleton />
+      ) : (
+        <FeaturedOrganizationsSection organizations={featuredOrganizations} />
+      )}
 
       {loading && (
         <>

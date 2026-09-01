@@ -10,6 +10,7 @@ import {
     updateOrganizationPlanService,
     deleteOrganizationService,
     getPublicOrganizationBySlugService,
+    getFeaturedOrganizationsService,
     updateOrganizationBrandingService,
 } from "../services/organization.service.js";
 import { validateOrganizationInput } from "../utils/validateOrganization.js";
@@ -247,6 +248,28 @@ export const updateOrganizationPlan = async (req, res) => {
 // 404 — un cambio de plan (PREMIUM→FREE o al revés) tiene que reflejarse en
 // la siguiente request, sin que un proxy/navegador sirva una respuesta
 // vieja cacheada.
+// Premium 2E — "Organizaciones destacadas" en Home. Sin `req.params`, sin
+// entrada de usuario que validar: una lectura pública, siempre 200 (nunca
+// 404 — 0 elegibles es una respuesta válida, `organizations: []`, la Home
+// decide ocultar la sección). Mismo `Cache-Control: no-store` que
+// getPublicOrganizationBySlug, mismo motivo: un cambio de plan tiene que
+// reflejarse en la siguiente carga de Home.
+export const getFeaturedOrganizations = async (req, res) => {
+    res.set("Cache-Control", "no-store");
+
+    try {
+        const data = await getFeaturedOrganizationsService();
+
+        res.status(200).json(data);
+    } catch (error) {
+        console.error(error);
+
+        res.status(500).json({
+            message: "Error al obtener las organizaciones destacadas",
+        });
+    }
+};
+
 export const getPublicOrganizationBySlug = async (req, res) => {
     res.set("Cache-Control", "no-store");
 

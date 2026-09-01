@@ -41,4 +41,5 @@ export const DB_TEST_FILES = [
     "organizationBranding.crud.test.js",
     "eventOrganizationTheme.test.js",
     "organizationMyBranding.test.js",
+    "organizationFeatured.test.js",
 ];

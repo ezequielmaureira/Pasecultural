@@ -403,6 +403,54 @@ export const getPublicOrganizationBySlugService = async (slug) => {
     };
 };
 
+// Premium 2E — "Organizaciones destacadas" en Home. V1: NO es un ranking
+// de popularidad, es únicamente la selección de Organizations que pueden
+// tener página pública Premium (misma autoridad que
+// getPublicOrganizationBySlugService), ordenada de forma determinista.
+//
+// Elegibilidad: EXACTAMENTE la misma que habilita `/organizacion/:slug`
+// (isFeatureAvailable(organization, PremiumFeature.PUBLIC_ORGANIZATION_PAGE)
+// + slug no nulo) — nunca se muestra acá una Organization cuyo click
+// terminaría en ORGANIZATION_PUBLIC_PAGE_NOT_AVAILABLE. Filtrado
+// DIRECTAMENTE en la query Prisma (`plan: "PREMIUM"`) en vez de traer todo
+// y filtrar en JS con `isFeatureAvailable` fila por fila: hoy
+// isFeatureAvailable(org, PUBLIC_ORGANIZATION_PAGE) es exactamente
+// isPremium(org) (ver organizationPlanPolicy.js — no depende de ningún
+// otro campo de Organization), así que ambas formas son equivalentes y
+// filtrar en la query evita traer organizaciones que después se
+// descartarían igual. Si esa policy alguna vez agrega una condición que
+// no sea derivable de `plan` en SQL, este filtro debe revisarse.
+//
+// Orden V1 (deliberadamente simple, NO "popularidad"): `updatedAt desc,
+// id desc` — no existe todavía ninguna señal de actividad real
+// (eventos/ventas) que se pueda leer sin agregar joins/agregaciones
+// nuevas fuera de alcance de esta fase; `updatedAt` es el único campo ya
+// existente que se aproxima a "organización con actividad reciente en su
+// perfil", e `id` (cuid) es el desempate estable para que el orden sea
+// 100% determinista incluso ante timestamps iguales.
+const MAX_FEATURED_ORGANIZATIONS = 10;
+
+export const getFeaturedOrganizationsService = async () => {
+    const organizations = await prisma.organization.findMany({
+        where: {
+            plan: "PREMIUM",
+            slug: { not: null },
+        },
+        select: {
+            id: true,
+            name: true,
+            slug: true,
+            logo: true,
+            city: true,
+            province: true,
+        },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        take: MAX_FEATURED_ORGANIZATIONS,
+    });
+
+    return { organizations };
+};
+
 // Premium — Fase 2D / 2D.1.1. Whitelist EXCLUSIVA: logo, brandPrimaryColor
 // y brandSecondaryColor. Nada de website/redes/description/name/slug acá —
 // esos siguen siendo datos generales de Organization (PATCH /me). El
