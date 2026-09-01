@@ -3,7 +3,6 @@ import { logger } from "../logging/logger.js";
 import { sendDeveloperAlert, DeveloperAlertType } from "./email/sendDeveloperAlert.service.js";
 import { generateUniqueSlug } from "../utils/generateSlug.js";
 import { isFeatureAvailable, PremiumFeature } from "./organizationPlanPolicy.js";
-import { isValidHexColor } from "../utils/colorValidation.js";
 
 const ORGANIZATION_STATUSES = new Set([
     "PENDING",
@@ -327,7 +326,6 @@ export const getPublicOrganizationBySlugService = async (slug) => {
             facebook: true,
             tiktok: true,
             logo: true,
-            brandPrimaryColor: true,
             plan: true,
         },
     });
@@ -355,13 +353,12 @@ export const getPublicOrganizationBySlugService = async (slug) => {
         orderBy: { startDate: "asc" },
     });
 
-    const brandingAvailable = isFeatureAvailable(organization, PremiumFeature.CUSTOM_BRANDING);
-
     return {
         organization: {
             id: organization.id,
             name: organization.name,
             slug: organization.slug,
+            logo: organization.logo,
             description: organization.description,
             city: organization.city,
             province: organization.province,
@@ -370,63 +367,9 @@ export const getPublicOrganizationBySlugService = async (slug) => {
             facebook: organization.facebook,
             tiktok: organization.tiktok,
         },
-        branding: brandingAvailable
-            ? { logo: organization.logo, primaryColor: organization.brandPrimaryColor }
-            : { logo: null, primaryColor: null },
         events: events.map((event) => ({
             ...event,
             organization: { id: organization.id, name: organization.name },
         })),
     };
-};
-
-// Premium — Fase 2D. Whitelist EXCLUSIVA: logo y brandPrimaryColor. Nada de
-// website/redes/description/name/slug acá — esos siguen siendo datos
-// generales de Organization (PATCH /me). El downgrade PREMIUM→FREE nunca
-// borra logo/brandPrimaryColor ya guardados: sólo deja de permitir que se
-// sigan editando (y de exponerlos en la página pública) hasta que la
-// Organization vuelva a ser PREMIUM.
-export const updateOrganizationBrandingService = async (clerkId, organizationId, input) => {
-    const user = await getUserByClerkId(clerkId);
-
-    if (!user) {
-        throw new Error("USER_NOT_SYNCED");
-    }
-
-    const organization = await prisma.organization.findUnique({
-        where: { id: organizationId },
-    });
-
-    if (!organization) {
-        throw new Error("ORGANIZATION_NOT_FOUND");
-    }
-
-    if (organization.ownerId !== user.id) {
-        throw new Error("ORGANIZATION_BRANDING_FORBIDDEN");
-    }
-
-    if (!isFeatureAvailable(organization, PremiumFeature.CUSTOM_BRANDING)) {
-        throw new Error("PREMIUM_FEATURE_REQUIRED");
-    }
-
-    const data = {};
-
-    if (Object.hasOwn(input, "logo")) {
-        data.logo = input.logo || null;
-    }
-
-    if (Object.hasOwn(input, "brandPrimaryColor")) {
-        const value = input.brandPrimaryColor;
-        if (value !== null && !isValidHexColor(value)) {
-            throw new Error("ORGANIZATION_BRANDING_INVALID_COLOR");
-        }
-        data.brandPrimaryColor = value;
-    }
-
-    const updated = await prisma.organization.update({
-        where: { id: organizationId },
-        data,
-    });
-
-    return { id: updated.id, logo: updated.logo, brandPrimaryColor: updated.brandPrimaryColor };
 };

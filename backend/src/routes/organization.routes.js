@@ -10,7 +10,6 @@ import {
     updateOrganizationPlan,
     deleteOrganization,
     getPublicOrganizationBySlug,
-    updateOrganizationBranding,
 } from "../controllers/organization.controller.js";
 import { getWhatsappLinkStatus, linkWhatsappOrganizer } from "../controllers/organizationWhatsapp.controller.js";
 import { getMercadoPagoStatus, startMercadoPagoConnect, disconnectMercadoPagoConnection } from "../controllers/organizationMercadoPago.controller.js";
@@ -84,14 +83,6 @@ router.post("/me/phone-verification/cancel", requireRole("ORGANIZER"), cancelOrg
 // DISTINTO de /cancel: cancel sólo descarta un intento EN CURSO y nunca
 // toca Organization.phone; esto sí lo hace (ver el informe de entrega).
 router.post("/me/phone-verification/delete", requireRole("ORGANIZER"), deleteOrganizationPhone);
-
-// Premium — Fase 2D. ":id" explícito a propósito (nunca "/me/branding") para
-// no dejar ambigüedad a futuro si un owner llegara a tener más de una
-// Organization. requireRole("ORGANIZER") alcanza para exigir sesión+rol; la
-// pertenencia real (organization.ownerId === user.id) y CUSTOM_BRANDING se
-// verifican dentro del service — DEVELOPER deliberadamente no tiene acceso
-// a esta ruta en esta fase.
-router.patch("/:id/branding", requireRole("ORGANIZER"), updateOrganizationBranding);
 
 router.get("/", requireRole("DEVELOPER"), getOrganizations);
 router.get("/:id", requireRole("DEVELOPER"), getOrganizationById);

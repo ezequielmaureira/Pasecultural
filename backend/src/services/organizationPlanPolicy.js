@@ -152,7 +152,6 @@ export async function updatePlanLimitsService(plan, developerUserId, input) {
 export const PremiumFeature = Object.freeze({
     WHATSAPP_EVENT_CREATION: "WHATSAPP_EVENT_CREATION",
     PUBLIC_ORGANIZATION_PAGE: "PUBLIC_ORGANIZATION_PAGE",
-    CUSTOM_BRANDING: "CUSTOM_BRANDING",
 });
 
 // Claves de límites configurables desde Developer (ver

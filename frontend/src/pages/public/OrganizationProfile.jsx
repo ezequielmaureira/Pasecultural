@@ -91,12 +91,7 @@ export default function OrganizationProfile() {
     );
   }
 
-  const { organization, branding, events } = data;
-
-  // Color scope acotado a este subárbol vía custom property inline — nunca
-  // toca document.documentElement/body/:root ni ningún estado global, y no
-  // deja nada vivo después de desmontar (no es un efecto, es sólo estilo).
-  const rootStyle = branding.primaryColor ? { "--brand-color": branding.primaryColor } : undefined;
+  const { organization, events } = data;
 
   const safeSocialLinks = SOCIAL_FIELDS.map(({ key, label, Icon }) => ({
     key,
@@ -106,14 +101,11 @@ export default function OrganizationProfile() {
   })).filter((link) => isSafeExternalUrl(link.url));
 
   return (
-    <div style={rootStyle} className="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10">
+    <div className="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10">
       <div className="flex flex-col items-center gap-4 text-center">
-        {/* Logo SÓLO desde branding.logo, nunca organization.logo — es lo
-            que mantiene CUSTOM_BRANDING realmente independiente de
-            PUBLIC_ORGANIZATION_PAGE. */}
-        {branding.logo && (
+        {organization.logo && (
           <img
-            src={branding.logo}
+            src={organization.logo}
             alt={organization.name}
             className="h-20 w-20 rounded-full border border-white/10 object-cover"
           />
@@ -141,7 +133,7 @@ export default function OrganizationProfile() {
                 href={url}
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition-colors duration-150 hover:border-[var(--brand-color,theme(colors.violet.500))] hover:text-white"
+                className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition-colors duration-150 hover:border-violet-500 hover:text-white"
               >
                 <Icon className="h-3.5 w-3.5" />
                 {label}

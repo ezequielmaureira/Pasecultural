@@ -254,41 +254,28 @@ testWithDb("PUB-J: upgrade FREE->PREMIUM hace que la siguiente request quede dis
     }
 });
 
-testWithDb("PUB-M: con CUSTOM_BRANDING disponible, logo y color de marca aparecen correctamente", async () => {
+testWithDb("PUB-M: con PUBLIC_ORGANIZATION_PAGE disponible, el logo aparece correctamente", async () => {
     const owner = await createUser();
     let org;
     try {
         org = await createOrganization(owner.id, {
             plan: "PREMIUM",
             logo: "https://cdn.example.com/logo.png",
-            brandPrimaryColor: "#7C3AED",
         });
         const result = await getPublicOrganizationBySlugService(org.slug);
-        assert.equal(result.branding.logo, "https://cdn.example.com/logo.png");
-        assert.equal(result.branding.primaryColor, "#7C3AED");
+        assert.equal(result.organization.logo, "https://cdn.example.com/logo.png");
     } finally {
         await cleanup({ organizationIds: [org?.id], userIds: [owner.id] });
     }
 });
 
-// PUB-L/PUB-Q: con la implementación actual de organizationPlanPolicy.js
-// (fuera de alcance de esta fase — isFeatureAvailable == isPremium para
-// TODAS las features hoy), no existe un estado real de datos donde
-// PUBLIC_ORGANIZATION_PAGE esté disponible y CUSTOM_BRANDING no lo esté:
-// ambas dependen exactamente del mismo isPremium(organization). El service
-// SÍ las evalúa con dos llamadas independientes a isFeatureAvailable (listo
-// para cuando esa política diverja por feature). Lo que sí es reproducible
-// hoy y se prueba acá: un logo/brandPrimaryColor ya guardado en una
-// Organization FREE nunca puede filtrarse por este endpoint, porque la
-// página entera no está disponible.
-testWithDb("PUB-L/PUB-Q: logo/brandPrimaryColor de una Organization FREE nunca se filtran (la página entera no está disponible)", async () => {
+testWithDb("PUB-L/PUB-Q: el logo de una Organization FREE nunca se filtra (la página entera no está disponible)", async () => {
     const owner = await createUser();
     let org;
     try {
         org = await createOrganization(owner.id, {
             plan: "FREE",
             logo: "https://cdn.example.com/leak.png",
-            brandPrimaryColor: "#123456",
         });
         await assert.rejects(
             () => getPublicOrganizationBySlugService(org.slug),
