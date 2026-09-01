@@ -10,7 +10,6 @@ import { getPublicServiceFeeTiers } from "../../../lib/serviceFeeApi.js";
 import { estimateServiceFeeForUnitPrice } from "../../../lib/serviceFee.js";
 import { processPayment } from "../../../lib/payment/paymentGateway.js";
 import { useOrganizationThemeProps } from "../../../hooks/useOrganizationThemeProps.js";
-import { useRegisterPublicBrandingPending } from "../../../context/PublicBrandingContext.jsx";
 import PurchaseOverlay from "./PurchaseOverlay.jsx";
 import SelectFunctionStep from "./steps/SelectFunctionStep.jsx";
 import SelectTicketsStep from "./steps/SelectTicketsStep.jsx";
@@ -171,12 +170,6 @@ export default function PurchaseWizard() {
   const [recoveryAttempt, setRecoveryAttempt] = useState(0);
 
   const publishFlow = usePublishFlow();
-
-  // Mientras `loading` es true todavía no sabemos si la Organization dueña
-  // de este evento es Premium — PublicShell cubre Navbar/fondo/Footer con
-  // BootstrapScreen hasta que este mismo `loading` (el del fetch del
-  // evento, más abajo) cae a `false`. No toca lógica de compra/precio/pago.
-  useRegisterPublicBrandingPending(loading);
 
   // Continuidad visual del Organization Theme desde EventDetail — mismo
   // criterio: siempre según la Organization dueña del evento. Sólo

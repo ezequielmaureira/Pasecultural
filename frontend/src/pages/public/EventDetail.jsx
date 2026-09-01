@@ -14,7 +14,6 @@ import {
   formatEventPrice,
 } from "../../lib/eventFormat.js";
 import { useOrganizationThemeProps } from "../../hooks/useOrganizationThemeProps.js";
-import { useRegisterPublicBrandingPending } from "../../context/PublicBrandingContext.jsx";
 
 export default function EventDetail() {
   const { slug } = useParams();
@@ -44,12 +43,6 @@ export default function EventDetail() {
       cancelled = true;
     };
   }, [slug]);
-
-  // Mientras `loading` es true todavía no sabemos si la Organization dueña
-  // de este evento es Premium — PublicShell cubre Navbar/fondo/Footer con
-  // BootstrapScreen hasta que este mismo `loading` cae a `false` (éxito,
-  // 404 o error de red, ver el `finally` de arriba).
-  useRegisterPublicBrandingPending(loading);
 
   // Theme SIEMPRE según la Organization dueña del evento, nunca según el
   // origen de navegación (Home, /eventos, link directo o compartido) — el
