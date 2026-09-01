@@ -91,8 +91,6 @@ export default function App() {
               <Route path="/eventos" element={<EventsList />} />
               <Route path="/evento/:slug" element={<EventDetail />} />
               <Route path="/organizacion/:slug" element={<OrganizationProfile />} />
-              {/* Sin RequireAuth a propósito: comprar nunca exige cuenta. */}
-              <Route path="/comprar" element={<PurchaseWizard />} />
               <Route element={<RequireAuth />}>
                 <Route path="/mis-entradas" element={<MyTickets />} />
               </Route>
@@ -102,6 +100,23 @@ export default function App() {
           </Route>
 
           <Route element={<PublicShell />}>
+            {/* Performance — Fix 1 (checkout público): FUERA de PreLaunchGate
+                a propósito. La autoridad real de Modo Prelanzamiento para
+                esta pantalla sigue siendo exclusivamente el backend
+                (requirePublicLaunch ya protege GET /api/events/public/:slug,
+                ver event.routes.js) — el gate de ESTE componente sólo
+                agregaba un round-trip serial (GET /api/public/launch-status)
+                que bloqueaba el montaje de PurchaseWizard antes de poder
+                siquiera empezar a pedir el evento, duplicando una validación
+                que el propio endpoint del evento ya vuelve a hacer. Sacarlo
+                de acá no abre ningún acceso nuevo: si Prelanzamiento está
+                OFF, el fetch del evento sigue devolviendo
+                PUBLIC_LAUNCH_DISABLED (503) y PurchaseWizard ya lo maneja
+                con su `loadError`/ErrorStep existente, igual que cualquier
+                otro error de carga del evento — ver el informe de la
+                auditoría de performance. Sin RequireAuth a propósito:
+                comprar nunca exige cuenta. */}
+            <Route path="/comprar" element={<PurchaseWizard />} />
             {/* Público a propósito: tiene que mostrar "vas a operar como
                 scanner de X" antes del login — RequireAuth la mandaría
                 directo a /iniciar-sesion sin ese contexto. La propia
