@@ -41,7 +41,7 @@ export default function OrganizerWhatsAppShortcutButton() {
   const isPremium = organization.plan === "PREMIUM";
 
   const baseClass =
-    "fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-4 z-50 flex items-center gap-2.5 rounded-full px-5 py-3.5 text-sm font-semibold shadow-lg shadow-black/30 outline-none transition-all duration-150 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-[#05070B] sm:bottom-6 sm:right-6 sm:px-6 sm:py-4 sm:text-base";
+    "fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-4 z-50 flex items-center gap-2.5 rounded-full px-5 py-3.5 text-sm font-semibold shadow-lg shadow-black/30 outline-none transition-all duration-150 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-[#05070B] light:focus-visible:ring-offset-slate-50 light:shadow-slate-400/30 sm:bottom-6 sm:right-6 sm:px-6 sm:py-4 sm:text-base";
 
   if (isPremium) {
     return (

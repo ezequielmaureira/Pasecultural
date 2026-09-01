@@ -40,13 +40,13 @@ const SOCIAL_LINKS = [
 
 export default function Footer() {
   return (
-    <footer className="border-t border-white/5">
+    <footer className="border-t border-white/5 light:border-slate-200">
       <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-8 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
         <Link to="/" className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-blue-500 text-white">
             <Ticket className="h-4 w-4" />
           </div>
-          <span className="text-sm font-bold text-white">
+          <span className="text-sm font-bold text-white light:text-slate-900">
             Pase<span className="text-violet-400">Cultural</span>
           </span>
         </Link>
@@ -60,7 +60,7 @@ export default function Footer() {
             <Link
               key={link.label}
               to={link.to}
-              className="text-xs text-slate-400 transition-colors duration-150 hover:text-white"
+              className="text-xs text-slate-400 transition-colors duration-150 hover:text-white light:text-slate-500 light:hover:text-slate-900"
             >
               {link.label}
             </Link>
@@ -71,7 +71,7 @@ export default function Footer() {
                 key={label}
                 href={href}
                 aria-label={label}
-                className="text-slate-500 transition-colors duration-150 hover:text-white"
+                className="text-slate-500 transition-colors duration-150 hover:text-white light:hover:text-slate-900"
               >
                 <Icon className="h-4 w-4" />
               </a>

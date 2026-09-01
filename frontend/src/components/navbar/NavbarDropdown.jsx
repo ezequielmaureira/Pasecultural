@@ -65,7 +65,7 @@ export default function NavbarDropdown({ label, trigger, items, align = "left" }
         className={
           trigger
             ? ""
-            : "flex items-center gap-1 py-1 text-sm font-medium text-slate-300 transition-colors duration-150 hover:text-white"
+            : "flex items-center gap-1 py-1 text-sm font-medium text-slate-300 transition-colors duration-150 hover:text-white light:text-slate-600 light:hover:text-slate-900"
         }
       >
         {trigger ?? (
@@ -81,7 +81,7 @@ export default function NavbarDropdown({ label, trigger, items, align = "left" }
       <div
         role="menu"
         onKeyDown={handleMenuKeyDown}
-        className={`absolute top-full z-30 mt-3 min-w-[15rem] origin-top rounded-xl border border-white/10 bg-[#0B1120] p-1.5 shadow-xl shadow-black/40 transition-all duration-150 ease-out ${
+        className={`absolute top-full z-30 mt-3 min-w-[15rem] origin-top rounded-xl border border-white/10 bg-[#0B1120] p-1.5 shadow-xl shadow-black/40 transition-all duration-150 ease-out light:border-slate-200 light:bg-white light:shadow-slate-300/60 ${
           align === "right" ? "right-0" : "left-0"
         } ${
           open
@@ -101,7 +101,7 @@ export default function NavbarDropdown({ label, trigger, items, align = "left" }
           const itemClassName = `flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors duration-150 ${
             item.danger
               ? "text-rose-400 hover:bg-rose-500/10"
-              : "text-slate-300 hover:bg-white/5 hover:text-white"
+              : "text-slate-300 hover:bg-white/5 hover:text-white light:text-slate-700 light:hover:bg-slate-900/5 light:hover:text-slate-900"
           }`;
 
           if (item.onClick) {

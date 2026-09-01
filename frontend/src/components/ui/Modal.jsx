@@ -89,15 +89,15 @@ export default function Modal({ title, onClose, children, maxWidth = "max-w-md" 
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`max-h-[90vh] w-full ${maxWidth} overflow-y-auto rounded-xl border border-white/10 bg-[#0B1120] p-6 outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50`}
+        className={`max-h-[90vh] w-full ${maxWidth} overflow-y-auto rounded-xl border border-white/10 bg-[#0B1120] p-6 outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 light:border-slate-200 light:bg-white`}
       >
         <div className="mb-4 flex items-center justify-between">
-          <h3 id={titleId} className="text-sm font-semibold text-white">{title}</h3>
+          <h3 id={titleId} className="text-sm font-semibold text-white light:text-slate-900">{title}</h3>
           <button
             type="button"
             onClick={onClose}
             aria-label="Cerrar"
-            className="text-slate-400 transition-colors duration-150 hover:text-white"
+            className="text-slate-400 transition-colors duration-150 hover:text-white light:hover:text-slate-900"
           >
             <X className="h-4 w-4" />
           </button>

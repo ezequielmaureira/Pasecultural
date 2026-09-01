@@ -15,6 +15,7 @@ import PrivacyPolicy from "./pages/PrivacyPolicy.jsx";
 import DataDeletion from "./pages/DataDeletion.jsx";
 import Profile from "./pages/Profile.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
+import { ThemeProvider } from "./context/ThemeContext.jsx";
 import { ToastProvider } from "./context/ToastContext.jsx";
 import { OrganizerSessionProvider } from "./context/OrganizerSessionContext.jsx";
 import { OrganizerDataProvider } from "./context/OrganizerDataContext.jsx";
@@ -70,6 +71,7 @@ function NotFound() {
 
 export default function App() {
   return (
+    <ThemeProvider>
     <BrowserRouter>
       <ToastProvider>
       <AuthProvider>
@@ -200,5 +202,6 @@ export default function App() {
       </AuthProvider>
       </ToastProvider>
     </BrowserRouter>
+    </ThemeProvider>
   );
 }

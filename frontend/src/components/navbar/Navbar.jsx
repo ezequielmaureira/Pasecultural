@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { Ticket, ShoppingCart, LayoutDashboard, Menu, X, ChevronDown } from "lucide-react";
 import Button from "../ui/Button.jsx";
+import ThemeToggle from "../ui/ThemeToggle.jsx";
 import NavbarDropdown from "./NavbarDropdown.jsx";
 import SearchBar from "./SearchBar.jsx";
 import UserMenu from "./UserMenu.jsx";
@@ -19,7 +20,7 @@ const navLinkClassName = ({ isActive }) =>
   `relative py-1 text-sm font-medium transition-colors duration-150 ${
     isActive
       ? "text-violet-400 after:absolute after:-bottom-[21px] after:left-0 after:h-0.5 after:w-full after:bg-violet-500"
-      : "text-slate-300 hover:text-white"
+      : "text-slate-300 hover:text-white light:text-slate-600 light:hover:text-slate-900"
   }`;
 
 export default function Navbar() {
@@ -56,9 +57,9 @@ export default function Navbar() {
 
   return (
     <header
-      className={`sticky top-0 z-20 border-b transition-all duration-300 ${
+      className={`sticky top-0 z-20 border-b transition-all duration-300 light:border-slate-200 light:bg-white/95 ${
         scrolled
-          ? "border-white/10 bg-[#05070B]/90 shadow-lg shadow-black/40 backdrop-blur-xl"
+          ? "border-white/10 bg-[#05070B]/90 shadow-lg shadow-black/40 backdrop-blur-xl light:shadow-slate-200/60"
           : "border-white/5 bg-[#05070B]/95 backdrop-blur"
       }`}
     >
@@ -68,10 +69,10 @@ export default function Navbar() {
             <Ticket className="h-5 w-5" />
           </div>
           <div className="leading-tight">
-            <span className="block text-lg font-bold text-white">
+            <span className="block text-lg font-bold text-white light:text-slate-900">
               Pase<span className="text-violet-400">Cultural</span>
             </span>
-            <span className="hidden text-[11px] italic text-slate-500 sm:block">
+            <span className="hidden text-[11px] italic text-slate-500 sm:block light:text-slate-400">
               Descubrí, organizá y viví eventos.
             </span>
           </div>
@@ -103,10 +104,11 @@ export default function Navbar() {
           <button
             type="button"
             aria-label="Carrito"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 transition-colors duration-150 hover:bg-white/5 hover:text-white"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 transition-colors duration-150 hover:bg-white/5 hover:text-white light:text-slate-500 light:hover:bg-slate-900/5 light:hover:text-slate-900"
           >
             <ShoppingCart className="h-[18px] w-[18px]" />
           </button>
+          <ThemeToggle />
           {isDeveloper && (
             <Link to="/developer">
               <Button size="sm" className="ml-2 hidden items-center gap-1.5 sm:flex">
@@ -122,7 +124,7 @@ export default function Navbar() {
             aria-expanded={mobileOpen}
             aria-controls="mobile-nav-menu"
             onClick={() => setMobileOpen((open) => !open)}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-300 transition-colors duration-150 hover:bg-white/5 hover:text-white lg:hidden"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-300 transition-colors duration-150 hover:bg-white/5 hover:text-white light:text-slate-500 light:hover:bg-slate-900/5 light:hover:text-slate-900 lg:hidden"
           >
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
@@ -130,11 +132,11 @@ export default function Navbar() {
       </div>
 
       {mobileOpen && (
-        <div id="mobile-nav-menu" className="border-t border-white/5 bg-[#05070B] px-4 py-4 sm:px-6 lg:hidden">
+        <div id="mobile-nav-menu" className="border-t border-white/5 bg-[#05070B] px-4 py-4 light:border-slate-200 light:bg-white sm:px-6 lg:hidden">
           <SearchBar className="mb-4 w-full md:hidden" />
           <nav aria-label="Navegación" className="flex flex-col gap-1">
             <details className="group">
-              <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium text-slate-200 transition-colors duration-150 hover:bg-white/5 hover:text-white [&::-webkit-details-marker]:hidden">
+              <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium text-slate-200 transition-colors duration-150 hover:bg-white/5 hover:text-white light:text-slate-700 light:hover:bg-slate-900/5 light:hover:text-slate-900 [&::-webkit-details-marker]:hidden">
                 Explorar eventos
                 <ChevronDown className="h-4 w-4 shrink-0 text-slate-500 transition-transform duration-200 group-open:rotate-180" />
               </summary>
@@ -144,7 +146,7 @@ export default function Navbar() {
                     key={option.label}
                     to={option.to}
                     onClick={() => setMobileOpen(false)}
-                    className="rounded-lg px-3 py-2 text-sm text-slate-400 transition-colors duration-150 hover:bg-white/5 hover:text-white"
+                    className="rounded-lg px-3 py-2 text-sm text-slate-400 transition-colors duration-150 hover:bg-white/5 hover:text-white light:text-slate-500 light:hover:bg-slate-900/5 light:hover:text-slate-900"
                   >
                     {option.label}
                   </NavLink>
@@ -153,7 +155,7 @@ export default function Navbar() {
             </details>
 
             <details className="group">
-              <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium text-slate-200 transition-colors duration-150 hover:bg-white/5 hover:text-white [&::-webkit-details-marker]:hidden">
+              <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium text-slate-200 transition-colors duration-150 hover:bg-white/5 hover:text-white light:text-slate-700 light:hover:bg-slate-900/5 light:hover:text-slate-900 [&::-webkit-details-marker]:hidden">
                 Categorías
                 <ChevronDown className="h-4 w-4 shrink-0 text-slate-500 transition-transform duration-200 group-open:rotate-180" />
               </summary>
@@ -163,7 +165,7 @@ export default function Navbar() {
                     key={category.label}
                     to={category.to}
                     onClick={() => setMobileOpen(false)}
-                    className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-400 transition-colors duration-150 hover:bg-white/5 hover:text-white"
+                    className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-400 transition-colors duration-150 hover:bg-white/5 hover:text-white light:text-slate-500 light:hover:bg-slate-900/5 light:hover:text-slate-900"
                   >
                     <span aria-hidden>{category.emoji}</span>
                     {category.label}
@@ -175,28 +177,28 @@ export default function Navbar() {
             <NavLink
               to="/como-funciona"
               onClick={() => setMobileOpen(false)}
-              className="rounded-lg px-3 py-2.5 text-sm font-medium text-slate-200 transition-colors duration-150 hover:bg-white/5 hover:text-white"
+              className="rounded-lg px-3 py-2.5 text-sm font-medium text-slate-200 transition-colors duration-150 hover:bg-white/5 hover:text-white light:text-slate-700 light:hover:bg-slate-900/5 light:hover:text-slate-900"
             >
               ¿Cómo funciona?
             </NavLink>
             <NavLink
               to={isOrganizer ? "/organizador" : "/para-organizadores"}
               onClick={() => setMobileOpen(false)}
-              className="rounded-lg px-3 py-2.5 text-sm font-medium text-slate-200 transition-colors duration-150 hover:bg-white/5 hover:text-white"
+              className="rounded-lg px-3 py-2.5 text-sm font-medium text-slate-200 transition-colors duration-150 hover:bg-white/5 hover:text-white light:text-slate-700 light:hover:bg-slate-900/5 light:hover:text-slate-900"
             >
               Para organizadores
             </NavLink>
             <NavLink
               to="/recuperar-compra"
               onClick={() => setMobileOpen(false)}
-              className="rounded-lg px-3 py-2.5 text-sm font-medium text-slate-200 transition-colors duration-150 hover:bg-white/5 hover:text-white"
+              className="rounded-lg px-3 py-2.5 text-sm font-medium text-slate-200 transition-colors duration-150 hover:bg-white/5 hover:text-white light:text-slate-700 light:hover:bg-slate-900/5 light:hover:text-slate-900"
             >
               Recuperar mis entradas
             </NavLink>
             <NavLink
               to="/arrepentimiento"
               onClick={() => setMobileOpen(false)}
-              className="rounded-lg px-3 py-2.5 text-sm font-medium text-slate-200 transition-colors duration-150 hover:bg-white/5 hover:text-white"
+              className="rounded-lg px-3 py-2.5 text-sm font-medium text-slate-200 transition-colors duration-150 hover:bg-white/5 hover:text-white light:text-slate-700 light:hover:bg-slate-900/5 light:hover:text-slate-900"
             >
               Botón de arrepentimiento
             </NavLink>

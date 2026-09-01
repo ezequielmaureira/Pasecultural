@@ -12,6 +12,23 @@
          Configuración. -->
     <meta name="robots" content="noindex, nofollow" />
     <title>PaseCultural</title>
+    <!-- Selector universal claro/oscuro — aplica la clase ANTES de que React
+         monte, para evitar el flash de un modo incorrecto al recargar.
+         Sólo lee localStorage (misma clave que ThemeContext.jsx) y setea
+         una clase en <html> — nunca toca red, nunca bloquea el render. -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("smarticket-theme");
+          if (stored === "light") {
+            document.documentElement.classList.add("light");
+          }
+        } catch (err) {
+          /* localStorage inaccesible (modo privado estricto, etc.): se
+             queda en el modo oscuro por default, igual que siempre. */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

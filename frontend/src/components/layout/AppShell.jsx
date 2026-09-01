@@ -10,7 +10,7 @@ export default function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-[#05070B]">
+    <div className="min-h-screen bg-[#05070B] light:bg-slate-50">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <Topbar onOpenSidebar={() => setSidebarOpen(true)} />
       <main className="pt-[var(--topbar-height)] lg:pl-[var(--sidebar-width)]">

@@ -128,7 +128,7 @@ function TopNavItem({ label, icon: Icon, path, end }) {
         `group relative flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors duration-150 ${
           isActive
             ? "bg-violet-500/10 text-violet-300"
-            : "text-slate-400 hover:bg-white/5 hover:text-white"
+            : "text-slate-400 hover:bg-white/5 hover:text-white light:text-slate-500 light:hover:bg-slate-900/5 light:hover:text-slate-900"
         }`
       }
     >
@@ -139,7 +139,7 @@ function TopNavItem({ label, icon: Icon, path, end }) {
           )}
           <Icon
             className={`h-[18px] w-[18px] shrink-0 transition-colors duration-150 ${
-              isActive ? "text-violet-400" : "text-slate-500 group-hover:text-white"
+              isActive ? "text-violet-400" : "text-slate-500 group-hover:text-white light:group-hover:text-slate-900"
             }`}
           />
           {label}
@@ -186,7 +186,7 @@ export default function Sidebar({ open = false, onClose }) {
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="relative flex h-full flex-col overflow-hidden rounded-[28px] bg-[#0B1120] shadow-xl shadow-black/30">
+        <div className="relative flex h-full flex-col overflow-hidden rounded-[28px] bg-[#0B1120] shadow-xl shadow-black/30 light:bg-white light:shadow-slate-300/60">
           <button
             type="button"
             onClick={onClose}
@@ -200,10 +200,10 @@ export default function Sidebar({ open = false, onClose }) {
             P
           </div>
           <div className="min-w-0">
-            <p className="truncate text-base font-bold leading-tight text-white">
+            <p className="truncate text-base font-bold leading-tight text-white light:text-slate-900">
               PaseCultural
             </p>
-            <p className="truncate text-xs text-slate-400">
+            <p className="truncate text-xs text-slate-400 light:text-slate-500">
               Plataforma de gestión
             </p>
           </div>
@@ -229,7 +229,7 @@ export default function Sidebar({ open = false, onClose }) {
                           `rounded-lg px-3 py-1.5 text-sm transition-colors duration-150 ${
                             isActive
                               ? "text-violet-300"
-                              : "text-slate-500 hover:text-white"
+                              : "text-slate-500 hover:text-white light:hover:text-slate-900"
                           }`
                         }
                       >
