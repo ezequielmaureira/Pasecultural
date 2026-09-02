@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { Ticket, ShoppingCart, LayoutDashboard, Menu, X, ChevronDown } from "lucide-react";
 import Button from "../ui/Button.jsx";
-import ThemeToggle from "../ui/ThemeToggle.jsx";
 import NavbarDropdown from "./NavbarDropdown.jsx";
 import SearchBar from "./SearchBar.jsx";
 import UserMenu from "./UserMenu.jsx";
@@ -108,7 +107,6 @@ export default function Navbar() {
           >
             <ShoppingCart className="h-[18px] w-[18px]" />
           </button>
-          <ThemeToggle />
           {isDeveloper && (
             <Link to="/developer">
               <Button size="sm" className="ml-2 hidden items-center gap-1.5 sm:flex">

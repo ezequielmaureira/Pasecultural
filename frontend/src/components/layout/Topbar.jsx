@@ -1,6 +1,5 @@
 import { Menu } from "lucide-react";
 import SearchInput from "../ui/SearchInput.jsx";
-import ThemeToggle from "../ui/ThemeToggle.jsx";
 import UserMenu from "./UserMenu.jsx";
 
 export default function Topbar({ onOpenSidebar }) {
@@ -18,7 +17,6 @@ export default function Topbar({ onOpenSidebar }) {
 
         <div className="flex flex-1 items-center justify-end gap-4">
           <SearchInput className="hidden w-64 sm:block" />
-          <ThemeToggle />
           <UserMenu />
         </div>
       </div>

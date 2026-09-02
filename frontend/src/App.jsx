@@ -71,10 +71,10 @@ function NotFound() {
 
 export default function App() {
   return (
-    <ThemeProvider>
     <BrowserRouter>
       <ToastProvider>
       <AuthProvider>
+      <ThemeProvider>
       <OrganizerSessionProvider>
         <Routes>
           {/* Modo Prelanzamiento — SOLO las rutas comerciales/de descubrimiento
@@ -199,9 +199,9 @@ export default function App() {
             está en su panel o en cualquier pantalla pública de Smarticket. */}
         <OrganizerWhatsAppShortcutButton />
       </OrganizerSessionProvider>
+      </ThemeProvider>
       </AuthProvider>
       </ToastProvider>
     </BrowserRouter>
-    </ThemeProvider>
   );
 }

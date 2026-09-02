@@ -12,20 +12,34 @@
          Configuración. -->
     <meta name="robots" content="noindex, nofollow" />
     <title>PaseCultural</title>
-    <!-- Selector universal claro/oscuro — aplica la clase ANTES de que React
-         monte, para evitar el flash de un modo incorrecto al recargar.
-         Sólo lee localStorage (misma clave que ThemeContext.jsx) y setea
-         una clase en <html> — nunca toca red, nunca bloquea el render. -->
+    <!-- Apariencia claro/oscuro CONTEXTUAL (ver ThemeContext.jsx) — aplica la
+         clase ANTES de que React monte, para evitar el flash de un modo
+         incorrecto al recargar. NO hay preferencia manual del usuario acá:
+         esto sólo cubre los dos casos que se pueden resolver de forma
+         síncrona, sin esperar a que Clerk resuelva el rol (eso lo termina
+         de decidir ThemeContext ya con React montado):
+           1) URL directa a /organizacion/:slug → claro, siempre.
+           2) sessionStorage ya marca una Organization Experience activa
+              (ver ORG_EXPERIENCE_STORAGE_KEY) → claro (cubre F5 sobre el
+              detalle de un evento o el checkout, dentro de ese recorrido).
+         Un Organizer que recarga en una pantalla general puede ver un
+         flash oscuro breve hasta que se resuelve su rol — aceptable,
+         evita construir una solución de bootstrap más pesada para un caso
+         que no se puede saber de forma síncrona sin autenticar antes. -->
     <script>
       (function () {
         try {
-          var stored = localStorage.getItem("smarticket-theme");
-          if (stored === "light") {
+          if (location.pathname.indexOf("/organizacion/") === 0) {
+            document.documentElement.classList.add("light");
+            return;
+          }
+          if (sessionStorage.getItem("smarticket-organization-experience")) {
             document.documentElement.classList.add("light");
           }
         } catch (err) {
-          /* localStorage inaccesible (modo privado estricto, etc.): se
-             queda en el modo oscuro por default, igual que siempre. */
+          /* localStorage/sessionStorage inaccesible (modo privado estricto,
+             etc.): se queda en el modo oscuro por default, igual que
+             siempre. */
         }
       })();
     </script>
