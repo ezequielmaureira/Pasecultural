@@ -330,7 +330,7 @@ export const getPublicOrganizationBySlugService = async (slug) => {
         },
     });
 
-    if (!organization || !isFeatureAvailable(organization, PremiumFeature.PUBLIC_ORGANIZATION_PAGE)) {
+    if (!organization || !(await isFeatureAvailable(organization, PremiumFeature.PUBLIC_ORGANIZATION_PAGE))) {
         throw new Error("ORGANIZATION_PUBLIC_PAGE_NOT_AVAILABLE");
     }
 

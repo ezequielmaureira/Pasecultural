@@ -134,7 +134,11 @@ async function restorePlanLimits(snapshot) {
         const data = {
             maxActiveEvents: original.maxActiveEvents,
             maxCourtesiesPerEvent: original.maxCourtesiesPerEvent,
-            maxScannersPerEvent: original.maxScannersPerEvent,
+            maxActiveScanners: original.maxActiveScanners,
+            maxTicketsPerEvent: original.maxTicketsPerEvent,
+            publicOrgPageEnabled: original.publicOrgPageEnabled,
+            whatsappEventCreationEnabled: original.whatsappEventCreationEnabled,
+            featuredEligible: original.featuredEligible,
             updatedByUserId: original.updatedByUserId,
         };
         const current = await prisma.organizationPlanLimits.findUnique({ where: { plan } });

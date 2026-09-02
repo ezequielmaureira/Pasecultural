@@ -11,6 +11,7 @@ import {
 import { sendScannerVerificationCodeEmail } from "./email/sendScannerVerificationCode.service.js";
 import { signScannerSessionToken } from "../config/scannerSession.js";
 import { logger } from "../logging/logger.js";
+import { assertActiveScannerCapacity } from "./eventScanner.service.js";
 
 const CODE_EXPIRY_MS = 10 * 60 * 1000; // 10 minutos
 const MAX_VERIFICATION_ATTEMPTS = 5;
@@ -240,18 +241,37 @@ export const verifyScannerInvitationCodeService = async (token, code, { userAgen
     });
     if (existingForEvent) throw new AppError(ErrorCodes.SCANNER_INVITATION_ALREADY_ASSIGNED);
 
-    const claimed = await prisma.eventScanner.updateMany({
-        where: { id: scanner.id, status: "INVITED" },
-        data: {
-            status: "ACTIVE",
-            activatedAt: now,
-            lastAccessAt: now,
-            lastDevice: userAgent ?? null,
-            verificationCodeHash: null,
-            verificationCodeExpiresAt: null,
-            verificationAttempts: 0,
-            verificationLastSentAt: null,
-        },
+    // Developer > Planes — este es el punto real donde el scanner pasa de
+    // INVITED a ACTIVE (única vía pública, sin auth Clerk, ver el comentario
+    // de la función). Como el cupo de maxActiveScanners es de scanners
+    // REALMENTE activos (nunca de invitaciones), la validación de límite va
+    // ACÁ, no en la creación de la invitación — ver
+    // assertActiveScannerCapacity (eventScanner.service.js) y el informe de
+    // la ronda "Developer > Planes". Todo (lock + conteo + el UPDATE
+    // condicionado a status="INVITED" que ya protegía contra doble-claim)
+    // ocurre en la MISMA transacción para que dos activaciones concurrentes
+    // del mismo cupo nunca puedan superar el límite.
+    const eventForCapacity = await prisma.event.findUnique({
+        where: { id: scanner.eventId },
+        select: { organizationId: true, organization: { select: { id: true, plan: true } } },
+    });
+    if (!eventForCapacity?.organization) throw new AppError(ErrorCodes.SCANNER_INVITATION_NOT_FOUND);
+
+    const claimed = await prisma.$transaction(async (tx) => {
+        await assertActiveScannerCapacity(tx, eventForCapacity.organization);
+        return tx.eventScanner.updateMany({
+            where: { id: scanner.id, status: "INVITED" },
+            data: {
+                status: "ACTIVE",
+                activatedAt: now,
+                lastAccessAt: now,
+                lastDevice: userAgent ?? null,
+                verificationCodeHash: null,
+                verificationCodeExpiresAt: null,
+                verificationAttempts: 0,
+                verificationLastSentAt: null,
+            },
+        });
     });
     if (claimed.count !== 1) throw new AppError(ErrorCodes.SCANNER_INVITATION_ALREADY_CLAIMED);
 

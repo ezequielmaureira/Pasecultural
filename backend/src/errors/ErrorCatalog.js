@@ -703,8 +703,8 @@ export const ErrorCatalog = Object.freeze({
     },
     PLAN_SCANNER_LIMIT_REACHED: {
         httpStatus: 409,
-        logMessage: "Scanner creation attempted while the event is already at (or above) the organization's plan scanner limit.",
-        userMessage: "Alcanzaste el máximo de scanners de tu plan para este evento.",
+        logMessage: "Scanner creation attempted while the organization is already at (or above) its plan's active scanner limit.",
+        userMessage: "Alcanzaste el máximo de scanners activos de tu plan.",
     },
     ORGANIZATION_PUBLIC_PAGE_NOT_AVAILABLE: {
         httpStatus: 404,

@@ -3,30 +3,46 @@ import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { logger } from "../logging/logger.js";
 
-// Premium — Fase 2A. Módulo único y chico para todo lo relacionado a
-// "qué puede hacer una Organization según su plan" — ver el informe de
-// auditoría/entrega. Dos responsabilidades separadas en el mismo archivo
-// (mismo criterio que developerAlertConfig.service.js: CRUD para
-// Developer + lectura con fallback seguro para el resto del sistema):
+// Premium — Fase 2A, evolucionada por "Developer > Planes" (ver el informe
+// de esa ronda). Módulo único y chico para todo lo relacionado a "qué
+// puede hacer una Organization según su plan". Dos responsabilidades
+// separadas en el mismo archivo (mismo criterio que
+// developerAlertConfig.service.js: CRUD para Developer + lectura con
+// fallback seguro para el resto del sistema):
 //
-//   1) Administración (Developer > Configuración): leer/reemplazar la
-//      configuración GENERAL de límites de cada plan.
-//   2) Policy de lectura (consumida por guards de una fase posterior —
-//      Fase 2B/2C/2D — NINGUNO activo todavía en esta ronda): resolver
-//      límites/features de una Organization puntual, con fallback seguro.
-//
-// Esta policy NUNCA cuenta eventos/cortesías/scanners ni toca ninguna
-// query de negocio — sólo resuelve configuración. Contar y comparar es
-// responsabilidad de cada service de negocio en la fase que los aplique.
+//   1) Administración (Developer > Planes): leer/reemplazar la
+//      configuración GENERAL de límites y features de cada plan.
+//   2) Policy de lectura: resolver límites/features de una Organization
+//      puntual, con fallback seguro. Esta policy NUNCA cuenta
+//      eventos/scanners ni toca ninguna query de negocio — sólo resuelve
+//      configuración. Contar y comparar es responsabilidad de cada
+//      service de negocio (event.service.js, eventScanner.service.js).
 
 const VALID_PLANS = new Set(["FREE", "PREMIUM"]);
 
-const LIMIT_FIELDS = ["maxActiveEvents", "maxCourtesiesPerEvent", "maxScannersPerEvent"];
+// Campos numéricos que este SERVICE sigue validando/persistiendo tal cual
+// (compatibilidad con el enforcement real de cortesías — courtesy.service.js/
+// sale.service.js — y con los tests existentes que configuran
+// maxCourtesiesPerEvent llamando a este mismo service). "Developer > Planes"
+// (la pantalla) YA NO expone ni edita maxCourtesiesPerEvent: dejó de ser una
+// de las 6 reglas de FREE/PREMIUM (ver el informe de la ronda) — el frontend
+// simplemente no manda esa clave nunca más. Se deja disponible acá a
+// propósito para no romper el enforcement real ni el resto del sistema que
+// ya la consume.
+const LIMIT_FIELDS = ["maxActiveEvents", "maxCourtesiesPerEvent", "maxActiveScanners", "maxTicketsPerEvent"];
+const BOOLEAN_FIELDS = ["publicOrgPageEnabled", "whatsappEventCreationEnabled", "featuredEligible"];
 
 const LIMIT_FIELD_LABELS = {
     maxActiveEvents: "El límite de eventos activos",
     maxCourtesiesPerEvent: "El límite de cortesías por evento",
-    maxScannersPerEvent: "El límite de scanners por evento",
+    maxActiveScanners: "El límite de scanners activos",
+    maxTicketsPerEvent: "El límite de entradas máximas por evento",
+};
+
+const BOOLEAN_FIELD_LABELS = {
+    publicOrgPageEnabled: "Página pública propia",
+    whatsappEventCreationEnabled: "Carga de eventos por WhatsApp",
+    featuredEligible: "Puede ser organización destacada",
 };
 
 function serializeLimits(row) {
@@ -34,30 +50,44 @@ function serializeLimits(row) {
         plan: row.plan,
         maxActiveEvents: row.maxActiveEvents,
         maxCourtesiesPerEvent: row.maxCourtesiesPerEvent,
-        maxScannersPerEvent: row.maxScannersPerEvent,
+        maxActiveScanners: row.maxActiveScanners,
+        maxTicketsPerEvent: row.maxTicketsPerEvent,
+        publicOrgPageEnabled: row.publicOrgPageEnabled,
+        whatsappEventCreationEnabled: row.whatsappEventCreationEnabled,
+        featuredEligible: row.featuredEligible,
         updatedAt: row.updatedAt,
         updatedByUserId: row.updatedByUserId,
     };
 }
 
-// null = SIN LÍMITE. Fallback si falta la fila de un plan (nunca debería
-// pasar — la migración siembra las 2 — pero si alguna se borrara a mano,
-// esto es lo que ve tanto la policy interna como, indirectamente, el
-// panel Developer).
+// null = SIN LÍMITE / false = deshabilitado. Fallback si falta la fila de
+// un plan (nunca debería pasar — la migración siembra las 2 — pero si
+// alguna se borrara a mano, esto es lo que ve tanto la policy interna como,
+// indirectamente, el panel Developer).
 function fallbackLimits(plan) {
-    return { plan, maxActiveEvents: null, maxCourtesiesPerEvent: null, maxScannersPerEvent: null, updatedAt: null, updatedByUserId: null };
+    return {
+        plan,
+        maxActiveEvents: null,
+        maxCourtesiesPerEvent: null,
+        maxActiveScanners: null,
+        maxTicketsPerEvent: null,
+        publicOrgPageEnabled: false,
+        whatsappEventCreationEnabled: false,
+        featuredEligible: false,
+        updatedAt: null,
+        updatedByUserId: null,
+    };
 }
 
 // Validación PURA (nunca toca la base, nunca lanza) — mismo criterio que
 // validateDeveloperAlertConfigInput/validateServiceFeeTiersInput. Cada
-// campo presente en el body debe ser: null (sin límite), o un entero >= 0.
-// 0 es un valor legítimo ("no permitir altas nuevas") — nunca se trata
-// como falsy/vacío. Campos ausentes del body simplemente no se tocan
-// (PATCH parcial, mismo criterio que updateMyOrganizationService).
-// Campos desconocidos del body se ignoran en silencio — no existe en todo
-// el repo ningún endpoint que "rechace" un campo extra con error (ver el
-// informe de entrega para la evidencia), así que esta validación sigue
-// esa misma convención en vez de inventar una nueva.
+// campo numérico presente en el body debe ser: null (sin límite), o un
+// entero >= 0. 0 es un valor legítimo ("no permitir altas nuevas") — nunca
+// se trata como falsy/vacío. Cada campo booleano presente debe ser
+// literalmente true/false. Campos ausentes del body simplemente no se
+// tocan (PATCH parcial). Campos desconocidos (incluye
+// maxCourtesiesPerEvent) se ignoran en silencio, misma convención que el
+// resto del repo.
 export function validatePlanLimitsInput(input) {
     const errors = [];
     const sanitized = {};
@@ -83,12 +113,23 @@ export function validatePlanLimitsInput(input) {
         sanitized[field] = n;
     }
 
+    for (const field of BOOLEAN_FIELDS) {
+        if (!input || !Object.hasOwn(input, field)) continue;
+
+        const raw = input[field];
+        if (typeof raw !== "boolean") {
+            errors.push(`${BOOLEAN_FIELD_LABELS[field]} debe ser sí/no.`);
+            continue;
+        }
+        sanitized[field] = raw;
+    }
+
     if (errors.length > 0) return { valid: false, errors };
     return { valid: true, errors: [], sanitized };
 }
 
 // ---------------------------------------------------------------------
-// Administración (Developer > Configuración)
+// Administración (Developer > Planes)
 // ---------------------------------------------------------------------
 
 // GET /api/developer/plan-limits — { FREE: {...}, PREMIUM: {...} }. Lanza
@@ -104,8 +145,8 @@ export async function getAllPlanLimitsForDeveloperService() {
     return byPlan;
 }
 
-// PATCH /api/developer/plan-limits/:plan — reemplaza (parcialmente) los
-// límites de UN plan. developerUserId ya resuelto por el controller
+// PATCH /api/developer/plan-limits/:plan — reemplaza (parcialmente) la
+// configuración de UN plan. developerUserId ya resuelto por el controller
 // (req.dbUser.id, ver requireRole) — mismo criterio que
 // replaceDeveloperAlertConfigService/updateServiceFeeConfigService.
 export async function updatePlanLimitsService(plan, developerUserId, input) {
@@ -127,7 +168,11 @@ export async function updatePlanLimitsService(plan, developerUserId, input) {
                   plan,
                   maxActiveEvents: null,
                   maxCourtesiesPerEvent: null,
-                  maxScannersPerEvent: null,
+                  maxActiveScanners: null,
+                  maxTicketsPerEvent: null,
+                  publicOrgPageEnabled: false,
+                  whatsappEventCreationEnabled: false,
+                  featuredEligible: false,
                   ...sanitized,
                   updatedByUserId: developerUserId,
               },
@@ -138,21 +183,30 @@ export async function updatePlanLimitsService(plan, developerUserId, input) {
 }
 
 // ---------------------------------------------------------------------
-// Policy de lectura — consumida por guards de una fase posterior. NUNCA
-// lanza: una configuración que no se puede leer no puede romper la
-// operación de negocio que la consulta, cae al fallback seguro (mismo
-// criterio que getDeveloperAlertConfigOrDefaults/
-// isPublicLaunchEnabledOrDefault).
+// Policy de lectura — consumida por guards de negocio. NUNCA lanza: una
+// configuración que no se puede leer no puede romper la operación de
+// negocio que la consulta, cae al fallback seguro (mismo criterio que
+// getDeveloperAlertConfigOrDefaults/isPublicLaunchEnabledOrDefault).
 // ---------------------------------------------------------------------
 
-// Features que van a exigir PREMIUM — todavía SIN ningún guard activo en
-// esta ronda (Fase 2A es sólo infraestructura). Constantes centralizadas
-// para que el código futuro las importe de acá, nunca strings sueltos
-// repetidos por el repo.
+// Features booleanas por plan, ahora 100% configurables desde Developer >
+// Planes (antes: hardcodeadas a "sólo PREMIUM" — ver el informe de la
+// ronda "Developer > Planes"). FEATURED_ELIGIBLE está acá por consistencia
+// de forma (misma función genérica isFeatureAvailable), pero todavía no
+// tiene ningún guard/consumidor real en el resto del sistema — sólo se
+// configura en esta ronda (ver el informe: elegibilidad del PLAN, nunca
+// el toggle individual de una Organization puntual).
 export const PremiumFeature = Object.freeze({
     WHATSAPP_EVENT_CREATION: "WHATSAPP_EVENT_CREATION",
     PUBLIC_ORGANIZATION_PAGE: "PUBLIC_ORGANIZATION_PAGE",
+    FEATURED_ELIGIBLE: "FEATURED_ELIGIBLE",
 });
+
+const FEATURE_FIELD_BY_KEY = {
+    [PremiumFeature.WHATSAPP_EVENT_CREATION]: "whatsappEventCreationEnabled",
+    [PremiumFeature.PUBLIC_ORGANIZATION_PAGE]: "publicOrgPageEnabled",
+    [PremiumFeature.FEATURED_ELIGIBLE]: "featuredEligible",
+};
 
 // Claves de límites configurables desde Developer (ver
 // OrganizationPlanLimits) — dependen de configuración editable, NUNCA
@@ -160,14 +214,24 @@ export const PremiumFeature = Object.freeze({
 // algún campo, y viceversa.
 export const PlanLimitKey = Object.freeze({
     ACTIVE_EVENTS: "ACTIVE_EVENTS",
+    // Sigue en uso real por sale.service.js (issueCourtesyService) — ya no
+    // es editable desde Developer > Planes (ver LIMIT_FIELDS más arriba),
+    // pero el enforcement existente no se toca.
     COURTESIES_PER_EVENT: "COURTESIES_PER_EVENT",
-    SCANNERS_PER_EVENT: "SCANNERS_PER_EVENT",
+    // Scanners ACTIVOS de la ORGANIZACIÓN — no por evento (renombrado
+    // desde SCANNERS_PER_EVENT, ver el informe de la ronda "Developer >
+    // Planes": el campo/enforcement anterior modelaba mal la regla real).
+    ACTIVE_SCANNERS: "ACTIVE_SCANNERS",
+    // Configurado desde esta ronda; todavía SIN ningún guard/consumidor
+    // real (ver el informe: "configurada pero pendiente de enforcement").
+    MAX_TICKETS_PER_EVENT: "MAX_TICKETS_PER_EVENT",
 });
 
 const LIMIT_FIELD_BY_KEY = {
     [PlanLimitKey.ACTIVE_EVENTS]: "maxActiveEvents",
     [PlanLimitKey.COURTESIES_PER_EVENT]: "maxCourtesiesPerEvent",
-    [PlanLimitKey.SCANNERS_PER_EVENT]: "maxScannersPerEvent",
+    [PlanLimitKey.ACTIVE_SCANNERS]: "maxActiveScanners",
+    [PlanLimitKey.MAX_TICKETS_PER_EVENT]: "maxTicketsPerEvent",
 };
 
 // Lectura cruda de la fila de UN plan (FREE o PREMIUM) — nunca lanza.
@@ -185,7 +249,7 @@ export async function getPlanLimits(plan) {
     }
 }
 
-// Conveniencia: resuelve los límites a partir de una Organization ya
+// Conveniencia: resuelve la configuración a partir de una Organization ya
 // cargada (usa organization.plan, default FREE si no viene).
 export async function getOrganizationPlanLimits(organization) {
     return getPlanLimits(organization?.plan ?? "FREE");
@@ -195,13 +259,19 @@ export function isPremium(organization) {
     return organization?.plan === "PREMIUM";
 }
 
-// Todas las features de PremiumFeature exigen Premium hoy. Sin guard
-// activo todavía en ningún endpoint real — lo consume una fase posterior.
-export function isFeatureAvailable(organization, feature) {
-    if (!Object.values(PremiumFeature).includes(feature)) {
+// Fuente de verdad real para gating de features por plan — lee la
+// configuración persistida (Developer > Planes), NUNCA vuelve a
+// hardcodear "sólo PREMIUM". organization.plan resuelve la fila a leer;
+// si no hay configuración legible, fallbackLimits() devuelve false para
+// toda feature (fail-safe: nunca habilita algo por accidente si la config
+// no se pudo leer).
+export async function isFeatureAvailable(organization, feature) {
+    const field = FEATURE_FIELD_BY_KEY[feature];
+    if (!field) {
         throw new Error(`organizationPlanPolicy: feature desconocida "${feature}"`);
     }
-    return isPremium(organization);
+    const limits = await getOrganizationPlanLimits(organization);
+    return limits[field] === true;
 }
 
 // null = sin límite (ilimitado) — nunca -1/Infinity. limitKey debe ser

@@ -1165,7 +1165,7 @@ async function blockIfWhatsappEventCreationUnavailable(active, reply, getOrganiz
         await reply(WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT, "ORGANIZATION_NOT_FOUND");
         return true;
     }
-    if (!isFeatureAvailable(organization, PremiumFeature.WHATSAPP_EVENT_CREATION)) {
+    if (!(await isFeatureAvailable(organization, PremiumFeature.WHATSAPP_EVENT_CREATION))) {
         await reply(WHATSAPP_EVENT_CREATION_PREMIUM_REQUIRED_TEXT, "PREMIUM_REQUIRED");
         return true;
     }
@@ -1780,7 +1780,7 @@ export async function processInboundMessage(
                 await reply(WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT, "SELECTION_ORG_UNAVAILABLE");
                 return;
             }
-            if (!isFeatureAvailable(organizationForGate, PremiumFeature.WHATSAPP_EVENT_CREATION)) {
+            if (!(await isFeatureAvailable(organizationForGate, PremiumFeature.WHATSAPP_EVENT_CREATION))) {
                 await clearPendingSelection(channelRef);
                 await reply(WHATSAPP_EVENT_CREATION_PREMIUM_REQUIRED_TEXT, "PREMIUM_REQUIRED");
                 return;
@@ -1838,7 +1838,7 @@ export async function processInboundMessage(
                     await reply(WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT, "ORGANIZATION_NOT_FOUND");
                     return;
                 }
-                if (!isFeatureAvailable(organizationForGate, PremiumFeature.WHATSAPP_EVENT_CREATION)) {
+                if (!(await isFeatureAvailable(organizationForGate, PremiumFeature.WHATSAPP_EVENT_CREATION))) {
                     await reply(WHATSAPP_EVENT_CREATION_PREMIUM_REQUIRED_TEXT, "PREMIUM_REQUIRED");
                     return;
                 }

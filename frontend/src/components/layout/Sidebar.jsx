@@ -15,6 +15,7 @@ import {
   Receipt,
   Gift,
   Undo2,
+  Sparkles,
 } from "lucide-react";
 import { useBackendUser } from "../../context/AuthContext.jsx";
 import { NEW_EVENT_REQUEST_EVENT } from "../../lib/eventChatEvents.js";
@@ -38,6 +39,10 @@ const NAV_BY_ROLE = {
     },
     { label: "Scanners", icon: ScanLine, path: "/developer/scanners", end: true },
     { label: "Ventas", icon: LineChart, path: "/developer/ventas", end: true },
+    // Developer > Planes — antes vivía como "Límites por plan" dentro de
+    // Configuración; ahora es su propia sección (ver
+    // pages/developer/DeveloperPlans.jsx).
+    { label: "Planes", icon: Sparkles, path: "/developer/planes", end: true },
     // MP-6 — antes un placeholder deshabilitado (sin `path`, ver
     // DisabledNavItem más abajo); activado con la primera sección real:
     // comisión de servicio (ver pages/developer/DeveloperSettings.jsx).

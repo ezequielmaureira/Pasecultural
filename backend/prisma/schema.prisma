@@ -393,9 +393,33 @@ model OrganizationPlanLimits {
   id   String           @id @default(cuid())
   plan OrganizationPlan @unique
 
-  maxActiveEvents       Int?
+  maxActiveEvents   Int?
+  // Histórico — Fase 2A. Ya NO es parte de las 6 reglas configurables desde
+  // Developer > Planes (ver el informe de la ronda "Developer > Planes").
+  // Se deja de exponer/editar desde acá a propósito (nunca se borra ni se
+  // migra destructivamente): courtesy.service.js sigue leyéndolo tal cual
+  // quedó guardado, sólo que ya nadie puede cambiarlo desde el panel.
   maxCourtesiesPerEvent Int?
-  maxScannersPerEvent   Int?
+  // Renombrado desde maxScannersPerEvent (mismo dato/columna, migración NO
+  // destructiva) — la regla real siempre fue "scanners activos de la
+  // ORGANIZACIÓN", nunca por evento; ver eventScanner.service.js.
+  maxActiveScanners     Int?
+  // Entradas máximas por EVENTO (no mensual/anual/acumulado). Fase Planes —
+  // todavía sin consumidor real (ver el informe de la ronda).
+  maxTicketsPerEvent    Int?
+
+  // Los 3 flags de abajo reemplazan el chequeo hardcodeado
+  // "sólo PREMIUM" (ver organizationPlanPolicy.js#isFeatureAvailable):
+  // ahora cada plan decide su propio valor, configurable desde Developer >
+  // Planes. Semilla de la migración: PREMIUM=true/true, FREE=false/false
+  // para publicOrgPageEnabled/whatsappEventCreationEnabled — igual al
+  // comportamiento efectivo previo a este cambio (cero regresión).
+  // featuredEligible es 100% nuevo (nada lo consumía antes), sembrado en
+  // false para ambos planes: no existe ninguna regla de negocio previa que
+  // inferir para su default.
+  publicOrgPageEnabled          Boolean @default(false)
+  whatsappEventCreationEnabled  Boolean @default(false)
+  featuredEligible              Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -79,7 +79,11 @@ async function restorePlanLimits(snapshot) {
         const data = {
             maxActiveEvents: original.maxActiveEvents,
             maxCourtesiesPerEvent: original.maxCourtesiesPerEvent,
-            maxScannersPerEvent: original.maxScannersPerEvent,
+            maxActiveScanners: original.maxActiveScanners,
+            maxTicketsPerEvent: original.maxTicketsPerEvent,
+            publicOrgPageEnabled: original.publicOrgPageEnabled,
+            whatsappEventCreationEnabled: original.whatsappEventCreationEnabled,
+            featuredEligible: original.featuredEligible,
             updatedByUserId: original.updatedByUserId,
         };
         if (current) {
@@ -163,15 +167,15 @@ testWithDb("PS-E: DEVELOPER puede volver a establecer null = sin límite", async
     const developer = await createUser({ role: "DEVELOPER" });
     const snapshot = await snapshotPlanLimits();
     try {
-        await updatePlanLimitsService("PREMIUM", developer.id, { maxScannersPerEvent: 20 });
+        await updatePlanLimitsService("PREMIUM", developer.id, { maxActiveScanners: 20 });
         const withLimit = await prisma.organizationPlanLimits.findUnique({ where: { plan: "PREMIUM" } });
-        assert.equal(withLimit.maxScannersPerEvent, 20);
+        assert.equal(withLimit.maxActiveScanners, 20);
 
-        const updated = await updatePlanLimitsService("PREMIUM", developer.id, { maxScannersPerEvent: null });
-        assert.equal(updated.maxScannersPerEvent, null);
+        const updated = await updatePlanLimitsService("PREMIUM", developer.id, { maxActiveScanners: null });
+        assert.equal(updated.maxActiveScanners, null);
 
         const fresh = await prisma.organizationPlanLimits.findUnique({ where: { plan: "PREMIUM" } });
-        assert.equal(fresh.maxScannersPerEvent, null);
+        assert.equal(fresh.maxActiveScanners, null);
     } finally {
         await restorePlanLimits(snapshot);
         await cleanupUsers([developer.id]);
@@ -219,14 +223,14 @@ testWithDb("PS-H: un valor float es rechazado y la fila queda intacta", async ()
     const snapshot = await snapshotPlanLimits();
     try {
         await assert.rejects(
-            () => updatePlanLimitsService("PREMIUM", developer.id, { maxScannersPerEvent: 2.5 }),
+            () => updatePlanLimitsService("PREMIUM", developer.id, { maxActiveScanners: 2.5 }),
             (error) => {
                 assert.equal(error.code, "PLAN_LIMITS_INVALID");
                 return true;
             }
         );
         const fresh = await prisma.organizationPlanLimits.findUnique({ where: { plan: "PREMIUM" } });
-        assert.equal(fresh.maxScannersPerEvent, snapshot.PREMIUM?.maxScannersPerEvent ?? null);
+        assert.equal(fresh.maxActiveScanners, snapshot.PREMIUM?.maxActiveScanners ?? null);
     } finally {
         await restorePlanLimits(snapshot);
         await cleanupUsers([developer.id]);
@@ -245,7 +249,7 @@ testWithDb("PS-I: actualizar límites no modifica ninguna Organization existente
         });
         const before = await prisma.organization.findUnique({ where: { id: org.id } });
 
-        await updatePlanLimitsService("FREE", developer.id, { maxActiveEvents: 1, maxCourtesiesPerEvent: 1, maxScannersPerEvent: 1 });
+        await updatePlanLimitsService("FREE", developer.id, { maxActiveEvents: 1, maxCourtesiesPerEvent: 1, maxActiveScanners: 1 });
 
         const after = await prisma.organization.findUnique({ where: { id: org.id } });
         assert.deepEqual(after, before, "ninguna columna de la Organization debe cambiar");
@@ -300,10 +304,13 @@ testWithDb("PS-L: si falta la fila de un plan, la policy cae al fallback sin lí
         const limits = await getPlanLimits("PREMIUM");
         assert.equal(limits.maxActiveEvents, null);
         assert.equal(limits.maxCourtesiesPerEvent, null);
-        assert.equal(limits.maxScannersPerEvent, null);
+        assert.equal(limits.maxActiveScanners, null);
+        assert.equal(limits.publicOrgPageEnabled, false);
+        assert.equal(limits.whatsappEventCreationEnabled, false);
+        assert.equal(limits.featuredEligible, false);
 
         const forOrg = await getOrganizationPlanLimits({ plan: "PREMIUM" });
-        assert.equal(forOrg.maxScannersPerEvent, null);
+        assert.equal(forOrg.maxActiveScanners, null);
 
         const single = await getLimitForOrganization({ plan: "PREMIUM" }, PlanLimitKey.ACTIVE_EVENTS);
         assert.equal(single, null);
@@ -319,13 +326,29 @@ testWithDb("PS-L: si falta la fila de un plan, la policy cae al fallback sin lí
     }
 });
 
-test("isPremium / isFeatureAvailable: no dependen de la base, sólo del objeto Organization recibido", () => {
+test("isPremium: no depende de la base, sólo del objeto Organization recibido", () => {
     assert.equal(isPremium({ plan: "PREMIUM" }), true);
     assert.equal(isPremium({ plan: "FREE" }), false);
     assert.equal(isPremium(null), false);
     assert.equal(isPremium(undefined), false);
+});
 
-    assert.equal(isFeatureAvailable({ plan: "PREMIUM" }, PremiumFeature.WHATSAPP_EVENT_CREATION), true);
-    assert.equal(isFeatureAvailable({ plan: "FREE" }, PremiumFeature.PUBLIC_ORGANIZATION_PAGE), false);
-    assert.throws(() => isFeatureAvailable({ plan: "PREMIUM" }, "NOT_A_REAL_FEATURE"));
+// Developer > Planes — isFeatureAvailable dejó de ser un chequeo hardcodeado
+// "sólo PREMIUM": ahora lee la configuración persistida de CADA plan (ver
+// organizationPlanPolicy.js), así que es async y SÍ depende de la base.
+testWithDb("isFeatureAvailable: refleja la configuración real de cada plan (ON en uno, OFF en otro)", async () => {
+    const developer = await createUser({ role: "DEVELOPER" });
+    const snapshot = await snapshotPlanLimits();
+    try {
+        await updatePlanLimitsService("PREMIUM", developer.id, { whatsappEventCreationEnabled: true, publicOrgPageEnabled: false });
+        await updatePlanLimitsService("FREE", developer.id, { whatsappEventCreationEnabled: false, publicOrgPageEnabled: false });
+
+        assert.equal(await isFeatureAvailable({ plan: "PREMIUM" }, PremiumFeature.WHATSAPP_EVENT_CREATION), true);
+        assert.equal(await isFeatureAvailable({ plan: "PREMIUM" }, PremiumFeature.PUBLIC_ORGANIZATION_PAGE), false);
+        assert.equal(await isFeatureAvailable({ plan: "FREE" }, PremiumFeature.WHATSAPP_EVENT_CREATION), false);
+        await assert.rejects(() => isFeatureAvailable({ plan: "PREMIUM" }, "NOT_A_REAL_FEATURE"));
+    } finally {
+        await restorePlanLimits(snapshot);
+        await cleanupUsers([developer.id]);
+    }
 });

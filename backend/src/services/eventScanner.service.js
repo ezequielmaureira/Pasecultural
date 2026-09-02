@@ -87,18 +87,49 @@ async function findOwnedScanner(eventId, scannerId) {
     return scanner;
 }
 
-// Premium — Fase 2B. Scanner que consume cupo de maxScannersPerEvent:
-// deletedAt IS NULL AND status != REVOKED (decisión de producto aprobada —
-// INVITED/ACTIVE/DISABLED cuentan, una invitación sin reclamar ocupa un
-// lugar igual). Advisory lock scoped por evento: serializa únicamente altas
-// concurrentes de scanners del MISMO evento, nunca bloquea otro evento.
-// Mismo mecanismo que acquireMercadoPagoConnectionLock
+// Developer > Planes (ver el informe de esa ronda — corrige la semántica
+// que tenía Fase 2B). Scanner que consume cupo de maxActiveScanners:
+// EXACTAMENTE status === "ACTIVE" && deletedAt IS NULL — INVITED nunca
+// consume (una invitación no reserva lugar), DISABLED tampoco (se
+// desactivó explícitamente), REVOKED/soft-deleted tampoco. La regla real es
+// "scanners ACTIVOS de la ORGANIZACIÓN" (no por evento) — el advisory lock
+// por eso queda scoped por organización: serializa activaciones
+// concurrentes de CUALQUIER evento de la misma organización, nunca bloquea
+// otra organización. Mismo mecanismo que acquireMercadoPagoConnectionLock
 // (mercadoPagoConnection.service.js) — DEBE tomarse con `tx`.
-async function acquireScannerQuotaLock(tx, eventId) {
+async function acquireScannerQuotaLock(tx, organizationId) {
     await tx.$queryRawUnsafe(
         `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS locked`,
-        `scanners:${eventId}`
+        `scanners:org:${organizationId}`
     );
+}
+
+// Developer > Planes — punto AUTORITATIVO único del límite maxActiveScanners.
+// Debe llamarse dentro de un prisma.$transaction (recibe `tx`), JUSTO ANTES
+// de cualquier UPDATE que ponga un EventScanner en status "ACTIVE" — nunca
+// al crear una invitación (ver createScannerInvitationsService: INVITED no
+// consume cupo). Cuenta EXCLUSIVAMENTE status === "ACTIVE" && deletedAt ===
+// null en TODA la organización (todos sus eventos) — INVITED, DISABLED y
+// REVOKED nunca cuentan. Lanza PLAN_SCANNER_LIMIT_REACHED si ya no hay cupo;
+// no hace nada (ni toma el lock) si el plan no tiene tope configurado (null
+// = sin límite), mismo criterio de costo-cero que el resto de los guards de
+// plan. El advisory lock scoped por organización serializa activaciones
+// concurrentes de CUALQUIER scanner de la misma organización (nunca bloquea
+// otra organización) — misma primitiva que ya usaba la creación de
+// invitaciones.
+export async function assertActiveScannerCapacity(tx, organization) {
+    const limit = await getLimitForOrganization(organization, PlanLimitKey.ACTIVE_SCANNERS);
+    if (limit === null) return;
+
+    await acquireScannerQuotaLock(tx, organization.id);
+
+    const activeCount = await tx.eventScanner.count({
+        where: { deletedAt: null, status: "ACTIVE", event: { organizationId: organization.id } },
+    });
+
+    if (activeCount >= limit) {
+        throw new AppError(ErrorCodes.PLAN_SCANNER_LIMIT_REACHED);
+    }
 }
 
 // Eventos que el asistente conversacional ofrece en el Paso 1 — "activos"
@@ -188,44 +219,20 @@ export const createScannerInvitationsService = async (clerkId, eventId, { gate, 
         }));
     };
 
-    // Premium — Fase 2B. `limit` se lee ANTES de decidir si hace falta
-    // transacción/lock: si el plan no tiene tope configurado (null = sin
-    // límite, fallback seguro de Fase 2A), el camino queda IDÉNTICO al de
-    // antes de esta fase (mismas 2 llamadas sueltas, sin transacción) — cero
-    // costo extra para el caso por default. Sólo cuando hay un número real
-    // se paga el lock + el segundo count, y TODO (lock, conteo, createMany)
-    // pasa a ocurrir dentro de la MISMA transacción para cerrar la carrera
-    // "count() -> comparar -> createMany()" entre dos altas concurrentes del
-    // mismo evento. `quantity` completo se valida contra el remanente ANTES
-    // de crear nada: una request que excede el cupo se rechaza entera, nunca
-    // crea parcialmente.
-    const limit = await getLimitForOrganization(owned.organization, PlanLimitKey.SCANNERS_PER_EVENT);
-
-    let rows;
-    if (limit === null) {
-        const existingForGate = await prisma.eventScanner.count({
-            where: { eventId, gate: trimmedGate, deletedAt: null },
-        });
-        rows = buildRows(existingForGate);
-        await prisma.eventScanner.createMany({ data: rows });
-    } else {
-        rows = await prisma.$transaction(async (tx) => {
-            await acquireScannerQuotaLock(tx, eventId);
-
-            const [existingForGate, activeCount] = await Promise.all([
-                tx.eventScanner.count({ where: { eventId, gate: trimmedGate, deletedAt: null } }),
-                tx.eventScanner.count({ where: { eventId, deletedAt: null, status: { not: "REVOKED" } } }),
-            ]);
-
-            if (activeCount + parsedQuantity > limit) {
-                throw new AppError(ErrorCodes.PLAN_SCANNER_LIMIT_REACHED);
-            }
-
-            const newRows = buildRows(existingForGate);
-            await tx.eventScanner.createMany({ data: newRows });
-            return newRows;
-        });
-    }
+    // Developer > Planes — corrección de semántica (ver el informe de esa
+    // ronda): el límite maxActiveScanners es de scanners REALMENTE ACTIVOS
+    // (status === "ACTIVE"), no de invitaciones. Crear una invitación
+    // INVITED NUNCA consume cupo ni reserva un lugar — por eso esta función
+    // ya NO valida ningún límite: el punto autoritativo del cupo es la
+    // ACTIVACIÓN (verifyScannerInvitationCodeService / reactivateScannerService,
+    // ambas vía assertActiveScannerCapacity). Mismo camino simple para
+    // siempre, sin transacción — no hay carrera que cerrar acá porque nada
+    // se compara contra un límite en este punto.
+    const existingForGate = await prisma.eventScanner.count({
+        where: { eventId, gate: trimmedGate, deletedAt: null },
+    });
+    const rows = buildRows(existingForGate);
+    await prisma.eventScanner.createMany({ data: rows });
 
     logger.info("createScannerInvitationsService completed", {
         eventId,
@@ -271,7 +278,12 @@ export const reactivateScannerService = async (clerkId, eventId, scannerId) => {
     const scanner = await findOwnedScanner(eventId, scannerId);
     if (scanner.status !== "DISABLED") throw new AppError(ErrorCodes.SCANNER_INVALID_TRANSITION);
 
-    return prisma.eventScanner.update({ where: { id: scannerId }, data: { status: "ACTIVE" }, select: SCANNER_SELECT });
+    // Developer > Planes — DISABLED -> ACTIVE es una activación real: pasa
+    // a consumir cupo, así que se valida acá (ver assertActiveScannerCapacity).
+    return prisma.$transaction(async (tx) => {
+        await assertActiveScannerCapacity(tx, owned.organization);
+        return tx.eventScanner.update({ where: { id: scannerId }, data: { status: "ACTIVE" }, select: SCANNER_SELECT });
+    });
 };
 
 // "Eliminar": soft delete (mismo criterio que el resto de la app) — saca la
