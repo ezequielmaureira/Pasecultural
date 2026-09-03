@@ -8,14 +8,28 @@ import {
     getOrganizationByIdService,
     updateOrganizationStatusService,
     updateOrganizationPlanService,
+    updateOrganizationCategoryService,
     deleteOrganizationService,
     getPublicOrganizationBySlugService,
 } from "../services/organization.service.js";
+import {
+    getFeaturedOrganizationsService,
+    getPublicOrganizationsListService,
+} from "../services/organizationRanking.service.js";
 import { validateOrganizationInput } from "../utils/validateOrganization.js";
 import { ErrorCatalog } from "../errors/ErrorCatalog.js";
 
 const VALID_STATUSES = new Set(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"]);
 const VALID_PLANS = new Set(["FREE", "PREMIUM"]);
+const VALID_ORGANIZATION_CATEGORIES = new Set([
+    "THEATER",
+    "CINEMA",
+    "MUSIC",
+    "SPORTS",
+    "CULTURE",
+    "PRODUCER",
+    "OTHER",
+]);
 
 export const getMyOrganization = async (req, res) => {
     try {
@@ -242,6 +256,42 @@ export const updateOrganizationPlan = async (req, res) => {
     }
 };
 
+// Rubro real de contenido — mismo patrón exacto que updateOrganizationPlan
+// de acá arriba. `category` acepta null/"" explícito para volver la
+// organización a "sin categoría" (no confundir con no-enviarlo: el body
+// SIEMPRE debe traer la clave `category`, aunque sea null).
+export const updateOrganizationCategory = async (req, res) => {
+    try {
+        const { category } = req.body;
+        const normalized = category === "" || category === undefined ? null : category;
+
+        if (normalized !== null && !VALID_ORGANIZATION_CATEGORIES.has(normalized)) {
+            return res.status(400).json({
+                message: "Rubro inválido",
+            });
+        }
+
+        const organization = await updateOrganizationCategoryService(
+            req.params.id,
+            normalized
+        );
+
+        if (!organization) {
+            return res.status(404).json({
+                message: "Organización no encontrada",
+            });
+        }
+
+        res.status(200).json({ organization });
+    } catch (error) {
+        console.error(error);
+
+        res.status(500).json({
+            message: "Error al actualizar el rubro de la organización",
+        });
+    }
+};
+
 // Premium — Fase 2D. Cache-Control: no-store se fija SIEMPRE, incluso en el
 // 404 — un cambio de plan (PREMIUM→FREE o al revés) tiene que reflejarse en
 // la siguiente request, sin que un proxy/navegador sirva una respuesta
@@ -263,6 +313,40 @@ export const getPublicOrganizationBySlug = async (req, res) => {
 
         res.status(500).json({
             message: "Error al obtener la organización",
+        });
+    }
+};
+
+// "Organizaciones Destacadas" — ranking 100% automático (ver
+// organizationRanking.service.js). Cache-Control: no-store, mismo criterio
+// que getPublicOrganizationBySlug: el ranking cambia con cada venta/función
+// nueva, nunca debe servirse cacheado.
+export const getFeaturedOrganizations = async (req, res) => {
+    res.set("Cache-Control", "no-store");
+
+    try {
+        const limit = req.query.limit !== undefined ? Number(req.query.limit) : 10;
+        const data = await getFeaturedOrganizationsService(limit);
+        res.status(200).json(data);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            message: "Error al obtener las organizaciones destacadas",
+        });
+    }
+};
+
+export const getPublicOrganizationsList = async (req, res) => {
+    res.set("Cache-Control", "no-store");
+
+    try {
+        const { search, category, page, limit } = req.query;
+        const data = await getPublicOrganizationsListService({ search, category, page, limit });
+        res.status(200).json(data);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            message: "Error al obtener las organizaciones",
         });
     }
 };

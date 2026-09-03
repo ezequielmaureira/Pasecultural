@@ -19,6 +19,7 @@ import {
 } from "../../lib/organizationStatus.js";
 import { ORG_PLAN_LABEL, ORG_PLAN_STYLES } from "../../lib/organizationPlan.js";
 import { ORGANIZATION_TYPE_LABEL } from "../../lib/organizationTypes.js";
+import { ORG_CATEGORY_OPTIONS } from "../../lib/organizationCategory.js";
 
 function ChecklistItem({ label, done }) {
   return (
@@ -76,6 +77,7 @@ export default function OrganizationDetailModal({
   onClose,
   onChangeStatus,
   onChangePlan,
+  onChangeCategory,
   onDelete,
   updating,
 }) {
@@ -133,6 +135,27 @@ export default function OrganizationDetailModal({
 
         {organization.description && (
           <p className="text-sm text-slate-300">{organization.description}</p>
+        )}
+
+        {onChangeCategory && (
+          <div className="flex items-center gap-3">
+            <label htmlFor="organization-category" className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Rubro
+            </label>
+            <select
+              id="organization-category"
+              value={organization.organizationCategory ?? ""}
+              onChange={(e) => onChangeCategory(organization, e.target.value || null)}
+              disabled={updating}
+              className="h-9 rounded-lg border border-white/10 bg-white/5 px-3 text-sm font-medium text-gray-100 outline-none transition-colors duration-150 hover:bg-white/10 focus:border-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {ORG_CATEGORY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value} className="bg-[#0B1120]">
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
         )}
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

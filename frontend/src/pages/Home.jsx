@@ -4,6 +4,7 @@ import { ChevronRight, ShieldCheck, Ticket, UserCheck, Headset, Search, ScanLine
 import HeroCarousel from "../components/marketplace/HeroCarousel.jsx";
 import CategoryFilterBar from "../components/marketplace/CategoryFilterBar.jsx";
 import EventsCarousel from "../components/marketplace/EventsCarousel.jsx";
+import OrganizationsCarousel from "../components/marketplace/OrganizationsCarousel.jsx";
 import Button from "../components/ui/Button.jsx";
 import { apiFetch } from "../lib/api.js";
 import { TRUST_FEATURES } from "../data/publicMockData.js";
@@ -59,6 +60,19 @@ function AllEventsSection({ events }) {
     <section className={`${SECTION} ${SECTION_SPACING}`}>
       <SectionHeader title="Todos los eventos" viewAllHref="/eventos" />
       <EventsCarousel events={events} />
+    </section>
+  );
+}
+
+// "Organizaciones destacadas" — ranking 100% automático, calculado en el
+// backend (ver organizationRanking.service.js). Nunca placeholders: si hay
+// menos de `limit` elegibles, se muestran las que haya (2, 7, etc.).
+function FeaturedOrganizationsSection({ organizations }) {
+  if (organizations.length === 0) return null;
+  return (
+    <section className={`${SECTION} ${SECTION_SPACING}`}>
+      <SectionHeader title="Organizaciones destacadas" viewAllHref="/organizaciones" />
+      <OrganizationsCarousel organizations={organizations} />
     </section>
   );
 }
@@ -152,6 +166,7 @@ export default function Home() {
   const navigate = useNavigate();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [featuredOrganizations, setFeaturedOrganizations] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -164,6 +179,20 @@ export default function Home() {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    apiFetch("/api/organizations/public/featured?limit=10")
+      .then(({ organizations: list }) => {
+        if (!cancelled) setFeaturedOrganizations(list);
+      })
+      .catch((err) => console.error("No se pudieron cargar las organizaciones destacadas", err));
 
     return () => {
       cancelled = true;
@@ -212,6 +241,7 @@ export default function Home() {
       {!loading && (
         <>
           <UpcomingSection events={upcoming} />
+          <FeaturedOrganizationsSection organizations={featuredOrganizations} />
           <FeaturedSection events={featured} />
           <AllEventsSection events={events.slice(0, 12)} />
         </>

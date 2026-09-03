@@ -38,6 +38,29 @@ enum OrganizationType {
   OTRO
 }
 
+// Rubro/categoría de CONTENIDO de la organización — para el filtro público
+// de /organizaciones ("Ver todas"). Deliberadamente un modelo NUEVO y
+// separado de OrganizationType (arriba): OrganizationType describe el TIPO
+// DE ENTIDAD legal/organizativa (teatro como institución, productora,
+// municipalidad, club, empresa...), mientras que organizationCategory
+// (más abajo, en el modelo Organization) describe el RUBRO de lo que la
+// organización programa/produce de cara al público (teatro como género,
+// cine, música, deportes, etc.) — son ejes distintos: una PRODUCTORA
+// (OrganizationType) puede programar MUSIC (organizationCategory), y un
+// CLUB puede programar SPORTS o CULTURE. Enum elegido (no String validado a
+// nivel app) por consistencia con el resto del schema (OrganizationType,
+// OrganizationStatus, OrganizationPlan ya son enums Prisma) y porque da
+// integridad garantizada a nivel de DB sin lógica de validación adicional.
+enum OrganizationCategory {
+  THEATER
+  CINEMA
+  MUSIC
+  SPORTS
+  CULTURE
+  PRODUCER
+  OTHER
+}
+
 // Premium — Fase 1 (infraestructura + administración manual, ver el
 // informe de auditoría). Activación exclusivamente manual por DEVELOPER
 // (nunca autoservicio del Organizer, ver UPDATABLE_FIELDS en
@@ -224,6 +247,15 @@ model Organization {
   id              String            @id @default(cuid())
   name            String
   type            OrganizationType?
+  // Rubro de contenido — ver OrganizationCategory arriba para la
+  // distinción con `type`. Nullable a propósito: ninguna Organization
+  // existente tiene rubro cargado todavía (sin backfill, sin default) —
+  // se completa manualmente desde Developer > Organizaciones. Una
+  // Organization con organizationCategory null sigue siendo elegible para
+  // el ranking de Destacadas si es PREMIUM (el rubro no es parte de la
+  // fórmula de score) y se agrupa bajo "Sin categoría" en el filtro
+  // público de /organizaciones (ver getPublicOrganizationsListService).
+  organizationCategory OrganizationCategory?
   description     String?
   logo            String?
   // Teléfono de contacto/WhatsApp de la organización. Verificación de

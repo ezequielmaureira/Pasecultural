@@ -149,6 +149,35 @@ export default function DeveloperOrganizations() {
     }
   }
 
+  // Rubro real de contenido — mismo patrón exacto que changeStatus: sin
+  // ConfirmDialog intermedio (a diferencia del plan) porque no es una
+  // acción destructiva/comercial, se aplica al toque desde el <select> del
+  // modal.
+  async function changeCategory(org, category) {
+    setUpdatingId(org.id);
+    setUpdatingAction("category");
+    setError("");
+    try {
+      const token = await getToken();
+      const { organization } = await apiFetch(`/api/organizations/${org.id}/category`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({ category }),
+      });
+      setOrganizations((prev) =>
+        prev.map((o) => (o.id === org.id ? organization : o))
+      );
+      setSelected((prev) => (prev && prev.id === org.id ? organization : prev));
+      toast.success("Rubro actualizado.");
+    } catch (err) {
+      console.error("No se pudo actualizar el rubro de la organización", err);
+      setError(err.message || "No se pudo actualizar el rubro de la organización.");
+    } finally {
+      setUpdatingId(null);
+      setUpdatingAction(null);
+    }
+  }
+
   async function confirmDelete() {
     if (!pendingDelete) return;
     setUpdatingId(pendingDelete.id);
@@ -324,6 +353,7 @@ export default function DeveloperOrganizations() {
           onClose={() => setSelected(null)}
           onChangeStatus={changeStatus}
           onChangePlan={(org, nextPlan) => setPendingPlanChange({ organization: org, nextPlan })}
+          onChangeCategory={changeCategory}
           onDelete={(org) => setPendingDelete(org)}
           updating={updatingId === selected.id}
         />

@@ -296,6 +296,26 @@ export const updateOrganizationPlanService = async (
     });
 };
 
+// Rubro real de contenido — mismo patrón exacto que
+// updateOrganizationPlanService de acá arriba: sólo DEVELOPER llega a
+// llamar esto (ver requireRole en organization.routes.js). Actualiza
+// EXCLUSIVAMENTE organizationCategory — nunca toca plan/status/ownerId ni
+// ningún otro dato comercial de la Organization. `category` ya viene
+// validada por el controller (uno de OrganizationCategory, o null para
+// "sin categoría") antes de llegar acá.
+export const updateOrganizationCategoryService = async (id, category) => {
+    const organization = await prisma.organization.findUnique({
+        where: { id },
+    });
+
+    if (!organization) return null;
+
+    return prisma.organization.update({
+        where: { id },
+        data: { organizationCategory: category },
+    });
+};
+
 export const deleteOrganizationService = async (id) => {
     await prisma.organization.delete({ where: { id } });
 };

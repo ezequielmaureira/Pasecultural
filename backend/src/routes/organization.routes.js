@@ -8,8 +8,11 @@ import {
     getOrganizationById,
     updateOrganizationStatus,
     updateOrganizationPlan,
+    updateOrganizationCategory,
     deleteOrganization,
     getPublicOrganizationBySlug,
+    getFeaturedOrganizations,
+    getPublicOrganizationsList,
 } from "../controllers/organization.controller.js";
 import { getWhatsappLinkStatus, linkWhatsappOrganizer, getWhatsappEventCreationLink } from "../controllers/organizationWhatsapp.controller.js";
 import { getMercadoPagoStatus, startMercadoPagoConnect, disconnectMercadoPagoConnection } from "../controllers/organizationMercadoPago.controller.js";
@@ -33,6 +36,12 @@ const router = Router();
 // gate de "Modo Prelanzamiento" que ya protege el resto del contenido
 // comercial público).
 router.use("/public", requirePublicLaunch);
+// "Organizaciones Destacadas" — ranking automático (ver
+// organizationRanking.service.js). Montadas ANTES de "/public/:slug" por el
+// mismo motivo que "/public" va antes de "/:id": si no, Express matchea
+// "/public/featured" contra "/public/:slug" y toma "featured" como slug.
+router.get("/public/featured", getFeaturedOrganizations);
+router.get("/public", getPublicOrganizationsList);
 router.get("/public/:slug", getPublicOrganizationBySlug);
 
 router.get("/me", getMyOrganization);
@@ -100,6 +109,10 @@ router.patch("/:id/status", requireRole("DEVELOPER"), updateOrganizationStatus);
 // PATCH /me (ver UPDATABLE_FIELDS, que deliberadamente nunca incluye
 // plan/planUpdatedAt/planUpdatedByUserId).
 router.patch("/:id/plan", requireRole("DEVELOPER"), updateOrganizationPlan);
+// Rubro real de contenido — mismo patrón exacto que /:id/plan de acá
+// arriba: administración manual exclusiva de DEVELOPER, sin autoservicio
+// de ORGANIZER en esta ronda.
+router.patch("/:id/category", requireRole("DEVELOPER"), updateOrganizationCategory);
 router.delete("/:id", requireRole("DEVELOPER"), deleteOrganization);
 
 export default router;
