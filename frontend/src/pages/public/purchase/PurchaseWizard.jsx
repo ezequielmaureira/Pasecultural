@@ -68,10 +68,17 @@ function buildSteps(hasMultipleFunctions) {
   return steps;
 }
 
-function ticketOptionsFor(selectedFunction) {
-  if (!selectedFunction) return [];
+// El payload público ya NO anida el TicketType completo dentro de cada
+// ticketAssignment (ver PUBLIC_EVENT_DETAIL_INCLUDE en event.service.js —
+// reducción de payload duplicado, auditoría de performance): cada
+// assignment sólo trae `ticketTypeId`. El catálogo completo sigue
+// disponible una sola vez en `event.ticketTypes` — se cruza acá por id.
+function ticketOptionsFor(selectedFunction, event) {
+  if (!selectedFunction || !event) return [];
+  const ticketTypesById = new Map(event.ticketTypes.map((tt) => [tt.id, tt]));
   return selectedFunction.ticketAssignments
-    .filter((a) => a.visibleOverride ?? a.ticketType.visible)
+    .map((a) => ({ ...a, ticketType: ticketTypesById.get(a.ticketTypeId) }))
+    .filter((a) => a.ticketType && (a.visibleOverride ?? a.ticketType.visible))
     .map((a) => ({
       ticketTypeId: a.ticketTypeId,
       name: a.ticketType.name,
@@ -450,7 +457,7 @@ export default function PurchaseWizard() {
   }
 
   const selectedFunction = event.functions.find((f) => f.id === selectedFunctionId) ?? null;
-  const ticketOptions = ticketOptionsFor(selectedFunction);
+  const ticketOptions = ticketOptionsFor(selectedFunction, event);
   const items = Object.entries(quantities)
     .filter(([, qty]) => qty > 0)
     .map(([ticketTypeId, quantity]) => ({ ticketTypeId, quantity }));

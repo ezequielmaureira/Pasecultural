@@ -85,6 +85,10 @@ export default function EventDetail() {
               src={event.coverImage}
               alt={event.title}
               className="h-full w-full object-cover"
+              width={800}
+              height={1000}
+              fetchPriority="high"
+              decoding="async"
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-slate-600">

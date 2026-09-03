@@ -918,6 +918,7 @@ model EventLink {
   eventId String
   event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
+  @@index([eventId])
   @@map("event_links")
 }
 
@@ -949,6 +950,7 @@ model EventFunction {
   sales             Sale[]
   tickets           Ticket[]
 
+  @@index([eventId])
   @@map("event_functions")
 }
 
@@ -974,6 +976,7 @@ model TicketType {
   saleItems   SaleItem[]
   tickets     Ticket[]
 
+  @@index([eventId])
   @@map("ticket_types")
 }
 
@@ -1886,6 +1889,14 @@ model Ticket {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  // Soporta el groupBy de disponibilidad pública en
+  // attachTicketAvailability (event.service.js): where {functionId: in,
+  // status: in}, by [ticketTypeId, functionId]. functionId primero (filtro
+  // IN de mayor selectividad — siempre una lista acotada de funciones de UN
+  // evento), status segundo (también filtrado por IN, sobre el subconjunto
+  // ya restringido por functionId), ticketTypeId último para que el índice
+  // cubra también la columna de agrupación sin volver a la tabla.
+  @@index([functionId, status, ticketTypeId])
   @@map("tickets")
 }
 

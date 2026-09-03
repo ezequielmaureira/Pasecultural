@@ -995,7 +995,29 @@ const PUBLIC_EVENT_DETAIL_INCLUDE = {
         include: {
             ticketAssignments: {
                 where: { enabled: true },
-                include: { ticketType: true },
+                // El TicketType completo ya viaja una vez en event.ticketTypes
+                // (nivel evento, más arriba en este mismo include) — anidarlo
+                // de nuevo acá por cada función/asignación duplicaba el
+                // payload (auditoría de performance). El frontend
+                // (PurchaseWizard.jsx#ticketOptionsFor) cruza ticketTypeId
+                // contra event.ticketTypes para reconstruir el objeto
+                // completo. `ticketType.quantity` SÍ se sigue pidiendo acá
+                // (select mínimo, no el objeto completo) porque
+                // effectiveCapacity() lo necesita server-side cuando no hay
+                // quantityOverride — attachTicketAvailability lo quita del
+                // objeto antes de devolverlo al cliente, ver más abajo.
+                select: {
+                    id: true,
+                    ticketTypeId: true,
+                    functionId: true,
+                    enabled: true,
+                    priceOverride: true,
+                    quantityOverride: true,
+                    visibleOverride: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    ticketType: { select: { quantity: true } },
+                },
                 orderBy: { createdAt: "asc" },
             },
         },
@@ -1027,7 +1049,13 @@ async function attachTicketAvailability(event) {
             ticketAssignments: fn.ticketAssignments.map((assignment) => {
                 const capacity = effectiveCapacity(assignment);
                 const sold = soldByKey.get(`${assignment.ticketTypeId}:${fn.id}`) ?? 0;
-                return { ...assignment, available: Math.max(capacity - sold, 0) };
+                // `ticketType` (select mínimo, sólo `quantity`) existía acá
+                // únicamente para que effectiveCapacity() pudiera calcular
+                // la capacidad server-side — nunca se expone al cliente
+                // público: el objeto completo ya viaja una vez en
+                // event.ticketTypes (ver PUBLIC_EVENT_DETAIL_INCLUDE).
+                const { ticketType, ...publicAssignment } = assignment;
+                return { ...publicAssignment, available: Math.max(capacity - sold, 0) };
             }),
         })),
     };
