@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams, useNavigate, Link } from "react-router-dom";
+import { useSearchParams, useNavigate, useLocation, Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import Spinner from "../../../components/ui/Spinner.jsx";
 import StepIndicator from "../../../components/ui/StepIndicator.jsx";
@@ -105,7 +105,17 @@ function ticketOptionsFor(selectedFunction, event) {
 export default function PurchaseWizard() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const slug = searchParams.get("slug");
+  // Evento ya cargado por EventDetail (navigate(..., { state: { event } })).
+  // Sólo sirve como atajo de navegación interna — nunca se lee de nuevo
+  // después del primer render (capturado una vez con useRef más abajo) y
+  // sólo se usa si su slug coincide con el que trae la URL. Acceso directo,
+  // F5, o abrir /comprar en una pestaña nueva no traen este state
+  // (location.state es null en esos casos) y caen al fetch normal.
+  const preloadedEventRef = useRef(
+    location.state?.event && location.state.event.slug === slug ? location.state.event : null
+  );
   // publicRecoveryToken de la venta en curso, viajando en la URL (no sólo
   // en estado de React) — sobrevive a una recarga de página o, desde MP-2,
   // al redirect real de vuelta desde Mercado Pago (back_urls la incluyen,
@@ -123,7 +133,7 @@ export default function PurchaseWizard() {
     !isBlankMpParam(searchParams.get("status")) ||
     !isBlankMpParam(searchParams.get("collection_status"));
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!preloadedEventRef.current);
   const [loadError, setLoadError] = useState("");
   const [event, setEvent] = useState(null);
   // MP-6 — reglas de comisión vigentes, sólo para mostrar una ESTIMACIÓN
@@ -302,6 +312,39 @@ export default function PurchaseWizard() {
     setSaleRecoveryMessage("");
   }
 
+  // Misma validación/aplicación de datos sin importar si `data` vino de un
+  // fetch fresco o de un evento ya cargado por EventDetail (navigation
+  // state) — una sola fuente de verdad para las dos rutas de abajo.
+  // Devuelve true si el evento quedó aplicado (setEvent/setPhase), false si
+  // se rechazó (dejó seteado loadError y quien llama no debe seguir).
+  const applyEventData = useCallback((data) => {
+    if (!data) {
+      setLoadError("Este evento no existe o ya no está disponible.");
+      return false;
+    }
+    // Defensa de UX solamente — la seguridad real está en el backend
+    // (createSaleForBuyer/createMercadoPagoCheckoutService rechazan
+    // cualquier Sale sobre un evento FREE_ENTRY). Esto sólo evita que
+    // alguien navegando directo a /comprar?slug=... quede en un paso de
+    // selección de entradas vacío para un evento que nunca las tuvo.
+    if (data.admissionType === "FREE_ENTRY") {
+      setLoadError("Este evento es de entrada gratuita — no tiene sistema de venta de entradas.");
+      return false;
+    }
+    if (!data.functions || data.functions.length === 0) {
+      setLoadError("Este evento todavía no tiene funciones disponibles para comprar.");
+      return false;
+    }
+    setEvent(data);
+    if (data.functions.length === 1) {
+      setSelectedFunctionId(data.functions[0].id);
+      setPhase("tickets");
+    } else {
+      setPhase("function");
+    }
+    return true;
+  }, []);
+
   const load = useCallback(async () => {
     if (!slug) {
       setLoadError("Falta indicar qué evento querés comprar.");
@@ -312,37 +355,7 @@ export default function PurchaseWizard() {
     setLoadError("");
     try {
       const { event: data } = await apiFetch(`/api/events/public/${slug}`);
-      // Best-effort: si esta llamada falla, la estimación de comisión
-      // simplemente queda en $0 hasta que se pueda cargar — nunca bloquea
-      // ni retrasa la carga del evento en sí (que es lo único
-      // imprescindible para seguir).
-      getPublicServiceFeeTiers()
-        .then(setServiceFeeTiers)
-        .catch((err) => console.error("No se pudieron cargar las reglas de comisión", err));
-      if (!data) {
-        setLoadError("Este evento no existe o ya no está disponible.");
-        return;
-      }
-      // Defensa de UX solamente — la seguridad real está en el backend
-      // (createSaleForBuyer/createMercadoPagoCheckoutService rechazan
-      // cualquier Sale sobre un evento FREE_ENTRY). Esto sólo evita que
-      // alguien navegando directo a /comprar?slug=... quede en un paso de
-      // selección de entradas vacío para un evento que nunca las tuvo.
-      if (data.admissionType === "FREE_ENTRY") {
-        setLoadError("Este evento es de entrada gratuita — no tiene sistema de venta de entradas.");
-        return;
-      }
-      if (!data.functions || data.functions.length === 0) {
-        setLoadError("Este evento todavía no tiene funciones disponibles para comprar.");
-        return;
-      }
-      setEvent(data);
-      if (data.functions.length === 1) {
-        setSelectedFunctionId(data.functions[0].id);
-        setPhase("tickets");
-      } else {
-        setPhase("function");
-      }
+      applyEventData(data);
     } catch (err) {
       setLoadError(err.message || "No pudimos cargar el evento.");
     } finally {
@@ -352,8 +365,33 @@ export default function PurchaseWizard() {
   }, [slug]);
 
   useEffect(() => {
+    // Best-effort en ambas rutas (precargada o recién pedida): si esta
+    // llamada falla, la estimación de comisión simplemente queda en $0
+    // hasta que se pueda cargar — nunca bloquea ni retrasa el resto del
+    // Wizard, que es lo único imprescindible para seguir.
+    getPublicServiceFeeTiers()
+      .then(setServiceFeeTiers)
+      .catch((err) => console.error("No se pudieron cargar las reglas de comisión", err));
+
+    if (preloadedEventRef.current) {
+      // Navegación interna desde EventDetail: el evento ya está en memoria,
+      // no hace falta volver a pedir GET /api/events/public/:slug ni mostrar
+      // "Cargando evento..." — se aplica en el mismo tick de montaje. Se
+      // consume una sola vez: si más adelante `slug` cambiara sin desmontar
+      // el componente, este efecto se re-dispara (depende de `load`, que
+      // depende de `slug`) y debe volver a pedir el evento nuevo en vez de
+      // reaplicar el precargado, que ya no correspondería.
+      const preloaded = preloadedEventRef.current;
+      preloadedEventRef.current = null;
+      applyEventData(preloaded);
+      setLoading(false);
+      return;
+    }
+    // Acceso directo, F5, o /comprar abierto en una pestaña nueva: no hay
+    // navigation state disponible (location.state es null en esos casos),
+    // así que sigue el fetch normal como fallback.
     load();
-  }, [load]);
+  }, [load, applyEventData]);
 
   // Se resuelve antes que cualquier otra cosa: no tiene sentido arrancar (o
   // reiniciar) el Wizard mientras todavía no se sabe si la URL trae una
