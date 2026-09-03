@@ -36,6 +36,7 @@ export const createOrganizationService = async (
     {
         name,
         type,
+        organizationCategory,
         description,
         logo,
         phone,
@@ -86,6 +87,7 @@ export const createOrganizationService = async (
             name,
             slug,
             type: type || null,
+            organizationCategory: organizationCategory || null,
             description: description || null,
             logo: logo || null,
             phone: phone || null,
@@ -152,6 +154,7 @@ export const createOrganizationService = async (
 const UPDATABLE_FIELDS = [
     "name",
     "type",
+    "organizationCategory",
     "description",
     "logo",
     "email",

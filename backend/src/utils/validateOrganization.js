@@ -11,9 +11,26 @@ const ORGANIZATION_TYPES = new Set([
     "OTRO",
 ]);
 
+// Rubro de contenido (Organization.organizationCategory) — mismo enum
+// Prisma que valida el resto del proyecto (ver
+// organization.controller.js#VALID_ORGANIZATION_CATEGORIES). Repetido acá
+// a propósito (constante primitiva, sin lógica) para no crear un import
+// cruzado controller -> util; si alguna vez se agrega un octavo valor al
+// enum, hay que actualizar los dos lugares.
+const ORGANIZATION_CATEGORIES = new Set([
+    "THEATER",
+    "CINEMA",
+    "MUSIC",
+    "SPORTS",
+    "CULTURE",
+    "PRODUCER",
+    "OTHER",
+]);
+
 export function validateOrganizationInput({
     name,
     type,
+    organizationCategory,
     email,
     phone,
     responsibleFirstName,
@@ -31,6 +48,10 @@ export function validateOrganizationInput({
 
     if (!type || !ORGANIZATION_TYPES.has(type)) {
         errors.push("El tipo de organización es obligatorio");
+    }
+
+    if (organizationCategory && !ORGANIZATION_CATEGORIES.has(organizationCategory)) {
+        errors.push("El rubro seleccionado no es válido");
     }
 
     if (!isValidEmail(email)) {

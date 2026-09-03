@@ -10,6 +10,7 @@ import { useToast } from "../../context/ToastContext.jsx";
 import MercadoPagoConnectionCard from "./MercadoPagoConnectionCard.jsx";
 import OrganizerNotificationSettingsCard from "./OrganizerNotificationSettingsCard.jsx";
 import OrganizationPhoneVerificationCard from "./OrganizationPhoneVerificationCard.jsx";
+import { ORG_CATEGORY_CHOICES } from "../../lib/organizationCategory.js";
 
 function FieldSkeleton({ className = "" }) {
   return (
@@ -34,6 +35,7 @@ const EMPTY_ORG = {
   website: "",
   instagram: "",
   description: "",
+  organizationCategory: "",
 };
 
 export default function OrganizerSettings() {
@@ -70,6 +72,7 @@ export default function OrganizerSettings() {
             website: organization.website || "",
             instagram: organization.instagram || "",
             description: organization.description || "",
+            organizationCategory: organization.organizationCategory || "",
           });
         }
       } catch (err) {
@@ -207,6 +210,20 @@ export default function OrganizerSettings() {
                 value={org.instagram}
                 onChange={(e) => setOrgField("instagram", e.target.value)}
               />
+            </Field>
+            <Field label="Rubro">
+              <select
+                className={inputClass}
+                value={org.organizationCategory}
+                onChange={(e) => setOrgField("organizationCategory", e.target.value)}
+              >
+                <option value="">Sin rubro</option>
+                {ORG_CATEGORY_CHOICES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
             </Field>
             <Field label="Descripción" className="sm:col-span-2">
               <textarea

@@ -9,6 +9,7 @@ import ImageUploader from "../../components/ui/ImageUploader.jsx";
 import { apiFetch } from "../../lib/api.js";
 import { useToast } from "../../context/ToastContext.jsx";
 import { ORGANIZATION_TYPES } from "../../lib/organizationTypes.js";
+import { ORG_CATEGORY_CHOICES } from "../../lib/organizationCategory.js";
 
 const EMAIL_REGEX = /^\S+@\S+\.\S+$/;
 
@@ -16,6 +17,7 @@ function createEmptyOrganization(email) {
   return {
     name: "",
     type: "",
+    organizationCategory: "",
     email: email ?? "",
     phone: "",
     responsibleFirstName: "",
@@ -37,6 +39,7 @@ function validateStep1(form) {
   const errors = {};
   if (!form.name.trim()) errors.name = "El nombre es obligatorio";
   if (!form.type) errors.type = "Elegí un tipo de organización";
+  if (!form.organizationCategory) errors.organizationCategory = "Seleccioná un rubro";
   if (!EMAIL_REGEX.test(form.email)) errors.email = "Ingresá un email válido";
   if (!form.phone.trim()) errors.phone = "El teléfono es obligatorio";
   if (!form.responsibleFirstName.trim())
@@ -232,6 +235,22 @@ export default function OrganizerOnboarding() {
                   ))}
                 </select>
                 <ErrorText message={errors.type} />
+              </Field>
+
+              <Field label="Rubro" required>
+                <select
+                  className={inputClass}
+                  value={form.organizationCategory}
+                  onChange={(e) => setField("organizationCategory", e.target.value)}
+                >
+                  <option value="">Seleccioná un rubro</option>
+                  {ORG_CATEGORY_CHOICES.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+                <ErrorText message={errors.organizationCategory} />
               </Field>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

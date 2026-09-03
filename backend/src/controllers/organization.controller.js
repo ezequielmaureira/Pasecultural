@@ -97,6 +97,27 @@ export const updateMyOrganization = async (req, res) => {
             return res.status(401).json({ message: "No autenticado" });
         }
 
+        // Rubro de contenido — mismo campo/enum que Developer > Organizaciones
+        // edita vía updateOrganizationCategory más abajo, ahora también
+        // editable por el propio Organizer a través de este PATCH genérico.
+        // Object.hasOwn: si el body no trae la clave, no se valida nada acá
+        // (updateMyOrganizationService tampoco la toca, ver UPDATABLE_FIELDS).
+        if (Object.hasOwn(req.body, "organizationCategory")) {
+            const { organizationCategory } = req.body;
+            const normalized =
+                organizationCategory === "" || organizationCategory === undefined
+                    ? null
+                    : organizationCategory;
+
+            if (normalized !== null && !VALID_ORGANIZATION_CATEGORIES.has(normalized)) {
+                return res.status(400).json({
+                    message: "Rubro inválido",
+                });
+            }
+
+            req.body.organizationCategory = normalized;
+        }
+
         const organization = await updateMyOrganizationService(userId, req.body);
 
         if (!organization) {
