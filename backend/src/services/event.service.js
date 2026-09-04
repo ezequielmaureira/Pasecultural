@@ -1031,15 +1031,17 @@ const PUBLIC_EVENT_DETAIL_INCLUDE = {
 // nunca CANCELLED/REFUNDED). Se calcula al vuelo con una sola consulta
 // agrupada por (ticketTypeId, functionId) para todas las funciones del
 // evento, no una consulta por asignación.
-async function attachTicketAvailability(event) {
+async function attachTicketAvailability(event, timings) {
     const functionIds = event.functions.map((fn) => fn.id);
     if (functionIds.length === 0) return event;
 
+    const availabilityStart = timings ? performance.now() : null;
     const soldGroups = await prisma.ticket.groupBy({
         by: ["ticketTypeId", "functionId"],
         where: { functionId: { in: functionIds }, status: { in: SOLD_TICKET_STATUSES } },
         _count: { _all: true },
     });
+    if (timings) timings.availability_query = performance.now() - availabilityStart;
     const soldByKey = new Map(soldGroups.map((g) => [`${g.ticketTypeId}:${g.functionId}`, g._count._all]));
 
     return {
@@ -1061,17 +1063,23 @@ async function attachTicketAvailability(event) {
     };
 }
 
-export const getPublicEventBySlugService = async (slug) => {
+// `timings` es un objeto opcional (TEMPORAL — diagnóstico de latencia
+// Render→Supabase, ver app.js#/api/health/db): si se pasa, se le agregan
+// `event_query`/`availability_query` en milisegundos. Nunca cambia el
+// valor de retorno ni el JSON público — sólo un canal lateral de medición.
+export const getPublicEventBySlugService = async (slug, timings) => {
+    const eventStart = timings ? performance.now() : null;
     const event = await prisma.event.findUnique({
         where: { slug },
         include: PUBLIC_EVENT_DETAIL_INCLUDE,
     });
+    if (timings) timings.event_query = performance.now() - eventStart;
 
     if (!event || event.status !== "PUBLISHED" || event.visibility !== "PUBLIC") {
         return null;
     }
 
-    return attachTicketAvailability(event);
+    return attachTicketAvailability(event, timings);
 };
 
 // Sale.eventId y Ticket.eventId son ON DELETE RESTRICT a propósito (nunca

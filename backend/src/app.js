@@ -64,6 +64,27 @@ app.get("/api/health", (req, res) => {
     });
 });
 
+// TEMPORAL — diagnóstico de latencia Render→Supabase (issue de performance
+// de /api/events/public/:slug). Ejecuta EXCLUSIVAMENTE `SELECT 1` con la
+// MISMA instancia Prisma singleton de producción (config/prisma.js), para
+// aislar "costo de conectar/ejecutar algo trivial contra Postgres" de
+// "costo de la query real". No devuelve host/db/usuario/SQL — sólo la
+// duración. Retirar junto con el resto de esta instrumentación una vez
+// medida la causa raíz (ver Server-Timing en getPublicEvents/
+// getPublicEventBySlug, event.controller.js).
+app.get("/api/health/db", async (req, res) => {
+    const start = performance.now();
+    try {
+        await prisma.$queryRaw`SELECT 1`;
+        const dur = performance.now() - start;
+        res.set("Server-Timing", `db_ping;dur=${dur.toFixed(1)}`);
+        res.status(200).json({ ok: true });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ ok: false });
+    }
+});
+
 // Rutas
 app.use("/api/users", userRoutes);
 app.use("/api/auth", authRoutes);

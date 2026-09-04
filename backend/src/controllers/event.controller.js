@@ -39,7 +39,13 @@ export const getEventCategories = (req, res) => {
 export const getPublicEvents = async (req, res) => {
     try {
         const { category, search, sort, when, price } = req.query;
+        // TEMPORAL — diagnóstico de latencia Render→Supabase, ver
+        // app.js#/api/health/db. Sólo mide duración, nunca aparece en el
+        // JSON de la respuesta ni expone slug/IDs/SQL/credenciales.
+        const start = performance.now();
         const events = await getPublicEventsService({ category, search, sort, when, price });
+        const dur = performance.now() - start;
+        res.set("Server-Timing", `home_query;dur=${dur.toFixed(1)}`);
         res.status(200).json({ events });
     } catch (error) {
         console.error(error);
@@ -48,8 +54,22 @@ export const getPublicEvents = async (req, res) => {
 };
 
 export const getPublicEventBySlug = async (req, res) => {
+    // TEMPORAL — diagnóstico de latencia Render→Supabase, ver
+    // app.js#/api/health/db. Nunca incluye slug/IDs/SQL/credenciales, sólo
+    // duraciones numéricas de cada operación Prisma.
+    const timings = {};
+    const serviceStart = performance.now();
     try {
-        const event = await getPublicEventBySlugService(req.params.slug);
+        const event = await getPublicEventBySlugService(req.params.slug, timings);
+        const serviceTotal = performance.now() - serviceStart;
+        const parts = [
+            timings.event_query != null && `event_query;dur=${timings.event_query.toFixed(1)}`,
+            timings.availability_query != null &&
+                `availability_query;dur=${timings.availability_query.toFixed(1)}`,
+            `service_total;dur=${serviceTotal.toFixed(1)}`,
+        ].filter(Boolean);
+        res.set("Server-Timing", parts.join(", "));
+
         if (!event) {
             return res.status(404).json({ message: "Evento no encontrado" });
         }
