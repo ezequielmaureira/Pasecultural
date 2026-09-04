@@ -1,4 +1,3 @@
-import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Outlet } from "react-router-dom";
 import AppShell from "./components/layout/AppShell.jsx";
 import PublicShell from "./components/layout/PublicShell.jsx";
@@ -10,6 +9,7 @@ import OrganizersLanding from "./pages/OrganizersLanding.jsx";
 import SignInPage from "./pages/SignIn.jsx";
 import SignUpPage from "./pages/SignUp.jsx";
 import PostAuth from "./pages/PostAuth.jsx";
+import OrganizerOnboarding from "./pages/organizer/OrganizerOnboarding.jsx";
 import HowItWorks from "./pages/HowItWorks.jsx";
 import PrivacyPolicy from "./pages/PrivacyPolicy.jsx";
 import DataDeletion from "./pages/DataDeletion.jsx";
@@ -21,6 +21,20 @@ import { OrganizerSessionProvider } from "./context/OrganizerSessionContext.jsx"
 import { OrganizerDataProvider } from "./context/OrganizerDataContext.jsx";
 import { ActiveEventProvider } from "./context/ActiveEventContext.jsx";
 import OrganizerWhatsAppShortcutButton from "./components/organizer/OrganizerWhatsAppShortcutButton.jsx";
+import DashboardDeveloper from "./pages/DashboardDeveloper.jsx";
+import DeveloperOrganizations from "./pages/developer/DeveloperOrganizations.jsx";
+import DeveloperUsers from "./pages/developer/DeveloperUsers.jsx";
+import DeveloperDatabase from "./pages/developer/DeveloperDatabase.jsx";
+import DeveloperEvents from "./pages/developer/DeveloperEvents.jsx";
+import DeveloperTickets from "./pages/developer/DeveloperTickets.jsx";
+import DeveloperScanners from "./pages/developer/DeveloperScanners.jsx";
+import DeveloperSales from "./pages/developer/DeveloperSales.jsx";
+import DeveloperSettings from "./pages/developer/DeveloperSettings.jsx";
+import DeveloperPlans from "./pages/developer/DeveloperPlans.jsx";
+import ScannerShell from "./pages/scanner/ScannerShell.jsx";
+import ScannerHome from "./pages/scanner/ScannerHome.jsx";
+import ScannerInvitationClaim from "./pages/scanner/ScannerInvitationClaim.jsx";
+import ScannerPortal from "./pages/scanner/ScannerPortal.jsx";
 import EventsList from "./pages/public/EventsList.jsx";
 import EventDetail from "./pages/public/EventDetail.jsx";
 import OrganizationProfile from "./pages/public/OrganizationProfile.jsx";
@@ -29,51 +43,22 @@ import PurchaseWizard from "./pages/public/purchase/PurchaseWizard.jsx";
 import MyTickets from "./pages/public/MyTickets.jsx";
 import RecoverPurchase from "./pages/public/RecoverPurchase.jsx";
 import WithdrawalRequest from "./pages/public/WithdrawalRequest.jsx";
-
-// --- Developer (lazy: panel privado, bajo demanda) ---
-const DashboardDeveloper = lazy(() => import("./pages/DashboardDeveloper.jsx"));
-const DeveloperOrganizations = lazy(() => import("./pages/developer/DeveloperOrganizations.jsx"));
-const DeveloperUsers = lazy(() => import("./pages/developer/DeveloperUsers.jsx"));
-const DeveloperDatabase = lazy(() => import("./pages/developer/DeveloperDatabase.jsx"));
-const DeveloperEvents = lazy(() => import("./pages/developer/DeveloperEvents.jsx"));
-const DeveloperTickets = lazy(() => import("./pages/developer/DeveloperTickets.jsx"));
-const DeveloperScanners = lazy(() => import("./pages/developer/DeveloperScanners.jsx"));
-const DeveloperSales = lazy(() => import("./pages/developer/DeveloperSales.jsx"));
-const DeveloperSettings = lazy(() => import("./pages/developer/DeveloperSettings.jsx"));
-const DeveloperPlans = lazy(() => import("./pages/developer/DeveloperPlans.jsx"));
-
-// --- Scanner (lazy: panel privado, bajo demanda) ---
-const ScannerShell = lazy(() => import("./pages/scanner/ScannerShell.jsx"));
-const ScannerHome = lazy(() => import("./pages/scanner/ScannerHome.jsx"));
-const ScannerInvitationClaim = lazy(() => import("./pages/scanner/ScannerInvitationClaim.jsx"));
-const ScannerPortal = lazy(() => import("./pages/scanner/ScannerPortal.jsx"));
-
-// --- Organizer (lazy: panel privado, bajo demanda) ---
-const OrganizerOnboarding = lazy(() => import("./pages/organizer/OrganizerOnboarding.jsx"));
-const OrganizerDashboard = lazy(() => import("./pages/organizer/OrganizerDashboard.jsx"));
-const OrganizerEvents = lazy(() => import("./pages/organizer/OrganizerEvents.jsx"));
-const OrganizerEventWizard = lazy(() => import("./pages/organizer/OrganizerEventWizard.jsx"));
-const OrganizerEventChat = lazy(() => import("./pages/organizer/OrganizerEventChat.jsx"));
-const OrganizerTickets = lazy(() => import("./pages/organizer/OrganizerTickets.jsx"));
-const OrganizerTicketTypes = lazy(() => import("./pages/organizer/OrganizerTicketTypes.jsx"));
-const OrganizerSales = lazy(() => import("./pages/organizer/OrganizerSales.jsx"));
-const OrganizerCourtesies = lazy(() => import("./pages/organizer/OrganizerCourtesies.jsx"));
-const IssueCourtesyWizard = lazy(() => import("./pages/organizer/courtesies/IssueCourtesyWizard.jsx"));
-const CourtesyHistory = lazy(() => import("./pages/organizer/courtesies/CourtesyHistory.jsx"));
-const OrganizerScanners = lazy(() => import("./pages/organizer/OrganizerScanners.jsx"));
-const OrganizerScannerInvite = lazy(() => import("./pages/organizer/OrganizerScannerInvite.jsx"));
-const OrganizerSettings = lazy(() => import("./pages/organizer/OrganizerSettings.jsx"));
-const OrganizerFunctionStatus = lazy(() => import("./pages/organizer/OrganizerFunctionStatus.jsx"));
-const OrganizerEventHistory = lazy(() => import("./pages/organizer/OrganizerEventHistory.jsx"));
-const OrganizerWithdrawalRequests = lazy(() => import("./pages/organizer/OrganizerWithdrawalRequests.jsx"));
-
-function RouteFallback() {
-  return (
-    <div className="flex min-h-[50vh] items-center justify-center">
-      <p className="text-sm">Cargando...</p>
-    </div>
-  );
-}
+import OrganizerDashboard from "./pages/organizer/OrganizerDashboard.jsx";
+import OrganizerEvents from "./pages/organizer/OrganizerEvents.jsx";
+import OrganizerEventWizard from "./pages/organizer/OrganizerEventWizard.jsx";
+import OrganizerEventChat from "./pages/organizer/OrganizerEventChat.jsx";
+import OrganizerTickets from "./pages/organizer/OrganizerTickets.jsx";
+import OrganizerTicketTypes from "./pages/organizer/OrganizerTicketTypes.jsx";
+import OrganizerSales from "./pages/organizer/OrganizerSales.jsx";
+import OrganizerCourtesies from "./pages/organizer/OrganizerCourtesies.jsx";
+import IssueCourtesyWizard from "./pages/organizer/courtesies/IssueCourtesyWizard.jsx";
+import CourtesyHistory from "./pages/organizer/courtesies/CourtesyHistory.jsx";
+import OrganizerScanners from "./pages/organizer/OrganizerScanners.jsx";
+import OrganizerScannerInvite from "./pages/organizer/OrganizerScannerInvite.jsx";
+import OrganizerSettings from "./pages/organizer/OrganizerSettings.jsx";
+import OrganizerFunctionStatus from "./pages/organizer/OrganizerFunctionStatus.jsx";
+import OrganizerEventHistory from "./pages/organizer/OrganizerEventHistory.jsx";
+import OrganizerWithdrawalRequests from "./pages/organizer/OrganizerWithdrawalRequests.jsx";
 
 function NotFound() {
   return (
@@ -93,7 +78,6 @@ export default function App() {
       <AuthProvider>
       <ThemeProvider>
       <OrganizerSessionProvider>
-        <Suspense fallback={<RouteFallback />}>
         <Routes>
           {/* Modo Prelanzamiento — SOLO las rutas comerciales/de descubrimiento
               quedan detrás de PreLaunchGate (ver ese componente). El resto de
@@ -213,7 +197,6 @@ export default function App() {
             </Route>
           </Route>
         </Routes>
-        </Suspense>
         {/* Atajo global "Cargá tu evento con WhatsApp" — montado UNA sola
             vez acá, junto a <Routes> (nunca dentro de una rama de rutas),
             para que un Organizer autenticado lo siga viendo sin importar si
