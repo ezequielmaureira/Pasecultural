@@ -85,10 +85,6 @@ export default function EventDetail() {
               src={event.coverImage}
               alt={event.title}
               className="h-full w-full object-cover"
-              width={800}
-              height={1000}
-              fetchPriority="high"
-              decoding="async"
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-slate-600">
@@ -200,17 +196,7 @@ export default function EventDetail() {
                   <Button
                     size="lg"
                     className="justify-center"
-                    onClick={() =>
-                      navigate(`/comprar?slug=${event.slug}&functionId=${event.functions?.[0]?.id}`, {
-                        // El evento ya terminó de cargar en esta pantalla — se lo pasamos
-                        // al Wizard por navigation state para que no vuelva a pedir
-                        // GET /api/events/public/:slug y mostrar "Cargando evento..." de
-                        // nuevo. Es sólo un atajo de UX: PurchaseWizard igual valida que
-                        // el slug coincida antes de usarlo, y cualquier acceso directo/F5
-                        // (sin este state) sigue haciendo el fetch normal como fallback.
-                        state: { event },
-                      })
-                    }
+                    onClick={() => navigate(`/comprar?slug=${event.slug}&functionId=${event.functions?.[0]?.id}`)}
                   >
                     Comprar Entradas
                   </Button>
