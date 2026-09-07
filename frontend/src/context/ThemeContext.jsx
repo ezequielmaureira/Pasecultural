@@ -1,16 +1,21 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { useBackendUser } from "./AuthContext.jsx";
 
 // Apariencia AUTOMÁTICA de Smarticket — YA NO es una preferencia manual del
 // usuario (no hay toggle, no hay localStorage de "elección"). El modo se
-// DERIVA de dos cosas, nunca elegidas a mano:
+// DERIVA exclusivamente de la ruta/recorrido, nunca del rol autenticado:
 //
-//   1) rol autenticado: ORGANIZER siempre ve TODO Smarticket en claro.
-//   2) "Organization Experience": un visitante/comprador que entró a
-//      /organizacion/:slug y sigue navegando dentro de ese recorrido
-//      (detalle de evento, checkout) ve esa parte en claro — apenas vuelve
-//      a una sección GENERAL de Smarticket, vuelve a oscuro.
+//   "Organization Experience": un visitante/comprador que entró a
+//   /organizacion/:slug y sigue navegando dentro de ese recorrido (detalle
+//   de evento, checkout) ve esa parte en claro — apenas vuelve a una sección
+//   GENERAL de Smarticket (incluido el panel privado del Organizer,
+//   /organizador/*), vuelve a oscuro.
+//
+// El panel del Organizer (/organizador/*) es oscuro como el resto de
+// Smarticket — un Organizer no tiene ningún trato especial de tema por su
+// rol; si navega a /organizacion/:slug ve esa página en claro exactamente
+// igual que cualquier otro visitante, por la misma regla de Organization
+// Experience de arriba, nunca por ser Organizer.
 //
 // Deliberadamente NO reutiliza (ni por nombre ni por arquitectura) nada del
 // sistema de branding de Organization retirado anteriormente
@@ -57,8 +62,6 @@ const ThemeContext = createContext(null);
 
 export function ThemeProvider({ children }) {
   const location = useLocation();
-  const { backendUser } = useBackendUser();
-  const isOrganizer = backendUser?.role?.toLowerCase() === "organizer";
 
   // Sólo guarda el SLUG de la Organization que se está recorriendo — nunca
   // branding/colores/plan/datos completos. `null` = no hay ninguna
@@ -99,7 +102,7 @@ export function ThemeProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
-  const theme = isOrganizer || organizationExperienceSlug !== null ? "light" : "dark";
+  const theme = organizationExperienceSlug !== null ? "light" : "dark";
 
   useEffect(() => {
     applyThemeClass(theme);
