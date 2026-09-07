@@ -54,6 +54,68 @@ async function resolveActiveEventsQuotaCheck(organization, organizationId) {
     };
 }
 
+// Entradas máximas por EVENTO (no por TicketType, no por función) — total
+// GLOBAL de capacidad configurada sumando TODAS las asignaciones habilitadas
+// de TODAS las EventFunction del evento. Misma fórmula de capacidad efectiva
+// que el resto del sistema (effectiveCapacity: quantityOverride si existe,
+// si no TicketType.quantity), aplicada acá sobre el INPUT propuesto (todavía
+// no persistido) en vez de sobre filas ya guardadas — ver
+// getFunctionCapacityAssignments (functionCapacity.service.js) para la
+// versión que sí lee de la base. `enabled` por defecto true, igual criterio
+// que el resto de syncEventScheduleService (ver armado de assignmentRows).
+function computeRequestedTotalCapacity(ticketTypesInput, functionsInput) {
+    let total = 0;
+    for (const fn of functionsInput) {
+        ticketTypesInput.forEach((tt, index) => {
+            const assignment = fn.ticketAssignments?.[index] ?? {};
+            const enabled = assignment.enabled ?? true;
+            if (!enabled) return;
+            const overrideRaw = assignment.quantityOverride;
+            const override = overrideRaw === undefined || overrideRaw === null ? null : Number(overrideRaw);
+            total += override ?? Number(tt.quantity);
+        });
+    }
+    return total;
+}
+
+// Compatibilidad histórica (ver el informe de la ronda): un evento que ya
+// estaba por encima de un límite configurado DESPUÉS no debe romperse por
+// guardados que no aumentan su capacidad total. Se compara contra la
+// capacidad HOY persistida (antes de este guardado), calculada con la MISMA
+// effectiveCapacity que usa getOrganizerEventsSummaryService — nunca se
+// reimplementa la fórmula.
+async function computeCurrentTotalCapacity(eventId) {
+    const assignments = await prisma.functionTicketType.findMany({
+        where: { enabled: true, function: { eventId } },
+        select: { quantityOverride: true, ticketType: { select: { quantity: true } } },
+    });
+    return assignments.reduce((sum, a) => sum + effectiveCapacity(a), 0);
+}
+
+// Enforcement real de maxTicketsPerEvent (Developer > Planes). null = sin
+// límite (fail-open, mismo criterio que el resto de PlanLimitKey). 0 se
+// respeta literal (nunca se confunde con "sin límite" — comparación
+// explícita contra null, nunca truthiness). Corre ANTES de persistir nada
+// (el caller lo invoca antes de abrir la transacción de escritura) — nunca
+// escribe primero y valida después. No toca ventas/tickets/stock: sólo
+// compara capacidad CONFIGURADA, nunca vendida.
+async function assertMaxTicketsPerEventLimit(organization, eventId, ticketTypesInput, functionsInput) {
+    const limit = await getLimitForOrganization(organization, PlanLimitKey.MAX_TICKETS_PER_EVENT);
+    if (limit === null) return;
+
+    const requestedTotalCapacity = computeRequestedTotalCapacity(ticketTypesInput, functionsInput);
+    if (requestedTotalCapacity <= limit) return;
+
+    // Por encima del límite nuevo: sólo se permite si el evento YA estaba
+    // por encima (histórico) y este guardado no lo empeora.
+    const currentTotalCapacity = await computeCurrentTotalCapacity(eventId);
+    if (currentTotalCapacity > limit && requestedTotalCapacity <= currentTotalCapacity) return;
+
+    const error = new Error("PLAN_MAX_TICKETS_PER_EVENT_EXCEEDED");
+    error.planTicketsLimit = limit;
+    throw error;
+}
+
 // Alertas Developer — evaluado sobre el precio AUTORITATIVO ya persistido
 // para cada (función, tipo de entrada): FunctionTicketType.priceOverride
 // cuando existe, si no TicketType.price — exactamente el mismo criterio
@@ -746,6 +808,8 @@ export const syncEventScheduleService = async (clerkId, eventId, input, organiza
     // filas se insertan en el mismo instante: sin esto, el `ORDER BY
     // createdAt` que ya usa EVENT_DETAIL_INCLUDE (y el resto de la app)
     // dejaría de ser estable entre lecturas. Mismos datos, mismo orden.
+    await assertMaxTicketsPerEventLimit(context.organization, eventId, ticketTypesInput, functionsInput);
+
     const baseCreatedAt = Date.now();
     let tick = 0;
     const nextCreatedAt = () => new Date(baseCreatedAt + tick++);

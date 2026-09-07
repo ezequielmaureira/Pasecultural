@@ -220,6 +220,14 @@ export const saveEventSchedule = async (req, res) => {
                 message: "Cada entrada del catálogo necesita nombre, precio y cantidad",
             });
         }
+        if (error.message === "PLAN_MAX_TICKETS_PER_EVENT_EXCEEDED") {
+            const base = ErrorCatalog.PLAN_MAX_TICKETS_PER_EVENT_EXCEEDED.userMessage;
+            const message =
+                typeof error.planTicketsLimit === "number"
+                    ? `${base} Tu plan permite hasta ${error.planTicketsLimit} entradas por evento.`
+                    : base;
+            return res.status(409).json({ message });
+        }
 
         res.status(500).json({ message: "Error al guardar la programación del evento" });
     }

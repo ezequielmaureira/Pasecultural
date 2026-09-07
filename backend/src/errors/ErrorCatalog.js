@@ -706,6 +706,15 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Scanner creation attempted while the organization is already at (or above) its plan's active scanner limit.",
         userMessage: "Alcanzaste el máximo de scanners activos de tu plan.",
     },
+    // maxTicketsPerEvent — total GLOBAL de entradas configuradas del evento
+    // (suma de todas las asignaciones habilitadas de todas las funciones),
+    // nunca por TicketType/función. userMessage base; el controller le
+    // agrega el límite numérico cuando está disponible (error.planTicketsLimit).
+    PLAN_MAX_TICKETS_PER_EVENT_EXCEEDED: {
+        httpStatus: 409,
+        logMessage: "Event schedule save attempted with a total configured ticket capacity above the organization's plan limit.",
+        userMessage: "Este evento supera el máximo de entradas permitido por tu plan.",
+    },
     ORGANIZATION_PUBLIC_PAGE_NOT_AVAILABLE: {
         httpStatus: 404,
         logMessage: "Public organization page requested for a slug that does not resolve to a PREMIUM organization.",
