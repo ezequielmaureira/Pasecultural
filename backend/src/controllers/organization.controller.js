@@ -321,7 +321,13 @@ export const getPublicOrganizationBySlug = async (req, res) => {
     res.set("Cache-Control", "no-store");
 
     try {
-        const data = await getPublicOrganizationBySlugService(req.params.slug);
+        // Fast Organization Public Experience — aditivo: sin el query param
+        // (o con cualquier valor distinto de la string "false") se preserva
+        // EXACTO el contrato legacy (incluye `events`). `includeEvents=false`
+        // es lo que usa OrganizationProfile.jsx en su nuevo flujo paralelo
+        // (ver getPublicEventsService?organizationSlug=... para los eventos).
+        const includeEvents = req.query?.includeEvents !== "false";
+        const data = await getPublicOrganizationBySlugService(req.params.slug, { includeEvents });
 
         res.status(200).json(data);
     } catch (error) {

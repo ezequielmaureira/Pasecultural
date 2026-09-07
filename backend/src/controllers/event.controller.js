@@ -39,8 +39,8 @@ export const getEventCategories = (req, res) => {
 
 export const getPublicEvents = async (req, res) => {
     try {
-        const { category, search, sort, when, price } = req.query;
-        const events = await getPublicEventsService({ category, search, sort, when, price });
+        const { category, search, sort, when, price, organizationSlug } = req.query;
+        const events = await getPublicEventsService({ category, search, sort, when, price, organizationSlug });
         res.status(200).json({ events });
     } catch (error) {
         console.error(error);

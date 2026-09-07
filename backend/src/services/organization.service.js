@@ -330,7 +330,19 @@ export const deleteOrganizationService = async (id) => {
 // caller. Mismo código de error (ORGANIZATION_PUBLIC_PAGE_NOT_AVAILABLE)
 // para slug inexistente y para Organization no-PREMIUM: la respuesta pública
 // nunca puede distinguir "no existe" de "existe pero es FREE".
-export const getPublicOrganizationBySlugService = async (slug) => {
+// Fast Organization Public Experience — `includeEvents` (default true,
+// mismo contrato legacy exacto) es ADITIVO: `includeEvents: false` es lo que
+// usa el nuevo flujo paralelo de OrganizationProfile.jsx (que ya trae sus
+// propios eventos de GET /api/events/public?organizationSlug=..., resuelto
+// en un único event.findMany — ver getPublicEventsService). Con
+// `includeEvents: false` esta función NUNCA ejecuta su propio
+// event.findMany: sólo resuelve identidad/autorización (organization.findUnique
+// + isFeatureAvailable en memoria), evitando la tercera query/segunda
+// consulta de eventos que existía antes. Único consumidor real verificado de
+// este service es getPublicOrganizationBySlug (organization.controller.js) —
+// se preserva igual el default `true` por si algún otro caller futuro llega
+// a depender del contrato completo de siempre.
+export const getPublicOrganizationBySlugService = async (slug, { includeEvents = true } = {}) => {
     if (!slug) {
         throw new Error("ORGANIZATION_PUBLIC_PAGE_NOT_AVAILABLE");
     }
@@ -357,6 +369,24 @@ export const getPublicOrganizationBySlugService = async (slug) => {
         throw new Error("ORGANIZATION_PUBLIC_PAGE_NOT_AVAILABLE");
     }
 
+    const publicOrganization = {
+        id: organization.id,
+        name: organization.name,
+        slug: organization.slug,
+        logo: organization.logo,
+        description: organization.description,
+        city: organization.city,
+        province: organization.province,
+        website: organization.website,
+        instagram: organization.instagram,
+        facebook: organization.facebook,
+        tiktok: organization.tiktok,
+    };
+
+    if (!includeEvents) {
+        return { organization: publicOrganization };
+    }
+
     // Predicado replicado del listado público real (getPublicEventsService,
     // event.service.js): status PUBLISHED + visibility PUBLIC + (sin fecha
     // de inicio O fecha de inicio todavía no pasada). Duplicado acá a
@@ -377,19 +407,7 @@ export const getPublicOrganizationBySlugService = async (slug) => {
     });
 
     return {
-        organization: {
-            id: organization.id,
-            name: organization.name,
-            slug: organization.slug,
-            logo: organization.logo,
-            description: organization.description,
-            city: organization.city,
-            province: organization.province,
-            website: organization.website,
-            instagram: organization.instagram,
-            facebook: organization.facebook,
-            tiktok: organization.tiktok,
-        },
+        organization: publicOrganization,
         events: events.map((event) => ({
             ...event,
             organization: { id: organization.id, name: organization.name },

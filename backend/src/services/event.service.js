@@ -1035,12 +1035,26 @@ function buildWhenFilter(when, now) {
     return null;
 }
 
-export const getPublicEventsService = async ({ category, search, sort, when, price } = {}) => {
+export const getPublicEventsService = async ({ category, search, sort, when, price, organizationSlug } = {}) => {
     const now = new Date();
 
     // Un evento publicado sin funciones futuras no debería aparecer en el
     // marketplace: se oculta todo lo que ya pasó de fecha.
     const conditions = [{ OR: [{ startDate: null }, { startDate: { gte: now } }] }];
+
+    // Fast Organization Public Experience — filtro resuelto DENTRO del mismo
+    // findMany, vía la relación `organization` (Prisma arma un JOIN, nunca
+    // una consulta separada). A propósito NUNCA se hace
+    // `organization.findUnique({ where: { slug } })` antes para resolver
+    // slug -> id: eso reintroduciría la segunda query que esta fase busca
+    // eliminar. `plan: "PREMIUM"` va en el MISMO filtro (no como chequeo
+    // aparte): una Organization FREE nunca matchea la relación, así que su
+    // slug siempre devuelve `[]` acá — la misma garantía de "no exponer
+    // página de una FREE" que ya aplica getPublicOrganizationBySlugService,
+    // pero para el listado.
+    if (organizationSlug) {
+        conditions.push({ organization: { slug: organizationSlug, plan: "PREMIUM" } });
+    }
 
     if (category && category !== "ALL") {
         conditions.push({ category });

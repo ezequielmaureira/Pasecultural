@@ -39,27 +39,45 @@ const SOCIAL_FIELDS = [
   { key: "tiktok", label: "TikTok", Icon: Clapperboard },
 ];
 
+// Fast Organization Public Experience — dos cargas INDEPENDIENTES desde que
+// se conoce `slug`, cada una en su propio useEffect, arrancando juntas sin
+// que una espere a la otra (nunca un Promise.all: eso volvería a bloquear el
+// render sobre la respuesta más lenta de las dos). `events` viene de
+// GET /api/events/public?organizationSlug=... (el MISMO event.findMany que ya
+// usa /eventos, filtrado en la propia query — nunca un segundo fetch de
+// identidad primero para resolver slug->id). `identity` viene de
+// GET /api/organizations/public/:slug?includeEvents=false (que ya NO corre su
+// propio event.findMany). El backend de identidad sigue siendo la autoridad
+// para "página no disponible" (FREE/inexistente): mientras identity no
+// resuelva, nunca se muestra ese estado sólo porque events haya llegado
+// vacío — un evento cargado no implica nombre/logo/existencia.
 export default function OrganizationProfile() {
   const { slug } = useParams();
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
+
+  const [events, setEvents] = useState([]);
+  const [loadingEvents, setLoadingEvents] = useState(true);
+  const [eventsError, setEventsError] = useState(false);
+
+  const [identity, setIdentity] = useState(null);
+  const [loadingIdentity, setLoadingIdentity] = useState(true);
+  const [identityNotFound, setIdentityNotFound] = useState(false);
+  const [identityError, setIdentityError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setNotFound(false);
+    setLoadingEvents(true);
+    setEventsError(false);
 
-    apiFetch(`/api/organizations/public/${slug}`)
+    apiFetch(`/api/events/public?organizationSlug=${encodeURIComponent(slug)}`)
       .then((result) => {
-        if (!cancelled) setData(result);
+        if (!cancelled) setEvents(result.events ?? []);
       })
       .catch((err) => {
-        console.error("No se pudo cargar la organización", err);
-        if (!cancelled) setNotFound(true);
+        console.error("No se pudieron cargar los eventos de la organización", err);
+        if (!cancelled) setEventsError(true);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setLoadingEvents(false);
       });
 
     return () => {
@@ -67,9 +85,48 @@ export default function OrganizationProfile() {
     };
   }, [slug]);
 
-  usePageTitle(data?.organization?.name ? `${data.organization.name} | PaseCultural` : "PaseCultural");
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingIdentity(true);
+    setIdentityNotFound(false);
+    setIdentityError(false);
 
-  if (loading) {
+    apiFetch(`/api/organizations/public/${slug}?includeEvents=false`)
+      .then((result) => {
+        if (!cancelled) setIdentity(result.organization);
+      })
+      .catch((err) => {
+        console.error("No se pudo cargar la organización", err);
+        if (cancelled) return;
+        // ORGANIZATION_PUBLIC_PAGE_NOT_AVAILABLE llega como 404/403 — ver
+        // ErrorCatalog. Cualquier OTRO fallo (red, 500) es técnico/temporal,
+        // nunca "no disponible": no hay forma de distinguir el código exacto
+        // acá (apiFetch no lo expone), así que se trata como notFound sólo
+        // cuando es un error de respuesta HTTP conocido del backend — mismo
+        // criterio que el comportamiento previo a esta fase (backend sigue
+        // siendo la única autoridad de "no disponible").
+        if (err.status && err.status !== 500) {
+          setIdentityNotFound(true);
+        } else {
+          setIdentityError(true);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingIdentity(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
+
+  usePageTitle(identity?.name ? `${identity.name} | PaseCultural` : "PaseCultural");
+
+  // Mientras identidad no resolvió, nunca se puede afirmar "no disponible"
+  // ni tampoco es seguro renderizar nombre/logo todavía — eventos SÍ puede
+  // ya estar listo y se muestra igual (ver más abajo), pero el encabezado
+  // de identidad espera su propia respuesta.
+  if (loadingIdentity) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center text-sm text-slate-400">
         Cargando organización...
@@ -79,8 +136,11 @@ export default function OrganizationProfile() {
 
   // FREE y slug inexistente llegan acá con el mismo estado — el backend ya
   // devuelve el mismo 404 uniforme para ambos casos, y esta pantalla nunca
-  // intenta distinguirlos.
-  if (notFound || !data) {
+  // intenta distinguirlos. Autoridad exclusiva del backend de identidad:
+  // aunque `events` ya haya resuelto con contenido, el filtro
+  // organization.plan=PREMIUM de getPublicEventsService garantiza que una
+  // FREE nunca llegó a tener eventos acá de todas formas.
+  if (identityNotFound || (!identity && !identityError)) {
     return (
       <div className="mx-auto flex max-w-2xl flex-col items-center gap-3 px-6 py-24 text-center">
         <p className="text-lg font-semibold text-white">Página no disponible</p>
@@ -91,67 +151,89 @@ export default function OrganizationProfile() {
     );
   }
 
-  const { organization, events } = data;
+  // Fallo técnico de identidad (no "no disponible") con eventos ya
+  // utilizables: se prefiere mostrar el contenido básico (grilla de eventos)
+  // en vez de bloquear toda la página por un problema temporal de UNA de las
+  // dos requests — mismo criterio de "no perder lo que sí funcionó" que ya
+  // usa el resto del proyecto ante errores parciales.
+  const organization = identity;
 
-  const safeSocialLinks = SOCIAL_FIELDS.map(({ key, label, Icon }) => ({
-    key,
-    label,
-    Icon,
-    url: organization[key],
-  })).filter((link) => isSafeExternalUrl(link.url));
+  const safeSocialLinks = organization
+    ? SOCIAL_FIELDS.map(({ key, label, Icon }) => ({
+        key,
+        label,
+        Icon,
+        url: organization[key],
+      })).filter((link) => isSafeExternalUrl(link.url))
+    : [];
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10">
-      <div className="flex flex-col items-center gap-4 text-center">
-        {organization.logo && (
-          <img
-            src={organization.logo}
-            alt={organization.name}
-            className="h-20 w-20 rounded-full border border-white/10 object-cover"
-          />
-        )}
-        <div>
-          <h1 className="text-2xl font-bold text-white sm:text-3xl">{organization.name}</h1>
-          {(organization.city || organization.province) && (
-            <p className="mt-1 flex items-center justify-center gap-1.5 text-sm text-slate-400">
-              <MapPin className="h-3.5 w-3.5 shrink-0" />
-              {[organization.city, organization.province].filter(Boolean).join(", ")}
+      {organization ? (
+        <div className="flex flex-col items-center gap-4 text-center">
+          {organization.logo && (
+            <img
+              src={organization.logo}
+              alt={organization.name}
+              className="h-20 w-20 rounded-full border border-white/10 object-cover"
+            />
+          )}
+          <div>
+            <h1 className="text-2xl font-bold text-white sm:text-3xl">{organization.name}</h1>
+            {(organization.city || organization.province) && (
+              <p className="mt-1 flex items-center justify-center gap-1.5 text-sm text-slate-400">
+                <MapPin className="h-3.5 w-3.5 shrink-0" />
+                {[organization.city, organization.province].filter(Boolean).join(", ")}
+              </p>
+            )}
+          </div>
+          {organization.description && (
+            <p className="max-w-xl whitespace-pre-line text-sm text-slate-300">
+              {organization.description}
             </p>
           )}
-        </div>
-        {organization.description && (
-          <p className="max-w-xl whitespace-pre-line text-sm text-slate-300">
-            {organization.description}
+
+          {safeSocialLinks.length > 0 && (
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {safeSocialLinks.map(({ key, label, Icon, url }) => (
+                <a
+                  key={key}
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition-colors duration-150 hover:border-violet-500 hover:text-white"
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </a>
+              ))}
+            </div>
+          )}
+
+          <p className="flex items-center gap-1.5 text-xs text-slate-600">
+            <Ticket className="h-3.5 w-3.5" />
+            Powered by PaseCultural
           </p>
-        )}
-
-        {safeSocialLinks.length > 0 && (
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            {safeSocialLinks.map(({ key, label, Icon, url }) => (
-              <a
-                key={key}
-                href={url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition-colors duration-150 hover:border-violet-500 hover:text-white"
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {label}
-              </a>
-            ))}
-          </div>
-        )}
-
-        <p className="flex items-center gap-1.5 text-xs text-slate-600">
-          <Ticket className="h-3.5 w-3.5" />
-          Powered by PaseCultural
+        </div>
+      ) : (
+        // identityError=true: fallo técnico, no "no disponible" — se omite
+        // el encabezado (no hay nombre/logo/redes confiables todavía) pero
+        // se sigue mostrando la grilla de eventos si ya cargó.
+        <p className="text-center text-sm text-slate-500">
+          No pudimos cargar los datos de la organización en este momento.
         </p>
-      </div>
+      )}
 
       <div className="border-t border-white/10 pt-8">
         <h2 className="mb-5 text-lg font-semibold text-white">Próximos eventos</h2>
 
-        {events.length === 0 ? (
+        {loadingEvents ? (
+          <p className="py-10 text-center text-sm text-slate-500">Cargando eventos...</p>
+        ) : eventsError ? (
+          <p className="py-10 text-center text-sm text-slate-500">
+            No pudimos cargar los eventos en este momento.
+          </p>
+        ) : events.length === 0 ? (
           <p className="py-10 text-center text-sm text-slate-500">
             Esta organización no tiene eventos publicados por ahora.
           </p>
