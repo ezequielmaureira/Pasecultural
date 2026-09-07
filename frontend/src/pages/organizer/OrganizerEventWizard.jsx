@@ -9,9 +9,13 @@ import {
   Ticket as TicketIcon,
   Plus,
   ShieldAlert,
+  Zap,
+  ExternalLink,
 } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
+import LinkButton from "../../components/ui/LinkButton.jsx";
+import ShareLinkPanel from "../../components/organizer/ShareLinkPanel.jsx";
 import StepIndicator from "../../components/ui/StepIndicator.jsx";
 import PublishOverlay from "../../components/ui/PublishOverlay.jsx";
 import { usePublishFlow } from "../../hooks/usePublishFlow.js";
@@ -67,7 +71,8 @@ function createEmptyGeneralForm() {
     // Quick Pass V1 — capacidad del Event, no del canal (Web/WhatsApp
     // comparten el mismo createEventService/updateMyEventService, ver
     // event.service.js). Opcional; la imagen sólo es obligatoria si se
-    // activa (ver validateStep1 más abajo).
+    // activa (ver validateQuickPass más abajo). UI en el paso 5 (Vista
+    // previa/Publicación), no en este paso 1.
     quickPassEnabled: false,
     quickPassImageUrl: "",
   };
@@ -102,6 +107,13 @@ export default function OrganizerEventWizard() {
   // poblando igual (no hace daño, sólo no se usa) para que, si se restaura,
   // el formulario ya esté listo sin re-fetchear nada.
   const [archivedAt, setArchivedAt] = useState(null);
+  // Sólo se conoce con certeza al EDITAR un evento ya persistido (hidratado
+  // más abajo desde event.slug) — en creación permanece null hasta que el
+  // evento se guarde por primera vez, momento en el que ya no tiene sentido
+  // seguir mostrando la tarjeta de Quick Pass (se navega fuera del wizard).
+  // Nunca se inventa/adivina un slug: la URL de Quick Pass sólo se muestra
+  // cuando este valor es real.
+  const [eventSlug, setEventSlug] = useState(null);
   const [restoring, setRestoring] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
 
@@ -114,7 +126,7 @@ export default function OrganizerEventWizard() {
   const isFreeEntry = admissionType === "FREE_ENTRY";
   const [general, setGeneral] = useState(createEmptyGeneralForm);
   // Sólo WARNING, nunca bloqueo (ver el informe: el único bloqueo real de
-  // Quick Pass es "activo sin imagen", validado en validateStep1/backend).
+  // Quick Pass es "activo sin imagen", validado en validateQuickPass/backend).
   const [quickPassAspectWarning, setQuickPassAspectWarning] = useState(false);
   const [location, setLocation] = useState(createEmptyLocation);
   const [locationError, setLocationError] = useState("");
@@ -208,6 +220,7 @@ export default function OrganizerEventWizard() {
         if (cancelled || !event) return;
 
         setArchivedAt(event.archivedAt ?? null);
+        setEventSlug(event.slug || null);
         setAdmissionType(event.admissionType || "TICKETED");
         // Estar editando este evento lo convierte en el Evento Activo para
         // el resto del panel — salvo que esté archivado (no tiene sentido
@@ -504,15 +517,24 @@ export default function OrganizerEventWizard() {
     if (general.category === "OTRO" && !general.customCategory.trim()) {
       stepErrors.customCategory = "Especificá el nombre de la categoría";
     }
-    // Único bloqueo real de Quick Pass: activo sin imagen. El backend
-    // vuelve a validar esto mismo (nunca sólo frontend, ver
-    // assertQuickPassInvariant en event.service.js) — esta es sólo la
-    // versión rápida para no hacer ida y vuelta al servidor.
-    if (general.quickPassEnabled && !general.quickPassImageUrl) {
-      stepErrors.quickPassImageUrl = "Subí una imagen para activar Quick Pass";
-    }
-    setErrors(stepErrors);
+    setErrors((prev) => ({ ...prev, ...stepErrors }));
     return Object.keys(stepErrors).length === 0;
+  }
+
+  // Único bloqueo real de Quick Pass: activo sin imagen. El backend vuelve a
+  // validar esto mismo (nunca sólo frontend, ver assertQuickPassInvariant en
+  // event.service.js) — esta es sólo la versión rápida para no hacer ida y
+  // vuelta al servidor. Separada de validateStep1 a propósito: la tarjeta de
+  // Quick Pass vive en el paso 5 (Vista previa/Publicación), no en el paso 1
+  // — este chequeo corre recién al intentar guardar/publicar (ver
+  // handleSaveDraft/handlePublish), nunca al avanzar del paso 1.
+  function validateQuickPass() {
+    if (general.quickPassEnabled && !general.quickPassImageUrl) {
+      setErrors((prev) => ({ ...prev, quickPassImageUrl: "Subí una imagen para activar Quick Pass" }));
+      return false;
+    }
+    setErrors((prev) => ({ ...prev, quickPassImageUrl: undefined }));
+    return true;
   }
 
   // Se exige recién al publicar: un borrador puede guardarse con la ubicación
@@ -724,8 +746,10 @@ export default function OrganizerEventWizard() {
   }
 
   async function handleSaveDraft() {
-    if (!validateStep1() || !validateStepLinks() || !validateStep3() || !validateStep4()) {
+    const quickPassValid = validateQuickPass();
+    if (!validateStep1() || !validateStepLinks() || !validateStep3() || !validateStep4() || !quickPassValid) {
       setSubmitError("Revisá los datos del evento antes de guardar.");
+      if (!quickPassValid) setStep(STEPS.length);
       return;
     }
 
@@ -746,9 +770,11 @@ export default function OrganizerEventWizard() {
 
   async function handlePublish() {
     const locationValid = validateLocationForPublish();
-    if (!validateStep1() || !locationValid || !validateStepLinks() || !validateStep3() || !validateStep4()) {
+    const quickPassValid = validateQuickPass();
+    if (!validateStep1() || !locationValid || !validateStepLinks() || !validateStep3() || !validateStep4() || !quickPassValid) {
       setSubmitError("Revisá los datos del evento antes de publicar.");
       if (!locationValid) setStep(1);
+      else if (!quickPassValid) setStep(STEPS.length);
       return;
     }
 
@@ -900,42 +926,6 @@ export default function OrganizerEventWizard() {
               previewHeightClass="h-72"
               aspectRatio={4 / 5}
             />
-
-            <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-white/5 p-4">
-              <label className="flex items-center justify-between gap-3">
-                <span className="text-sm font-medium text-white">Activar Quick Pass</span>
-                <input
-                  type="checkbox"
-                  className="h-5 w-5 accent-violet-500"
-                  checked={general.quickPassEnabled}
-                  onChange={(e) => setGeneralField("quickPassEnabled", e.target.checked)}
-                />
-              </label>
-              <HelpText>
-                Pantalla pública propia, a pantalla completa, pensada para compartir por redes o WhatsApp
-                — reutiliza el mismo checkout de siempre para vender entradas.
-              </HelpText>
-
-              {general.quickPassEnabled && (
-                <>
-                  <ImageUploader
-                    label="Imagen de Quick Pass"
-                    value={general.quickPassImageUrl}
-                    onChange={(url) => setGeneralField("quickPassImageUrl", url || "")}
-                    previewHeightClass="h-72"
-                    aspectRatio={9 / 16}
-                    helperText="PNG, JPG, JPEG o WEBP. Máximo 5 MB."
-                  />
-                  <HelpText>Recomendado: imagen vertical 9:16 · 1080 × 1920 px</HelpText>
-                  {quickPassAspectWarning && (
-                    <p className="text-xs text-amber-400">
-                      Para que Quick Pass se vea mejor, recomendamos una imagen vertical 9:16.
-                    </p>
-                  )}
-                  <ErrorText message={errors.quickPassImageUrl} />
-                </>
-              )}
-            </div>
 
             <Field label="Categoría">
               <select
@@ -1096,25 +1086,100 @@ export default function OrganizerEventWizard() {
                   )}
                 </div>
               </div>
-              <div className="flex flex-col gap-3 p-5">
-                <span className="w-fit rounded-full bg-violet-500/10 px-2.5 py-1 text-xs font-medium text-violet-300">
-                  {getEventCategoryLabel(general)}
+            </div>
+
+            <div className="flex flex-col gap-3 rounded-xl border border-violet-500/20 bg-white/5 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <span className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <Zap className="h-4 w-4 text-violet-400" />
+                  Quick Pass
                 </span>
-
-                <h2 className="text-lg font-bold text-white">
-                  {general.title || "Nombre del evento"}
-                </h2>
-
-                {general.shortDescription && (
-                  <p className="text-sm text-slate-300">{general.shortDescription}</p>
-                )}
-
-                {general.description && (
-                  <p className="whitespace-pre-line text-sm text-slate-400">
-                    {general.description}
-                  </p>
-                )}
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 accent-violet-500"
+                  checked={general.quickPassEnabled}
+                  onChange={(e) => setGeneralField("quickPassEnabled", e.target.checked)}
+                />
               </div>
+              <HelpText>
+                Creá una experiencia de compra rápida para compartir tu evento en WhatsApp,
+                Instagram y redes.
+              </HelpText>
+
+              {general.quickPassEnabled && (
+                <>
+                  <ImageUploader
+                    label="Imagen de Quick Pass"
+                    value={general.quickPassImageUrl}
+                    onChange={(url) => setGeneralField("quickPassImageUrl", url || "")}
+                    previewHeightClass="h-72"
+                    aspectRatio={9 / 16}
+                    helperText="PNG, JPG, JPEG o WEBP. Máximo 5 MB."
+                  />
+                  <HelpText>Recomendado: imagen vertical 9:16 · 1080 × 1920 px</HelpText>
+                  {quickPassAspectWarning && (
+                    <p className="text-xs text-amber-400">
+                      Para que Quick Pass se vea mejor, recomendamos una imagen vertical 9:16.
+                    </p>
+                  )}
+                  <ErrorText message={errors.quickPassImageUrl} />
+
+                  <div className="mt-1 flex flex-col gap-2 border-t border-white/10 pt-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Tu Quick Pass
+                    </p>
+                    {eventSlug ? (
+                      <>
+                        <p className="truncate text-sm text-violet-300">
+                          {window.location.host}/quick-pass/{eventSlug}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <LinkButton
+                            to={`/quick-pass/${eventSlug}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            variant="secondary"
+                            size="sm"
+                            className="gap-1.5"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            Abrir
+                          </LinkButton>
+                        </div>
+                        <ShareLinkPanel
+                          url={`${window.location.origin}/quick-pass/${eventSlug}`}
+                          title={`Quick Pass — ${general.title || "mi evento"}`}
+                          shareText={`Entrá a mi Quick Pass: ${window.location.origin}/quick-pass/${eventSlug}`}
+                        />
+                      </>
+                    ) : (
+                      <p className="text-xs text-slate-500">
+                        El enlace estará disponible cuando guardes el evento.
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-[#05070B] p-5">
+              <span className="w-fit rounded-full bg-violet-500/10 px-2.5 py-1 text-xs font-medium text-violet-300">
+                {getEventCategoryLabel(general)}
+              </span>
+
+              <h2 className="text-lg font-bold text-white">
+                {general.title || "Nombre del evento"}
+              </h2>
+
+              {general.shortDescription && (
+                <p className="text-sm text-slate-300">{general.shortDescription}</p>
+              )}
+
+              {general.description && (
+                <p className="whitespace-pre-line text-sm text-slate-400">
+                  {general.description}
+                </p>
+              )}
             </div>
 
             {links.some((link) => link.isEmbeddable) && (
