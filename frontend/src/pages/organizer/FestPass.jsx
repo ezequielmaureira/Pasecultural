@@ -16,7 +16,7 @@ import { useToast } from "../../context/ToastContext.jsx";
 import { usePublishFlow } from "../../hooks/usePublishFlow.js";
 import { canPublishEvents } from "../../lib/organizationTrust.js";
 import { EVENT_CATEGORIES, getEventCategoryLabel } from "../../lib/eventCategories.js";
-import { createEmptyTicketType, createDefaultAssignment, toDateTime, currency } from "./eventWizard/model.js";
+import { createEmptyTicketType, toDateTime, currency } from "./eventWizard/model.js";
 
 // Fest Pass V2 — creador RÁPIDO de eventos (3 etapas: Tu evento / Entradas /
 // Vista previa). Arma exactamente el mismo Event/EventFunction/TicketType
@@ -72,7 +72,6 @@ export default function FestPass() {
   const [startTime, setStartTime] = useState("21:00");
   const [endDate, setEndDate] = useState("");
   const [endTime, setEndTime] = useState("23:59");
-  const [admissionType, setAdmissionType] = useState("TICKETED");
   const [catalog, setCatalog] = useState(() => [createEmptyTicketType()]);
   const [organization, setOrganization] = useState(null);
   const [errors, setErrors] = useState({});
@@ -80,7 +79,12 @@ export default function FestPass() {
   const [saving, setSaving] = useState(false);
   const [published, setPublished] = useState(null); // { slug }
 
-  const isFreeEntry = admissionType === "FREE_ENTRY";
+  // Fest Pass es EXCLUSIVAMENTE para eventos pagos — nunca FREE_ENTRY, nunca
+  // un selector de tipo de evento. Un evento gratuito no necesita Fest Pass
+  // (puede promocionarse por otros medios); si algún día se decide lo
+  // contrario, es una decisión de producto/backend nueva, no un toggle acá.
+  // Constante, no estado: nunca cambia dentro de este creador.
+  const admissionType = "TICKETED";
   const canPublish = canPublishEvents(organization);
 
   useEffect(() => {
@@ -154,14 +158,24 @@ export default function FestPass() {
     setCatalog((prev) => prev.map((tt) => (tt._key === key ? { ...tt, [field]: value } : tt)));
   }
 
+  // Defensa adicional para el payload (backend sigue siendo la autoridad
+  // real): sólo cuentan filas con nombre, precio > 0 y cantidad > 0 — un
+  // precio o cantidad en 0 NUNCA se considera una entrada válida acá.
   function validTicketTypes() {
-    return catalog.filter((tt) => tt.name.trim() && tt.price !== "" && tt.quantity !== "");
+    return catalog.filter((tt) => tt.name.trim() && Number(tt.price) > 0 && Number(tt.quantity) > 0);
   }
 
+  // Fest Pass es sólo pago: TODAS las filas del catálogo deben estar
+  // completas (nombre, precio > 0, cantidad > 0) antes de avanzar — si el
+  // Organizer no quiere una fila, debe quitarla con el ícono de basura, no
+  // dejarla vacía. Validación de UX; el backend (assertQuickPassInvariant/
+  // NO_TICKET_TYPES/TICKET_TYPE_MISSING_FIELDS) sigue siendo la autoridad.
   function validateTicketsScreen() {
-    if (isFreeEntry) return true;
-    if (validTicketTypes().length === 0) {
-      setSubmitError("Agregá al menos un tipo de entrada con nombre, precio y cantidad.");
+    const hasInvalidRow = catalog.some(
+      (tt) => !tt.name.trim() || tt.price === "" || Number(tt.price) <= 0 || tt.quantity === "" || Number(tt.quantity) <= 0
+    );
+    if (hasInvalidRow) {
+      setSubmitError("Completá nombre, precio (mayor a $0) y cantidad (mayor a 0) en todas las entradas.");
       return false;
     }
     setSubmitError("");
@@ -195,7 +209,7 @@ export default function FestPass() {
   }
 
   function buildSchedulePayload() {
-    const types = isFreeEntry ? [] : validTicketTypes();
+    const types = validTicketTypes();
     return {
       ticketTypes: types.map((tt) => ({
         name: tt.name,
@@ -218,7 +232,22 @@ export default function FestPass() {
           address: location.addressLine || location.formattedAddress || null,
           capacity: null,
           status: "SCHEDULED",
-          ticketAssignments: types.map(() => createDefaultAssignment()),
+          // IMPORTANTE (bug encontrado y corregido): se arma el shape EXACTO
+          // que espera el backend (event.service.js#syncEventScheduleService,
+          // ~línea 867) — null real, nunca "". Antes se reenviaba
+          // createDefaultAssignment() tal cual (forma de UI interna del
+          // wizard clásico, con priceOverride/quantityOverride en "" cuando
+          // "usar catálogo" está activo); el backend hace `Number("")` = 0
+          // sobre esa forma sin traducir, pisando silenciosamente el
+          // precio/cantidad reales del TicketType a 0 (por eso una entrada
+          // paga aparecía como "Gratis" y con disponibilidad 0 en
+          // /fest-pass/:slug).
+          ticketAssignments: types.map(() => ({
+            enabled: true,
+            priceOverride: null,
+            quantityOverride: null,
+            visibleOverride: null,
+          })),
         },
       ],
     };
@@ -286,7 +315,7 @@ export default function FestPass() {
     }
   }
 
-  const totalCapacity = isFreeEntry ? null : validTicketTypes().reduce((sum, tt) => sum + (Number(tt.quantity) || 0), 0);
+  const totalCapacity = validTicketTypes().reduce((sum, tt) => sum + (Number(tt.quantity) || 0), 0);
 
   // ===================== ÉXITO =====================
   if (screen === "success" && published) {
@@ -324,7 +353,7 @@ export default function FestPass() {
 
   // ===================== VISTA PREVIA =====================
   if (screen === "preview") {
-    const types = isFreeEntry ? [] : validTicketTypes();
+    const types = validTicketTypes();
     const locationLabel = [location.venueName, location.city].filter(Boolean).join(" · ");
 
     return (
@@ -396,18 +425,14 @@ export default function FestPass() {
           )}
           <div className="flex flex-col gap-2 border-t border-white/10 pt-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Entradas</p>
-            {isFreeEntry ? (
-              <p className="text-sm font-medium text-violet-300">Entrada gratuita · Ingreso por orden de llegada</p>
-            ) : (
-              types.map((tt) => (
-                <div key={tt._key} className="flex items-center justify-between text-sm">
-                  <span className="text-slate-300">{tt.name}</span>
-                  <span className="text-slate-400">
-                    {currency(tt.price)} · {tt.quantity} disponibles
-                  </span>
-                </div>
-              ))
-            )}
+            {types.map((tt) => (
+              <div key={tt._key} className="flex items-center justify-between text-sm">
+                <span className="text-slate-300">{tt.name}</span>
+                <span className="text-slate-400">
+                  {currency(tt.price)} · {tt.quantity} disponibles
+                </span>
+              </div>
+            ))}
           </div>
         </Card>
 
@@ -580,89 +605,63 @@ export default function FestPass() {
             Volver a tu evento
           </button>
 
-          <p className="text-sm font-semibold text-white">Tipo de evento</p>
-          <div className="grid grid-cols-2 gap-2">
+          <p className="text-sm font-semibold text-white">Entradas</p>
+
+          <div className="flex flex-col gap-3">
+            {catalog.map((tt) => (
+              <div key={tt._key} className="flex flex-col gap-2 rounded-lg border border-white/10 bg-white/5 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <input
+                    className={`${inputClass} flex-1`}
+                    value={tt.name}
+                    onChange={(e) => updateTicketType(tt._key, "name", e.target.value)}
+                    placeholder="Ej: General"
+                  />
+                  {catalog.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeTicketType(tt._key)}
+                      className="rounded-lg p-2 text-slate-500 hover:bg-white/10 hover:text-rose-400"
+                      aria-label="Quitar tipo de entrada"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    className={inputClass}
+                    value={tt.price}
+                    onChange={(e) => updateTicketType(tt._key, "price", e.target.value)}
+                    placeholder="Precio"
+                  />
+                  <input
+                    type="number"
+                    min={1}
+                    className={inputClass}
+                    value={tt.quantity}
+                    onChange={(e) => updateTicketType(tt._key, "quantity", e.target.value)}
+                    placeholder="Cantidad"
+                  />
+                </div>
+              </div>
+            ))}
+
             <button
               type="button"
-              onClick={() => setAdmissionType("FREE_ENTRY")}
-              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
-                isFreeEntry
-                  ? "border-violet-500 bg-violet-500/10 text-violet-300"
-                  : "border-white/10 bg-white/5 text-slate-400 hover:border-white/20"
-              }`}
+              onClick={addTicketType}
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 py-2.5 text-sm font-medium text-slate-400 hover:border-violet-500/60 hover:text-violet-300"
             >
-              Entrada gratis
-            </button>
-            <button
-              type="button"
-              onClick={() => setAdmissionType("TICKETED")}
-              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
-                !isFreeEntry
-                  ? "border-violet-500 bg-violet-500/10 text-violet-300"
-                  : "border-white/10 bg-white/5 text-slate-400 hover:border-white/20"
-              }`}
-            >
-              Entrada paga
+              <Plus className="h-4 w-4" />
+              Agregar entrada
             </button>
           </div>
 
-          {!isFreeEntry && (
-            <div className="flex flex-col gap-3">
-              {catalog.map((tt) => (
-                <div key={tt._key} className="flex flex-col gap-2 rounded-lg border border-white/10 bg-white/5 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <input
-                      className={`${inputClass} flex-1`}
-                      value={tt.name}
-                      onChange={(e) => updateTicketType(tt._key, "name", e.target.value)}
-                      placeholder="Ej: General"
-                    />
-                    {catalog.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeTicketType(tt._key)}
-                        className="rounded-lg p-2 text-slate-500 hover:bg-white/10 hover:text-rose-400"
-                        aria-label="Quitar tipo de entrada"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="number"
-                      min={0}
-                      className={inputClass}
-                      value={tt.price}
-                      onChange={(e) => updateTicketType(tt._key, "price", e.target.value)}
-                      placeholder="Precio"
-                    />
-                    <input
-                      type="number"
-                      min={1}
-                      className={inputClass}
-                      value={tt.quantity}
-                      onChange={(e) => updateTicketType(tt._key, "quantity", e.target.value)}
-                      placeholder="Cantidad"
-                    />
-                  </div>
-                </div>
-              ))}
-
-              <button
-                type="button"
-                onClick={addTicketType}
-                className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 py-2.5 text-sm font-medium text-slate-400 hover:border-violet-500/60 hover:text-violet-300"
-              >
-                <Plus className="h-4 w-4" />
-                Agregar entrada
-              </button>
-            </div>
-          )}
-
           <div className="flex flex-col gap-1 border-t border-white/10 pt-3 text-sm text-slate-400">
             <p>{general.title || "Tu evento"}</p>
-            <p>{isFreeEntry ? "Entrada gratuita" : `${validTicketTypes().length} tipo(s) · Capacidad total: ${totalCapacity ?? 0}`}</p>
+            <p>{validTicketTypes().length} tipo(s) · Capacidad total: {totalCapacity}</p>
           </div>
 
           {submitError && <p className="text-sm text-rose-400">{submitError}</p>}
