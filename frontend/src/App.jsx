@@ -47,6 +47,7 @@ import WithdrawalRequest from "./pages/public/WithdrawalRequest.jsx";
 import OrganizerDashboard from "./pages/organizer/OrganizerDashboard.jsx";
 import OrganizerEvents from "./pages/organizer/OrganizerEvents.jsx";
 import OrganizerEventWizard from "./pages/organizer/OrganizerEventWizard.jsx";
+import FestPass from "./pages/organizer/FestPass.jsx";
 import OrganizerEventChat from "./pages/organizer/OrganizerEventChat.jsx";
 import OrganizerTickets from "./pages/organizer/OrganizerTickets.jsx";
 import OrganizerTicketTypes from "./pages/organizer/OrganizerTicketTypes.jsx";
@@ -184,6 +185,11 @@ export default function App() {
                   <Route path="eventos" element={<OrganizerEvents />} />
                   <Route path="eventos/nuevo" element={<OrganizerEventChat />} />
                   <Route path="eventos/:id/editar" element={<OrganizerEventWizard />} />
+                  {/* Fest Pass — creador rápido alternativo (2 pantallas), mismo
+                      dominio Event/EventFunction/TicketType que el resto — ver
+                      pages/organizer/FestPass.jsx. Misma protección RoleGuard
+                      que el resto de "/organizador/*", sin gate adicional. */}
+                  <Route path="fest-pass" element={<FestPass />} />
                   <Route path="entradas" element={<OrganizerTickets />} />
                   <Route path="tipos-de-entrada" element={<OrganizerTicketTypes />} />
                   <Route path="cortesias" element={<OrganizerCourtesies />} />

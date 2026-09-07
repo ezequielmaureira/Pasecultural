@@ -69,6 +69,9 @@ const NAV_BY_ROLE = {
           end: true,
           state: { fresh: true },
         },
+        // Fest Pass — creador rápido alternativo (mismo Event real, ver
+        // pages/organizer/FestPass.jsx), no un permiso ni un rol distinto.
+        { label: "Fest Pass", path: "/organizador/fest-pass", end: true },
       ],
     },
     { label: "Entradas", icon: Ticket, path: "/organizador/entradas", end: true },
