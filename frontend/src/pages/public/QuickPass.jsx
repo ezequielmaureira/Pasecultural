@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, useLocation, Link } from "react-router-dom";
 import { Share2, Ticket, Check } from "lucide-react";
 import { apiFetch } from "../../lib/api.js";
 import { formatEventDateTime } from "../../lib/eventFormat.js";
@@ -13,8 +13,18 @@ import { formatEventDateTime } from "../../lib/eventFormat.js";
 // reimplementa ningún selector de cantidades/carrito: "Comprar entradas"
 // entrega al PurchaseWizard real (mismo checkout, mismo stock, mismo Sale/
 // Ticket/QR/email de siempre) en vez de duplicar esa lógica acá.
+//
+// Fest Pass V2 — este MISMO componente se monta en 2 rutas (App.jsx):
+// /fest-pass/:slug (nueva, la que Fest Pass genera/comparte) y
+// /quick-pass/:slug (legacy, preservada por compatibilidad con links ya
+// compartidos). Nunca se duplicó el archivo: sólo el BRANDING visible
+// (nunca el slug/endpoint/carga/compra/compartir) depende de por cuál de
+// las 2 rutas se entró — ver `brandName` más abajo.
 export default function QuickPass() {
   const { slug } = useParams();
+  const { pathname } = useLocation();
+  const isFestPass = pathname.startsWith("/fest-pass/");
+  const brandName = isFestPass ? "Fest Pass" : "Quick Pass";
   const [state, setState] = useState({ status: "loading", data: null });
   const [shareState, setShareState] = useState("idle"); // idle | copied
 
@@ -70,7 +80,7 @@ export default function QuickPass() {
   if (state.status === "unavailable") {
     return (
       <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 bg-black px-6 text-center">
-        <p className="text-lg font-semibold text-white">Quick Pass no está disponible para este evento.</p>
+        <p className="text-lg font-semibold text-white">{brandName} no está disponible para este evento.</p>
         <Link
           to={`/evento/${slug}`}
           className="rounded-full bg-white px-6 py-3 text-sm font-semibold text-black transition-transform duration-150 active:scale-95"
@@ -107,7 +117,7 @@ export default function QuickPass() {
         <div className="flex items-center justify-center gap-2 text-center">
           <span className="text-xs font-bold uppercase tracking-[0.3em] text-white/80">SmartTicket</span>
           <span className="h-1 w-1 rounded-full bg-fuchsia-400" />
-          <span className="text-xs font-bold uppercase tracking-[0.3em] text-fuchsia-300">Quick Pass</span>
+          <span className="text-xs font-bold uppercase tracking-[0.3em] text-fuchsia-300">{brandName}</span>
         </div>
 
         <div className="rounded-3xl border border-white/15 bg-white/10 p-5 shadow-2xl backdrop-blur-xl">

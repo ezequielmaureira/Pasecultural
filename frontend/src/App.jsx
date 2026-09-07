@@ -93,6 +93,16 @@ export default function App() {
                 a pantalla completa. Sigue detrás de PreLaunchGate como el
                 resto del marketplace público. */}
             <Route path="/quick-pass/:slug" element={<QuickPass />} />
+            {/* Fest Pass V2 — el mismo componente QuickPass.jsx, montado en
+                una segunda ruta pública. Fest Pass ES la experiencia rápida
+                (ver pages/organizer/FestPass.jsx): comparte /fest-pass/:slug,
+                nunca /quick-pass/:slug, que se preserva intacta por
+                compatibilidad con links ya compartidos. QuickPass.jsx lee el
+                slug con useParams() y arma su URL de compartir con
+                window.location.href, así que funciona igual sin cambios
+                bajo cualquiera de las 2 rutas — no hizo falta copiar el
+                archivo. */}
+            <Route path="/fest-pass/:slug" element={<QuickPass />} />
             <Route element={<PublicShell />}>
               <Route path="/" element={<Home />} />
               <Route path="/eventos" element={<EventsList />} />

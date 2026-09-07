@@ -1,3 +1,4 @@
+import { useLocation } from "react-router-dom";
 import { MessageCircle, Lock } from "lucide-react";
 import { useBackendUser } from "../../context/AuthContext.jsx";
 import { useOrganizerSession } from "../../context/OrganizerSessionContext.jsx";
@@ -25,6 +26,14 @@ export default function OrganizerWhatsAppShortcutButton() {
   const { backendUser, syncing } = useBackendUser();
   const { organization, loadingOrganization, whatsappEventLink } = useOrganizerSession();
   const toast = useToast();
+  const { pathname } = useLocation();
+
+  // Fest Pass ya es su propio mecanismo de carga rápida — el atajo flotante
+  // tapaba contenido real de esa pantalla en mobile (ver el informe de
+  // entrega) y además sobra conceptualmente ahí. Se oculta ÚNICAMENTE en
+  // /organizador/fest-pass; sigue apareciendo sin cambios en Dashboard,
+  // Eventos, Ventas, Configuración, y en cualquier pantalla pública.
+  if (pathname.startsWith("/organizador/fest-pass")) return null;
 
   const role = backendUser?.role?.toLowerCase();
 
