@@ -21,10 +21,15 @@ const NUMBER_FIELDS = [
   { key: "maxTicketsPerEvent", label: "Entradas máximas por evento" },
 ];
 
+// "Puede ser organización destacada" (featuredEligible) se dejó de exponer
+// acá: la regla real pasó a ser automática (PREMIUM participa siempre,
+// FREE nunca, ranking 70/30 — ver organizationRanking.service.js), sin
+// ningún toggle que decidirlo por plan. La columna sigue existiendo en
+// OrganizationPlanLimits (infraestructura histórica, sin consumidor), pero
+// esta pantalla ya no la lee ni la envía.
 const BOOLEAN_FIELDS = [
   { key: "publicOrgPageEnabled", label: "Página pública propia" },
   { key: "whatsappEventCreationEnabled", label: "Carga de eventos por WhatsApp" },
-  { key: "featuredEligible", label: "Puede ser organización destacada" },
 ];
 
 const PLAN_LABELS = { FREE: "Plan Free", PREMIUM: "Plan Premium" };
@@ -53,13 +58,13 @@ function ToggleField({ label, checked, onChange }) {
         role="switch"
         aria-checked={checked}
         onClick={() => onChange(!checked)}
-        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors duration-150 ${
+        className={`relative h-6 w-11 shrink-0 overflow-hidden rounded-full transition-colors duration-150 ${
           checked ? "bg-violet-500" : "bg-white/15 light:bg-slate-300"
         }`}
       >
         <span
-          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-150 ${
-            checked ? "translate-x-[22px]" : "translate-x-0.5"
+          className={`absolute left-0.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-white shadow transition-transform duration-150 ${
+            checked ? "translate-x-[20px]" : "translate-x-0"
           }`}
         />
       </button>
