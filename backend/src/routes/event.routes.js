@@ -7,6 +7,7 @@ import {
     deleteMyEvent,
     getPublicEvents,
     getPublicEventBySlug,
+    getQuickPassBySlug,
     saveEventSchedule,
     saveEventLinks,
     getEventCategories,
@@ -54,6 +55,11 @@ const router = Router();
 router.use("/public", requirePublicLaunch);
 router.get("/public", getPublicEvents);
 router.get("/public/:slug", getPublicEventBySlug);
+// Quick Pass V1 — misma capa "marketplace público" que las 2 rutas de
+// arriba, mismo gate de Prelanzamiento (requirePublicLaunch cubre todo
+// "/public/*"). Devuelve { available: false } en vez de 404 — ver
+// getQuickPassBySlug (event.controller.js).
+router.get("/public/quick-pass/:slug", getQuickPassBySlug);
 router.get("/categories", getEventCategories);
 // Paso 1 del asistente de scanners ("¿para qué evento?") — sin eventId
 // propio, así que también tiene que ir antes de "/:id" para no confundirse

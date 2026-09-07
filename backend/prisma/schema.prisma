@@ -823,6 +823,17 @@ model Event {
   description      String?
   coverImage       String?
 
+  // Quick Pass V1 (imagen vertical) — capacidad del EVENTO, no de un canal:
+  // se configura desde el mismo creador/editor que ya usan Web y WhatsApp
+  // (createEventService/updateMyEventService vía UPDATABLE_FIELDS, ver
+  // event.service.js), así que funciona igual sin importar por dónde se
+  // cargó el evento. Aditivo — default false/NULL, cero impacto en eventos
+  // existentes. quickPassImageUrl es obligatoria SÓLO si quickPassEnabled
+  // es true (invariante validada en backend, nunca sólo en frontend — ver
+  // assertQuickPassInvariant en event.service.js).
+  quickPassEnabled  Boolean @default(false)
+  quickPassImageUrl String?
+
   // Campos legacy denormalizados (se mantienen sincronizados con la ubicación
   // de Google Maps de abajo) para no romper el marketplace público existente.
   venue    String?

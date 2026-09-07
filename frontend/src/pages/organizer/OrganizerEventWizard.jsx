@@ -64,6 +64,12 @@ function createEmptyGeneralForm() {
     customCategory: "",
     shortDescription: "",
     description: "",
+    // Quick Pass V1 — capacidad del Event, no del canal (Web/WhatsApp
+    // comparten el mismo createEventService/updateMyEventService, ver
+    // event.service.js). Opcional; la imagen sólo es obligatoria si se
+    // activa (ver validateStep1 más abajo).
+    quickPassEnabled: false,
+    quickPassImageUrl: "",
   };
 }
 
@@ -107,6 +113,9 @@ export default function OrganizerEventWizard() {
   const [admissionType, setAdmissionType] = useState("TICKETED");
   const isFreeEntry = admissionType === "FREE_ENTRY";
   const [general, setGeneral] = useState(createEmptyGeneralForm);
+  // Sólo WARNING, nunca bloqueo (ver el informe: el único bloqueo real de
+  // Quick Pass es "activo sin imagen", validado en validateStep1/backend).
+  const [quickPassAspectWarning, setQuickPassAspectWarning] = useState(false);
   const [location, setLocation] = useState(createEmptyLocation);
   const [locationError, setLocationError] = useState("");
   const [links, setLinks] = useState([]);
@@ -213,6 +222,8 @@ export default function OrganizerEventWizard() {
           customCategory: event.customCategory || "",
           shortDescription: event.shortDescription || "",
           description: event.description || "",
+          quickPassEnabled: Boolean(event.quickPassEnabled),
+          quickPassImageUrl: event.quickPassImageUrl || "",
         });
 
         setLocation({
@@ -326,6 +337,29 @@ export default function OrganizerEventWizard() {
   }, [id, isEditing, getToken, setActiveEventId]);
 
   const canPublish = canPublishEvents(organization);
+
+  // Warning no bloqueante: si la imagen de Quick Pass no es razonablemente
+  // vertical, se avisa pero NUNCA se impide guardar (ver el informe:
+  // "preferir warning y no bloqueo por proporción"). Se recalcula cada vez
+  // que cambia la URL (subida nueva, o imagen ya existente al editar).
+  useEffect(() => {
+    if (!general.quickPassImageUrl) {
+      setQuickPassAspectWarning(false);
+      return;
+    }
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (cancelled) return;
+      // 9:16 ideal (~0.5625). Cualquier imagen razonablemente vertical
+      // (ratio < 0.9) pasa sin warning — sólo avisa ante horizontal/cuadrada.
+      setQuickPassAspectWarning(img.naturalWidth / img.naturalHeight >= 0.9);
+    };
+    img.src = general.quickPassImageUrl;
+    return () => {
+      cancelled = true;
+    };
+  }, [general.quickPassImageUrl]);
 
   function setGeneralField(key, value) {
     setGeneral((prev) => ({ ...prev, [key]: value }));
@@ -470,6 +504,13 @@ export default function OrganizerEventWizard() {
     if (general.category === "OTRO" && !general.customCategory.trim()) {
       stepErrors.customCategory = "Especificá el nombre de la categoría";
     }
+    // Único bloqueo real de Quick Pass: activo sin imagen. El backend
+    // vuelve a validar esto mismo (nunca sólo frontend, ver
+    // assertQuickPassInvariant en event.service.js) — esta es sólo la
+    // versión rápida para no hacer ida y vuelta al servidor.
+    if (general.quickPassEnabled && !general.quickPassImageUrl) {
+      stepErrors.quickPassImageUrl = "Subí una imagen para activar Quick Pass";
+    }
     setErrors(stepErrors);
     return Object.keys(stepErrors).length === 0;
   }
@@ -589,6 +630,12 @@ export default function OrganizerEventWizard() {
       shortDescription: general.shortDescription,
       description: general.description,
       location,
+      quickPassEnabled: general.quickPassEnabled,
+      // Se manda tal cual esté (incluso desactivado): apagar el switch no
+      // debe borrar la imagen ya subida, así reactivarlo no exige volver a
+      // cargarla. El backend sólo exige que exista imagen si enabled=true
+      // (ver assertQuickPassInvariant, event.service.js).
+      quickPassImageUrl: general.quickPassImageUrl || null,
     };
   }
 
@@ -853,6 +900,42 @@ export default function OrganizerEventWizard() {
               previewHeightClass="h-72"
               aspectRatio={4 / 5}
             />
+
+            <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-white/5 p-4">
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium text-white">Activar Quick Pass</span>
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 accent-violet-500"
+                  checked={general.quickPassEnabled}
+                  onChange={(e) => setGeneralField("quickPassEnabled", e.target.checked)}
+                />
+              </label>
+              <HelpText>
+                Pantalla pública propia, a pantalla completa, pensada para compartir por redes o WhatsApp
+                — reutiliza el mismo checkout de siempre para vender entradas.
+              </HelpText>
+
+              {general.quickPassEnabled && (
+                <>
+                  <ImageUploader
+                    label="Imagen de Quick Pass"
+                    value={general.quickPassImageUrl}
+                    onChange={(url) => setGeneralField("quickPassImageUrl", url || "")}
+                    previewHeightClass="h-72"
+                    aspectRatio={9 / 16}
+                    helperText="PNG, JPG, JPEG o WEBP. Máximo 5 MB."
+                  />
+                  <HelpText>Recomendado: imagen vertical 9:16 · 1080 × 1920 px</HelpText>
+                  {quickPassAspectWarning && (
+                    <p className="text-xs text-amber-400">
+                      Para que Quick Pass se vea mejor, recomendamos una imagen vertical 9:16.
+                    </p>
+                  )}
+                  <ErrorText message={errors.quickPassImageUrl} />
+                </>
+              )}
+            </div>
 
             <Field label="Categoría">
               <select

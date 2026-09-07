@@ -10,6 +10,7 @@ import {
     deleteMyEventService,
     getPublicEventsService,
     getPublicEventBySlugService,
+    getQuickPassBySlugService,
     syncEventScheduleService,
     syncEventLinksService,
     listArchivedEventsService,
@@ -61,6 +62,21 @@ export const getPublicEventBySlug = async (req, res) => {
     }
 };
 
+// Quick Pass V1 — GET /api/events/quick-pass/:slug. Siempre 200: la
+// disponibilidad se comunica con `available` (true/false), nunca con un 404,
+// porque "no disponible" (desactivado, o evento no público) no es un error
+// de la request, es un estado válido de la pantalla pública (ver el informe
+// de entrega). Nunca expone más que getQuickPassBySlugService.
+export const getQuickPassBySlug = async (req, res) => {
+    try {
+        const result = await getQuickPassBySlugService(req.params.slug);
+        res.status(200).json(result);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Error al obtener Quick Pass" });
+    }
+};
+
 export const createEvent = async (req, res) => {
     try {
         const { userId } = getAuth(req);
@@ -89,6 +105,9 @@ export const createEvent = async (req, res) => {
         }
         if (error.message === "INVALID_LONGITUDE") {
             return res.status(400).json({ message: INVALID_LONGITUDE_MESSAGE });
+        }
+        if (error.message === "QUICK_PASS_IMAGE_REQUIRED") {
+            return res.status(400).json({ message: EVENT_SERVICE_ERROR_MESSAGES.QUICK_PASS_IMAGE_REQUIRED });
         }
 
         res.status(500).json({ message: "Error al crear el evento" });

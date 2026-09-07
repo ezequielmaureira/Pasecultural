@@ -34,6 +34,11 @@ export const EVENT_SERVICE_ERROR_MESSAGES = {
     // mapeo es lo único que le da texto tanto al controller REST como al
     // Event Creation Engine de WhatsApp.
     PLAN_ACTIVE_EVENT_LIMIT_REACHED: "Alcanzaste el máximo de eventos activos de tu plan.",
+    // Quick Pass V1 — invariante validada en event.service.js
+    // (assertQuickPassInvariant), compartida por createEventService/
+    // updateMyEventService: nunca se puede activar Quick Pass sin una
+    // imagen vertical cargada.
+    QUICK_PASS_IMAGE_REQUIRED: "Para activar Quick Pass necesitás subir una imagen.",
 };
 
 export function translateEventServiceError(error) {

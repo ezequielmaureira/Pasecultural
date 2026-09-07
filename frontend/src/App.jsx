@@ -37,6 +37,7 @@ import ScannerInvitationClaim from "./pages/scanner/ScannerInvitationClaim.jsx";
 import ScannerPortal from "./pages/scanner/ScannerPortal.jsx";
 import EventsList from "./pages/public/EventsList.jsx";
 import EventDetail from "./pages/public/EventDetail.jsx";
+import QuickPass from "./pages/public/QuickPass.jsx";
 import OrganizationProfile from "./pages/public/OrganizationProfile.jsx";
 import OrganizationsList from "./pages/public/OrganizationsList.jsx";
 import PurchaseWizard from "./pages/public/purchase/PurchaseWizard.jsx";
@@ -86,6 +87,11 @@ export default function App() {
               camino que Developer/Organizer necesitan conservar siempre
               disponible para poder autenticarse. */}
           <Route element={<PreLaunchGate />}>
+            {/* Quick Pass — deliberadamente FUERA de PublicShell: sin navbar,
+                sidebar ni footer (ver el informe de entrega), pantalla propia
+                a pantalla completa. Sigue detrás de PreLaunchGate como el
+                resto del marketplace público. */}
+            <Route path="/quick-pass/:slug" element={<QuickPass />} />
             <Route element={<PublicShell />}>
               <Route path="/" element={<Home />} />
               <Route path="/eventos" element={<EventsList />} />

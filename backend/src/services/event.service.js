@@ -221,9 +221,32 @@ const UPDATABLE_FIELDS = [
     "endDate",
     "doorsOpenAt",
     "isFree",
+    // Quick Pass V1 — mismo whitelist compartido por createEventService y
+    // updateMyEventService (vía buildEventData), así que Web y WhatsApp
+    // (EventServicePort.commit -> estas mismas 2 funciones) lo reciben
+    // gratis, sin ningún camino especial por canal.
+    "quickPassEnabled",
+    "quickPassImageUrl",
 ];
 
 const DATE_FIELDS = new Set(["startDate", "endDate", "doorsOpenAt"]);
+// Mismo criterio que "isFree": un booleano presente en el input SIEMPRE se
+// coacciona con Boolean(), nunca con `value || null` (eso convertiría
+// `false` en `null`, perdiendo la desactivación explícita).
+const BOOLEAN_UPDATABLE_FIELDS = new Set(["isFree", "quickPassEnabled"]);
+
+// Invariante de negocio de Quick Pass, válida tanto en alta como en edición:
+// activo sin imagen nunca es un estado persistible. Se evalúa sobre el
+// estado FINAL (lo que el input cambia, mezclado con lo que ya existía en
+// el evento para updateMyEventService — createEventService no tiene estado
+// previo, arranca de cero) — nunca sólo sobre lo que vino en este request
+// puntual, para no permitir "activar ahora, mandar la imagen después" ni
+// "borrar la imagen de un evento que sigue activo" en un guardado parcial.
+function assertQuickPassInvariant(finalEnabled, finalImageUrl) {
+    if (finalEnabled && !finalImageUrl) {
+        throw new Error("QUICK_PASS_IMAGE_REQUIRED");
+    }
+}
 
 async function getUserByClerkId(clerkId) {
     return prisma.user.findUnique({ where: { clerkId } });
@@ -404,7 +427,7 @@ async function buildEventData(input) {
             const value = input[field];
             if (DATE_FIELDS.has(field)) {
                 data[field] = value ? new Date(value) : null;
-            } else if (field === "isFree") {
+            } else if (BOOLEAN_UPDATABLE_FIELDS.has(field)) {
                 data[field] = Boolean(value);
             } else {
                 data[field] = value || null;
@@ -447,6 +470,8 @@ export const createEventService = async (clerkId, input, organizationId = null, 
     if (admissionType === "FREE_ENTRY") {
         data.isFree = true;
     }
+
+    assertQuickPassInvariant(data.quickPassEnabled ?? false, data.quickPassImageUrl ?? null);
 
     const event = await prisma.event.create({
         data: {
@@ -641,6 +666,11 @@ export const updateMyEventService = async (clerkId, id, input, organizationId = 
             data.isFree = true;
         }
     }
+
+    assertQuickPassInvariant(
+        Object.hasOwn(data, "quickPassEnabled") ? data.quickPassEnabled : event.quickPassEnabled,
+        Object.hasOwn(data, "quickPassImageUrl") ? data.quickPassImageUrl : event.quickPassImageUrl
+    );
 
     if (Object.hasOwn(input, "status")) {
         if (input.status === "PUBLISHED") {
@@ -1108,6 +1138,51 @@ export const getPublicEventBySlugService = async (slug) => {
     }
 
     return attachTicketAvailability(event);
+};
+
+// Quick Pass V1 — pantalla pública /quick-pass/:slug. Reutiliza EXACTAMENTE
+// las mismas reglas de visibilidad/disponibilidad que EventDetail/
+// PurchaseWizard (getPublicEventBySlugService: mismo PUBLISHED+PUBLIC, mismo
+// cálculo de stock vía attachTicketAvailability) — cero lógica de negocio
+// nueva, sólo una proyección más chica pensada para esta pantalla puntual.
+// `available: false` (nunca 404 con detalle) cubre en un solo chequeo los 3
+// casos que no deben mostrar la experiencia: evento no público/inexistente,
+// quickPassEnabled=false, o (defensivo — no debería poder pasar gracias a
+// assertQuickPassInvariant) quickPassEnabled=true sin imagen. Nunca filtra
+// datos privados: los campos elegidos son el mismo subconjunto ya público
+// que expone getPublicEventBySlugService.
+export const getQuickPassBySlugService = async (slug) => {
+    const event = await getPublicEventBySlugService(slug);
+    if (!event || !event.quickPassEnabled || !event.quickPassImageUrl) {
+        return { available: false };
+    }
+
+    return {
+        available: true,
+        event: {
+            slug: event.slug,
+            title: event.title,
+            quickPassImageUrl: event.quickPassImageUrl,
+            venueName: event.venueName || event.venue || "",
+            formattedAddress: event.formattedAddress || event.address || "",
+            city: event.city || "",
+            startDate: event.startDate,
+            organizationName: event.organization?.name ?? "",
+            functions: event.functions.map((fn) => ({
+                id: fn.id,
+                date: fn.date,
+                venue: fn.venue,
+                ticketAssignments: fn.ticketAssignments
+                    .filter((a) => a.visibleOverride ?? a.ticketType.visible)
+                    .map((a) => ({
+                        ticketTypeId: a.ticketTypeId,
+                        name: a.ticketType.name,
+                        price: Number(a.priceOverride ?? a.ticketType.price),
+                        available: a.available,
+                    })),
+            })),
+        },
+    };
 };
 
 // Sale.eventId y Ticket.eventId son ON DELETE RESTRICT a propósito (nunca
