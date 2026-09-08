@@ -13,10 +13,59 @@ import LocationPicker from "../../components/location/LocationPicker.jsx";
 import { createEmptyLocation, hasCoordinates } from "../../lib/locationUtils.js";
 import { apiFetch } from "../../lib/api.js";
 import { useToast } from "../../context/ToastContext.jsx";
-import { usePublishFlow } from "../../hooks/usePublishFlow.js";
 import { canPublishEvents } from "../../lib/organizationTrust.js";
 import { EVENT_CATEGORIES, getEventCategoryLabel } from "../../lib/eventCategories.js";
 import { createEmptyTicketType, toDateTime, currency } from "./eventWizard/model.js";
+
+// Fest Pass Publish Hang (ronda de corrección) — auditoría completa en el
+// informe de entrega. Causa raíz real: `getToken()` (Clerk) se llamaba sin
+// ningún timeout propio en varios puntos del flujo de publicación —en
+// particular dentro de `checkOutcome` de usePublishFlow, sin ninguna
+// carrera de tiempo alrededor— pudiendo dejar el `await` correspondiente
+// pendiente de forma GENUINAMENTE indefinida. Además, `handlePublish`
+// arrancaba siempre desde cero (nuevo POST /api/events) en cada click, sin
+// registrar si un intento anterior ya había creado el Event — un reintento
+// manual después de un timeout podía crear un Event DUPLICADO.
+//
+// Solución, 100% local a este archivo (sin tocar api.js/usePublishFlow.js/
+// Clerk): se abandona el `run()`/polling combinado de usePublishFlow para
+// esta pantalla (ver el informe: su diseño de "una sola carrera de 20s +
+// hasta 30s de polling" pensado para 1 operación no encaja con una
+// secuencia de 3 requests independientes sin reintroducir esperas de
+// varios minutos) y se reemplaza por 3 etapas explícitas
+// (crear/configurar/publicar), cada una con:
+//   - su propio `getTokenWithTimeout` (Clerk nunca puede colgar el flujo).
+//   - su propio ref de progreso (nunca se repite una etapa ya confirmada).
+//   - su propio mensaje de error específico.
+// PUT /schedule y PATCH status son operaciones de REEMPLAZO/asignación ya
+// idempotentes en el backend (syncEventScheduleService borra y recrea
+// dentro de la misma transacción; updateMyEventService simplemente fija
+// `status`) — reintentarlas manualmente nunca duplica nada. La ÚNICA
+// operación no idempotente es el POST inicial (cada llamada crea una fila
+// nueva) — por eso es la única que, ante un resultado incierto, NUNCA se
+// reintenta sola sin que el Organizer lo confirme explícitamente
+// volviendo a tocar el botón (y aun así, sólo se repite si `eventIdRef`
+// sigue vacío — si el POST anterior sí había llegado a resolver, no se
+// repite jamás).
+const TOKEN_TIMEOUT_MS = 8000;
+
+// Envuelve getToken() (Clerk) con un timeout LOCAL — Clerk no expone su
+// propio timeout configurable y api.js/usePublishFlow.js no se tocan en
+// esta ronda. 8s es generoso para obtener un JWT ya emitido (mucho menor
+// que los 20s que ya usa cada fetch real vía apiFetch) — nunca debería
+// dispararse en condiciones normales, sólo corta el único punto del flujo
+// que hoy puede quedar esperando sin ninguna cota.
+function getTokenWithTimeout(getTokenFn) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const err = new Error("No pudimos verificar tu sesión a tiempo.");
+      err.isTimeout = true;
+      reject(err);
+    }, TOKEN_TIMEOUT_MS);
+  });
+  return Promise.race([getTokenFn(), timeout]).finally(() => clearTimeout(timeoutId));
+}
 
 // Fest Pass V2 — creador RÁPIDO de eventos (3 etapas: Tu evento / Entradas /
 // Vista previa). Arma exactamente el mismo Event/EventFunction/TicketType
@@ -61,8 +110,20 @@ export default function FestPass() {
   const navigate = useNavigate();
   const { getToken } = useAuth();
   const toast = useToast();
-  const { run } = usePublishFlow();
+
+  // Progreso REAL por etapas — nunca inferido. `eventIdRef` significa
+  // ÚNICAMENTE "este Event ya existe": una vez con valor, JAMÁS se vuelve a
+  // hacer POST /api/events en esta sesión (evita duplicados). `generalDirtyRef`/
+  // `scheduleDirtyRef` significan "lo que hay en pantalla todavía no coincide
+  // con lo último persistido" — arrancan en `true` (nada sincronizado
+  // todavía) y se limpian recién cuando el PATCH/PUT correspondiente
+  // confirma éxito. Cualquier edición del formulario después de eso los
+  // vuelve a marcar `true`, así un reintento SIEMPRE termina enviando los
+  // datos actuales, nunca los congelados del primer intento.
   const eventIdRef = useRef(null);
+  const generalDirtyRef = useRef(true);
+  const scheduleDirtyRef = useRef(true);
+  const publishedRef = useRef(false);
 
   const [screen, setScreen] = useState("info"); // info | tickets | preview | success
   const [general, setGeneral] = useState(createEmptyGeneral);
@@ -77,6 +138,9 @@ export default function FestPass() {
   const [errors, setErrors] = useState({});
   const [submitError, setSubmitError] = useState("");
   const [saving, setSaving] = useState(false);
+  // Feedback visual por etapa — reemplaza el spinner genérico único; nunca
+  // deja al Organizer mirando lo mismo por minutos sin saber qué pasa.
+  const [stageMessage, setStageMessage] = useState("");
   const [published, setPublished] = useState(null); // { slug }
 
   // Fest Pass es EXCLUSIVAMENTE para eventos pagos — nunca FREE_ENTRY, nunca
@@ -104,6 +168,15 @@ export default function FestPass() {
   function setGeneralField(key, value) {
     setGeneral((prev) => ({ ...prev, [key]: value }));
     setErrors((prev) => ({ ...prev, [key]: undefined }));
+    generalDirtyRef.current = true;
+  }
+
+  // location vive en `buildEventPayload()` (dato GENERAL del Event, no del
+  // schedule) — cualquier cambio de lugar/coordenadas ensucia lo general,
+  // igual que título/foto/categoría/descripción.
+  function handleLocationChange(nextLocation) {
+    setLocation(nextLocation);
+    generalDirtyRef.current = true;
   }
 
   function validateInfoScreen() {
@@ -144,18 +217,24 @@ export default function FestPass() {
     setScreen("tickets");
   }
 
+  // Las 3 funciones de catálogo pertenecen al PAYLOAD DE SCHEDULE (ver
+  // buildSchedulePayload) — cualquier cambio acá ensucia el schedule, nunca
+  // los datos generales.
   function addTicketType() {
     setCatalog((prev) => [...prev, createEmptyTicketType()]);
+    scheduleDirtyRef.current = true;
   }
 
   // Nunca deja el catálogo en 0 filas — siempre queda al menos una fila
   // visible para completar, nunca una sección totalmente vacía.
   function removeTicketType(key) {
     setCatalog((prev) => (prev.length > 1 ? prev.filter((tt) => tt._key !== key) : prev));
+    scheduleDirtyRef.current = true;
   }
 
   function updateTicketType(key, field, value) {
     setCatalog((prev) => prev.map((tt) => (tt._key === key ? { ...tt, [field]: value } : tt)));
+    scheduleDirtyRef.current = true;
   }
 
   // Defensa adicional para el payload (backend sigue siendo la autoridad
@@ -253,33 +332,127 @@ export default function FestPass() {
     };
   }
 
-  async function persistEvent() {
-    const token = await getToken();
-    const { event } = await apiFetch("/api/events", {
-      token,
-      method: "POST",
-      body: JSON.stringify(buildEventPayload()),
-    });
-    eventIdRef.current = event.id;
-    await apiFetch(`/api/events/${event.id}/schedule`, {
-      token,
-      method: "PUT",
-      body: JSON.stringify(buildSchedulePayload()),
-    });
-    return { token, event };
+  // Etapa 1 — crear el Event. NUNCA se repite si `eventIdRef.current` ya
+  // tiene un valor: es la ÚNICA operación no idempotente de las 3(cada
+  // POST real crea una fila nueva), así que un reintento manual jamás
+  // vuelve a dispararla si ya sabemos que un intento anterior llegó a
+  // buen puerto. Si esta etapa falla/tarda demasiado, el resultado es
+  // GENUINAMENTE incierto (no sabemos si el backend llegó a crearlo) — se
+  // informa así explícitamente, sin reintentar solo ni inventar ninguna
+  // heurística de recuperación (buscar por título, etc.).
+  // Etapa 1 — crear O sincronizar datos generales. `eventIdRef` decide
+  // CUÁL de las dos: sin valor → POST (crea, y el propio payload recién
+  // enviado ya queda sincronizado). Con valor → sólo si `generalDirtyRef`
+  // sigue en `true` (el Organizer editó título/foto/categoría/descripción/
+  // lugar DESPUÉS del último envío exitoso) se manda un PATCH con los
+  // datos ACTUALES — nunca un POST nuevo. `buildEventData`/
+  // `updateMyEventService` (backend) ya soportan exactamente los mismos
+  // campos que `buildEventPayload()` envía (title, coverImage, category,
+  // customCategory, description, location completo vía buildLocationData,
+  // quickPassEnabled, quickPassImageUrl) — confirmado leyendo
+  // UPDATABLE_FIELDS en event.service.js, mismo whitelist compartido por
+  // create y update.
+  async function ensureEventCreated() {
+    if (!eventIdRef.current) {
+      setStageMessage("Creando evento...");
+      try {
+        const token = await getTokenWithTimeout(getToken);
+        const { event } = await apiFetch("/api/events", {
+          token,
+          method: "POST",
+          body: JSON.stringify(buildEventPayload()),
+        });
+        eventIdRef.current = event.id;
+        generalDirtyRef.current = false;
+      } catch (err) {
+        const wrapped = new Error(
+          "No pudimos confirmar si el evento se creó. Revisá Mis eventos antes de intentarlo nuevamente."
+        );
+        wrapped.stage = "create";
+        throw wrapped;
+      }
+      return;
+    }
+
+    if (generalDirtyRef.current) {
+      setStageMessage("Actualizando datos del evento...");
+      try {
+        const token = await getTokenWithTimeout(getToken);
+        await apiFetch(`/api/events/${eventIdRef.current}`, {
+          token,
+          method: "PATCH",
+          body: JSON.stringify(buildEventPayload()),
+        });
+        generalDirtyRef.current = false;
+      } catch (err) {
+        const wrapped = new Error("El evento se creó, pero no pudimos actualizar sus datos.");
+        wrapped.stage = "update-general";
+        throw wrapped;
+      }
+    }
+  }
+
+  // Etapa 2 — configurar catálogo/función SÓLO si `scheduleDirtyRef` sigue
+  // en `true` (nunca se envió con éxito, o el Organizer cambió fecha/hora/
+  // entradas después del último PUT exitoso). PUT /schedule es un
+  // REEMPLAZO completo del lado del backend (syncEventScheduleService
+  // borra y recrea dentro de la misma transacción) — reintentarlo con el
+  // payload ACTUAL nunca duplica TicketTypes ni funciones.
+  async function ensureScheduleConfigured() {
+    if (!scheduleDirtyRef.current) return;
+    setStageMessage("Configurando entradas...");
+    try {
+      const token = await getTokenWithTimeout(getToken);
+      await apiFetch(`/api/events/${eventIdRef.current}/schedule`, {
+        token,
+        method: "PUT",
+        body: JSON.stringify(buildSchedulePayload()),
+      });
+      scheduleDirtyRef.current = false;
+    } catch (err) {
+      const wrapped = new Error("El evento se guardó, pero no pudimos configurar las entradas.");
+      wrapped.stage = "schedule";
+      throw wrapped;
+    }
+  }
+
+  // Etapa 3 — publicar. PATCH status es igual de idempotente (fija un
+  // campo, no crea nada) — reintentarlo es seguro. Devuelve el slug REAL
+  // del evento ya publicado, nunca inventado.
+  async function ensurePublished() {
+    if (publishedRef.current && published) return published;
+    setStageMessage("Publicando...");
+    try {
+      const token = await getTokenWithTimeout(getToken);
+      const { event } = await apiFetch(`/api/events/${eventIdRef.current}`, {
+        token,
+        method: "PATCH",
+        body: JSON.stringify({ status: "PUBLISHED" }),
+      });
+      publishedRef.current = true;
+      return { slug: event.slug };
+    } catch (err) {
+      const wrapped = new Error(
+        "El evento y sus entradas se guardaron, pero no pudimos publicarlo. Volvé a tocar Publicar evento para reintentarlo."
+      );
+      wrapped.stage = "publish";
+      throw wrapped;
+    }
   }
 
   async function handleSaveDraft() {
     setSubmitError("");
     setSaving(true);
     try {
-      await persistEvent();
+      await ensureEventCreated();
+      await ensureScheduleConfigured();
       toast.success("Evento guardado como borrador.");
       navigate("/organizador/eventos");
     } catch (err) {
       setSubmitError(err.message || "No pudimos guardar el evento. Probá de nuevo.");
     } finally {
       setSaving(false);
+      setStageMessage("");
     }
   }
 
@@ -287,31 +460,16 @@ export default function FestPass() {
     setSubmitError("");
     setSaving(true);
     try {
-      const publishedEvent = await run(
-        async () => {
-          const { token, event } = await persistEvent();
-          const { event: updated } = await apiFetch(`/api/events/${event.id}`, {
-            token,
-            method: "PATCH",
-            body: JSON.stringify({ status: "PUBLISHED" }),
-          });
-          return updated;
-        },
-        {
-          checkOutcome: async () => {
-            if (!eventIdRef.current) return null;
-            const checkToken = await getToken();
-            const { event } = await apiFetch(`/api/events/${eventIdRef.current}`, { token: checkToken });
-            return event.status === "PUBLISHED" ? event : null;
-          },
-        }
-      );
-      setPublished({ slug: publishedEvent.slug });
+      await ensureEventCreated();
+      await ensureScheduleConfigured();
+      const result = await ensurePublished();
+      setPublished(result);
       setScreen("success");
     } catch (err) {
       setSubmitError(err.message || "No pudimos publicar el evento. Probá de nuevo.");
     } finally {
       setSaving(false);
+      setStageMessage("");
     }
   }
 
@@ -448,10 +606,22 @@ export default function FestPass() {
         {submitError && <p className="text-sm text-rose-400">{submitError}</p>}
 
         <div className="flex flex-col gap-2">
-          <Button onClick={handlePublish} loading={saving} disabled={!canPublish} className="w-full justify-center gap-2">
+          <Button
+            onClick={handlePublish}
+            loading={saving}
+            loadingText={stageMessage || "Publicando..."}
+            disabled={!canPublish}
+            className="w-full justify-center gap-2"
+          >
             Publicar evento
           </Button>
-          <Button onClick={handleSaveDraft} loading={saving} variant="secondary" className="w-full justify-center gap-2">
+          <Button
+            onClick={handleSaveDraft}
+            loading={saving}
+            loadingText={stageMessage || "Guardando..."}
+            variant="secondary"
+            className="w-full justify-center gap-2"
+          >
             Guardar borrador
           </Button>
           <button
@@ -543,7 +713,7 @@ export default function FestPass() {
 
           <div className="flex flex-col gap-3 border-t border-white/10 pt-4">
             <p className="text-sm font-medium text-white">Lugar</p>
-            <LocationPicker value={location} onChange={setLocation} required error={locationError} />
+            <LocationPicker value={location} onChange={handleLocationChange} required error={locationError} />
           </div>
 
           <div className="flex flex-col gap-3 border-t border-white/10 pt-4">
@@ -557,12 +727,19 @@ export default function FestPass() {
                   onChange={(e) => {
                     setStartDate(e.target.value);
                     setErrors((prev) => ({ ...prev, startDate: undefined }));
+                    scheduleDirtyRef.current = true;
                   }}
                 />
                 <ErrorText message={errors.startDate} />
               </Field>
               <Field label="Hora">
-                <TimePicker value={startTime} onChange={setStartTime} />
+                <TimePicker
+                  value={startTime}
+                  onChange={(value) => {
+                    setStartTime(value);
+                    scheduleDirtyRef.current = true;
+                  }}
+                />
               </Field>
             </div>
           </div>
@@ -578,12 +755,19 @@ export default function FestPass() {
                   onChange={(e) => {
                     setEndDate(e.target.value);
                     setErrors((prev) => ({ ...prev, endDate: undefined }));
+                    scheduleDirtyRef.current = true;
                   }}
                 />
                 <ErrorText message={errors.endDate} />
               </Field>
               <Field label="Hora">
-                <TimePicker value={endTime} onChange={setEndTime} />
+                <TimePicker
+                  value={endTime}
+                  onChange={(value) => {
+                    setEndTime(value);
+                    scheduleDirtyRef.current = true;
+                  }}
+                />
               </Field>
             </div>
           </div>
