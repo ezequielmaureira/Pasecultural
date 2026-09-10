@@ -1,0 +1,15 @@
+# Instancia de prueba Fly.io (gru/São Paulo) — ver Dockerfile. Nunca debe
+# entrar al build nada sensible ni innecesario para `node src/server.js`.
+node_modules
+npm-debug.log*
+
+.env
+.env.*
+!.env.test.example
+
+tests
+scripts
+tmp-get-sample.js
+
+.git
+*.md
