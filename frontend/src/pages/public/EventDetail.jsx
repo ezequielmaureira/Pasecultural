@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, Navigate } from "react-router-dom";
 import { CalendarDays, MapPin, Clock3, ImageOff, ArrowLeft } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
@@ -49,6 +49,17 @@ export default function EventDetail() {
         Cargando evento...
       </div>
     );
+  }
+
+  // Fest Pass — cubre el caso de un link directo/compartido a /evento/:slug
+  // (nunca pasó por el listado, donde EventCard/HeroCarousel ya resuelven
+  // esto): si el Event que llegó tiene quickPassEnabled, este detalle
+  // ESTÁNDAR nunca debe llegar a renderizarse — se redirige una sola vez,
+  // de forma canónica, a la experiencia real (/fest-pass/:slug, mismo
+  // componente QuickPass.jsx). Sin loop posible: esa ruta monta un
+  // componente completamente distinto que nunca redirige de vuelta acá.
+  if (event?.quickPassEnabled) {
+    return <Navigate to={`/fest-pass/${event.slug}`} replace />;
   }
 
   if (notFound || !event) {

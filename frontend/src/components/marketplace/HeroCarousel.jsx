@@ -71,7 +71,7 @@ export default function HeroCarousel({ events }) {
           <Button
             size="lg"
             className="mt-2"
-            onClick={() => navigate(`/evento/${event.slug}`)}
+            onClick={() => navigate(event.quickPassEnabled ? `/fest-pass/${event.slug}` : `/evento/${event.slug}`)}
           >
             Ver Evento
             <ChevronRight className="h-4 w-4" />

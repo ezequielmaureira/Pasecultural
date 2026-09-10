@@ -23,7 +23,7 @@ function normalizeDocument(rawValue) {
 // contacto (ahí van a llegar los QR más adelante) y su DNI, que hoy sólo se
 // guarda como preparación para la futura recuperación segura de entradas
 // (todavía no existe esa pantalla).
-export default function BuyerInfoStep({ buyer, onChange, onBack, onConfirm }) {
+export default function BuyerInfoStep({ buyer, onChange, onBack, onConfirm, cardVariant, feeBreakdown }) {
   const [documentTouched, setDocumentTouched] = useState(false);
 
   const normalizedDocument = normalizeDocument(buyer.document || "");
@@ -43,11 +43,33 @@ export default function BuyerInfoStep({ buyer, onChange, onBack, onConfirm }) {
   }
 
   return (
-    <Card>
+    <Card variant={cardVariant}>
       <div className="flex flex-col gap-1 pb-4 text-center">
         <h2 className="text-lg font-bold text-white">Datos del comprador</h2>
         <p className="text-sm text-slate-400">Tus entradas van a llegar a este email</p>
       </div>
+
+      {/* Desglose opcional antes de pagar — sólo lo pasa Fest Pass
+          (QuickPass.jsx), con los mismos ticketsSubtotal/serviceFeeTotal ya
+          calculados con las tiers reales del backend. PurchaseWizard no lo
+          pasa, así que no cambia nada para el checkout normal (ese resumen
+          ya vive en su propio SummaryStep). */}
+      {feeBreakdown && (
+        <div className="mb-4 flex flex-col gap-1.5 rounded-lg border border-white/10 bg-white/5 p-3">
+          <div className="flex items-center justify-between text-sm text-slate-400">
+            <span>Subtotal entradas</span>
+            <span>{feeBreakdown.ticketsSubtotalLabel}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm text-slate-400">
+            <span>Cargo de servicio</span>
+            <span>{feeBreakdown.serviceFeeLabel}</span>
+          </div>
+          <div className="flex items-center justify-between border-t border-white/10 pt-1.5">
+            <span className="text-sm font-semibold text-white">Total</span>
+            <span className="text-base font-bold text-white">{feeBreakdown.totalLabel}</span>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col gap-4">
         <Field label="Nombre" required>

@@ -91,6 +91,20 @@ export default function QuickPass() {
   const { pathname } = useLocation();
   const isFestPass = pathname.startsWith("/fest-pass/");
   const brandName = isFestPass ? "Fest Pass" : "Quick Pass";
+
+  // Identidad persistente entre las 3 fases (evento → entradas → comprador)
+  // — antes sólo aparecía en la fase "event"; en "tickets"/"buyer" no había
+  // ningún indicio de marca, lo que hacía sentir esas 2 pantallas como el
+  // checkout estándar. Mismo markup en las 3, sin duplicar estilos nuevos.
+  function FestPassBadge() {
+    return (
+      <div className="flex items-center justify-center gap-2 pb-1 text-center">
+        <span className="text-xs font-bold uppercase tracking-[0.3em] text-white/80">SmartTicket</span>
+        <span className="h-1 w-1 rounded-full bg-fuchsia-400" />
+        <span className="text-xs font-bold uppercase tracking-[0.3em] text-fuchsia-300">{brandName}</span>
+      </div>
+    );
+  }
   const [state, setState] = useState({ status: "loading", data: null });
   const [shareState, setShareState] = useState("idle"); // idle | copied
 
@@ -281,11 +295,7 @@ export default function QuickPass() {
 
       {phase === "event" && (
         <div className="relative z-10 mx-auto flex w-full max-w-md flex-1 flex-col justify-end gap-5 px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))]">
-          <div className="flex items-center justify-center gap-2 text-center">
-            <span className="text-xs font-bold uppercase tracking-[0.3em] text-white/80">SmartTicket</span>
-            <span className="h-1 w-1 rounded-full bg-fuchsia-400" />
-            <span className="text-xs font-bold uppercase tracking-[0.3em] text-fuchsia-300">{brandName}</span>
-          </div>
+          <FestPassBadge />
 
           <div className="rounded-3xl border border-white/15 bg-white/10 p-5 shadow-2xl backdrop-blur-xl">
             <h1 className="text-2xl font-extrabold leading-tight text-white">{event.title}</h1>
@@ -358,6 +368,7 @@ export default function QuickPass() {
 
       {phase === "tickets" && fullEvent && (
         <div className="relative z-10 mx-auto flex w-full max-w-md flex-1 flex-col gap-3 overflow-y-auto px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))]">
+          <FestPassBadge />
           <button
             type="button"
             onClick={() => setPhase("event")}
@@ -373,13 +384,17 @@ export default function QuickPass() {
             quantities={quantities}
             onQuantityChange={(ticketTypeId, delta) => handleQuantityChange(ticketTypeId, delta, ticketOptions)}
             total={total}
+            ticketsSubtotal={ticketsSubtotal}
+            serviceFeeTotal={serviceFeeTotal}
             onContinue={() => setPhase("buyer")}
+            cardVariant="glass"
           />
         </div>
       )}
 
       {phase === "buyer" && fullEvent && (
         <div className="relative z-10 mx-auto flex w-full max-w-md flex-1 flex-col gap-3 overflow-y-auto px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))]">
+          <FestPassBadge />
           {purchaseError ? (
             <ErrorStep
               message={purchaseError}
@@ -388,6 +403,7 @@ export default function QuickPass() {
                 setPurchaseError("");
                 setPhase("tickets");
               }}
+              cardVariant="glass"
             />
           ) : (
             <BuyerInfoStep
@@ -397,9 +413,14 @@ export default function QuickPass() {
               onConfirm={() =>
                 handleConfirmPurchase(fullEvent, selectedFunction, lineItems, { ticketsSubtotal, serviceFeeTotal, total })
               }
+              cardVariant="glass"
+              feeBreakdown={{
+                ticketsSubtotalLabel: currency(ticketsSubtotal),
+                serviceFeeLabel: currency(serviceFeeTotal),
+                totalLabel: currency(total),
+              }}
             />
           )}
-          <p className="text-center text-xs text-white/50">Total a pagar: {currency(total)}</p>
         </div>
       )}
 

@@ -30,10 +30,20 @@ export default function OrganizerWhatsAppShortcutButton() {
 
   // Fest Pass ya es su propio mecanismo de carga rápida — el atajo flotante
   // tapaba contenido real de esa pantalla en mobile (ver el informe de
-  // entrega) y además sobra conceptualmente ahí. Se oculta ÚNICAMENTE en
-  // /organizador/fest-pass; sigue apareciendo sin cambios en Dashboard,
-  // Eventos, Ventas, Configuración, y en cualquier pantalla pública.
-  if (pathname.startsWith("/organizador/fest-pass")) return null;
+  // entrega) y además sobra conceptualmente ahí. Se oculta en
+  // /organizador/fest-pass (creación) y también en la EXPERIENCIA PÚBLICA
+  // de Fest/Quick Pass (/fest-pass/:slug, /quick-pass/:slug) — un Organizer
+  // que compra o previsualiza su propio evento ahí no debe ver este atajo
+  // tapando el CTA/formulario en mobile; sigue apareciendo sin cambios en
+  // Dashboard, Eventos, Ventas, Configuración, y en cualquier otra pantalla
+  // pública (Home, listado, detalle estándar de evento, etc.).
+  if (
+    pathname.startsWith("/organizador/fest-pass") ||
+    pathname.startsWith("/fest-pass/") ||
+    pathname.startsWith("/quick-pass/")
+  ) {
+    return null;
+  }
 
   const role = backendUser?.role?.toLowerCase();
 

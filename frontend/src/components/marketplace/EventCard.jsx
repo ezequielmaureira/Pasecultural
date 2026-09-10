@@ -4,9 +4,15 @@ import { getEventCategoryLabel } from "../../lib/eventCategories.js";
 import { formatEventDate, formatEventLocation, formatEventPrice } from "../../lib/eventFormat.js";
 
 export default function EventCard({ event }) {
+  // Fest Pass — un evento con quickPassEnabled tiene que llevar DIRECTO a
+  // la experiencia neon (/fest-pass/:slug), nunca al detalle estándar
+  // primero. `quickPassEnabled` ya viene en cada evento del listado
+  // (getPublicEventsService no proyecta campos, trae el Event completo),
+  // así que no hace falta ningún fetch nuevo acá.
+  const detailPath = event.quickPassEnabled ? `/fest-pass/${event.slug}` : `/evento/${event.slug}`;
   return (
     <Link
-      to={`/evento/${event.slug}`}
+      to={detailPath}
       className="group flex flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0B1120] transition-colors duration-150 hover:border-violet-500/40 light:border-slate-200 light:bg-white"
     >
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-white/5 light:bg-slate-100">

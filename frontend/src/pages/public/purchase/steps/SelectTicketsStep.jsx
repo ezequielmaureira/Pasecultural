@@ -13,11 +13,27 @@ import { formatEventDateTime, formatEventLocation } from "../../../../lib/eventF
 // más bajo por maxPerPurchase. El backend vuelve a validar ambas reglas al
 // crear y al confirmar la venta (INSUFFICIENT_STOCK / MAX_PER_PURCHASE_EXCEEDED
 // — ver ErrorStep): esto es sólo la UX, nunca la única barrera.
-export default function SelectTicketsStep({ event, selectedFunction, ticketOptions, quantities, onQuantityChange, total, onContinue }) {
+export default function SelectTicketsStep({
+  event,
+  selectedFunction,
+  ticketOptions,
+  quantities,
+  onQuantityChange,
+  total,
+  onContinue,
+  cardVariant,
+  ticketsSubtotal,
+  serviceFeeTotal,
+}) {
   const hasSelection = Object.values(quantities).some((qty) => qty > 0);
+  // Desglose opcional — sólo lo pasa Fest Pass (QuickPass.jsx), que ya tiene
+  // ticketsSubtotal/serviceFeeTotal calculados con las mismas tiers reales
+  // del backend (estimateServiceFeeForUnitPrice). PurchaseWizard no los pasa,
+  // así que sigue mostrando sólo "Total" exactamente como antes.
+  const showBreakdown = ticketsSubtotal != null && serviceFeeTotal != null;
 
   return (
-    <Card>
+    <Card variant={cardVariant}>
       <div className="mb-5 flex gap-3 border-b border-white/10 pb-5">
         <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-white/5">
           {event.coverImage ? (
@@ -105,9 +121,23 @@ export default function SelectTicketsStep({ event, selectedFunction, ticketOptio
         )}
       </div>
 
-      <div className="mt-5 flex items-center justify-between border-t border-white/10 pt-4">
-        <span className="text-sm text-slate-400">Total</span>
-        <span className="text-lg font-bold text-white">{currency(total)}</span>
+      <div className="mt-5 flex flex-col gap-1.5 border-t border-white/10 pt-4">
+        {showBreakdown && (
+          <>
+            <div className="flex items-center justify-between text-sm text-slate-400">
+              <span>Subtotal entradas</span>
+              <span>{currency(ticketsSubtotal)}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm text-slate-400">
+              <span>Cargo de servicio</span>
+              <span>{currency(serviceFeeTotal)}</span>
+            </div>
+          </>
+        )}
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-slate-400">Total</span>
+          <span className="text-lg font-bold text-white">{currency(total)}</span>
+        </div>
       </div>
 
       <Button className="mt-4 w-full justify-center" disabled={!hasSelection} onClick={onContinue}>

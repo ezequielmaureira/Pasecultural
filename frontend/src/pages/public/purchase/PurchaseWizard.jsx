@@ -58,6 +58,45 @@ function isBlankMpParam(value) {
   return normalized === "" || normalized === "null" || normalized === "undefined";
 }
 
+// Mismo criterio EXACTO que optimizedImageUrl (QuickPass.jsx) — se duplica
+// acá (función pura, ~8 líneas) en vez de extraerla a un lib compartido
+// porque el alcance de esta ronda es sólo el RETORNO desde Mercado Pago, no
+// una refactorización de ambos archivos.
+function optimizedImageUrl(url, width) {
+  if (!url) return url;
+  const marker = "/upload/";
+  const idx = url.indexOf(marker);
+  if (idx === -1) return url;
+  const insertAt = idx + marker.length;
+  return `${url.slice(0, insertAt)}f_auto,q_auto,w_${width}/${url.slice(insertAt)}`;
+}
+
+// Envoltura visual del RETORNO desde Mercado Pago cuando el evento es Fest
+// Pass — mismo fondo/overlay/gradiente que QuickPass.jsx (imagen del evento
+// + overlay oscuro + gradiente violeta/azul), nunca video. Si todavía no
+// hay `imageUrl` (event no cargó, o no es Fest Pass) se degrada a un
+// contenedor simple sin fondo — exactamente el mismo markup que ya usaba
+// cada bloque de retorno antes de este cambio, para no alterar en nada la
+// experiencia de un evento normal.
+function ReturnScreen({ isFestPass, imageUrl, className = "", children }) {
+  if (!isFestPass) {
+    return <div className={className}>{children}</div>;
+  }
+  return (
+    <div className="relative flex min-h-[100dvh] w-full flex-col overflow-hidden bg-black text-white">
+      {imageUrl && (
+        <img src={optimizedImageUrl(imageUrl, 900)} alt="" className="absolute inset-0 h-full w-full object-cover" />
+      )}
+      <div className="absolute inset-0 bg-black/50" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-br from-violet-600/20 via-transparent to-blue-600/20" />
+      <div className={`relative z-10 mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-3 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] ${className}`}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function buildSteps(hasMultipleFunctions) {
   const steps = [];
   let id = 1;
@@ -119,6 +158,16 @@ export default function PurchaseWizard() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [event, setEvent] = useState(null);
+  // Retorno Fest Pass — el back_url de Mercado Pago sólo trae `slug`/
+  // `saleToken` (nunca un flag propio), así que la única forma de saber si
+  // ESTA vuelta corresponde a un evento Fest Pass es mirar el mismo `event`
+  // que el efecto de más abajo YA carga por `slug` (independiente del
+  // ciclo de recuperación de la venta) — ver getPublicEventBySlugService,
+  // que siempre incluye quickPassEnabled/quickPassImageUrl sin que haga
+  // falta pedir nada nuevo. Mientras `event` no cargó todavía (recuperación
+  // resuelve casi siempre más rápido), estas pantallas se ven con el fondo
+  // plano de siempre — nunca bloquean ni retrasan nada por esperarlo.
+  const isFestPassReturn = Boolean(event?.quickPassEnabled);
   // MP-6 — reglas de comisión vigentes, sólo para mostrar una ESTIMACIÓN
   // en SummaryStep antes de pagar (ver lib/serviceFee.js). El cálculo
   // AUTORITATIVO final lo hace siempre el backend al crear el checkout —
@@ -355,38 +404,39 @@ export default function PurchaseWizard() {
   // SuccessStep.
   if (saleRecoveryState === "checking") {
     return (
-      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-slate-400">
+      <ReturnScreen isFestPass={isFestPassReturn} imageUrl={event?.quickPassImageUrl} className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-slate-400">
         <Spinner size="lg" />
         <p className="text-sm">Recuperando tu compra...</p>
-      </div>
+      </ReturnScreen>
     );
   }
 
   if (saleRecoveryState === "no-payment-attempt") {
     return (
-      <div className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
+      <ReturnScreen isFestPass={isFestPassReturn} imageUrl={event?.quickPassImageUrl} className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
         <ErrorStep
           message="No se completó el pago en Mercado Pago. Podés intentarlo nuevamente."
           retryLabel="Reintentar compra"
           onRetry={handleRestartAfterFailedSale}
           onBackToEvent={() => navigate(slug ? `/evento/${slug}` : "/eventos")}
+          cardVariant={isFestPassReturn ? "glass" : undefined}
         />
-      </div>
+      </ReturnScreen>
     );
   }
 
   if (saleRecoveryState === "pending") {
     return (
-      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-slate-400">
+      <ReturnScreen isFestPass={isFestPassReturn} imageUrl={event?.quickPassImageUrl} className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-slate-400">
         <Spinner size="lg" />
         <p className="text-sm">Estamos confirmando tu compra...</p>
-      </div>
+      </ReturnScreen>
     );
   }
 
   if (saleRecoveryState === "check-error" || saleRecoveryState === "poll-timeout") {
     return (
-      <div className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
+      <ReturnScreen isFestPass={isFestPassReturn} imageUrl={event?.quickPassImageUrl} className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
         <ErrorStep
           message={
             saleRecoveryState === "poll-timeout"
@@ -396,21 +446,23 @@ export default function PurchaseWizard() {
           retryLabel="Reintentar consulta"
           onRetry={() => setRecoveryAttempt((n) => n + 1)}
           onBackToEvent={() => navigate(slug ? `/evento/${slug}` : "/eventos")}
+          cardVariant={isFestPassReturn ? "glass" : undefined}
         />
-      </div>
+      </ReturnScreen>
     );
   }
 
   if (saleRecoveryState === "sale-failed") {
     return (
-      <div className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
+      <ReturnScreen isFestPass={isFestPassReturn} imageUrl={event?.quickPassImageUrl} className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
         <ErrorStep
           message={saleRecoveryMessage}
           retryLabel="Reiniciar compra"
           onRetry={handleRestartAfterFailedSale}
           onBackToEvent={() => navigate(slug ? `/evento/${slug}` : "/eventos")}
+          cardVariant={isFestPassReturn ? "glass" : undefined}
         />
-      </div>
+      </ReturnScreen>
     );
   }
 
@@ -420,15 +472,16 @@ export default function PurchaseWizard() {
   // no depende de ninguno de los dos, todo lo que necesita ya vino en `tickets`.
   if (phase === "success") {
     return (
-      <div className="mx-auto max-w-lg px-3 py-6 sm:px-4 sm:py-10">
+      <ReturnScreen isFestPass={isFestPassReturn} imageUrl={event?.quickPassImageUrl} className="mx-auto max-w-lg px-3 py-6 sm:px-4 sm:py-10">
         <SuccessStep
           tickets={purchasedTickets}
           buyerEmail={purchaseBuyerEmail}
           emailDeliveryStatus={purchaseEmailDeliveryStatus}
           recoveryToken={resumeToken}
           onKeepExploring={() => navigate("/eventos")}
+          cardVariant={isFestPassReturn ? "glass" : undefined}
         />
-      </div>
+      </ReturnScreen>
     );
   }
 

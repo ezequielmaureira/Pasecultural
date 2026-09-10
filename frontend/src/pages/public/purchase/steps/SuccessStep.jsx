@@ -106,7 +106,7 @@ function TicketCard({ ticket }) {
 // llegando desde "Recuperar mis entradas". Reutiliza la infraestructura de
 // Resend ya existente (POST /sales/:token/resend-email -> sendSaleConfirmationEmail):
 // nunca genera tickets nuevos ni duplica la compra, sólo reintenta el envío.
-export default function SuccessStep({ tickets, buyerEmail, emailDeliveryStatus, recoveryToken, onKeepExploring }) {
+export default function SuccessStep({ tickets, buyerEmail, emailDeliveryStatus, recoveryToken, onKeepExploring, cardVariant }) {
   const hasTickets = Array.isArray(tickets) && tickets.length > 0;
   // "idle" | "sending" | "sent" | "error"
   const [resendState, setResendState] = useState("idle");
@@ -129,7 +129,7 @@ export default function SuccessStep({ tickets, buyerEmail, emailDeliveryStatus, 
   }
 
   return (
-    <Card>
+    <Card variant={cardVariant}>
       <div className="flex flex-col items-center gap-3 py-4 text-center">
         <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10">
           <CheckCircle2 className="h-9 w-9 text-emerald-400" />
