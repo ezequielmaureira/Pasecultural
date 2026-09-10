@@ -34,9 +34,12 @@ import { createEmptyTicketType, toDateTime, currency } from "./eventWizard/model
 // secuencia de 3 requests independientes sin reintroducir esperas de
 // varios minutos) y se reemplaza por 3 etapas explícitas
 // (crear/configurar/publicar), cada una con:
-//   - su propio `getTokenWithTimeout` (Clerk nunca puede colgar el flujo).
 //   - su propio ref de progreso (nunca se repite una etapa ya confirmada).
 //   - su propio mensaje de error específico.
+// El token (Clerk, vía `getTokenWithTimeout`) se obtiene UNA SOLA VEZ por
+// operación completa (`handlePublish`/`handleSaveDraft`) y se pasa
+// explícitamente a las 3 etapas — evita 3 round-trips en serie a Clerk sin
+// tocar la semántica de recuperación de cada etapa.
 // PUT /schedule y PATCH status son operaciones de REEMPLAZO/asignación ya
 // idempotentes en el backend (syncEventScheduleService borra y recrea
 // dentro de la misma transacción; updateMyEventService simplemente fija
@@ -352,11 +355,10 @@ export default function FestPass() {
   // quickPassEnabled, quickPassImageUrl) — confirmado leyendo
   // UPDATABLE_FIELDS en event.service.js, mismo whitelist compartido por
   // create y update.
-  async function ensureEventCreated() {
+  async function ensureEventCreated(token) {
     if (!eventIdRef.current) {
       setStageMessage("Creando evento...");
       try {
-        const token = await getTokenWithTimeout(getToken);
         const { event } = await apiFetch("/api/events", {
           token,
           method: "POST",
@@ -377,7 +379,6 @@ export default function FestPass() {
     if (generalDirtyRef.current) {
       setStageMessage("Actualizando datos del evento...");
       try {
-        const token = await getTokenWithTimeout(getToken);
         await apiFetch(`/api/events/${eventIdRef.current}`, {
           token,
           method: "PATCH",
@@ -398,11 +399,10 @@ export default function FestPass() {
   // REEMPLAZO completo del lado del backend (syncEventScheduleService
   // borra y recrea dentro de la misma transacción) — reintentarlo con el
   // payload ACTUAL nunca duplica TicketTypes ni funciones.
-  async function ensureScheduleConfigured() {
+  async function ensureScheduleConfigured(token) {
     if (!scheduleDirtyRef.current) return;
     setStageMessage("Configurando entradas...");
     try {
-      const token = await getTokenWithTimeout(getToken);
       await apiFetch(`/api/events/${eventIdRef.current}/schedule`, {
         token,
         method: "PUT",
@@ -419,11 +419,10 @@ export default function FestPass() {
   // Etapa 3 — publicar. PATCH status es igual de idempotente (fija un
   // campo, no crea nada) — reintentarlo es seguro. Devuelve el slug REAL
   // del evento ya publicado, nunca inventado.
-  async function ensurePublished() {
+  async function ensurePublished(token) {
     if (publishedRef.current && published) return published;
     setStageMessage("Publicando...");
     try {
-      const token = await getTokenWithTimeout(getToken);
       const { event } = await apiFetch(`/api/events/${eventIdRef.current}`, {
         token,
         method: "PATCH",
@@ -444,8 +443,9 @@ export default function FestPass() {
     setSubmitError("");
     setSaving(true);
     try {
-      await ensureEventCreated();
-      await ensureScheduleConfigured();
+      const token = await getTokenWithTimeout(getToken);
+      await ensureEventCreated(token);
+      await ensureScheduleConfigured(token);
       toast.success("Evento guardado como borrador.");
       navigate("/organizador/eventos");
     } catch (err) {
@@ -460,9 +460,10 @@ export default function FestPass() {
     setSubmitError("");
     setSaving(true);
     try {
-      await ensureEventCreated();
-      await ensureScheduleConfigured();
-      const result = await ensurePublished();
+      const token = await getTokenWithTimeout(getToken);
+      await ensureEventCreated(token);
+      await ensureScheduleConfigured(token);
+      const result = await ensurePublished(token);
       setPublished(result);
       setScreen("success");
     } catch (err) {
