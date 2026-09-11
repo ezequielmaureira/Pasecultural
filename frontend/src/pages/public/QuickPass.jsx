@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useLocation, Link } from "react-router-dom";
-import { Share2, Ticket, Check, ArrowLeft } from "lucide-react";
+import { Share2, Ticket, Check, ArrowLeft, MapPin, CalendarDays } from "lucide-react";
 import { apiFetch } from "../../lib/api.js";
 import { formatEventDateTime } from "../../lib/eventFormat.js";
 import { usePublishFlow } from "../../hooks/usePublishFlow.js";
@@ -109,11 +109,15 @@ export default function QuickPass() {
   const [state, setState] = useState({ status: "loading", data: null });
   const [shareState, setShareState] = useState("idle"); // idle | copied
 
-  // "event" | "tickets" | "buyer" — pasos DENTRO de esta misma pantalla,
-  // nunca una navegación a /comprar. `fullEventState` se carga una única
-  // vez, recién al tocar "Comprar entradas" (nunca antes: el paso 1 sólo
-  // necesita el payload liviano de Quick Pass) y se mantiene en memoria —
-  // volver de "tickets"/"buyer" a "event" o entre sí NUNCA vuelve a pedirlo.
+  // "event" | "detail" | "tickets" | "buyer" — pasos DENTRO de esta misma
+  // pantalla, nunca una navegación a /evento/:slug ni a /comprar (Fest Pass
+  // V4 — "Ver detalle del evento" dejó de mandar al EventDetail tradicional,
+  // que rompía la experiencia neón: header/footer/WhatsApp de PaseCultural
+  // encima de una pantalla pensada para sentirse standalone). `fullEventState`
+  // se carga una única vez, recién al entrar a "detail" o "tickets" (lo que
+  // ocurra primero — nunca antes: el paso 1 sólo necesita el payload
+  // liviano de Quick Pass) y se mantiene en memoria — volver a "event" o
+  // moverse entre "detail"/"tickets"/"buyer" NUNCA vuelve a pedirlo.
   const [phase, setPhase] = useState("event");
   const [fullEventState, setFullEventState] = useState({ status: "idle", event: null, error: "" });
   const [serviceFeeTiers, setServiceFeeTiers] = useState([]);
@@ -164,32 +168,47 @@ export default function QuickPass() {
     }
   }
 
-  // Carga completa (con maxPerPurchase/description por TicketType, que el
-  // payload liviano de Quick Pass no trae) SÓLO al tocar "Comprar
-  // entradas" — mismo endpoint público real que ya usa PurchaseWizard.jsx
+  // Carga completa (descripción/ubicación/links, y maxPerPurchase/
+  // description por TicketType, que el payload liviano de Quick Pass no
+  // trae) SÓLO al entrar a "detail" o "tickets" por primera vez — mismo
+  // endpoint público real que ya usa PurchaseWizard.jsx/EventDetail.jsx
   // (GET /api/events/public/:slug), nunca un endpoint nuevo. Best-effort
   // para las reglas de comisión (igual criterio que PurchaseWizard: si
-  // falla, la estimación queda en $0, nunca bloquea).
-  async function handleStartPurchase() {
-    if (fullEventState.status === "ready") {
-      setPhase("tickets");
-      return;
-    }
+  // falla, la estimación queda en $0, nunca bloquea). Devuelve el evento
+  // completo (o null si falló) para que el caller decida a qué fase pasar.
+  async function ensureFullEvent() {
+    if (fullEventState.status === "ready") return fullEventState.event;
     setFullEventState({ status: "loading", event: null, error: "" });
     try {
       const { event: data } = await apiFetch(`/api/events/public/${slug}`);
       getPublicServiceFeeTiers()
         .then(setServiceFeeTiers)
         .catch((err) => console.error("No se pudieron cargar las reglas de comisión", err));
-      if (!data || !data.functions || data.functions.length === 0) {
-        setFullEventState({ status: "error", event: null, error: "Este evento no tiene entradas disponibles para comprar." });
-        return;
+      if (!data) {
+        setFullEventState({ status: "error", event: null, error: "No pudimos cargar el evento." });
+        return null;
       }
       setFullEventState({ status: "ready", event: data, error: "" });
-      setPhase("tickets");
+      return data;
     } catch (err) {
-      setFullEventState({ status: "error", event: null, error: err.message || "No pudimos cargar las entradas." });
+      setFullEventState({ status: "error", event: null, error: err.message || "No pudimos cargar el evento." });
+      return null;
     }
+  }
+
+  async function handleViewDetail() {
+    setPhase("detail");
+    await ensureFullEvent();
+  }
+
+  async function handleStartPurchase() {
+    const data = await ensureFullEvent();
+    if (!data) return;
+    if (!data.functions || data.functions.length === 0) {
+      setFullEventState((prev) => ({ ...prev, status: "error", error: "Este evento no tiene entradas disponibles para comprar." }));
+      return;
+    }
+    setPhase("tickets");
   }
 
   function handleQuantityChange(ticketTypeId, delta, ticketOptions) {
@@ -352,22 +371,18 @@ export default function QuickPass() {
               </button>
             )}
 
-            {/* `state.forceEventDetail` — única forma de distinguir esta
-                navegación EXPLÍCITA (el usuario tocó este botón a propósito)
-                de un link directo/compartido a /evento/:slug: sin esto,
-                EventDetail.jsx redirige de nuevo para acá mismo apenas ve
-                quickPassEnabled=true, y "Ver detalle del evento" nunca
-                mostraba nada. Vive en el state de la navegación (no en la
-                URL/query): no ensucia el link, y sigue funcionando
-                correctamente con el botón atrás del navegador (cada entrada
-                del history mantiene su propio state). */}
-            <Link
-              to={`/evento/${event.slug}`}
-              state={{ forceEventDetail: true }}
+            {/* Fest Pass V4 — "Ver detalle del evento" pasa a la fase
+                "detail" DENTRO de esta misma pantalla, nunca navega a
+                /evento/:slug: ese detalle tradicional (header/footer/
+                WhatsApp de PaseCultural) rompía la experiencia neón
+                inmersiva. Ver la fase "detail" más abajo. */}
+            <button
+              type="button"
+              onClick={handleViewDetail}
               className="flex items-center justify-center rounded-full border border-white/25 bg-white/5 px-6 py-3.5 text-sm font-semibold text-white backdrop-blur-md transition-colors duration-150 active:bg-white/15"
             >
               VER DETALLE DEL EVENTO
-            </Link>
+            </button>
 
             <button
               type="button"
@@ -384,6 +399,83 @@ export default function QuickPass() {
                 </>
               )}
             </button>
+          </div>
+        </div>
+      )}
+
+      {phase === "detail" && (
+        <div className="relative z-10 mx-auto flex w-full max-w-md flex-1 flex-col gap-4 overflow-y-auto px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] sm:max-w-xl">
+          <FestPassBadge />
+          <button
+            type="button"
+            onClick={() => setPhase("event")}
+            className="flex w-fit items-center gap-1.5 text-sm text-white/70 transition-colors duration-150 hover:text-white"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Volver
+          </button>
+
+          <div className="rounded-3xl border border-white/15 bg-white/10 p-5 shadow-2xl backdrop-blur-xl">
+            <h1 className="text-2xl font-extrabold leading-tight text-white">{event.title}</h1>
+            <div className="mt-3 flex items-start gap-2.5 text-sm text-white/80">
+              <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-fuchsia-300" />
+              <span>{firstFunction ? formatEventDateTime(firstFunction.date) : "Fecha a confirmar"}</span>
+            </div>
+            <div className="mt-2 flex items-start gap-2.5 text-sm text-white/80">
+              <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-fuchsia-300" />
+              <span>{locationLabel}</span>
+            </div>
+          </div>
+
+          {fullEventState.status === "loading" && (
+            <div className="rounded-3xl border border-white/15 bg-white/10 p-5 backdrop-blur-xl">
+              <div className="h-4 w-2/3 animate-pulse rounded bg-white/10" />
+              <div className="mt-2 h-4 w-1/2 animate-pulse rounded bg-white/10" />
+            </div>
+          )}
+
+          {fullEventState.status === "error" && (
+            <p className="text-center text-xs text-rose-300">{fullEventState.error}</p>
+          )}
+
+          {fullEvent?.description && (
+            <div className="rounded-3xl border border-white/15 bg-white/10 p-5 shadow-2xl backdrop-blur-xl">
+              <p className="text-xs font-semibold uppercase tracking-wide text-fuchsia-300">Sobre el evento</p>
+              <p className="mt-2 whitespace-pre-line text-sm text-white/80">{fullEvent.description}</p>
+            </div>
+          )}
+
+          {fullEvent && (fullEvent.venueName || fullEvent.formattedAddress || fullEvent.addressLine || fullEvent.address) && (
+            <div className="rounded-3xl border border-white/15 bg-white/10 p-5 shadow-2xl backdrop-blur-xl">
+              <p className="text-xs font-semibold uppercase tracking-wide text-fuchsia-300">Ubicación</p>
+              {fullEvent.venueName && <p className="mt-2 text-sm font-semibold text-white">{fullEvent.venueName}</p>}
+              {(fullEvent.formattedAddress || fullEvent.addressLine || fullEvent.address) && (
+                <p className="mt-1 text-sm text-white/70">
+                  {fullEvent.formattedAddress || fullEvent.addressLine || fullEvent.address}
+                </p>
+              )}
+              {(fullEvent.city || fullEvent.province) && (
+                <p className="mt-1 text-xs text-white/50">{[fullEvent.city, fullEvent.province].filter(Boolean).join(", ")}</p>
+              )}
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2.5 pt-1">
+            {fullEvent && isEventFinished(fullEvent) ? (
+              <p className="rounded-full border border-white/15 bg-white/5 px-6 py-3.5 text-center text-sm font-semibold text-white/70 backdrop-blur-md">
+                Este evento finalizó
+              </p>
+            ) : (
+              <button
+                type="button"
+                onClick={handleStartPurchase}
+                disabled={fullEventState.status !== "ready"}
+                className="flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-blue-500 px-6 py-4 text-base font-bold text-white shadow-[0_0_25px_rgba(168,85,247,0.5)] transition-transform duration-150 active:scale-95 disabled:opacity-70"
+              >
+                <Ticket className="h-5 w-5" />
+                COMPRAR ENTRADAS
+              </button>
+            )}
           </div>
         </div>
       )}
