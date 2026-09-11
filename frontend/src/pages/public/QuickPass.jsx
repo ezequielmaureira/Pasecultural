@@ -245,6 +245,7 @@ export default function QuickPass() {
         <p className="text-lg font-semibold text-white">{brandName} no está disponible para este evento.</p>
         <Link
           to={`/evento/${slug}`}
+          state={{ forceEventDetail: true }}
           className="rounded-full bg-white px-6 py-3 text-sm font-semibold text-black transition-transform duration-150 active:scale-95"
         >
           VER EVENTO
@@ -340,8 +341,18 @@ export default function QuickPass() {
               {fullEventState.status === "loading" ? "CARGANDO..." : "COMPRAR ENTRADAS"}
             </button>
 
+            {/* `state.forceEventDetail` — única forma de distinguir esta
+                navegación EXPLÍCITA (el usuario tocó este botón a propósito)
+                de un link directo/compartido a /evento/:slug: sin esto,
+                EventDetail.jsx redirige de nuevo para acá mismo apenas ve
+                quickPassEnabled=true, y "Ver detalle del evento" nunca
+                mostraba nada. Vive en el state de la navegación (no en la
+                URL/query): no ensucia el link, y sigue funcionando
+                correctamente con el botón atrás del navegador (cada entrada
+                del history mantiene su propio state). */}
             <Link
               to={`/evento/${event.slug}`}
+              state={{ forceEventDetail: true }}
               className="flex items-center justify-center rounded-full border border-white/25 bg-white/5 px-6 py-3.5 text-sm font-semibold text-white backdrop-blur-md transition-colors duration-150 active:bg-white/15"
             >
               VER DETALLE DEL EVENTO

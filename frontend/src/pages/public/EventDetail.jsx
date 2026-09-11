@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, Link, useNavigate, Navigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useLocation, Navigate } from "react-router-dom";
 import { CalendarDays, MapPin, Clock3, ImageOff, ArrowLeft } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
@@ -18,6 +18,11 @@ export default function EventDetail() {
   const { slug } = useParams();
   const [event, setEvent] = useState(null);
   const navigate = useNavigate();
+  const location = useLocation();
+  // Ver comentario en QuickPass.jsx ("VER DETALLE DEL EVENTO") — distingue
+  // un link directo/compartido (sin state, el caso que el redirect de abajo
+  // sigue cubriendo) de la navegación explícita desde dentro de Fest Pass.
+  const forceEventDetail = Boolean(location.state?.forceEventDetail);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
@@ -58,7 +63,15 @@ export default function EventDetail() {
   // de forma canónica, a la experiencia real (/fest-pass/:slug, mismo
   // componente QuickPass.jsx). Sin loop posible: esa ruta monta un
   // componente completamente distinto que nunca redirige de vuelta acá.
-  if (event?.quickPassEnabled) {
+  //
+  // EXCEPCIÓN — `forceEventDetail`: cuando la navegación viene del botón
+  // "VER DETALLE DEL EVENTO"/"VER EVENTO" DENTRO de Fest Pass (QuickPass.jsx),
+  // el usuario pidió EXPLÍCITAMENTE ver este detalle normal — redirigirlo de
+  // nuevo a Fest Pass acá volvería ese botón inútil (Fest Pass -> "Ver
+  // detalle" -> este redirect -> Fest Pass otra vez, sin mostrar nunca el
+  // detalle). Un link directo/compartido nunca trae este state, así que
+  // sigue redirigiendo exactamente igual que antes.
+  if (event?.quickPassEnabled && !forceEventDetail) {
     return <Navigate to={`/fest-pass/${event.slug}`} replace />;
   }
 
@@ -207,7 +220,19 @@ export default function EventDetail() {
                   <Button
                     size="lg"
                     className="justify-center"
-                    onClick={() => navigate(`/comprar?slug=${event.slug}&functionId=${event.functions?.[0]?.id}`)}
+                    onClick={() =>
+                      // `forceEventDetail` es la ÚNICA forma de llegar a este
+                      // detalle con quickPassEnabled=true (ver el redirect de
+                      // arriba) — en ese caso "Comprar" tiene que entrar al
+                      // checkout neón real (/fest-pass/:slug), nunca al
+                      // checkout estándar (/comprar), que no tiene la
+                      // experiencia Fest Pass.
+                      navigate(
+                        event.quickPassEnabled
+                          ? `/fest-pass/${event.slug}`
+                          : `/comprar?slug=${event.slug}&functionId=${event.functions?.[0]?.id}`
+                      )
+                    }
                   >
                     Comprar Entradas
                   </Button>
