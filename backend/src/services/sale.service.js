@@ -1102,6 +1102,16 @@ export const getSaleStatusService = async (recoveryToken) => {
             status: true,
             deletedAt: true,
             confirmationEmailStatus: true,
+            // Sólo para distinguir, del lado del frontend, "todavía sin
+            // ninguna noticia de Mercado Pago" de "aprobado pero sin stock
+            // al confirmar" (approved_but_no_stock, ver
+            // mercadoPagoPaymentConfirmation.service.js): ese caso NUNCA
+            // pasa la Sale a CONFIRMED (a propósito, no inventa un estado
+            // nuevo en SaleStatus) — sólo persiste paymentRef como marca
+            // para reconciliación manual. Mientras siga PENDING, paymentRef
+            // presente es la única señal real de que Mercado Pago sí llegó
+            // a aprobar el pago del lado del backend.
+            paymentRef: true,
             buyer: { select: { email: true } },
             event: { select: { title: true } },
             function: { select: { date: true, venue: true } },
@@ -1121,7 +1131,7 @@ export const getSaleStatusService = async (recoveryToken) => {
     if (!sale || sale.deletedAt) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
 
     if (sale.status !== "CONFIRMED") {
-        return { id: sale.id, status: sale.status };
+        return { id: sale.id, status: sale.status, hasApprovedPaymentAwaitingReconciliation: Boolean(sale.paymentRef) };
     }
 
     // Botón de arrepentimiento — ventana informativa de 24h post-devolución

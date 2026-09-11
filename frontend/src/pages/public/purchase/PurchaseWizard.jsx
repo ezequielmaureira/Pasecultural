@@ -295,6 +295,19 @@ export default function PurchaseWizard() {
           return;
         }
 
+        // approved_but_no_stock (ver mercadoPagoPaymentConfirmation.service.js)
+        // — Mercado Pago SÍ aprobó el pago, pero el stock cambió antes de
+        // poder confirmar la Sale; queda PENDING a propósito, con
+        // `paymentRef` como única marca. Nunca se resuelve solo pollenado
+        // (requiere reconciliación manual), así que se corta acá con un
+        // estado propio, distinto de "pending" real — nunca hay que decirle
+        // al comprador que vuelva a pagar.
+        if (result?.hasApprovedPaymentAwaitingReconciliation) {
+          stopPolling();
+          setSaleRecoveryState("approved-no-stock");
+          return;
+        }
+
         // PENDING (o, en teoría, CONFIRMED sin tickets todavía) sin NINGUNA
         // evidencia de un intento real en Mercado Pago — el comprador
         // volvió/canceló antes de pagar. Nunca vale la pena pollear algo
@@ -379,11 +392,25 @@ export default function PurchaseWizard() {
         return;
       }
       setEvent(data);
-      if (data.functions.length === 1) {
-        setSelectedFunctionId(data.functions[0].id);
-        setPhase("tickets");
-      } else {
-        setPhase("function");
+      // Bug real (retorno desde Mercado Pago) — este efecto corre en
+      // PARALELO al de recuperación de venta de más abajo (mismo montaje,
+      // dos efectos independientes: uno por [slug], otro por
+      // [resumeToken, recoveryAttempt]). Si hay un saleToken en la URL
+      // (volviendo de MP), el `phase` lo tiene que decidir EXCLUSIVAMENTE
+      // ese otro efecto ("success"/pending/etc., vía los early-return de
+      // saleRecoveryState) — nunca este. Antes, cuando la carga completa
+      // del evento (functions/ticketTypes/ticketAssignments, más pesada
+      // que el simple GET /status) terminaba DESPUÉS de que la
+      // recuperación ya hubiera puesto phase="success", este `setPhase`
+      // incondicional pisaba ese estado y mandaba al comprador de vuelta a
+      // la selección de entradas — exactamente el bug reportado.
+      if (!resumeToken) {
+        if (data.functions.length === 1) {
+          setSelectedFunctionId(data.functions[0].id);
+          setPhase("tickets");
+        } else {
+          setPhase("function");
+        }
       }
     } catch (err) {
       setLoadError(err.message || "No pudimos cargar el evento.");
@@ -452,6 +479,18 @@ export default function PurchaseWizard() {
     );
   }
 
+  if (saleRecoveryState === "approved-no-stock") {
+    return (
+      <ReturnScreen isFestPass={isFestPassReturn} imageUrl={event?.quickPassImageUrl} className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
+        <ErrorStep
+          message="El pago fue aprobado, pero necesitamos resolver la asignación de tus entradas. Ya registramos la operación y no necesitás volver a pagar — te vamos a contactar por email en cuanto se resuelva."
+          onBackToEvent={() => navigate(slug ? `/evento/${slug}` : "/eventos")}
+          cardVariant={isFestPassReturn ? "glass" : undefined}
+        />
+      </ReturnScreen>
+    );
+  }
+
   if (saleRecoveryState === "sale-failed") {
     return (
       <ReturnScreen isFestPass={isFestPassReturn} imageUrl={event?.quickPassImageUrl} className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
@@ -480,6 +519,7 @@ export default function PurchaseWizard() {
           recoveryToken={resumeToken}
           onKeepExploring={() => navigate("/eventos")}
           cardVariant={isFestPassReturn ? "glass" : undefined}
+          isFestPass={isFestPassReturn}
         />
       </ReturnScreen>
     );

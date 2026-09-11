@@ -106,10 +106,15 @@ function TicketCard({ ticket }) {
 // llegando desde "Recuperar mis entradas". Reutiliza la infraestructura de
 // Resend ya existente (POST /sales/:token/resend-email -> sendSaleConfirmationEmail):
 // nunca genera tickets nuevos ni duplica la compra, sólo reintenta el envío.
-export default function SuccessStep({ tickets, buyerEmail, emailDeliveryStatus, recoveryToken, onKeepExploring, cardVariant }) {
+export default function SuccessStep({ tickets, buyerEmail, emailDeliveryStatus, recoveryToken, onKeepExploring, cardVariant, isFestPass }) {
   const hasTickets = Array.isArray(tickets) && tickets.length > 0;
   // "idle" | "sending" | "sent" | "error"
   const [resendState, setResendState] = useState("idle");
+
+  // eventTitle/functionDate/venue YA vienen en cada ticket (getSaleStatusService/
+  // confirmSaleService, ver sale.service.js) — nunca hizo falta pedir el
+  // Event por separado para poder mostrarlos acá.
+  const firstTicket = hasTickets ? tickets[0] : null;
 
   useEffect(() => {
     if (emailDeliveryStatus && emailDeliveryStatus !== "SENT") {
@@ -131,14 +136,35 @@ export default function SuccessStep({ tickets, buyerEmail, emailDeliveryStatus, 
   return (
     <Card variant={cardVariant}>
       <div className="flex flex-col items-center gap-3 py-4 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10">
-          <CheckCircle2 className="h-9 w-9 text-emerald-400" />
+        <div
+          className={`flex h-16 w-16 items-center justify-center rounded-full ${
+            isFestPass ? "bg-fuchsia-500/15 shadow-[0_0_20px_rgba(217,70,239,0.35)]" : "bg-emerald-500/10"
+          }`}
+        >
+          <CheckCircle2 className={`h-9 w-9 ${isFestPass ? "text-fuchsia-300" : "text-emerald-400"}`} />
         </div>
-        <h2 className="text-lg font-bold text-white">¡Compra realizada con éxito!</h2>
+
+        {isFestPass && (
+          <span className="text-xs font-bold uppercase tracking-[0.3em] text-fuchsia-300">PAGO APROBADO</span>
+        )}
+
+        <h2 className="text-lg font-bold text-white">
+          {isFestPass ? "¡Ya estás adentro!" : "¡Compra realizada con éxito!"}
+        </h2>
+
+        {firstTicket && (
+          <div className="text-sm text-slate-300">
+            <p className="font-semibold text-white">{firstTicket.eventTitle}</p>
+            {firstTicket.functionDate && <p className="text-slate-400">{formatFunctionDate(firstTicket.functionDate)}</p>}
+            {firstTicket.venue && <p className="text-slate-400">{firstTicket.venue}</p>}
+          </div>
+        )}
 
         <p className="text-sm text-slate-400">
           {hasTickets
-            ? "Tu compra fue confirmada. Podés ver y descargar tus entradas a continuación."
+            ? isFestPass
+              ? "Tus entradas están listas. Podés verlas y descargarlas a continuación."
+              : "Tu compra fue confirmada. Podés ver y descargar tus entradas a continuación."
             : "Tu compra fue confirmada."}
         </p>
 

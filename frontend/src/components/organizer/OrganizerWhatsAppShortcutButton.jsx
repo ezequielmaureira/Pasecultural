@@ -37,10 +37,18 @@ export default function OrganizerWhatsAppShortcutButton() {
   // tapando el CTA/formulario en mobile; sigue apareciendo sin cambios en
   // Dashboard, Eventos, Ventas, Configuración, y en cualquier otra pantalla
   // pública (Home, listado, detalle estándar de evento, etc.).
+  // "/comprar" — mismo motivo: es la pantalla de checkout Y de retorno
+  // post-Mercado Pago (success/pending/failure, ver PurchaseWizard.jsx) de
+  // CUALQUIER compra, Fest Pass o normal — el atajo flotante puede tapar el
+  // botón "Pagar"/las cards de entrada en mobile ahí igual que en Fest
+  // Pass. No distingue Fest Pass de normal a propósito: el problema
+  // (botón flotante sobre un CTA de pago/confirmación) es el mismo en
+  // ambos casos.
   if (
     pathname.startsWith("/organizador/fest-pass") ||
     pathname.startsWith("/fest-pass/") ||
-    pathname.startsWith("/quick-pass/")
+    pathname.startsWith("/quick-pass/") ||
+    pathname.startsWith("/comprar")
   ) {
     return null;
   }
