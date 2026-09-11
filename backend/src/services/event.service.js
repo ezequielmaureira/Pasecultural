@@ -575,6 +575,22 @@ function assertPublishable(event) {
         throw new Error("NO_FUNCTIONS");
     }
 
+    // Regla "evento finalizado = evento finalizado" (ronda EVENT_FINISHED_GUARD)
+    // — assertFunctionActive/isFunctionFinished (eventArchive.service.js)
+    // usan endAt como autoridad y sólo caen al fallback (fin del día de
+    // `date`) para datos legacy incompletos. Para que ese fallback deje de
+    // ser el camino normal de cualquier evento NUEVO, se exige acá, en el
+    // único momento en que un evento deja de ser DRAFT: un DRAFT puede
+    // guardarse sin endAt (nunca se llama assertPublishable ahí), pero no
+    // puede pasar a PUBLISHED sin que TODAS sus funciones lo tengan.
+    // Aplica también a FREE_ENTRY (chequeado ANTES del return de abajo):
+    // la regla de finalización no distingue admissionType.
+    for (const fn of event.functions) {
+        if (!fn.endAt) {
+            throw new Error("EVENT_FUNCTION_END_REQUIRED");
+        }
+    }
+
     // FREE_ENTRY — evento informativo, sin ticketing: fecha/hora/lugar
     // siguen siendo obligatorios (ya validado arriba), pero nada de lo que
     // sigue acá abajo aplica — no hay catálogo que exigir ni asignaciones
@@ -1185,6 +1201,8 @@ export const getQuickPassBySlugService = async (slug) => {
             functions: event.functions.map((fn) => ({
                 id: fn.id,
                 date: fn.date,
+                doorsOpenAt: fn.doorsOpenAt,
+                endAt: fn.endAt,
                 venue: fn.venue,
                 ticketAssignments: fn.ticketAssignments
                     .filter((a) => a.visibleOverride ?? a.ticketType.visible)

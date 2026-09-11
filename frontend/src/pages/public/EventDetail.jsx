@@ -8,6 +8,7 @@ import MediaEmbed from "../../components/events/MediaEmbed.jsx";
 import LocationMap from "../../components/location/LocationMap.jsx";
 import { apiFetch } from "../../lib/api.js";
 import { getEventCategoryLabel } from "../../lib/eventCategories.js";
+import { isEventFinished } from "../../lib/eventFinished.js";
 import {
   formatEventDateTime,
   formatEventLocation,
@@ -91,6 +92,8 @@ export default function EventDetail() {
       </div>
     );
   }
+
+  const finished = isEventFinished(event);
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-10">
@@ -202,7 +205,13 @@ export default function EventDetail() {
                 </span>
               </div>
 
-              {event.admissionType === "FREE_ENTRY" ? (
+              {finished ? (
+                <div className="border-t border-white/10 pt-4">
+                  <p className="rounded-lg bg-white/5 px-3 py-2 text-center text-sm font-medium text-slate-300">
+                    Este evento finalizó
+                  </p>
+                </div>
+              ) : event.admissionType === "FREE_ENTRY" ? (
                 <div className="border-t border-white/10 pt-4">
                   <p className="text-xs text-slate-500">Precio</p>
                   <p className="text-lg font-bold text-violet-400">Entrada gratuita</p>

@@ -3,6 +3,7 @@ import prisma from "../config/prisma.js";
 import { decryptSecret } from "../config/qrEncryption.js";
 import { getFunctionCounters } from "./functionCapacity.service.js";
 import { resolveScannerAccess } from "./scannerAccess.service.js";
+import { isFunctionFinished } from "./eventArchive.service.js";
 import { logger } from "../logging/logger.js";
 import { getOrganizerNotificationSettingsOrDefaults, tryClaimOrganizerNotification } from "./organizerNotificationSettings.service.js";
 import { sendOrganizerNotification, OrganizerNotificationType } from "./email/sendOrganizerNotification.service.js";
@@ -18,6 +19,11 @@ const RESULT_MESSAGES = {
     CANCELLED: "La entrada fue cancelada.",
     NOT_FOUND: "Entrada inexistente.",
     WRONG_EVENT: "Esta entrada no corresponde a este evento o función.",
+    // Regla "evento finalizado = evento finalizado" — nunca HTTP 409/AppError
+    // acá: un resultado de escaneo SIEMPRE viaja como `status` inline en
+    // HTTP 200 (mismo contrato que VALID/ALREADY_USED/etc, ver comentario de
+    // resolveScanOutcome), para no romper el resto del flujo del scanner.
+    EVENT_FINISHED: "Este evento finalizó. Ya no se admiten validaciones de entradas.",
 };
 
 // maxWait/timeout explícitos (default de Prisma: 2000ms/5000ms). Auditoría
@@ -45,7 +51,7 @@ function buildTicketInclude() {
         // antes de confirmar) — buildResult (VALID/ALREADY_USED/CANCELLED)
         // nunca lo lee, así que agregarlo acá no cambia ninguna respuesta
         // existente.
-        function: { select: { date: true, venue: true } },
+        function: { select: { date: true, venue: true, doorsOpenAt: true, endAt: true } },
     };
 }
 
@@ -112,7 +118,7 @@ function buildResult(result, { ticket, checkIn, scannerName, gate } = {}) {
             firstScannedAt: checkIn?.scannedAt ?? null,
             firstScannedGate: checkIn?.gate ?? null,
         };
-    } else if (result === "CANCELLED") {
+    } else if (result === "CANCELLED" || result === "EVENT_FINISHED") {
         data = { ticketNumber: ticket.ticketNumber };
     }
 
@@ -156,6 +162,15 @@ async function resolveScanOutcome(client, { ticketId, providedSecret, eventId, f
 
     if (ticket.eventId !== eventId || (functionId && ticket.functionId !== functionId)) {
         return { status: "WRONG_EVENT", ticket };
+    }
+
+    // Regla "evento finalizado = evento finalizado" — chequeado ANTES de
+    // CANCELLED/USED a propósito: una función finalizada nunca admite
+    // ingresos nuevos, sin importar en qué estado quedó el ticket. Usa
+    // ticket.function (ya incluido por buildTicketInclude), nunca una
+    // consulta nueva.
+    if (isFunctionFinished(ticket.function)) {
+        return { status: "EVENT_FINISHED", ticket };
     }
 
     if (ticket.status === "CANCELLED" || ticket.status === "REFUNDED") {
@@ -204,6 +219,7 @@ export const scanTicketService = async (scannerContext, input) => {
 
     if (outcome.status === "NOT_FOUND") return buildResult("NOT_FOUND");
     if (outcome.status === "WRONG_EVENT") return buildResult("WRONG_EVENT");
+    if (outcome.status === "EVENT_FINISHED") return buildResult("EVENT_FINISHED", { ticket: outcome.ticket });
     if (outcome.status === "CANCELLED") return buildResult("CANCELLED", { ticket: outcome.ticket });
     if (outcome.status === "ALREADY_USED") {
         return buildResult("ALREADY_USED", { ticket: outcome.ticket, checkIn: outcome.checkIn });
@@ -306,6 +322,17 @@ export const confirmScanService = async (scannerContext, input) => {
         if (outcome.status === "WRONG_EVENT") {
             await recordAttempt("WRONG_EVENT", outcome.ticket.id);
             return withStats(buildResult("WRONG_EVENT"));
+        }
+        if (outcome.status === "EVENT_FINISHED") {
+            // A propósito NUNCA recordAttempt acá — "EVENT_FINISHED" no es un
+            // valor del enum Postgres ScanResult (ver decisión de la ronda:
+            // sin migración de schema para esto), así que no hay dónde
+            // persistirlo. Mismo precedente que scanTicketService (la vista
+            // previa), que tampoco escribe nunca ningún ScanAttempt: el
+            // bloqueo real es el `return` temprano de acá, nunca depende de
+            // la fila de auditoría. Si en el futuro se necesita ese conteo,
+            // ahí sí se justifica la migración.
+            return withStats(buildResult("EVENT_FINISHED", { ticket: outcome.ticket }));
         }
         if (outcome.status === "CANCELLED") {
             await recordAttempt("CANCELLED", outcome.ticket.id);

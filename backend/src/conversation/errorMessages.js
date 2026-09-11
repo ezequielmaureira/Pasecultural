@@ -18,6 +18,11 @@ export const EVENT_SERVICE_ERROR_MESSAGES = {
         "Todas las funciones necesitan al menos una entrada asignada para poder publicarse",
     LOCATION_MISSING_VENUE_NAME: "El evento necesita un nombre de lugar para poder publicarse",
     LOCATION_MISSING_ADDRESS: "El evento necesita una dirección para poder publicarse",
+    // Regla "evento finalizado = evento finalizado" (ronda EVENT_FINISHED_GUARD)
+    // — assertPublishable (event.service.js) exige endAt en cada función
+    // antes de poder publicar. No rompe eventos ya publicados (nunca se
+    // vuelve a correr este chequeo sobre ellos sólo por editarlos).
+    EVENT_FUNCTION_END_REQUIRED: "Debés indicar la hora de finalización de cada función.",
     FUNCTION_MISSING_FIELDS: "Cada función necesita fecha y lugar",
     TICKET_TYPE_MISSING_FIELDS: "Cada entrada del catálogo necesita nombre, precio y cantidad",
     LINK_MISSING_FIELDS: "Cada enlace necesita un tipo y una URL",

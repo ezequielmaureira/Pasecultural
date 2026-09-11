@@ -2,6 +2,7 @@ import prisma from "../config/prisma.js";
 import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { getOwnedEvent } from "./eventScanner.service.js";
+import { assertFunctionActive } from "./eventArchive.service.js";
 
 // Administración de entradas por el organizador dueño del evento — 5
 // operaciones sobre Ticket.status, cada una con su transición permitida y
@@ -73,6 +74,12 @@ export const markTicketUsedManuallyService = async (clerkId, eventId, ticketId, 
     if (!owned) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
     const ticket = await findOwnedTicket(eventId, ticketId);
     if (ticket.status !== "ACTIVE") throw new AppError(ErrorCodes.TICKET_INVALID_TRANSITION);
+
+    // Regla "evento finalizado = evento finalizado" — check-in manual del
+    // organizador (equivalente a un escaneo real, ver comentario de arriba)
+    // sobre una función ya finalizada queda bloqueado igual que el scanner.
+    const eventFunction = await prisma.eventFunction.findUnique({ where: { id: ticket.functionId } });
+    assertFunctionActive(eventFunction);
 
     return prisma.$transaction(async (tx) => {
         const updated = await tx.ticket.update({ where: { id: ticket.id }, data: { status: "USED" } });

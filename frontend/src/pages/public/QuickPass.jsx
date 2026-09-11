@@ -7,6 +7,7 @@ import { usePublishFlow } from "../../hooks/usePublishFlow.js";
 import { processPayment } from "../../lib/payment/paymentGateway.js";
 import { getPublicServiceFeeTiers } from "../../lib/serviceFeeApi.js";
 import { estimateServiceFeeForUnitPrice } from "../../lib/serviceFee.js";
+import { isEventFinished } from "../../lib/eventFinished.js";
 import { currency } from "../organizer/eventWizard/model.js";
 import SelectTicketsStep from "./purchase/steps/SelectTicketsStep.jsx";
 import BuyerInfoStep from "./purchase/steps/BuyerInfoStep.jsx";
@@ -255,6 +256,7 @@ export default function QuickPass() {
   }
 
   const event = state.data;
+  const finished = isEventFinished(event);
   const functions = event.functions ?? [];
   const firstFunction = functions[0];
   const allTicketTypes = functions.flatMap((fn) => fn.ticketAssignments);
@@ -331,15 +333,24 @@ export default function QuickPass() {
           )}
 
           <div className="flex flex-col gap-2.5">
-            <button
-              type="button"
-              onClick={handleStartPurchase}
-              disabled={fullEventState.status === "loading"}
-              className="flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-blue-500 px-6 py-4 text-base font-bold text-white shadow-[0_0_25px_rgba(168,85,247,0.5)] transition-transform duration-150 active:scale-95 disabled:opacity-70"
-            >
-              <Ticket className="h-5 w-5" />
-              {fullEventState.status === "loading" ? "CARGANDO..." : "COMPRAR ENTRADAS"}
-            </button>
+            {finished ? (
+              // Evento finalizado — sin CTA activo, mantiene la estética
+              // neón/glass (ver informe de la ronda EVENT_FINISHED_GUARD):
+              // nunca alert(), nunca oculta la pantalla completa.
+              <p className="rounded-full border border-white/15 bg-white/5 px-6 py-3.5 text-center text-sm font-semibold text-white/70 backdrop-blur-md">
+                Este evento finalizó
+              </p>
+            ) : (
+              <button
+                type="button"
+                onClick={handleStartPurchase}
+                disabled={fullEventState.status === "loading"}
+                className="flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-blue-500 px-6 py-4 text-base font-bold text-white shadow-[0_0_25px_rgba(168,85,247,0.5)] transition-transform duration-150 active:scale-95 disabled:opacity-70"
+              >
+                <Ticket className="h-5 w-5" />
+                {fullEventState.status === "loading" ? "CARGANDO..." : "COMPRAR ENTRADAS"}
+              </button>
+            )}
 
             {/* `state.forceEventDetail` — única forma de distinguir esta
                 navegación EXPLÍCITA (el usuario tocó este botón a propósito)

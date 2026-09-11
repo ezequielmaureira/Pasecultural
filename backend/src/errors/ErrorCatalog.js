@@ -39,6 +39,20 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Sale creation attempted for a FREE_ENTRY event (no ticketing system).",
         userMessage: "Este evento es de entrada gratuita y no tiene sistema de venta de entradas.",
     },
+    // Guard autoritativo — ver assertFunctionActive (eventArchive.service.js),
+    // reusado por createSaleForBuyer (sale.service.js) y
+    // markTicketUsedManuallyService (ticketAdmin.service.js): ninguna
+    // OPERACIÓN NUEVA (compra, cortesía, check-in manual) puede ejecutarse
+    // sobre una función ya finalizada. El escaneo por QR (scanner.service.js)
+    // usa el mismo cálculo temporal pero NUNCA este AppError — ahí un
+    // resultado de negocio siempre viaja como `status` inline en HTTP 200
+    // (ver resolveScanOutcome), nunca como excepción, para no romper ese
+    // contrato ya existente.
+    EVENT_FINISHED: {
+        httpStatus: 409,
+        logMessage: "Operation attempted on an EventFunction that has already finished.",
+        userMessage: "Este evento finalizó.",
+    },
     FUNCTION_NOT_FOUND: {
         httpStatus: 404,
         logMessage: "Event function not found or does not belong to the given event.",

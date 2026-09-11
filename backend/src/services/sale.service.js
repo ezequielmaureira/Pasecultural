@@ -4,7 +4,7 @@ import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { isPublicLaunchEnabledOrDefault } from "./publicLaunchSettings.service.js";
 import { getUserByClerkId } from "../utils/getUserByClerkId.js";
-import { runArchiveSelfHeal } from "./eventArchive.service.js";
+import { runArchiveSelfHeal, assertFunctionActive } from "./eventArchive.service.js";
 import { isValidEmail } from "../utils/validateEmail.js";
 import { normalizeBuyerDocument, isValidBuyerDocument } from "../utils/validateBuyerDocument.js";
 import { buildTicketNumber } from "../utils/ticketNumber.js";
@@ -198,6 +198,16 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
     if (!eventFunction || eventFunction.eventId !== event.id) {
         throw new AppError(ErrorCodes.FUNCTION_NOT_FOUND);
     }
+
+    // Regla "evento finalizado = evento finalizado" — único choke point de
+    // creación de Sale (venta manual, guest/Mercado Pago vía
+    // createGuestSaleService, y cortesías vía courtesy.service.js: los tres
+    // llegan acá), así que un único guard alcanza para bloquear compras
+    // nuevas — pagas, gratuitas y cortesías — sobre una función ya
+    // finalizada. NUNCA afecta una Sale ya creada (el webhook de Mercado
+    // Pago sólo la confirma, no vuelve a pasar por acá — ver
+    // confirmSaleService/confirmMercadoPagoPaymentIfEligible).
+    assertFunctionActive(eventFunction);
 
     const itemsInput = Array.isArray(input?.items) ? input.items : [];
     if (itemsInput.length === 0) {

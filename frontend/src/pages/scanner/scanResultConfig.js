@@ -15,6 +15,10 @@ export const SCAN_RESULT_DURATION_MS = {
     CANCELLED: 2000,
     WRONG_EVENT: 2500,
     NOT_FOUND: 1200,
+    // Regla "evento finalizado = evento finalizado" — mismo tiempo que
+    // CANCELLED/WRONG_EVENT: hay algo puntual para leer antes de volver sola
+    // al lector.
+    EVENT_FINISHED: 2500,
     // Pseudo-estado, nunca lo devuelve el backend: se sintetiza en el
     // cliente cuando no hay conexión o validate() falla por red/timeout
     // durante el escaneo (ver ScanningScreen).
@@ -33,6 +37,7 @@ export const SCAN_RESULT_TONE = {
     CANCELLED: "bg-rose-600 text-white",
     WRONG_EVENT: "bg-orange-500 text-white",
     NOT_FOUND: "bg-rose-600 text-white",
+    EVENT_FINISHED: "bg-slate-700 text-white",
     OFFLINE: "bg-slate-700 text-white",
     TIMEOUT: "bg-slate-700 text-white",
 };
@@ -43,6 +48,7 @@ export const SCAN_RESULT_LABEL = {
     WRONG_EVENT: "Esta entrada pertenece a otro evento",
     CANCELLED: "Entrada cancelada",
     NOT_FOUND: "QR inválido",
+    EVENT_FINISHED: "Este evento finalizó. Ya no se admiten validaciones de entradas.",
     OFFLINE: "Sin conexión",
     TIMEOUT: "Tiempo de confirmación agotado",
 };
@@ -55,4 +61,5 @@ export const SCAN_RESULT_BADGE_TONE = {
     CANCELLED: "bg-rose-500/10 text-rose-400",
     WRONG_EVENT: "bg-orange-500/10 text-orange-400",
     NOT_FOUND: "bg-white/10 text-slate-400",
+    EVENT_FINISHED: "bg-white/10 text-slate-400",
 };
