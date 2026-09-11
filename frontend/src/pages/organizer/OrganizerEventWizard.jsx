@@ -288,6 +288,7 @@ export default function OrganizerEventWizard() {
             : event.ticketTypes?.length
               ? event.ticketTypes.map((tt) => ({
                   _key: tt.id,
+                  id: tt.id,
                   name: tt.name || "",
                   price: tt.price ?? "",
                   quantity: tt.quantity ?? "",
@@ -326,6 +327,7 @@ export default function OrganizerEventWizard() {
 
               return {
                 _key: fn.id,
+                id: fn.id,
                 date,
                 doorsOpenTime,
                 startTime,
@@ -473,6 +475,9 @@ export default function OrganizerEventWizard() {
   function cloneFunction(source) {
     return {
       _key: tempId(),
+      // Siempre null: aunque se clone desde una función existente, esto es
+      // una función NUEVA — nunca hay que confundirla con la original.
+      id: null,
       date: "",
       doorsOpenTime: "",
       startTime: "",
@@ -697,6 +702,11 @@ export default function OrganizerEventWizard() {
       ticketTypes: isFreeEntry
         ? []
         : catalog.map((tt) => ({
+            // `tt.id` — nunca `tt._key` (ver createEmptyTicketType/hidratación
+            // más arriba): sólo viaja cuando es un TicketType real ya
+            // persistido. Una fila nueva (id: null) no manda `id` en
+            // absoluto, así el backend la trata como CREATE.
+            ...(tt.id ? { id: tt.id } : {}),
             name: tt.name,
             price: Number(tt.price),
             quantity: Number(tt.quantity),
@@ -705,6 +715,7 @@ export default function OrganizerEventWizard() {
             visible: Boolean(tt.visible),
           })),
       functions: functions.map((fn) => ({
+        ...(fn.id ? { id: fn.id } : {}),
         date: toDateTime(fn.date, fn.startTime),
         doorsOpenAt: fn.doorsOpenTime ? toDateTime(fn.date, fn.doorsOpenTime) : null,
         endAt: fn.endTime ? toDateTime(fn.date, fn.endTime) : null,

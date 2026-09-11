@@ -3,8 +3,8 @@ import prisma from "../config/prisma.js";
 import { generateUniqueSlug } from "../utils/generateSlug.js";
 import { canPublishEvents } from "../utils/organizationTrust.js";
 import { isValidHttpUrl, parseMediaUrl } from "../utils/mediaParser.js";
-import { runArchiveSelfHeal } from "./eventArchive.service.js";
-import { effectiveCapacity, SOLD_TICKET_STATUSES } from "./functionCapacity.service.js";
+import { runArchiveSelfHeal, assertFunctionActive } from "./eventArchive.service.js";
+import { effectiveCapacity, SOLD_TICKET_STATUSES, getUnavailableCount } from "./functionCapacity.service.js";
 import { geocodeLocationIfNeeded } from "./geocoding.service.js";
 import { timeExternalCall } from "../utils/whatsappPerf.js";
 import { logger } from "../logging/logger.js";
@@ -851,80 +851,271 @@ export const syncEventScheduleService = async (clerkId, eventId, input, organiza
         }
     }
 
-    // IDs generados acá (no delegados a @default(cuid()) de Prisma) para
-    // poder insertar en batch con `createMany` y de todas formas saber de
-    // antemano qué id le corresponde a cada fila — así se arman las
-    // asignaciones función↔tipo de entrada sin esperar la respuesta de cada
-    // INSERT uno por uno. Es sólo una clave primaria de tipo string; un
-    // uuid es tan válido como el cuid que generaba Prisma antes.
-    //
-    // `createdAt` se fija a mano y escalonado (1ms por fila, en el mismo
-    // orden en que ya se armaban antes) porque en un `createMany` todas las
-    // filas se insertan en el mismo instante: sin esto, el `ORDER BY
-    // createdAt` que ya usa EVENT_DETAIL_INCLUDE (y el resto de la app)
-    // dejaría de ser estable entre lecturas. Mismos datos, mismo orden.
     await assertMaxTicketsPerEventLimit(context.organization, eventId, ticketTypesInput, functionsInput);
 
-    const baseCreatedAt = Date.now();
-    let tick = 0;
-    const nextCreatedAt = () => new Date(baseCreatedAt + tick++);
+    let ticketTypeRows;
+    let assignmentRows;
 
-    const ticketTypeRows = ticketTypesInput.map((tt) => ({
-        id: randomUUID(),
-        ...buildTicketTypeData(tt),
-        eventId,
-        createdAt: nextCreatedAt(),
-    }));
+    if (skipDelete) {
+        // Creación inicial (SOLO EventServicePort.commit, ver el comentario
+        // original de `skipDelete` más abajo) — el evento se acaba de crear
+        // DOS LÍNEAS ANTES en la misma llamada síncrona, matemáticamente
+        // imposible que existan funciones/tipos de entrada previos, así que
+        // nunca hace falta diffear contra nada: mismo `createMany` en batch
+        // de siempre, sin tocar. IDs generados acá (no delegados a
+        // @default(cuid())) para poder insertar en batch y de todas formas
+        // saber de antemano qué id le corresponde a cada fila.
+        const baseCreatedAt = Date.now();
+        let tick = 0;
+        const nextCreatedAt = () => new Date(baseCreatedAt + tick++);
 
-    const functionRows = [];
-    const assignmentRows = [];
-    for (const fn of functionsInput) {
-        const functionId = randomUUID();
-        functionRows.push({ id: functionId, ...buildFunctionData(fn), eventId, createdAt: nextCreatedAt() });
+        ticketTypeRows = ticketTypesInput.map((tt) => ({
+            id: randomUUID(),
+            ...buildTicketTypeData(tt),
+            eventId,
+            createdAt: nextCreatedAt(),
+        }));
 
-        ticketTypeRows.forEach((ticketType, index) => {
-            const assignment = fn.ticketAssignments?.[index] ?? {};
-            assignmentRows.push({
-                id: randomUUID(),
-                functionId,
-                ticketTypeId: ticketType.id,
-                enabled: assignment.enabled ?? true,
-                priceOverride:
-                    assignment.priceOverride === undefined || assignment.priceOverride === null
-                        ? null
-                        : Number(assignment.priceOverride),
-                quantityOverride:
-                    assignment.quantityOverride === undefined || assignment.quantityOverride === null
-                        ? null
-                        : Number(assignment.quantityOverride),
-                visibleOverride:
-                    assignment.visibleOverride === undefined || assignment.visibleOverride === null
-                        ? null
-                        : Boolean(assignment.visibleOverride),
-                createdAt: nextCreatedAt(),
+        const functionRows = [];
+        assignmentRows = [];
+        for (const fn of functionsInput) {
+            const functionId = randomUUID();
+            functionRows.push({ id: functionId, ...buildFunctionData(fn), eventId, createdAt: nextCreatedAt() });
+            ticketTypeRows.forEach((ticketType, index) => {
+                const assignment = fn.ticketAssignments?.[index] ?? {};
+                assignmentRows.push({
+                    id: randomUUID(),
+                    functionId,
+                    ticketTypeId: ticketType.id,
+                    enabled: assignment.enabled ?? true,
+                    priceOverride: assignment.priceOverride ?? null,
+                    quantityOverride: assignment.quantityOverride ?? null,
+                    visibleOverride: assignment.visibleOverride ?? null,
+                    createdAt: nextCreatedAt(),
+                });
             });
+        }
+
+        await prisma.$transaction(async (tx) => {
+            if (ticketTypeRows.length > 0) await tx.ticketType.createMany({ data: ticketTypeRows });
+            if (functionRows.length > 0) await tx.eventFunction.createMany({ data: functionRows });
+            if (assignmentRows.length > 0) await tx.functionTicketType.createMany({ data: assignmentRows });
+            const summary = recomputeEventSummary(functionsInput, ticketTypesInput, event.admissionType);
+            await tx.event.update({ where: { id: eventId }, data: summary });
+        });
+    } else {
+        // Edición segura (ronda "sincronización incremental") — REEMPLAZA el
+        // reemplazo destructivo global (deleteMany + recreate) que rompía
+        // con FK RESTRICT (sales_functionId_fkey/tickets_functionId_fkey/
+        // sale_items_ticketTypeId_fkey/tickets_ticketTypeId_fkey) apenas el
+        // evento tenía una venta real — ver el informe de la ronda anterior
+        // (guard temporal SCHEDULE_HAS_SALES, ahora reemplazado por esto).
+        //
+        // Estrategia (todo dentro de UNA transacción, validación completa
+        // ANTES de cualquier escritura — nunca deja un guardado a medias):
+        //   1) Traer el estado actual (functions/ticketTypes) DENTRO de la
+        //      tx, para no correr contra un estado que cambió entre la
+        //      validación y la escritura (ver el análisis de concurrencia
+        //      en RIESGOS_O_DUDAS del informe).
+        //   2) Validar que todo `id` que el frontend mandó pertenece a ESTE
+        //      evento (nunca confiar en un id ajeno).
+        //   3) Para cada fila EXISTENTE que ya NO viene en el payload
+        //      (eliminada desde el wizard): si tiene Sale/Ticket real,
+        //      rechazar todo el guardado con un error de negocio claro
+        //      (nunca auto-cancelar en silencio). Si no tiene ninguno,
+        //      queda marcada para DELETE físico.
+        //   4) Para cada función EXISTENTE que se está editando, reusar
+        //      assertFunctionActive (misma regla central de EVENT_FINISHED,
+        //      nunca duplicada) — una función ya finalizada no puede
+        //      reprogramarse. Una función FUTURA (aunque sea legacy, con
+        //      endAt=null) pasa sin problema.
+        //   5) Validar stock: para cada (función existente × tipo de
+        //      entrada existente), la nueva capacidad efectiva
+        //      (quantityOverride ?? TicketType.quantity) nunca puede quedar
+        //      por debajo de getUnavailableCount (MISMA fuente de verdad
+        //      que el resto del sistema — sale.service.js/scanner — nunca
+        //      una fórmula nueva): tickets ya emitidos MÁS reservas Sale
+        //      PENDING todavía vigentes.
+        //   6) Recién ahí: DELETE de lo que no tiene historial, UPDATE
+        //      in-place de lo existente (conserva el id — Sale/Ticket
+        //      siguen apuntando a la misma fila, nunca quedan huérfanos),
+        //      CREATE de lo nuevo.
+        //   7) Sincronizar FunctionTicketType (la tabla intermedia) por
+        //      combinación (functionId, ticketTypeId) — cascada limpia
+        //      desde EventFunction/TicketType (nada más la referencia), así
+        //      que en general es segura de recrear; aun así, si una
+        //      combinación puntual que deja de pedirse YA tiene Ticket/
+        //      SaleItem para ese functionId+ticketTypeId exacto, se
+        //      preserva la fila igual (nunca se borra), para que
+        //      getFunctionStats/getFunctionCounters (functionCapacity.service.js)
+        //      nunca "pierdan" de sus números una entrada ya vendida sólo
+        //      porque la asignación dejó de pedirse — caso borde que hoy no
+        //      debería poder ocurrir desde el wizard real (manda un array
+        //      paralelo función↔catálogo siempre), pero se cubre igual por
+        //      si acaso, sin inventar un error nuevo para un camino que la
+        //      UI actual no puede disparar.
+        await prisma.$transaction(async (tx) => {
+            const [existingFunctions, existingTicketTypes] = await Promise.all([
+                tx.eventFunction.findMany({ where: { eventId } }),
+                tx.ticketType.findMany({ where: { eventId } }),
+            ]);
+            const existingFunctionById = new Map(existingFunctions.map((f) => [f.id, f]));
+            const existingTicketTypeIds = new Set(existingTicketTypes.map((t) => t.id));
+
+            // 2) Pertenencia — nunca confiar en un id que no sea de ESTE evento.
+            for (const fn of functionsInput) {
+                if (fn.id && !existingFunctionById.has(fn.id)) throw new Error("SCHEDULE_FUNCTION_NOT_FOUND");
+            }
+            for (const tt of ticketTypesInput) {
+                if (tt.id && !existingTicketTypeIds.has(tt.id)) throw new Error("TICKET_TYPE_NOT_FOUND");
+            }
+
+            // 3) Filas existentes que ya no vienen en el payload.
+            const incomingFunctionIds = new Set(functionsInput.filter((f) => f.id).map((f) => f.id));
+            const functionIdsToDelete = existingFunctions.map((f) => f.id).filter((id) => !incomingFunctionIds.has(id));
+            for (const id of functionIdsToDelete) {
+                const [sale, ticket] = await Promise.all([
+                    tx.sale.findFirst({ where: { functionId: id }, select: { id: true } }),
+                    tx.ticket.findFirst({ where: { functionId: id }, select: { id: true } }),
+                ]);
+                if (sale || ticket) throw new Error("SCHEDULE_FUNCTION_HAS_SALES");
+            }
+
+            const incomingTicketTypeIds = new Set(ticketTypesInput.filter((t) => t.id).map((t) => t.id));
+            const ticketTypeIdsToDelete = existingTicketTypes.map((t) => t.id).filter((id) => !incomingTicketTypeIds.has(id));
+            for (const id of ticketTypeIdsToDelete) {
+                const [saleItem, ticket] = await Promise.all([
+                    tx.saleItem.findFirst({ where: { ticketTypeId: id }, select: { id: true } }),
+                    tx.ticket.findFirst({ where: { ticketTypeId: id }, select: { id: true } }),
+                ]);
+                if (saleItem || ticket) throw new Error("TICKET_TYPE_HAS_SALES");
+            }
+
+            // 4) Función ya finalizada no puede reprogramarse — misma regla
+            // central de siempre, nunca reimplementada acá.
+            for (const fn of functionsInput) {
+                if (fn.id) assertFunctionActive(existingFunctionById.get(fn.id));
+            }
+
+            // Ids resueltos ANTES de escribir nada — permite validar stock
+            // (paso 5) sin haber tocado la base todavía.
+            const functionResolvedIds = functionsInput.map((fn) => fn.id ?? randomUUID());
+            const ticketTypeResolvedIds = ticketTypesInput.map((tt) => tt.id ?? randomUUID());
+
+            // 5) Stock — sólo tiene sentido para combinaciones donde AMBOS
+            // (función y tipo de entrada) ya existían: una función/tipo
+            // nuevo nunca tuvo ventas, unavailableCount es 0 por definición.
+            for (let fi = 0; fi < functionsInput.length; fi++) {
+                const fn = functionsInput[fi];
+                if (!fn.id) continue;
+                for (let ti = 0; ti < ticketTypesInput.length; ti++) {
+                    const tt = ticketTypesInput[ti];
+                    if (!tt.id) continue;
+                    const assignment = fn.ticketAssignments?.[ti] ?? {};
+                    const newQuantityOverride =
+                        assignment.quantityOverride === undefined || assignment.quantityOverride === null
+                            ? null
+                            : Number(assignment.quantityOverride);
+                    const newEffectiveCapacity = newQuantityOverride ?? Number(tt.quantity);
+                    const unavailable = await getUnavailableCount(tx, tt.id, fn.id);
+                    if (newEffectiveCapacity < unavailable) {
+                        const err = new Error("TICKET_STOCK_BELOW_COMMITTED");
+                        err.ticketTypeName = tt.name;
+                        err.committed = unavailable;
+                        throw err;
+                    }
+                }
+            }
+
+            // 6) Escritura — DELETE de lo sin historial, UPDATE in-place de
+            // lo existente (conserva id), CREATE de lo nuevo.
+            if (functionIdsToDelete.length > 0) await tx.eventFunction.deleteMany({ where: { id: { in: functionIdsToDelete } } });
+            if (ticketTypeIdsToDelete.length > 0) await tx.ticketType.deleteMany({ where: { id: { in: ticketTypeIdsToDelete } } });
+
+            ticketTypeRows = [];
+            for (let ti = 0; ti < ticketTypesInput.length; ti++) {
+                const tt = ticketTypesInput[ti];
+                const id = ticketTypeResolvedIds[ti];
+                const data = buildTicketTypeData(tt);
+                if (tt.id) {
+                    await tx.ticketType.update({ where: { id }, data });
+                } else {
+                    await tx.ticketType.create({ data: { id, ...data, eventId } });
+                }
+                ticketTypeRows.push({ id, ...data });
+            }
+
+            for (let fi = 0; fi < functionsInput.length; fi++) {
+                const fn = functionsInput[fi];
+                const id = functionResolvedIds[fi];
+                const data = buildFunctionData(fn);
+                if (fn.id) {
+                    await tx.eventFunction.update({ where: { id }, data });
+                } else {
+                    await tx.eventFunction.create({ data: { id, ...data, eventId } });
+                }
+            }
+
+            // 7) FunctionTicketType — upsert por combinación, preservando la
+            // fila si ya tiene Ticket/SaleItem para ese functionId+ticketTypeId
+            // exacto aunque haya dejado de pedirse (ver comentario de arriba).
+            assignmentRows = [];
+            const desiredKeys = new Set();
+            for (let fi = 0; fi < functionsInput.length; fi++) {
+                const fn = functionsInput[fi];
+                const functionId = functionResolvedIds[fi];
+                for (let ti = 0; ti < ticketTypesInput.length; ti++) {
+                    const ticketTypeId = ticketTypeResolvedIds[ti];
+                    const assignment = fn.ticketAssignments?.[ti] ?? {};
+                    const data = {
+                        enabled: assignment.enabled ?? true,
+                        priceOverride:
+                            assignment.priceOverride === undefined || assignment.priceOverride === null
+                                ? null
+                                : Number(assignment.priceOverride),
+                        quantityOverride:
+                            assignment.quantityOverride === undefined || assignment.quantityOverride === null
+                                ? null
+                                : Number(assignment.quantityOverride),
+                        visibleOverride:
+                            assignment.visibleOverride === undefined || assignment.visibleOverride === null
+                                ? null
+                                : Boolean(assignment.visibleOverride),
+                    };
+                    desiredKeys.add(`${functionId}:${ticketTypeId}`);
+                    const existingAssignment = await tx.functionTicketType.findFirst({ where: { functionId, ticketTypeId } });
+                    if (existingAssignment) {
+                        await tx.functionTicketType.update({ where: { id: existingAssignment.id }, data });
+                    } else {
+                        await tx.functionTicketType.create({ data: { functionId, ticketTypeId, ...data } });
+                    }
+                    assignmentRows.push({ ticketTypeId, ...data });
+                }
+            }
+            // Asignaciones "huérfanas" en funciones conservadas (no
+            // eliminadas) que dejaron de pedirse — sólo puede pasar si el
+            // caller manda menos assignments que tipos de entrada, algo que
+            // el wizard real nunca hace (siempre manda un array paralelo
+            // completo), pero se cubre defensivamente igual.
+            const keptFunctionIds = functionResolvedIds.filter((_, fi) => functionsInput[fi].id);
+            if (keptFunctionIds.length > 0) {
+                const currentAssignments = await tx.functionTicketType.findMany({ where: { functionId: { in: keptFunctionIds } } });
+                for (const a of currentAssignments) {
+                    if (desiredKeys.has(`${a.functionId}:${a.ticketTypeId}`)) continue;
+                    const [saleItem, ticket] = await Promise.all([
+                        tx.saleItem.findFirst({ where: { ticketTypeId: a.ticketTypeId, sale: { functionId: a.functionId } }, select: { id: true } }),
+                        tx.ticket.findFirst({ where: { ticketTypeId: a.ticketTypeId, functionId: a.functionId }, select: { id: true } }),
+                    ]);
+                    // Con historial: se preserva la fila tal cual, nunca se borra.
+                    if (saleItem || ticket) continue;
+                    await tx.functionTicketType.delete({ where: { id: a.id } });
+                }
+            }
+
+            const summary = recomputeEventSummary(functionsInput, ticketTypesInput, event.admissionType);
+            await tx.event.update({ where: { id: eventId }, data: summary });
         });
     }
-
-    await prisma.$transaction(async (tx) => {
-        if (!skipDelete) {
-            await tx.eventFunction.deleteMany({ where: { eventId } });
-            await tx.ticketType.deleteMany({ where: { eventId } });
-        }
-
-        if (ticketTypeRows.length > 0) {
-            await tx.ticketType.createMany({ data: ticketTypeRows });
-        }
-        if (functionRows.length > 0) {
-            await tx.eventFunction.createMany({ data: functionRows });
-        }
-        if (assignmentRows.length > 0) {
-            await tx.functionTicketType.createMany({ data: assignmentRows });
-        }
-
-        const summary = recomputeEventSummary(functionsInput, ticketTypesInput, event.admissionType);
-        await tx.event.update({ where: { id: eventId }, data: summary });
-    });
 
     // Alertas Developer — 2A, best-effort, nunca puede impedir que el
     // guardado ya committeado quede aplicado.

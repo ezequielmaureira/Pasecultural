@@ -33,6 +33,13 @@ export function createEmptyLink() {
 export function createEmptyTicketType() {
   return {
     _key: tempId(),
+    // `id` — DISTINTO de `_key` a propósito (ronda "edición segura de
+    // agenda"): `_key` es sólo la key de React, puede ser un id real
+    // hidratado O un tempId() sintético, nunca hay que confiar en él para
+    // saber si esta fila ya existe en la base. `id: null` acá es la única
+    // fuente de verdad de "esto es un TicketType nuevo, todavía sin crear" —
+    // buildSchedulePayload() lo usa para decidir si manda `id` o no.
+    id: null,
     name: "",
     price: "",
     quantity: "",
@@ -60,6 +67,8 @@ export function createDefaultAssignment() {
 export function createEmptyFunction() {
   return {
     _key: tempId(),
+    // Ver el comentario equivalente en createEmptyTicketType — misma razón.
+    id: null,
     date: "",
     doorsOpenTime: "",
     startTime: "21:00",

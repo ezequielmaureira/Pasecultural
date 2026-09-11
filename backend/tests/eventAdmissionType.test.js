@@ -135,7 +135,7 @@ testWithDb("A) FREE_ENTRY: se puede guardar la agenda con ticketTypes=[] y publi
         const synced = await syncEventScheduleService(
             owner.clerkId,
             event.id,
-            { functions: [{ date: "2099-08-25T20:00:00-03:00", venue: "Plaza Central" }], ticketTypes: [] },
+            { functions: [{ date: "2099-08-25T20:00:00-03:00", endAt: "2099-08-25T23:00:00-03:00", venue: "Plaza Central" }], ticketTypes: [] },
             org.id
         );
         assert.equal(synced.ticketTypes.length, 0);
@@ -368,7 +368,7 @@ testWithDb("H) cambio de admissionType sólo permitido en DRAFT, sin ventas real
 
     // H4) Evento PUBLICADO: la modalidad queda fija para siempre, en cualquier dirección.
     const eventD = await createEventService(owner.clerkId, { title: "D", admissionType: "FREE_ENTRY", location: locationInput() }, org.id);
-    await syncEventScheduleService(owner.clerkId, eventD.id, { functions: [{ date: "2099-01-01T20:00:00-03:00", venue: "V" }], ticketTypes: [] }, org.id);
+    await syncEventScheduleService(owner.clerkId, eventD.id, { functions: [{ date: "2099-01-01T20:00:00-03:00", endAt: "2099-01-01T23:00:00-03:00", venue: "V" }], ticketTypes: [] }, org.id);
     await updateMyEventService(owner.clerkId, eventD.id, { status: "PUBLISHED" }, org.id);
     await assert.rejects(
         () => updateMyEventService(owner.clerkId, eventD.id, { admissionType: "TICKETED" }, org.id),

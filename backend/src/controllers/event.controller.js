@@ -247,6 +247,47 @@ export const saveEventSchedule = async (req, res) => {
                     : base;
             return res.status(409).json({ message });
         }
+        // Ronda "sincronización incremental" — syncEventScheduleService ya
+        // NO borra y recrea toda la agenda a ciegas (ver el comentario ahí
+        // mismo): reemplaza al guard temporal SCHEDULE_HAS_SALES de la
+        // ronda anterior, que bloqueaba CUALQUIER edición de un evento con
+        // ventas. Estos 4 casos son mucho más específicos — sólo bloquean
+        // la operación puntual que de verdad rompería el historial.
+        if (error.message === "SCHEDULE_FUNCTION_HAS_SALES") {
+            return res.status(409).json({
+                message: "Esta función ya tiene entradas vendidas y no puede eliminarse. Podés cancelarla en vez de borrarla.",
+            });
+        }
+        if (error.message === "TICKET_TYPE_HAS_SALES") {
+            return res.status(409).json({
+                message: "Este tipo de entrada ya tiene ventas y no puede eliminarse. Podés ocultarlo del catálogo en vez de borrarlo.",
+            });
+        }
+        if (error.message === "TICKET_STOCK_BELOW_COMMITTED") {
+            const name = error.ticketTypeName ? `'${error.ticketTypeName}'` : "este tipo de entrada";
+            const committedText = typeof error.committed === "number" ? ` (hay ${error.committed} entradas vendidas o reservadas)` : "";
+            return res.status(409).json({
+                message: `No podés bajar el stock de ${name} por debajo de lo ya vendido o reservado${committedText}.`,
+            });
+        }
+        if (error.message === "SCHEDULE_FUNCTION_NOT_FOUND") {
+            return res.status(404).json({ message: "Una de las funciones enviadas no existe en este evento." });
+        }
+        if (error.message === "TICKET_TYPE_NOT_FOUND") {
+            return res.status(404).json({ message: "Uno de los tipos de entrada enviados no existe en este evento." });
+        }
+        if (EVENT_SERVICE_ERROR_MESSAGES[error.message]) {
+            return res.status(400).json({ message: EVENT_SERVICE_ERROR_MESSAGES[error.message] });
+        }
+        // Fallback genérico para cualquier AppError (ej. EVENT_FINISHED,
+        // lanzado por assertFunctionActive al intentar reprogramar una
+        // función ya finalizada) — a diferencia de los códigos de arriba
+        // (Error plano, convención legacy de este archivo), un AppError ya
+        // trae su propio httpStatus/userMessage listos para usar, nunca
+        // hace falta mapearlo a mano acá.
+        if (error.httpStatus && error.userMessage) {
+            return res.status(error.httpStatus).json({ message: error.userMessage });
+        }
 
         res.status(500).json({ message: "Error al guardar la programación del evento" });
     }
