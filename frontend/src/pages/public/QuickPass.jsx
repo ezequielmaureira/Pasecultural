@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useLocation, Link } from "react-router-dom";
-import { Share2, Ticket, Check, ArrowLeft, MapPin, CalendarDays } from "lucide-react";
+import { Share2, Ticket, Check, ArrowLeft, MapPin, CalendarDays, Volume2, VolumeX } from "lucide-react";
 import { apiFetch } from "../../lib/api.js";
 import { formatEventDateTime } from "../../lib/eventFormat.js";
 import { usePublishFlow } from "../../hooks/usePublishFlow.js";
@@ -48,6 +48,23 @@ function optimizedImageUrl(url, width) {
   if (idx === -1) return url;
   const insertAt = idx + marker.length;
   return `${url.slice(0, insertAt)}f_auto,q_auto,w_${width}/${url.slice(insertAt)}`;
+}
+
+// Video de fondo Fest Pass — mismo truco de URL que optimizedImageUrl, sin
+// límite de ancho fijo (a diferencia de la imagen, un video de fondo
+// full-bleed no tiene un tamaño de destino único conocido de antemano acá).
+// f_auto/q_auto le dejan a Cloudinary elegir el códec/bitrate más liviano
+// que el navegador soporte (MP4/H.264 en la inmensa mayoría de los casos,
+// incluso si se subió un MOV) — sin esto habría que armar un pipeline de
+// transcodificación propio, que excede por completo el alcance de un clip
+// de hasta 30 segundos.
+function optimizedVideoUrl(url) {
+  if (!url) return url;
+  const marker = "/upload/";
+  const idx = url.indexOf(marker);
+  if (idx === -1) return url;
+  const insertAt = idx + marker.length;
+  return `${url.slice(0, insertAt)}f_auto,q_auto/${url.slice(insertAt)}`;
 }
 
 // Mismo criterio EXACTO que ticketOptionsFor (PurchaseWizard.jsx) — se
@@ -108,6 +125,28 @@ export default function QuickPass() {
   }
   const [state, setState] = useState({ status: "loading", data: null });
   const [shareState, setShareState] = useState("idle"); // idle | copied
+
+  // Video de fondo Fest Pass (ronda "video Cloudinary") — `videoRef` vive en
+  // el componente raíz (nunca dentro de un bloque por-fase) para que
+  // <video> quede en la MISMA posición del árbol en cada render sin
+  // importar qué `phase` esté activa: React reconcilia el mismo nodo DOM en
+  // vez de desmontar/remontar, así que el video nunca reinicia al navegar
+  // entre event/detail/tickets/buyer. `videoFailed` cubre el caso de un
+  // video roto/con URL inválida: fallback automático a la imagen, nunca
+  // pantalla negra. `soundOn` arranca siempre en false (autoplay con sonido
+  // está bloqueado por los navegadores) — el botón de sonido es la única
+  // forma de pasar a true, nunca automático.
+  const videoRef = useRef(null);
+  const [videoFailed, setVideoFailed] = useState(false);
+  const [soundOn, setSoundOn] = useState(false);
+
+  function toggleSound() {
+    const video = videoRef.current;
+    if (!video) return;
+    const next = !soundOn;
+    video.muted = !next;
+    setSoundOn(next);
+  }
 
   // "event" | "detail" | "tickets" | "buyer" — pasos DENTRO de esta misma
   // pantalla, nunca una navegación a /evento/:slug ni a /comprar (Fest Pass
@@ -281,6 +320,11 @@ export default function QuickPass() {
   const allTicketTypes = functions.flatMap((fn) => fn.ticketAssignments);
   const locationLabel = [event.venueName, event.city].filter(Boolean).join(" · ") || "Lugar a confirmar";
   const backgroundImage = optimizedImageUrl(event.quickPassImageUrl, 900);
+  // Video opcional — la imagen sigue siendo obligatoria y es SIEMPRE el
+  // poster/fallback (ver <video poster> más abajo y videoFailed): si no hay
+  // video, si todavía no cargó, o si falla, el fondo sigue siendo
+  // exactamente el de hoy, nunca pantalla negra.
+  const backgroundVideo = !videoFailed ? optimizedVideoUrl(event.quickPassVideoUrl) : null;
 
   // Datos derivados del paso 2/3 — sólo existen una vez que fullEventState
   // está "ready" (después de tocar "Comprar entradas").
@@ -307,13 +351,44 @@ export default function QuickPass() {
 
   return (
     <div className="relative flex min-h-[100dvh] w-full flex-col overflow-hidden bg-black text-white">
+      {/* Imagen SIEMPRE presente (poster/fallback real, nunca sólo un
+          placeholder) — el video, si existe, se dibuja ENCIMA. Este <img>
+          nunca se desmonta por cambio de `phase`: vive en la raíz, igual
+          que el <video> de abajo. */}
       <img src={backgroundImage} alt="" className="absolute inset-0 h-full w-full object-cover" />
+      {backgroundVideo && (
+        <video
+          ref={videoRef}
+          key={backgroundVideo}
+          src={backgroundVideo}
+          poster={backgroundImage}
+          className="absolute inset-0 h-full w-full object-cover"
+          autoPlay
+          loop
+          muted
+          playsInline
+          preload="auto"
+          controls={false}
+          onError={() => setVideoFailed(true)}
+        />
+      )}
       {/* Overlay oscuro + degradado — nunca branding configurable por
           organización (brandPrimaryColor), paleta fija violeta/magenta/azul
           eléctrico a propósito (ver el informe de la ronda). */}
       <div className="absolute inset-0 bg-black/50" />
       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
       <div className="absolute inset-0 bg-gradient-to-br from-violet-600/20 via-transparent to-blue-600/20" />
+
+      {backgroundVideo && (
+        <button
+          type="button"
+          onClick={toggleSound}
+          aria-label={soundOn ? "Silenciar video" : "Activar sonido"}
+          className="absolute right-4 top-[max(1rem,env(safe-area-inset-top))] z-20 flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white backdrop-blur-md transition-colors duration-150 hover:bg-black/60"
+        >
+          {soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+        </button>
+      )}
 
       {phase === "event" && (
         <div className="relative z-10 mx-auto flex w-full max-w-md flex-1 flex-col justify-end gap-5 px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))]">

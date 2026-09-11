@@ -227,6 +227,15 @@ const UPDATABLE_FIELDS = [
     // gratis, sin ningún camino especial por canal.
     "quickPassEnabled",
     "quickPassImageUrl",
+    // Video de fondo opcional — mismo whitelist, nunca obligatorio (a
+    // diferencia de quickPassImageUrl, no participa de assertQuickPassInvariant).
+    // quickPassVideoPublicId viaja siempre JUNTO con quickPassVideoUrl (el
+    // frontend los manda como par — ver VideoUploader.jsx/OrganizerEventWizard.jsx),
+    // nunca uno sin el otro: es lo que le permite a una sesión de edición
+    // FUTURA (reabrir el evento) seguir pudiendo hacer cleanup en Cloudinary
+    // al reemplazar/eliminar el video.
+    "quickPassVideoUrl",
+    "quickPassVideoPublicId",
 ];
 
 const DATE_FIELDS = new Set(["startDate", "endDate", "doorsOpenAt"]);
@@ -1193,6 +1202,7 @@ export const getQuickPassBySlugService = async (slug) => {
             slug: event.slug,
             title: event.title,
             quickPassImageUrl: event.quickPassImageUrl,
+            quickPassVideoUrl: event.quickPassVideoUrl || null,
             venueName: event.venueName || event.venue || "",
             formattedAddress: event.formattedAddress || event.address || "",
             city: event.city || "",

@@ -834,6 +834,21 @@ model Event {
   quickPassEnabled  Boolean @default(false)
   quickPassImageUrl String?
 
+  // Fest Pass — video de fondo OPCIONAL (ronda "video Cloudinary"). Nunca
+  // reemplaza a quickPassImageUrl (que sigue siendo obligatoria mientras
+  // quickPassEnabled=true, ver assertQuickPassInvariant): la imagen sigue
+  // siendo el poster/fallback si el video no está, no carga o falla.
+  quickPassVideoUrl String?
+  // A diferencia de las imágenes (cuyo publicId sólo vive efímero en el
+  // estado de React del uploader — gap ya conocido, fuera de alcance acá),
+  // el publicId del VIDEO SÍ se persiste: sin esto, reabrir un evento ya
+  // guardado (nueva sesión del navegador) pierde el publicId y un
+  // reemplazo/borrado posterior no puede limpiar el recurso viejo en
+  // Cloudinary — huérfano para siempre. Sólo lo necesita el Organizer
+  // (VideoUploader.jsx) para poder hacer destroy; el comprador (Quick Pass
+  // público, getQuickPassBySlugService) nunca lo recibe.
+  quickPassVideoPublicId String?
+
   // Campos legacy denormalizados (se mantienen sincronizados con la ubicación
   // de Google Maps de abajo) para no romper el marketplace público existente.
   venue    String?

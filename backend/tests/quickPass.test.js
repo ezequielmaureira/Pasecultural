@@ -58,10 +58,13 @@ function locationInput(overrides = {}) {
 // (assertPublishable no exige TicketTypes para este admissionType).
 async function createDraftFreeEntryEvent(owner, org, title) {
     const event = await createEventService(owner.clerkId, { title, admissionType: "FREE_ENTRY", location: locationInput() }, org.id);
+    // endAt obligatorio para publicar desde la ronda EVENT_FINISHED_GUARD
+    // (assertPublishable, event.service.js) — este fixture es anterior a esa
+    // regla, se actualiza acá para seguir pudiendo publicar.
     await syncEventScheduleService(
         owner.clerkId,
         event.id,
-        { functions: [{ date: "2099-08-25T20:00:00-03:00", venue: "Plaza Central" }], ticketTypes: [] },
+        { functions: [{ date: "2099-08-25T20:00:00-03:00", endAt: "2099-08-25T23:00:00-03:00", venue: "Plaza Central" }], ticketTypes: [] },
         org.id
     );
     return event;
@@ -236,6 +239,10 @@ testWithDb("QP-G: getQuickPassBySlugService devuelve exclusivamente los campos n
             "slug",
             "title",
             "quickPassImageUrl",
+            // Video de fondo opcional (ronda "video Cloudinary") — siempre
+            // presente en el payload (null si no se cargó), ver
+            // getQuickPassBySlugService.
+            "quickPassVideoUrl",
             "venueName",
             "formattedAddress",
             "city",

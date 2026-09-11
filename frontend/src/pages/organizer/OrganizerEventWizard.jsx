@@ -21,6 +21,7 @@ import PublishOverlay from "../../components/ui/PublishOverlay.jsx";
 import { usePublishFlow } from "../../hooks/usePublishFlow.js";
 import { Field, inputClass, textareaClass } from "../../components/ui/FormField.jsx";
 import ImageUploader from "../../components/ui/ImageUploader.jsx";
+import VideoUploader from "../../components/ui/VideoUploader.jsx";
 import { apiFetch } from "../../lib/api.js";
 import { restoreEvent, duplicateEvent } from "../../lib/eventArchiveApi.js";
 import ArchivedEventBanner from "../../components/organizer/ArchivedEventBanner.jsx";
@@ -75,6 +76,14 @@ function createEmptyGeneralForm() {
     // previa/Publicación), no en este paso 1.
     quickPassEnabled: false,
     quickPassImageUrl: "",
+    // Video de fondo OPCIONAL para Fest Pass — nunca reemplaza a
+    // quickPassImageUrl (sigue siendo obligatoria mientras quickPassEnabled
+    // esté activo), sólo se usa como fondo si el organizador lo carga.
+    quickPassVideoUrl: "",
+    // publicId de Cloudinary del video — se persiste JUNTO con la URL
+    // (nunca uno sin el otro) para que una sesión futura pueda limpiar el
+    // recurso viejo al reemplazar/eliminar (ver VideoUploader.jsx).
+    quickPassVideoPublicId: "",
   };
 }
 
@@ -237,6 +246,8 @@ export default function OrganizerEventWizard() {
           description: event.description || "",
           quickPassEnabled: Boolean(event.quickPassEnabled),
           quickPassImageUrl: event.quickPassImageUrl || "",
+          quickPassVideoUrl: event.quickPassVideoUrl || "",
+          quickPassVideoPublicId: event.quickPassVideoPublicId || "",
         });
 
         setLocation({
@@ -658,6 +669,12 @@ export default function OrganizerEventWizard() {
       // cargarla. El backend sólo exige que exista imagen si enabled=true
       // (ver assertQuickPassInvariant, event.service.js).
       quickPassImageUrl: general.quickPassImageUrl || null,
+      // Mismo criterio que quickPassImageUrl — se manda tal cual esté,
+      // nunca se borra sólo por apagar el switch. Nunca obligatorio.
+      quickPassVideoUrl: general.quickPassVideoUrl || null,
+      // Viaja siempre junto con la URL — nunca uno sin el otro (ver
+      // VideoUploader.jsx: onChange manda ambos a la vez).
+      quickPassVideoPublicId: general.quickPassVideoPublicId || null,
     };
   }
 
@@ -1123,6 +1140,18 @@ export default function OrganizerEventWizard() {
                     </p>
                   )}
                   <ErrorText message={errors.quickPassImageUrl} />
+
+                  <VideoUploader
+                    label="Video de fondo (opcional)"
+                    value={general.quickPassVideoUrl}
+                    publicId={general.quickPassVideoPublicId}
+                    onChange={(next) => {
+                      setGeneralField("quickPassVideoUrl", next?.url || "");
+                      setGeneralField("quickPassVideoPublicId", next?.publicId || "");
+                    }}
+                    previewHeightClass="h-72"
+                    helperText="MP4 recomendado · Máx. 30 segundos · Máx. 100 MB"
+                  />
 
                   <div className="mt-1 flex flex-col gap-2 border-t border-white/10 pt-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
