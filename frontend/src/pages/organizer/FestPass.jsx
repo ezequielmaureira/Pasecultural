@@ -8,6 +8,7 @@ import LinkButton from "../../components/ui/LinkButton.jsx";
 import ShareLinkPanel from "../../components/organizer/ShareLinkPanel.jsx";
 import { Field, inputClass, textareaClass } from "../../components/ui/FormField.jsx";
 import ImageUploader from "../../components/ui/ImageUploader.jsx";
+import VideoUploader from "../../components/ui/VideoUploader.jsx";
 import TimePicker from "../../components/ui/TimePicker.jsx";
 import LocationPicker from "../../components/location/LocationPicker.jsx";
 import { createEmptyLocation, hasCoordinates } from "../../lib/locationUtils.js";
@@ -100,6 +101,12 @@ function createEmptyGeneral() {
     category: EVENT_CATEGORIES[0].id,
     customCategory: "",
     description: "",
+    // Video de fondo OPCIONAL (ronda "video Cloudinary") — a diferencia de
+    // coverImage/quickPassImageUrl (que Fest Pass fusiona en una sola foto),
+    // el video SÍ tiene su propio campo acá: no hay una "foto vs. video" que
+    // fusionar, la imagen sigue siendo obligatoria y el video es aparte.
+    quickPassVideoUrl: "",
+    quickPassVideoPublicId: "",
   };
 }
 
@@ -287,6 +294,8 @@ export default function FestPass() {
       location,
       quickPassEnabled: true,
       quickPassImageUrl: general.coverImage || null,
+      quickPassVideoUrl: general.quickPassVideoUrl || null,
+      quickPassVideoPublicId: general.quickPassVideoPublicId || null,
     };
   }
 
@@ -676,6 +685,18 @@ export default function FestPass() {
             )}
             <ErrorText message={errors.coverImage} />
           </div>
+
+          <VideoUploader
+            label="Video de fondo (opcional)"
+            value={general.quickPassVideoUrl}
+            publicId={general.quickPassVideoPublicId}
+            onChange={(next) => {
+              setGeneralField("quickPassVideoUrl", next?.url || "");
+              setGeneralField("quickPassVideoPublicId", next?.publicId || "");
+            }}
+            previewHeightClass="h-40"
+            helperText="MP4 recomendado · Máx. 30 segundos · Máx. 100 MB"
+          />
 
           <Field label="Categoría">
             <select
