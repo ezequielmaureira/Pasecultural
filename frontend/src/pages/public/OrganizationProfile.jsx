@@ -179,16 +179,16 @@ export default function OrganizationProfile() {
             />
           )}
           <div>
-            <h1 className="text-2xl font-bold text-white sm:text-3xl">{organization.name}</h1>
+            <h1 className="text-2xl font-bold text-white sm:text-3xl light:text-slate-900">{organization.name}</h1>
             {(organization.city || organization.province) && (
-              <p className="mt-1 flex items-center justify-center gap-1.5 text-sm text-slate-400">
+              <p className="mt-1 flex items-center justify-center gap-1.5 text-sm text-slate-400 light:text-slate-500">
                 <MapPin className="h-3.5 w-3.5 shrink-0" />
                 {[organization.city, organization.province].filter(Boolean).join(", ")}
               </p>
             )}
           </div>
           {organization.description && (
-            <p className="max-w-xl whitespace-pre-line text-sm text-slate-300">
+            <p className="max-w-xl whitespace-pre-line text-sm text-slate-300 light:text-slate-600">
               {organization.description}
             </p>
           )}
@@ -225,7 +225,7 @@ export default function OrganizationProfile() {
       )}
 
       <div className="border-t border-white/10 pt-8">
-        <h2 className="mb-5 text-lg font-semibold text-white">Próximos eventos</h2>
+        <h2 className="mb-5 text-lg font-semibold text-white light:text-slate-900">Próximos eventos</h2>
 
         {loadingEvents ? (
           <p className="py-10 text-center text-sm text-slate-500">Cargando eventos...</p>
