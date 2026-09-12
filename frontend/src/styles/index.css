@@ -210,25 +210,41 @@ select option {
   position: relative;
 }
 
-/* Fondo "vivo" y CONTINUO — antes era `position: fixed`: una única mancha
-   anclada arriba-izquierda del VIEWPORT, siempre igual sin importar el
-   scroll (por eso el ambiente "se cortaba" apenas terminaba el Hero). Acá
-   pasa a `position: absolute` dentro de `.smarticket-neon-page` (que
-   envuelve TODA la Home) — el pseudo-elemento crece con el contenido y
-   cubre el alto real de la página completa, así que los distintos radial-
-   gradient, anclados a distintos % de ESE alto total, van apareciendo
-   detrás de Hero/categorías/eventos/organizaciones/trust/recovery/scanner
-   a medida que se hace scroll, en vez de una única mancha fija arriba.
-   Sigue siendo sólo 2 declaraciones `background` (gradientes CSS, sin
-   imágenes) + un `transform` animado — barato incluso en mobile. */
-.smarticket-neon-page::before {
-  content: "";
+/* Fondo "vivo" y CONTINUO — capa DOM real (no pseudo-elemento), primer
+   hijo de `.smarticket-neon-page` (ver Home.jsx). Diagnóstico previo: un
+   `::before` con `z-index:-1` dependía de que `.smarticket-neon-page`
+   tuviera su propio stacking context (position:relative SIN z-index NO lo
+   crea) — al no tenerlo, ese z-index negativo escapaba al stacking
+   context de todo el documento, donde el fondo NO posicionado de
+   PublicShell.jsx (`bg-[#05070B]`) pintaba DESPUÉS (paso 3 del algoritmo
+   de pintado CSS, "descendientes en flujo no posicionados") y tapaba por
+   completo el ambiente (paso 2, "z-index negativo"). Un elemento DOM real
+   sin z-index negativo, PRIMERO en el orden del DOM dentro de un
+   contenedor con su propio `position:relative`, no tiene ese problema:
+   pinta antes que sus hermanos posteriores por orden de DOM dentro del
+   mismo nivel de stacking (0), nunca "detrás de todo el documento" — el
+   mismo principio que usa QuickPass.jsx (capas de ambiente como elementos
+   reales, nunca vía z-index negativo). El wrapper `position:relative`
+   que envuelve el resto del contenido de Home (ver Home.jsx) es lo que
+   garantiza que ESE contenido también quede en el mismo nivel de stacking
+   y por lo tanto pinte después (encima): sin ese wrapper, secciones sin
+   posicionar propia (ej. TrustBar) pintarían ANTES que esta capa
+   `position:absolute`, sin importar el orden del DOM.
+   Mantiene: 5 radial-gradient distribuidos verticalmente, animación de
+   28s (sólo `transform`, compositor-only), `pointer-events:none`,
+   soporte de `prefers-reduced-motion` y `.light`. */
+.smarticket-neon-page-ambient {
   position: absolute;
   inset: -4% -10%;
-  z-index: -1;
   pointer-events: none;
+  /* El primer radial (12% 4%) queda MÁS TENUE (0.10 en vez de 0.16) porque
+     esa zona ya coincide con el propio velo de color de HeroCarousel.jsx
+     (no modificado) — antes del fix esto no se notaba porque la capa
+     global nunca llegaba a pintarse; ahora que sí pinta, doblar intensidad
+     justo ahí se veía redundante/más fuerte de lo previsto. El resto de
+     los gradientes (fuera del área del Hero) mantiene su valor original. */
   background:
-    radial-gradient(ellipse 55% 22% at 12% 4%, rgba(217, 70, 239, 0.16), transparent 65%),
+    radial-gradient(ellipse 55% 22% at 12% 4%, rgba(217, 70, 239, 0.1), transparent 65%),
     radial-gradient(ellipse 50% 22% at 88% 20%, rgba(59, 130, 246, 0.14), transparent 65%),
     radial-gradient(ellipse 55% 24% at 8% 45%, rgba(139, 92, 246, 0.15), transparent 65%),
     radial-gradient(ellipse 50% 22% at 92% 64%, rgba(217, 70, 239, 0.13), transparent 65%),
@@ -237,7 +253,7 @@ select option {
   animation: smarticket-ambient-drift 28s ease-in-out infinite;
 }
 
-.light .smarticket-neon-page::before {
+.light .smarticket-neon-page-ambient {
   background:
     radial-gradient(ellipse 55% 22% at 12% 4%, rgba(217, 70, 239, 0.06), transparent 65%),
     radial-gradient(ellipse 50% 22% at 88% 20%, rgba(59, 130, 246, 0.05), transparent 65%),
@@ -427,7 +443,7 @@ select option {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .smarticket-neon-page::before {
+  .smarticket-neon-page-ambient {
     animation: none;
     transform: translate3d(0.75%, 0.5%, 0) scale(1.015);
   }

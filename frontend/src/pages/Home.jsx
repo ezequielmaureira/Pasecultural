@@ -203,39 +203,61 @@ export default function Home() {
 
   return (
     <div className="smarticket-neon-page">
-      <HeroCarousel events={events.slice(0, 5)} />
+      {/* Capa ambiental como elemento DOM real (no pseudo-elemento con
+          z-index negativo) — mismo principio que QuickPass.jsx: pinta
+          antes que el resto del contenido por ser el PRIMER hijo, sin
+          necesidad de escapar a un stacking context ajeno. Ver el informe
+          de diagnóstico: un `::before` con z-index:-1 dependía de que
+          `.smarticket-neon-page` tuviera su propio stacking context (no
+          lo tenía), por lo que terminaba pintado DETRÁS del fondo sólido
+          de PublicShell.jsx en vez de sólo detrás del contenido de Home. */}
+      <div className="smarticket-neon-page-ambient" aria-hidden="true" />
 
-      <section className={`${SECTION} ${SECTION_SPACING}`}>
-        <CategoryFilterBar
-          value="ALL"
-          onChange={(id) => navigate(id === "ALL" ? "/eventos" : `/eventos?categoria=${id}`)}
-        />
-      </section>
+      {/* Wrapper de contenido con `position:relative` (sin z-index) — Home
+          tiene secciones sin posicionar propia (TrustBar, la sección de
+          categorías, etc.), que por el algoritmo de pintado de CSS pintan
+          en un paso ANTERIOR a cualquier descendiente `position:absolute`
+          como el de arriba, sin importar el orden en el DOM. Sin este
+          wrapper, la capa ambiental (positioned) taparía ese contenido no
+          posicionado. Al envolver todo en un elemento también positioned
+          que aparece DESPUÉS en el DOM, ambos quedan en el mismo nivel de
+          stacking (0, sin z-index explícito) y el orden de DOM decide:
+          ambiente primero, contenido después, encima. */}
+      <div className="relative">
+        <HeroCarousel events={events.slice(0, 5)} />
 
-      {loading && (
-        <>
-          <CarouselSkeleton />
-          <CarouselSkeleton />
-        </>
-      )}
+        <section className={`${SECTION} ${SECTION_SPACING}`}>
+          <CategoryFilterBar
+            value="ALL"
+            onChange={(id) => navigate(id === "ALL" ? "/eventos" : `/eventos?categoria=${id}`)}
+          />
+        </section>
 
-      {!loading && events.length === 0 && (
-        <p className={`${SECTION} ${SECTION_SPACING} text-center text-sm text-slate-500`}>
-          Todavía no hay eventos publicados. ¡Volvé pronto!
-        </p>
-      )}
+        {loading && (
+          <>
+            <CarouselSkeleton />
+            <CarouselSkeleton />
+          </>
+        )}
 
-      {!loading && (
-        <>
-          <UpcomingSection events={upcoming} />
-          <FeaturedOrganizationsSection organizations={featuredOrganizations} />
-          <AllEventsSection events={events.slice(0, 12)} />
-        </>
-      )}
+        {!loading && events.length === 0 && (
+          <p className={`${SECTION} ${SECTION_SPACING} text-center text-sm text-slate-500`}>
+            Todavía no hay eventos publicados. ¡Volvé pronto!
+          </p>
+        )}
 
-      <TrustBar />
-      <RecoverPurchaseSection />
-      <ScannerPortalSection />
+        {!loading && (
+          <>
+            <UpcomingSection events={upcoming} />
+            <FeaturedOrganizationsSection organizations={featuredOrganizations} />
+            <AllEventsSection events={events.slice(0, 12)} />
+          </>
+        )}
+
+        <TrustBar />
+        <RecoverPurchaseSection />
+        <ScannerPortalSection />
+      </div>
     </div>
   );
 }
