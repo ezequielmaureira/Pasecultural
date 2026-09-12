@@ -1,0 +1,82 @@
+/* Smarticket Design Tokens — Fase 1.
+   Capa PEQUEÑA de variables CSS, no un framework: separa los VALORES del
+   lenguaje visual (glass, glow, radios, blur) de las clases que los
+   consumen (.smarticket-neon-* en styles/index.css, y las nuevas de esta
+   ronda). Ningún valor acá es inventado — todos vienen de dos lugares:
+
+   1) La receta REAL de la experiencia pública Fest Pass
+      (frontend/src/pages/public/QuickPass.jsx, NO modificado en esta
+      ronda): paneles `rounded-3xl border-white/15 bg-white/10 shadow-2xl
+      backdrop-blur-xl`, CTA `bg-gradient-to-r from-fuchsia-500
+      via-violet-500 to-blue-500` con `shadow-[0_0_25px_rgba(168,85,247,.5)]`,
+      velo `bg-gradient-to-br from-violet-600/20 via-transparent
+      to-blue-600/20`.
+   2) El sistema `.smarticket-neon-*` ya aprobado y publicado en Home
+      (styles/index.css), que ya había traducido esa receta a valores
+      concretos — acá simplemente se nombran y centralizan esos mismos
+      números para no repetirlos sueltos en cada clase.
+
+   Compatibilidad: son variables CSS estándar, conviven con Tailwind sin
+   tocar su configuración. Se consumen con `var(--token)` desde CSS plano
+   (las clases .smarticket-neon-*, .smarticket-hero-cta, etc.), nunca
+   desde `className` de Tailwind directamente (Tailwind no lee variables
+   arbitrarias sin config extra, y no se toca esa config en esta ronda). */
+
+:root {
+  /* Superficies — de .smarticket-neon-surface / .smarticket-neon-card */
+  --smarticket-surface: rgba(255, 255, 255, 0.08);
+  --smarticket-surface-strong: rgba(255, 255, 255, 0.14);
+  --smarticket-card-bg: rgba(11, 17, 32, 0.55);
+
+  --smarticket-border: rgba(255, 255, 255, 0.12);
+  --smarticket-border-strong: rgba(255, 255, 255, 0.18);
+
+  /* Paleta — mismos tonos Tailwind que ya usa QuickPass.jsx (fuchsia-500,
+     violet-500, blue-500), como valores hex reutilizables en CSS plano. */
+  --smarticket-violet: #8b5cf6;
+  --smarticket-fuchsia: #d946ef;
+  --smarticket-blue: #3b82f6;
+
+  /* Glow — el mismo par de tonos usado en los hovers ya aprobados
+     (violeta principal, fucsia de acento) y el glow explícito del CTA de
+     QuickPass (rgba(168,85,247,.5) — el violeta/fucsia intermedio real
+     que usa su `shadow-[...]`). */
+  --smarticket-glow: rgba(139, 92, 246, 0.45);
+  --smarticket-glow-strong: rgba(168, 85, 247, 0.55);
+
+  /* Radios — rounded-2xl (cards), rounded-3xl (paneles, igual que los
+     `rounded-3xl` de los paneles glass en QuickPass.jsx), pill (CTA). */
+  --smarticket-radius-card: 1rem;
+  --smarticket-radius-panel: 1.5rem;
+  --smarticket-radius-pill: 9999px;
+
+  /* Blur — blur(16px) para cards (más liviano, se repite por card),
+     blur(24px) = Tailwind `backdrop-blur-xl`, igual que los paneles de
+     QuickPass, para superficies grandes que aparecen una sola vez. */
+  --smarticket-blur: 16px;
+  --smarticket-blur-strong: 24px;
+
+  /* Sombras — ambiental genérica, y el glow explícito calcado del CTA
+     real de QuickPass: shadow-[0_0_25px_rgba(168,85,247,0.5)]. */
+  --smarticket-shadow: 0 16px 40px -16px rgba(0, 0, 0, 0.6);
+  --smarticket-shadow-glow: 0 0 25px rgba(168, 85, 247, 0.5);
+}
+
+/* Light mode — mismo mecanismo que el resto del proyecto (clase `.light`
+   en <html>, ver el `@custom-variant light` en index.css). Glass claro,
+   bordes suaves, glow mucho más controlado: dark sigue siendo la
+   experiencia principal, light debe quedar limpia y legible. */
+:root.light {
+  --smarticket-surface: rgba(255, 255, 255, 0.7);
+  --smarticket-surface-strong: rgba(255, 255, 255, 0.85);
+  --smarticket-card-bg: rgba(255, 255, 255, 0.92);
+
+  --smarticket-border: rgb(226 232 240);
+  --smarticket-border-strong: rgba(139, 92, 246, 0.3);
+
+  --smarticket-glow: rgba(139, 92, 246, 0.22);
+  --smarticket-glow-strong: rgba(168, 85, 247, 0.28);
+
+  --smarticket-shadow: 0 12px 30px -20px rgba(15, 23, 42, 0.18);
+  --smarticket-shadow-glow: 0 0 16px rgba(168, 85, 247, 0.22);
+}

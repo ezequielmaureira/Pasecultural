@@ -13,14 +13,14 @@ export default function EventCard({ event }) {
   return (
     <Link
       to={detailPath}
-      className="smarticket-neon-card group flex flex-col overflow-hidden rounded-2xl border transition-colors duration-150"
+      className="smarticket-neon-card smarticket-card-edge-glow group flex flex-col overflow-hidden rounded-2xl border"
     >
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-white/5 light:bg-slate-100">
         {event.coverImage ? (
           <img
             src={event.coverImage}
             alt={event.title}
-            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+            className="smarticket-neon-card-image h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-slate-600">

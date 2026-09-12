@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./smarticket-theme.css";
 
 /* Selector universal claro/oscuro — Tailwind v4 no trae un variant "light"
    propio (sólo "dark", basado en prefers-color-scheme por default). Se
@@ -198,25 +199,33 @@ select option {
    diagonal fucsia→violeta→azul sobre el fondo, paneles glass rounded-3xl
    con `border-white/15 bg-white/10 shadow-2xl backdrop-blur-xl`, CTA en
    pill con gradiente fucsia→violeta→azul y glow explícito) — no una
-   reinterpretación propia (la ronda anterior, sólo con glow en hover,
-   quedó demasiado tenue). Home usa la MISMA paleta pero ~70-80% de esa
+   reinterpretación propia. Home usa la MISMA paleta pero ~70-80% de esa
    intensidad: sigue siendo un marketplace de todos los días, no la
-   pantalla inmersiva de un evento puntual. Cada clase trae su propia
-   variante `.light`, más apagada, en vez de depender de que el elemento
-   que la usa agregue `light:` por fuera. */
+   pantalla inmersiva de un evento puntual. Los valores concretos viven en
+   smarticket-theme.css (Fase 1 del design system) — acá sólo se consumen
+   vía var(--smarticket-*), nunca se repiten sueltos. Cada clase trae su
+   propia variante `.light` (heredada automáticamente de los tokens, salvo
+   donde el valor es estructural y no un token — ver comentarios). */
 .smarticket-neon-page {
   position: relative;
 }
 
+/* Fondo "vivo": el mismo velo diagonal fucsia→violeta→azul de siempre,
+   más una SEGUNDA capa que se desplaza extremadamente lento (28s, ida y
+   vuelta) — profundidad ambiental, no una animación notoria. Nunca cambia
+   de opacidad de golpe ni parpadea; en reduced-motion queda fija en su
+   posición intermedia (ver media query al final del archivo). */
 .smarticket-neon-page::before {
   content: "";
   position: fixed;
-  inset: 0;
+  inset: -10%;
   z-index: -1;
   pointer-events: none;
   background:
     radial-gradient(ellipse 70% 50% at 10% -10%, rgba(217, 70, 239, 0.12), transparent 60%),
     linear-gradient(135deg, rgba(139, 92, 246, 0.18) 0%, transparent 45%, rgba(59, 130, 246, 0.16) 100%);
+  background-repeat: no-repeat;
+  animation: smarticket-ambient-drift 28s ease-in-out infinite;
 }
 
 .light .smarticket-neon-page::before {
@@ -225,75 +234,206 @@ select option {
     linear-gradient(135deg, rgba(139, 92, 246, 0.06) 0%, transparent 45%, rgba(59, 130, 246, 0.05) 100%);
 }
 
+@keyframes smarticket-ambient-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(1.5%, 1%, 0) scale(1.03);
+  }
+}
+
 /* Superficie "glass" — misma receta que los paneles de QuickPass.jsx
    (border-white/15 + bg-white/10 + backdrop-blur-xl + shadow-2xl), usada
-   en los paneles de Recuperar compra / Soy Scanner y en TrustBar. */
+   en los paneles de Recuperar compra / Soy Scanner y en TrustBar. Queda
+   deliberadamente por debajo de Hero/EventCard en protagonismo (sin borde
+   de luz, glow de hover más discreto). */
 .smarticket-neon-surface {
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  box-shadow: 0 20px 45px -22px rgba(0, 0, 0, 0.65);
+  border: 1px solid var(--smarticket-border-strong);
+  background: var(--smarticket-surface);
+  backdrop-filter: blur(var(--smarticket-blur-strong));
+  -webkit-backdrop-filter: blur(var(--smarticket-blur-strong));
+  box-shadow: var(--smarticket-shadow);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .smarticket-neon-surface:hover {
   border-color: rgba(217, 70, 239, 0.4);
-  box-shadow: 0 20px 45px -18px rgba(139, 92, 246, 0.4);
-}
-
-.light .smarticket-neon-surface {
-  border-color: rgb(226 232 240);
-  background: rgba(255, 255, 255, 0.7);
-  box-shadow: 0 12px 30px -20px rgba(15, 23, 42, 0.18);
+  box-shadow: 0 20px 45px -18px var(--smarticket-glow);
 }
 
 .light .smarticket-neon-surface:hover {
   border-color: rgba(139, 92, 246, 0.3);
-  box-shadow: 0 16px 32px -18px rgba(139, 92, 246, 0.2);
+  box-shadow: 0 16px 32px -18px var(--smarticket-glow);
 }
 
-/* Cards de eventos/organizaciones: dejan de ser el bloque sólido
-   `bg-[#0B1120]` de siempre y pasan a ser glass translúcido — la card
-   "flota" sobre el velo ambiental de la página en vez de ser una caja
-   opaca independiente. El glow de borde en hover es más marcado que la
-   ronda anterior pero sigue sin ser permanente. */
+/* Cards de eventos/organizaciones: glass translúcido (no el bloque sólido
+   `bg-[#0B1120]` de antes) — la card "flota" sobre el velo ambiental de
+   la página. Hover premium: leve elevación (3px), glow ambiental y borde
+   más luminoso — nunca rebote ni escalado grande. */
 .smarticket-neon-card {
-  background: rgba(11, 17, 32, 0.55);
-  border-color: rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  position: relative;
+  background: var(--smarticket-card-bg);
+  border-color: var(--smarticket-border);
+  backdrop-filter: blur(var(--smarticket-blur));
+  -webkit-backdrop-filter: blur(var(--smarticket-blur));
+  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease, background-color 0.25s ease;
 }
 
-.smarticket-neon-card:hover {
+.smarticket-neon-card:hover,
+.smarticket-neon-card:focus-visible {
+  transform: translateY(-3px);
   border-color: rgba(217, 70, 239, 0.45);
-  box-shadow: 0 16px 40px -16px rgba(139, 92, 246, 0.45);
+  box-shadow: 0 16px 40px -16px var(--smarticket-glow);
 }
 
 .light .smarticket-neon-card {
-  background: rgba(255, 255, 255, 0.92);
-  border-color: rgb(226 232 240);
+  background: var(--smarticket-card-bg);
+  border-color: var(--smarticket-border);
 }
 
-.light .smarticket-neon-card:hover {
-  border-color: rgba(139, 92, 246, 0.35);
-  box-shadow: 0 14px 30px -18px rgba(139, 92, 246, 0.22);
+.light .smarticket-neon-card:hover,
+.light .smarticket-neon-card:focus-visible {
+  border-color: var(--smarticket-border-strong);
+  box-shadow: 0 14px 30px -18px var(--smarticket-glow);
+}
+
+/* Imagen dentro de una card con glass: leve aumento de saturación/contraste
+   al hover del contenedor — nunca sólo el zoom que ya existía, ahora
+   también "despierta" un poco de color (`group-hover` ya lo dispara el
+   propio EventCard, esto sólo agrega el filtro). */
+.smarticket-neon-card:hover .smarticket-neon-card-image {
+  filter: saturate(1.12) contrast(1.04);
+}
+
+/* Borde de luz — EventCard únicamente (OrganizationCard tiene su propia
+   identidad, ver .smarticket-org-halo). Pseudo-elemento con gradiente
+   fucsia→violeta→azul recortado a sólo el aro del borde vía mask
+   (content-box vs. borde completo, XOR) — nunca gira ni parpadea, sólo
+   aparece/desaparece en hover/focus con un fundido de opacidad. Se ve
+   como una refracción fina, no como una línea RGB de streaming. */
+.smarticket-card-edge-glow::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(120deg, rgba(217, 70, 239, 0.7), rgba(139, 92, 246, 0.7), rgba(59, 130, 246, 0.7));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.smarticket-card-edge-glow:hover::before,
+.smarticket-card-edge-glow:focus-visible::before {
+  opacity: 0.9;
+}
+
+.light .smarticket-card-edge-glow::before {
+  background: linear-gradient(120deg, rgba(217, 70, 239, 0.35), rgba(139, 92, 246, 0.35), rgba(59, 130, 246, 0.35));
+}
+
+/* Halo de OrganizationCard — el logo "flota" sobre un resplandor circular
+   suave detrás suyo, en vez del borde de luz de EventCard (misma familia
+   visual, identidad propia). Siempre presente pero muy tenue; se
+   intensifica apenas en hover. */
+.smarticket-org-halo {
+  position: relative;
+}
+
+.smarticket-org-halo::before {
+  content: "";
+  position: absolute;
+  inset: -10%;
+  z-index: -1;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.35), rgba(217, 70, 239, 0.18) 55%, transparent 75%);
+  opacity: 0.5;
+  filter: blur(6px);
+  transition: opacity 0.25s ease;
+}
+
+.smarticket-neon-card:hover .smarticket-org-halo::before,
+.smarticket-neon-card:focus-visible .smarticket-org-halo::before {
+  opacity: 1;
+}
+
+.light .smarticket-org-halo::before {
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.18), rgba(217, 70, 239, 0.1) 55%, transparent 75%);
 }
 
 /* Chip de categoría activo — glow violeta+fucsia (paleta tri-color de Fest
    Pass) en vez de un único tono violeta plano. */
 .smarticket-neon-chip-active {
-  box-shadow: 0 0 18px -4px rgba(139, 92, 246, 0.6), 0 0 26px -8px rgba(217, 70, 239, 0.35);
+  box-shadow: 0 0 18px -4px var(--smarticket-glow), 0 0 26px -8px rgba(217, 70, 239, 0.35);
 }
 
 .light .smarticket-neon-chip-active {
-  box-shadow: 0 0 14px -6px rgba(139, 92, 246, 0.32);
+  box-shadow: 0 0 14px -6px var(--smarticket-glow);
+}
+
+/* CTA del Hero — variante LOCAL, calcada del botón real de QuickPass.jsx
+   (rounded-full, gradiente fucsia→violeta→azul, glow explícito,
+   active:scale) sin tocar Button.jsx (compartido por
+   Organizer/Scanner/Developer, fuera de alcance). Sólo se usa en
+   HeroCarousel.jsx. */
+.smarticket-hero-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: var(--smarticket-radius-pill);
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fff;
+  background-image: linear-gradient(90deg, #d946ef, #8b5cf6, #3b82f6);
+  box-shadow: var(--smarticket-shadow-glow);
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+.smarticket-hero-cta:hover {
+  box-shadow: 0 0 30px rgba(168, 85, 247, 0.65);
+}
+
+.smarticket-hero-cta:active {
+  transform: scale(0.97);
+}
+
+.smarticket-hero-cta:focus-visible {
+  outline: none;
+  box-shadow: var(--smarticket-shadow-glow), 0 0 0 2px rgba(255, 255, 255, 0.6);
+}
+
+.light .smarticket-hero-cta:focus-visible {
+  box-shadow: var(--smarticket-shadow-glow), 0 0 0 2px rgba(15, 23, 42, 0.4);
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .smarticket-neon-page::before {
+    animation: none;
+    transform: translate3d(0.75%, 0.5%, 0) scale(1.015);
+  }
+
   .smarticket-neon-surface,
-  .smarticket-neon-card {
+  .smarticket-neon-card,
+  .smarticket-card-edge-glow::before,
+  .smarticket-org-halo::before,
+  .smarticket-hero-cta {
     transition: none;
+  }
+
+  .smarticket-neon-card:hover,
+  .smarticket-neon-card:focus-visible {
+    transform: none;
+  }
+
+  .smarticket-hero-cta:active {
+    transform: none;
   }
 }

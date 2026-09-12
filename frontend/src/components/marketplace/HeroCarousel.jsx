@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight, CalendarDays, MapPin, ImageOff } from "lucide-react";
-import Button from "../ui/Button.jsx";
 import { getEventCategoryLabel } from "../../lib/eventCategories.js";
 import { formatEventDate, formatEventLocation } from "../../lib/eventFormat.js";
 
@@ -69,14 +68,18 @@ export default function HeroCarousel({ events }) {
           </span>
         </div>
         <div>
-          <Button
-            size="lg"
-            className="mt-2"
+          {/* CTA local — misma pill/gradiente/glow del botón real de
+              QuickPass.jsx, no el Button.jsx compartido (evita tocar ese
+              componente global, usado también por Organizer/Scanner/
+              Developer). */}
+          <button
+            type="button"
+            className="smarticket-hero-cta mt-2"
             onClick={() => navigate(event.quickPassEnabled ? `/fest-pass/${event.slug}` : `/evento/${event.slug}`)}
           >
             Ver Evento
             <ChevronRight className="h-4 w-4" />
-          </Button>
+          </button>
         </div>
       </div>
 

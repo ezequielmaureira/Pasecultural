@@ -9,9 +9,9 @@ export default function OrganizationCard({ organization }) {
   return (
     <Link
       to={`/organizacion/${organization.slug}`}
-      className="smarticket-neon-card group flex flex-col items-center gap-2 overflow-hidden rounded-2xl border p-4 text-center transition-colors duration-150"
+      className="smarticket-neon-card group flex flex-col items-center gap-2 overflow-hidden rounded-2xl border p-4 text-center"
     >
-      <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/5 light:bg-slate-100">
+      <div className="smarticket-org-halo flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/5 light:bg-slate-100">
         {organization.logo ? (
           <img
             src={organization.logo}
