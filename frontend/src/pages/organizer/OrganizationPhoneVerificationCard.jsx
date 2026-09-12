@@ -508,7 +508,7 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
       {confirmDeleteVerified && (
         <ConfirmDialog
           title="Eliminar WhatsApp de contacto"
-          description="¿Querés eliminar este WhatsApp de contacto? Los compradores ya no podrán contactarte por WhatsApp desde PaseCultural."
+          description="¿Querés eliminar este WhatsApp de contacto? Los compradores ya no podrán contactarte por WhatsApp desde Smarticket."
           confirmLabel="Eliminar"
           danger
           loading={deleting}

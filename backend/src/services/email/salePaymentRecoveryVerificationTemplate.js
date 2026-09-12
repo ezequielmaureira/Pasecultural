@@ -12,7 +12,7 @@ const TEXT_MUTED = "#6b7280";
 const BORDER = "#e5e7eb";
 
 export function buildSalePaymentRecoveryVerificationEmail({ code }) {
-    const subject = `Tu código de verificación: ${code} | PaseCultural`;
+    const subject = `Tu código de verificación: ${code} | Smarticket`;
     const preheader = "Usá este código para verificar tu pago.";
 
     const html = `<!doctype html>
@@ -39,7 +39,7 @@ export function buildSalePaymentRecoveryVerificationEmail({ code }) {
               <td style="padding:24px;font-family:Arial,Helvetica,sans-serif;text-align:center;">
                 <h1 style="margin:0 0 12px;font-size:18px;color:${TEXT_DARK};">Verificar tu pago</h1>
                 <p style="margin:0 0 20px;font-size:14px;color:${TEXT_DARK};line-height:1.5;">
-                  Usá este código para verificar tu pago y recuperar tus entradas de PaseCultural.
+                  Usá este código para verificar tu pago y recuperar tus entradas de Smarticket.
                 </p>
                 <div style="margin:0 0 20px;">
                   <span style="display:inline-block;background-color:#f5f3ff;color:${BRAND_VIOLET};font-family:'Courier New',monospace;font-size:32px;font-weight:bold;letter-spacing:8px;padding:16px 24px;border-radius:10px;">
@@ -54,7 +54,7 @@ export function buildSalePaymentRecoveryVerificationEmail({ code }) {
             <tr>
               <td style="padding:16px 24px;background-color:#f9fafb;border-top:1px solid ${BORDER};">
                 <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:${TEXT_MUTED};line-height:1.5;">
-                  Este es un email transaccional de PaseCultural. No es publicidad ni una suscripción.
+                  Este es un email transaccional de Smarticket. No es publicidad ni una suscripción.
                 </p>
               </td>
             </tr>
@@ -66,11 +66,11 @@ export function buildSalePaymentRecoveryVerificationEmail({ code }) {
 </html>`;
 
     const text = [
-        "PaseCultural",
+        "Smarticket",
         "",
         "Verificar tu pago",
         "",
-        "Usá este código para verificar tu pago y recuperar tus entradas de PaseCultural.",
+        "Usá este código para verificar tu pago y recuperar tus entradas de Smarticket.",
         "",
         `Código: ${code}`,
         "",

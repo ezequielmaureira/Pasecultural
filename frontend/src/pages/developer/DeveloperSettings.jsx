@@ -96,7 +96,7 @@ function PublicLaunchSection() {
       setEnabled(settings.publicLaunchEnabled);
       setUpdatedAt(settings.updatedAt);
     } catch (err) {
-      console.error("No se pudo cargar el estado público de PaseCultural", err);
+      console.error("No se pudo cargar el estado público de Smarticket", err);
       setLoadError(true);
     } finally {
       setLoading(false);
@@ -128,13 +128,13 @@ function PublicLaunchSection() {
   }
 
   if (loadError) {
-    return <InlineErrorNotice message="No pudimos cargar el estado público de PaseCultural." onRetry={load} />;
+    return <InlineErrorNotice message="No pudimos cargar el estado público de Smarticket." onRetry={load} />;
   }
 
   return (
     <div className="rounded-2xl border border-white/10 bg-[#0B1120]/90 p-5">
       <div className="mb-4 flex flex-col gap-1">
-        <h2 className="text-sm font-semibold text-white">Estado público de Pase Cultural</h2>
+        <h2 className="text-sm font-semibold text-white">Estado público de Smarticket</h2>
         <p className="text-xs leading-relaxed text-slate-500">
           Controla si un visitante anónimo puede navegar el sitio público (eventos, compra, recuperación) o ve
           "Próximamente". Nunca afecta el acceso interno: Developer y Organizer siguen entrando normalmente por
@@ -422,7 +422,7 @@ export default function DeveloperSettings() {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-xl font-bold text-white">Configuración</h1>
-        <p className="text-sm text-slate-400">Administrá la comisión de servicio que PaseCultural suma al comprador.</p>
+        <p className="text-sm text-slate-400">Administrá la comisión de servicio que Smarticket suma al comprador.</p>
       </div>
 
       <div className="rounded-2xl border border-white/10 bg-[#0B1120]/90 p-5">

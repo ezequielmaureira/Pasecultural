@@ -120,7 +120,7 @@ export default function OrganizationProfile() {
     };
   }, [slug]);
 
-  usePageTitle(identity?.name ? `${identity.name} | PaseCultural` : "PaseCultural");
+  usePageTitle(identity?.name ? `${identity.name} | Smarticket` : "Smarticket");
 
   // Mientras identidad no resolvió, nunca se puede afirmar "no disponible"
   // ni tampoco es seguro renderizar nombre/logo todavía — eventos SÍ puede
@@ -212,7 +212,7 @@ export default function OrganizationProfile() {
 
           <p className="flex items-center gap-1.5 text-xs text-slate-600">
             <Ticket className="h-3.5 w-3.5" />
-            Powered by PaseCultural
+            Powered by Smarticket
           </p>
         </div>
       ) : (

@@ -13,7 +13,7 @@ export default function PublishOverlay({ open, checking }) {
       message={
         checking
           ? "La respuesta está tardando más de lo normal. Estamos confirmando si tu evento ya quedó guardado — no cierres esta pantalla."
-          : "Estamos preparando tu evento para que aparezca en PaseCultural. Esto puede tardar unos segundos."
+          : "Estamos preparando tu evento para que aparezca en Smarticket. Esto puede tardar unos segundos."
       }
     />
   );

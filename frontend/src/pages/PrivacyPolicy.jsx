@@ -26,21 +26,21 @@ function Section({ title, children }) {
 }
 
 export default function PrivacyPolicy() {
-  usePageTitle("Política de Privacidad | PaseCultural");
+  usePageTitle("Política de Privacidad | Smarticket");
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-16 sm:py-20">
-      <h1 className="text-2xl font-bold text-white sm:text-3xl">Política de Privacidad — PaseCultural</h1>
+      <h1 className="text-2xl font-bold text-white sm:text-3xl">Política de Privacidad — Smarticket</h1>
       <p className="mt-2 text-sm text-slate-500">Última actualización: agosto de 2026</p>
 
       <p className="mt-6 text-sm leading-relaxed text-slate-400">
-        PaseCultural es una plataforma para publicar eventos culturales, vender entradas y gestionar su ingreso. Esta
+        Smarticket es una plataforma para publicar eventos culturales, vender entradas y gestionar su ingreso. Esta
         página explica, en términos simples, qué datos podemos recopilar cuando usás la plataforma y cómo los
         tratamos.
       </p>
 
       <Section title="Qué datos podemos recopilar">
-        <p>Según cómo uses PaseCultural, podemos recopilar:</p>
+        <p>Según cómo uses Smarticket, podemos recopilar:</p>
         <ul className="list-disc space-y-1 pl-5">
           <li>Datos de cuenta (nombre, apellido, email) al registrarte como organizador o comprador.</li>
           <li>Datos de tu organización, si publicás eventos (nombre, contacto, ubicación).</li>
@@ -75,7 +75,7 @@ export default function PrivacyPolicy() {
 
       <Section title="WhatsApp Business / Meta">
         <p>
-          Si interactuás con PaseCultural a través de WhatsApp, ese canal es operado usando la API de Meta
+          Si interactuás con Smarticket a través de WhatsApp, ese canal es operado usando la API de Meta
           (WhatsApp Business). El contenido de esos mensajes lo procesamos únicamente para responderte y, cuando
           corresponda, ayudarte a gestionar tus eventos — nunca para fines publicitarios. Meta procesa esos mensajes
           además según sus propias políticas de privacidad, independientes de esta.
@@ -84,7 +84,7 @@ export default function PrivacyPolicy() {
 
       <Section title="Proveedores externos que usamos para operar">
         <p>
-          Para poder funcionar, PaseCultural utiliza servicios externos necesarios para la operación de la
+          Para poder funcionar, Smarticket utiliza servicios externos necesarios para la operación de la
           plataforma: por ejemplo, un proveedor de autenticación, un proveedor de envío de emails y un proveedor de
           alojamiento de imágenes. Estos servicios reciben únicamente los datos necesarios para cumplir su función
           (por ejemplo, tu email para enviarte una confirmación de compra).

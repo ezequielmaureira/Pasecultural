@@ -117,7 +117,7 @@ export default function QuickPass() {
   function FestPassBadge() {
     return (
       <div className="flex items-center justify-center gap-2 pb-1 text-center">
-        <span className="text-xs font-bold uppercase tracking-[0.3em] text-white/80">SmartTicket</span>
+        <span className="text-xs font-bold uppercase tracking-[0.3em] text-white/80">Smarticket</span>
         <span className="h-1 w-1 rounded-full bg-fuchsia-400" />
         <span className="text-xs font-bold uppercase tracking-[0.3em] text-fuchsia-300">{brandName}</span>
       </div>

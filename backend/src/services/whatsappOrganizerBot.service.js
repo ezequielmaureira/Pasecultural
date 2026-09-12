@@ -910,7 +910,7 @@ export function buildWhatsappEventSummaryText(draft) {
 // destructiva — simplemente ya nadie las importa desde
 // whatsapp.controller.js.
 export function buildWhatsappLinkChallengeText(code) {
-    return `Para vincular este WhatsApp con tu cuenta de PaseCultural, ingresá este código en tu panel de organizador:\n\n${code}\n\nEl código vence en 10 minutos.`;
+    return `Para vincular este WhatsApp con tu cuenta de Smarticket, ingresá este código en tu panel de organizador:\n\n${code}\n\nEl código vence en 10 minutos.`;
 }
 
 export const WHATSAPP_LINK_CHALLENGE_PENDING_TEXT =
@@ -949,7 +949,7 @@ function buildGreetingPrefix(personFirstName) {
 // wa_id — saludo a la persona + pregunta ya con el nombre de la
 // organización, en un único mensaje (antes eran dos preguntas separadas).
 export function buildKnownOrganizationGreetingText(personFirstName, organizationName) {
-    return `${buildGreetingPrefix(personFirstName)} Soy el asistente de PaseCultural.\n\n¿Querés publicar un evento para ${organizationName}?\n\n1. Sí\n2. No\n\nRespondé con 1 o 2.`;
+    return `${buildGreetingPrefix(personFirstName)} Soy el asistente de Smarticket.\n\n¿Querés publicar un evento para ${organizationName}?\n\n1. Sí\n2. No\n\nRespondé con 1 o 2.`;
 }
 
 // Caso B, primer contacto: todavía no sabemos CUÁL organización (hay
@@ -959,13 +959,13 @@ export function buildKnownOrganizationGreetingText(personFirstName, organization
 // como el saludo de Caso A, sólo que sin poder nombrar todavía la
 // organización.
 export function buildGenericPublishIntentGreetingText(personFirstName) {
-    return `${buildGreetingPrefix(personFirstName)} Soy el asistente de PaseCultural.\n\n¿Querés publicar un evento?\n\n1. Sí\n2. No\n\nRespondé con 1 o 2.`;
+    return `${buildGreetingPrefix(personFirstName)} Soy el asistente de Smarticket.\n\n¿Querés publicar un evento?\n\n1. Sí\n2. No\n\nRespondé con 1 o 2.`;
 }
 
 // Caso C: el teléfono no coincide con ninguna Organization APPROVED. Nunca
 // dispara un challenge/código — sólo indica cómo corregirlo desde la web.
 export const WHATSAPP_ORGANIZATION_NOT_FOUND_TEXT =
-    "No encontré una organización habilitada asociada a este número de WhatsApp.\n\nIngresá a PaseCultural y verificá que el teléfono registrado en tu organización sea el mismo número desde el que estás escribiendo.";
+    "No encontré una organización habilitada asociada a este número de WhatsApp.\n\nIngresá a Smarticket y verificá que el teléfono registrado en tu organización sea el mismo número desde el que estás escribiendo.";
 
 // Caso B, selector: varias Organizations APPROVED comparten el mismo
 // teléfono y la persona ya confirmó que quiere publicar — selector
@@ -1133,7 +1133,7 @@ export function extractWhatsappReplyText(engineResult) {
             const url = buildWhatsappPublicEventUrl(engineResult.event);
             return url ? `✅ Evento publicado correctamente.\n\n${url}` : "✅ Evento publicado correctamente.";
         }
-        return "✅ Evento guardado como borrador.\n\nPara editarlo o publicarlo más adelante, ingresá a la web de PaseCultural.";
+        return "✅ Evento guardado como borrador.\n\nPara editarlo o publicarlo más adelante, ingresá a la web de Smarticket.";
     }
 
     const prompt = engineResult.prompt;

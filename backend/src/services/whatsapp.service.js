@@ -390,7 +390,7 @@ export function buildWhatsappEventCreationLink() {
 // hace whatsapp.controller.js, con sendWhatsappTextMessage de más arriba).
 // ==================================================================
 
-export const AUTO_REPLY_TEXT = "¡Hola! 👋 Soy el asistente de PaseCultural. ¿Querés publicar un evento?";
+export const AUTO_REPLY_TEXT = "¡Hola! 👋 Soy el asistente de Smarticket. ¿Querés publicar un evento?";
 
 // ==================================================================
 // Normalización de destinatario de salida — Fase 2D.1. SOLO para el

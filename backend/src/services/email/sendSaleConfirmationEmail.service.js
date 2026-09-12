@@ -256,7 +256,7 @@ export async function sendSaleConfirmationEmail(saleId, { force = false } = {}) 
                 contentId: qr.contentId,
             })),
             {
-                filename: `entradas-pasecultural-${data.saleId}.pdf`,
+                filename: `entradas-smarticket-${data.saleId}.pdf`,
                 content: pdfBuffer,
                 contentType: "application/pdf",
             },

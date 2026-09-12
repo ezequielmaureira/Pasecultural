@@ -13,7 +13,7 @@ const TEXT_MUTED = "#6b7280";
 const BORDER = "#e5e7eb";
 
 export function buildOrganizationPhoneChangeOtpEmail({ code, organizationName }) {
-    const subject = `PaseCultural - Código para cambiar tu WhatsApp: ${code}`;
+    const subject = `Smarticket - Código para cambiar tu WhatsApp: ${code}`;
     const preheader = "Usá este código para autorizar el cambio de WhatsApp de tu organización.";
 
     const html = `<!doctype html>
@@ -55,7 +55,7 @@ export function buildOrganizationPhoneChangeOtpEmail({ code, organizationName })
             <tr>
               <td style="padding:16px 24px;background-color:#f9fafb;border-top:1px solid ${BORDER};">
                 <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:${TEXT_MUTED};line-height:1.5;">
-                  Este es un email transaccional de PaseCultural. No es publicidad ni una suscripción.
+                  Este es un email transaccional de Smarticket. No es publicidad ni una suscripción.
                 </p>
               </td>
             </tr>
@@ -67,7 +67,7 @@ export function buildOrganizationPhoneChangeOtpEmail({ code, organizationName })
 </html>`;
 
     const text = [
-        "PaseCultural",
+        "Smarticket",
         "",
         "Cambiar WhatsApp de contacto",
         "",

@@ -189,7 +189,7 @@ export async function createMercadoPagoCheckoutService(buyerInfo, saleInput, ide
     if (serviceFeeAmount > 0) {
         items.push({
             id: "service-fee",
-            title: "Comisión de servicio PaseCultural",
+            title: "Comisión de servicio Smarticket",
             description: `Comisión de servicio — ${event.title}`,
             quantity: 1,
             unit_price: serviceFeeAmount,

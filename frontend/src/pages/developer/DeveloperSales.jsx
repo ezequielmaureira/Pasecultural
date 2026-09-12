@@ -126,7 +126,7 @@ function SaleDrawer({ sale, loading, error, onClose }) {
             </div>
             {sale.needsReconciliation && (
               <p className="mt-3 rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
-                Mercado Pago informó este pago como aprobado, pero PaseCultural no pudo emitir las entradas por falta
+                Mercado Pago informó este pago como aprobado, pero Smarticket no pudo emitir las entradas por falta
                 de stock. Requiere conciliación manual.
               </p>
             )}

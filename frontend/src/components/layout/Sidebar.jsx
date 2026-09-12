@@ -209,7 +209,7 @@ export default function Sidebar({ open = false, onClose }) {
           </div>
           <div className="min-w-0">
             <p className="truncate text-base font-bold leading-tight text-white light:text-slate-900">
-              PaseCultural
+              Smarticket
             </p>
             <p className="truncate text-xs text-slate-400 light:text-slate-500">
               Plataforma de gestión

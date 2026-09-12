@@ -14,7 +14,7 @@ function SuccessScreen({ result }) {
       </h1>
       <p className="max-w-md text-sm text-slate-400">
         {isPublished
-          ? "Ya está visible en el marketplace de PaseCultural."
+          ? "Ya está visible en el marketplace de Smarticket."
           : "Podés retomarlo y publicarlo cuando quieras desde el listado de eventos."}
       </p>
       <div className="flex w-full max-w-xs flex-col gap-2 sm:max-w-none sm:w-auto sm:flex-row">

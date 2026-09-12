@@ -75,7 +75,7 @@ export function buildSaleConfirmationEmail(
     { buyerFirstName, eventTitle, tickets, total, ticketsSubtotal, serviceFee, recoverPurchaseUrl, replyTo },
     qrContentIds
 ) {
-    const subject = `Tus entradas para ${eventTitle} | PaseCultural`;
+    const subject = `Tus entradas para ${eventTitle} | Smarticket`;
     const preheader = "Tu compra fue confirmada. Guardá tus entradas para ingresar al evento.";
     const greetingName = buyerFirstName?.trim() ? escapeHtml(buyerFirstName.trim()) : "";
 
@@ -131,10 +131,10 @@ export function buildSaleConfirmationEmail(
               <td style="padding:16px 24px;background-color:#f9fafb;border-top:1px solid ${BORDER};">
                 <p style="margin:0 0 8px;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:${TEXT_MUTED};line-height:1.5;">
                   ¿Perdiste este correo? Podés recuperar tus entradas iniciando sesión en
-                  <a href="${recoverPurchaseUrl}" style="color:${TEXT_MUTED};text-decoration:underline;">PaseCultural</a>.
+                  <a href="${recoverPurchaseUrl}" style="color:${TEXT_MUTED};text-decoration:underline;">Smarticket</a>.
                 </p>
                 <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:${TEXT_MUTED};line-height:1.5;">
-                  Este es un email transaccional enviado por una compra realizada en PaseCultural. No es publicidad ni una suscripción.
+                  Este es un email transaccional enviado por una compra realizada en Smarticket. No es publicidad ni una suscripción.
                 </p>
               </td>
             </tr>
@@ -146,7 +146,7 @@ export function buildSaleConfirmationEmail(
 </html>`;
 
     const text = [
-        "PaseCultural",
+        "Smarticket",
         "",
         "¡Tu compra fue confirmada!",
         "",
@@ -159,9 +159,9 @@ export function buildSaleConfirmationEmail(
         "No compartas tus códigos QR: son personales e intransferibles.",
         replyTo ? `¿Necesitás ayuda? Escribinos a ${replyTo}.` : "",
         "",
-        `¿Perdiste este correo? Podés recuperar tus entradas iniciando sesión en PaseCultural: ${recoverPurchaseUrl}`,
+        `¿Perdiste este correo? Podés recuperar tus entradas iniciando sesión en Smarticket: ${recoverPurchaseUrl}`,
         "",
-        "Este es un email transaccional enviado por una compra realizada en PaseCultural.",
+        "Este es un email transaccional enviado por una compra realizada en Smarticket.",
     ]
         .filter(Boolean)
         .join("\n");

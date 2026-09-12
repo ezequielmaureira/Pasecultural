@@ -10,7 +10,7 @@ import { escapeHtml } from "../../utils/htmlEscape.js";
 // bearer tokens (publicRecoveryToken, invitationToken, etc.) ni datos de
 // otra organización — ver el informe de entrega, sección "Datos sensibles".
 function buildOrganizerNotificationEmail({ badge, title, intro, rows, ctaLabel, ctaUrl }) {
-    const subject = `[PaseCultural] ${title}`;
+    const subject = `[Smarticket] ${title}`;
 
     const html = `<!doctype html>
 <html lang="es">
@@ -45,7 +45,7 @@ function buildOrganizerNotificationEmail({ badge, title, intro, rows, ctaLabel, 
                 </table>`
                         : ""
                 }
-                ${ctaUrl ? `<a href="${escapeHtml(ctaUrl)}" style="display:inline-block;background-color:#7c3aed;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:8px;font-size:13px;">${escapeHtml(ctaLabel ?? "Ver en PaseCultural")}</a>` : ""}
+                ${ctaUrl ? `<a href="${escapeHtml(ctaUrl)}" style="display:inline-block;background-color:#7c3aed;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:8px;font-size:13px;">${escapeHtml(ctaLabel ?? "Ver en Smarticket")}</a>` : ""}
               </td>
             </tr>
           </table>
@@ -56,12 +56,12 @@ function buildOrganizerNotificationEmail({ badge, title, intro, rows, ctaLabel, 
 </html>`;
 
     const text = [
-        `PaseCultural — ${title}`,
+        `Smarticket — ${title}`,
         "",
         intro.replace(/<[^>]+>/g, ""),
         "",
         ...rows.map(([labelText, value]) => `${labelText}: ${value}`),
-        ...(ctaUrl ? ["", `${ctaLabel ?? "Ver en PaseCultural"}: ${ctaUrl}`] : []),
+        ...(ctaUrl ? ["", `${ctaLabel ?? "Ver en Smarticket"}: ${ctaUrl}`] : []),
     ].join("\n");
 
     return { subject, html, text };
@@ -169,7 +169,7 @@ export function buildWithdrawalRequestEmail({ eventTitle, functionDate, venue, r
     return buildOrganizerNotificationEmail({
         badge: "↩️ Nueva solicitud de arrepentimiento",
         title: `Nueva solicitud de arrepentimiento — ${eventTitle}`,
-        intro: `Un comprador registró una solicitud de arrepentimiento/devolución para tu evento <strong>${escapeHtml(eventTitle)}</strong>. Esto es sólo una solicitud registrada — no implica que el reembolso ya esté aprobado ni que PaseCultural haya tomado ninguna acción financiera.`,
+        intro: `Un comprador registró una solicitud de arrepentimiento/devolución para tu evento <strong>${escapeHtml(eventTitle)}</strong>. Esto es sólo una solicitud registrada — no implica que el reembolso ya esté aprobado ni que Smarticket haya tomado ninguna acción financiera.`,
         rows: [
             ["Función", `${new Date(functionDate).toLocaleString("es-AR")} · ${venue}`],
             ["Motivo", reasonLabel],

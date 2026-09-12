@@ -7,7 +7,7 @@ import { escapeHtml } from "../../utils/htmlEscape.js";
 // Ventas (filtro "Requiere conciliación") y decidir la reconciliación
 // manual — ver auditoría.
 export function buildMercadoPagoReconciliationAlertEmail({ saleId, paymentId, eventId }) {
-    const subject = `[PaseCultural] Reconciliación requerida — pago aprobado sin stock (Sale ${saleId})`;
+    const subject = `[Smarticket] Reconciliación requerida — pago aprobado sin stock (Sale ${saleId})`;
 
     const html = `<!doctype html>
 <html lang="es">
@@ -24,14 +24,14 @@ export function buildMercadoPagoReconciliationAlertEmail({ saleId, paymentId, ev
             <tr>
               <td style="background-color:#7c2d12;padding:16px 24px;">
                 <span style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:bold;color:#ffffff;">
-                  ⚠ Reconciliación requerida — PaseCultural
+                  ⚠ Reconciliación requerida — Smarticket
                 </span>
               </td>
             </tr>
             <tr>
               <td style="padding:24px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111827;line-height:1.6;">
                 <p style="margin:0 0 16px;">
-                  Mercado Pago informó un pago <strong>aprobado</strong> que PaseCultural no pudo cumplir por falta
+                  Mercado Pago informó un pago <strong>aprobado</strong> que Smarticket no pudo cumplir por falta
                   de stock. La venta quedó <strong>PENDING</strong>, sin entradas emitidas, y requiere conciliación
                   manual.
                 </p>
@@ -66,9 +66,9 @@ export function buildMercadoPagoReconciliationAlertEmail({ saleId, paymentId, ev
 </html>`;
 
     const text = [
-        "PaseCultural — Reconciliación requerida",
+        "Smarticket — Reconciliación requerida",
         "",
-        "Mercado Pago informó un pago aprobado que PaseCultural no pudo cumplir por falta de stock.",
+        "Mercado Pago informó un pago aprobado que Smarticket no pudo cumplir por falta de stock.",
         "La venta quedó PENDING, sin entradas emitidas, y requiere conciliación manual.",
         "",
         "Motivo: INSUFFICIENT_STOCK",
@@ -96,7 +96,7 @@ const REVERSAL_LABELS = {
 
 export function buildMercadoPagoReversalAlertEmail({ type, saleId, paymentId, eventId, organizationId, ticketsAffected }) {
     const label = REVERSAL_LABELS[type] ?? REVERSAL_LABELS.REFUNDED;
-    const subject = `[PaseCultural] Mercado Pago - ${label.subjectText} (Sale ${saleId})`;
+    const subject = `[Smarticket] Mercado Pago - ${label.subjectText} (Sale ${saleId})`;
     const occurredAt = new Date().toISOString();
 
     const rows = [
@@ -124,7 +124,7 @@ export function buildMercadoPagoReversalAlertEmail({ type, saleId, paymentId, ev
             <tr>
               <td style="background-color:#7c2d12;padding:16px 24px;">
                 <span style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:bold;color:#ffffff;">
-                  ⚠ ${escapeHtml(label.subjectText)} — PaseCultural
+                  ⚠ ${escapeHtml(label.subjectText)} — Smarticket
                 </span>
               </td>
             </tr>
@@ -153,7 +153,7 @@ export function buildMercadoPagoReversalAlertEmail({ type, saleId, paymentId, ev
 </html>`;
 
     const text = [
-        `PaseCultural — ${label.subjectText}`,
+        `Smarticket — ${label.subjectText}`,
         "",
         `Mercado Pago informó que un pago fue ${label.bodyVerb}.`,
         "Las entradas ACTIVE de esta venta ya fueron pasadas automáticamente a REFUNDED — esta alerta es sólo informativa.",
@@ -182,7 +182,7 @@ export function buildMercadoPagoCredentialUnresolvableAlertEmail({
     connectionStatus,
     reason,
 }) {
-    const subject = `[PaseCultural] Mercado Pago - Verificación no disponible (Sale ${saleId})`;
+    const subject = `[Smarticket] Mercado Pago - Verificación no disponible (Sale ${saleId})`;
     const occurredAt = new Date().toISOString();
 
     const rows = [
@@ -211,14 +211,14 @@ export function buildMercadoPagoCredentialUnresolvableAlertEmail({
             <tr>
               <td style="background-color:#7c2d12;padding:16px 24px;">
                 <span style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:bold;color:#ffffff;">
-                  ⚠ Verificación no disponible — PaseCultural
+                  ⚠ Verificación no disponible — Smarticket
                 </span>
               </td>
             </tr>
             <tr>
               <td style="padding:24px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111827;line-height:1.6;">
                 <p style="margin:0 0 16px;">
-                  Se recibió una notificación de Mercado Pago relacionada con una venta existente, pero PaseCultural
+                  Se recibió una notificación de Mercado Pago relacionada con una venta existente, pero Smarticket
                   <strong>no pudo verificar autoritativamente</strong> el estado del payment porque la credencial
                   histórica de Mercado Pago ya no es utilizable. <strong>No se modificaron los tickets.</strong>
                   Requiere revisión manual.
@@ -241,9 +241,9 @@ export function buildMercadoPagoCredentialUnresolvableAlertEmail({
 </html>`;
 
     const text = [
-        "PaseCultural — Verificación no disponible",
+        "Smarticket — Verificación no disponible",
         "",
-        "Se recibió una notificación de Mercado Pago relacionada con una venta existente, pero PaseCultural no pudo",
+        "Se recibió una notificación de Mercado Pago relacionada con una venta existente, pero Smarticket no pudo",
         "verificar autoritativamente el estado del payment porque la credencial histórica de Mercado Pago ya no es",
         "utilizable. No se modificaron los tickets. Requiere revisión manual.",
         "",

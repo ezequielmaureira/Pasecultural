@@ -97,7 +97,7 @@ export default function HowItWorks() {
   return (
     <div className="flex flex-col">
       <HeroSection
-        title="¿Cómo funciona PaseCultural?"
+        title="¿Cómo funciona Smarticket?"
         subtitle="Comprar una entrada nunca fue tan simple."
         ctaLabel="Explorar eventos"
         ctaTo="/eventos"

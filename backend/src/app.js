@@ -60,7 +60,7 @@ app.use(clerkMiddleware());
 app.get("/api/health", (req, res) => {
     res.status(200).json({
         ok: true,
-        message: "PaseCultural API funcionando 🚀",
+        message: "Smarticket API funcionando 🚀",
     });
 });
 

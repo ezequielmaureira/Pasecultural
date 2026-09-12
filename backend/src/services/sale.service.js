@@ -1332,7 +1332,7 @@ export const getSalePdfByTokenService = async (recoveryToken) => {
         qrImages,
     });
 
-    return { pdfBuffer, fileName: `entradas-pasecultural-${data.saleId}.pdf` };
+    return { pdfBuffer, fileName: `entradas-smarticket-${data.saleId}.pdf` };
 };
 
 // Botón de arrepentimiento — query real de "qué compras puede elegir esta

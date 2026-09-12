@@ -20,7 +20,7 @@ export async function buildTicketsPdfBuffer({ eventTitle, venue, functionDate, t
         tickets.forEach((ticket, index) => {
             if (index > 0) doc.addPage();
 
-            doc.fillColor("#7c3aed").fontSize(12).font("Helvetica-Bold").text("PaseCultural");
+            doc.fillColor("#7c3aed").fontSize(12).font("Helvetica-Bold").text("Smarticket");
             doc.moveDown(0.6);
 
             doc.fillColor("#111827").fontSize(13).font("Helvetica-Bold").text(eventTitle, { width: 240 });

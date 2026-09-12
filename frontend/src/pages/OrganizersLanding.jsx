@@ -141,7 +141,7 @@ function CtaBanner() {
               ?
             </h3>
             <p className="mt-2 text-sm text-slate-300">
-              Unite a PaseCultural y empezá a vender entradas hoy mismo.
+              Unite a Smarticket y empezá a vender entradas hoy mismo.
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-3">

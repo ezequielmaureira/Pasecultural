@@ -52,7 +52,7 @@ export default function Footer() {
         </Link>
 
         <p className="text-xs text-slate-500">
-          © 2026 PaseCultural. Todos los derechos reservados.
+          © 2026 Smarticket. Todos los derechos reservados.
         </p>
 
         <div className="flex items-center gap-5">

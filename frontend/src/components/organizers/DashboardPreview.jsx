@@ -35,7 +35,7 @@ export default function DashboardPreview() {
             <div className="flex h-5 w-5 items-center justify-center rounded-md bg-gradient-to-br from-violet-500 to-blue-500 text-white">
               <Ticket className="h-3 w-3" />
             </div>
-            <span className="text-[11px] font-bold text-white">PaseCultural</span>
+            <span className="text-[11px] font-bold text-white">Smarticket</span>
           </div>
           {MINI_NAV.map(({ label, icon: Icon, active }) => (
             <div

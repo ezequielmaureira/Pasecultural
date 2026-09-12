@@ -146,7 +146,7 @@ export const testSendWhatsappService = async ({ to, text }) => {
 
     const result = await sendWhatsappTextMessage({
         to: to.trim(),
-        text: typeof text === "string" && text.trim() ? text.trim() : "Conexión PaseCultural OK",
+        text: typeof text === "string" && text.trim() ? text.trim() : "Conexión Smarticket OK",
     });
 
     if (!result.success) {

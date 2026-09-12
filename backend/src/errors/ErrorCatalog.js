@@ -666,7 +666,7 @@ export const ErrorCatalog = Object.freeze({
     PUBLIC_LAUNCH_SETTINGS_MISSING: {
         httpStatus: 500,
         logMessage: "No PublicLaunchSettings row exists — the singleton row was likely deleted manually (the migration seeds it).",
-        userMessage: "No pudimos cargar el estado público de PaseCultural.",
+        userMessage: "No pudimos cargar el estado público de Smarticket.",
     },
     PUBLIC_LAUNCH_SETTINGS_INVALID: {
         httpStatus: 400,
@@ -679,7 +679,7 @@ export const ErrorCatalog = Object.freeze({
     PUBLIC_LAUNCH_DISABLED: {
         httpStatus: 503,
         logMessage: "Public request blocked: publicLaunchEnabled is false (or unreadable, fail-closed).",
-        userMessage: "PaseCultural todavía no está disponible públicamente.",
+        userMessage: "Smarticket todavía no está disponible públicamente.",
     },
 
     ORGANIZER_NOTIFICATION_SETTINGS_NO_ORGANIZATION: {
@@ -703,7 +703,7 @@ export const ErrorCatalog = Object.freeze({
     PREMIUM_FEATURE_REQUIRED: {
         httpStatus: 403,
         logMessage: "A Premium-only feature was attempted by an organization whose plan is not PREMIUM.",
-        userMessage: "Esta función es exclusiva de PaseCultural Premium.",
+        userMessage: "Esta función es exclusiva de Smarticket Premium.",
     },
     PLAN_ACTIVE_EVENT_LIMIT_REACHED: {
         httpStatus: 409,

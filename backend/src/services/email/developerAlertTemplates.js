@@ -8,7 +8,7 @@ import { escapeHtml } from "../../utils/htmlEscape.js";
 // datos del comprador (nombre/email/DNI/teléfono) ni credenciales de
 // ningún tipo (ver auditoría, sección "Privacidad").
 function buildDeveloperAlertEmail({ badge, title, intro, rows }) {
-    const subject = `[PaseCultural] ${title}`;
+    const subject = `[Smarticket] ${title}`;
     const occurredAt = new Date().toISOString();
     const allRows = [...rows, ["Momento de la alerta", occurredAt]];
 
@@ -27,7 +27,7 @@ function buildDeveloperAlertEmail({ badge, title, intro, rows }) {
             <tr>
               <td style="background-color:#1e3a8a;padding:16px 24px;">
                 <span style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:bold;color:#ffffff;">
-                  ${escapeHtml(badge)} — PaseCultural
+                  ${escapeHtml(badge)} — Smarticket
                 </span>
               </td>
             </tr>
@@ -51,7 +51,7 @@ function buildDeveloperAlertEmail({ badge, title, intro, rows }) {
   </body>
 </html>`;
 
-    const text = [`PaseCultural — ${title}`, "", intro.replace(/<[^>]+>/g, ""), "", ...allRows.map(([labelText, value]) => `${labelText}: ${value}`)].join("\n");
+    const text = [`Smarticket — ${title}`, "", intro.replace(/<[^>]+>/g, ""), "", ...allRows.map(([labelText, value]) => `${labelText}: ${value}`)].join("\n");
 
     return { subject, html, text };
 }

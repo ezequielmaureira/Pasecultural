@@ -24,15 +24,15 @@ function Section({ title, children }) {
 }
 
 export default function DataDeletion() {
-  usePageTitle("Eliminación de Datos | PaseCultural");
+  usePageTitle("Eliminación de Datos | Smarticket");
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-16 sm:py-20">
-      <h1 className="text-2xl font-bold text-white sm:text-3xl">Eliminación de Datos — PaseCultural</h1>
+      <h1 className="text-2xl font-bold text-white sm:text-3xl">Eliminación de Datos — Smarticket</h1>
       <p className="mt-2 text-sm text-slate-500">Última actualización: agosto de 2026</p>
 
       <p className="mt-6 text-sm leading-relaxed text-slate-400">
-        Si querés que eliminemos tus datos personales de PaseCultural, podés solicitarlo siguiendo los pasos de esta
+        Si querés que eliminemos tus datos personales de Smarticket, podés solicitarlo siguiendo los pasos de esta
         página.
       </p>
 
@@ -40,7 +40,7 @@ export default function DataDeletion() {
         <ul className="list-disc space-y-1 pl-5">
           <li>Los datos de tu cuenta (nombre, apellido, email).</li>
           <li>Los datos de tu organización, si sos organizador.</li>
-          <li>Tu historial de contacto por WhatsApp con PaseCultural.</li>
+          <li>Tu historial de contacto por WhatsApp con Smarticket.</li>
         </ul>
       </Section>
 

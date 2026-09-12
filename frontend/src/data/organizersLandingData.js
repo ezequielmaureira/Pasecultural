@@ -47,7 +47,7 @@ export const ORGANIZER_STEPS = [
   {
     icon: Building2,
     title: "1. Creá tu organización",
-    description: "Registrate gratis y creá tu organización en PaseCultural.",
+    description: "Registrate gratis y creá tu organización en Smarticket.",
   },
   {
     icon: CalendarPlus,

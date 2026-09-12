@@ -299,7 +299,7 @@ export const getCourtesyPdfService = async (clerkId, saleId) => {
 
     // Mismo nombre de archivo que getSalePdfByTokenService (sale.service.js)
     // — una cortesía es una Sale como cualquier otra, el PDF no se distingue.
-    return { pdfBuffer, fileName: `entradas-pasecultural-${data.saleId}.pdf` };
+    return { pdfBuffer, fileName: `entradas-smarticket-${data.saleId}.pdf` };
 };
 
 // "Cancelar" — nunca toca Ticket directamente: delega en

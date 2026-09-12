@@ -70,7 +70,7 @@ async function collectDailyDigestStats(windowStart) {
 }
 
 function buildDigestEmail(stats, windowHours) {
-    const subject = `[PaseCultural] Resumen diario Developer — últimas ${windowHours}h`;
+    const subject = `[Smarticket] Resumen diario Developer — últimas ${windowHours}h`;
     const rows = [
         ["Organizaciones nuevas", stats.newOrganizations],
         ["Organizaciones pendientes (actual)", stats.pendingOrganizations],
@@ -97,7 +97,7 @@ function buildDigestEmail(stats, windowHours) {
           <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:560px;max-width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;">
             <tr>
               <td style="background-color:#1e3a8a;padding:16px 24px;">
-                <span style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:bold;color:#ffffff;">📊 Resumen diario Developer — PaseCultural</span>
+                <span style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:bold;color:#ffffff;">📊 Resumen diario Developer — Smarticket</span>
               </td>
             </tr>
             <tr>
@@ -117,7 +117,7 @@ function buildDigestEmail(stats, windowHours) {
   </body>
 </html>`;
 
-    const text = [`PaseCultural — Resumen diario Developer (últimas ${windowHours}h)`, "", ...rows.map(([labelText, value]) => `${labelText}: ${value}`)].join("\n");
+    const text = [`Smarticket — Resumen diario Developer (últimas ${windowHours}h)`, "", ...rows.map(([labelText, value]) => `${labelText}: ${value}`)].join("\n");
 
     return { subject, html, text };
 }

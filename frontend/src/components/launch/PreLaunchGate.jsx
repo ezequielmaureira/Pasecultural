@@ -34,7 +34,7 @@ export default function PreLaunchGate() {
         if (!cancelled) setStatus(publicLaunchEnabled ? "allowed" : "blocked");
       })
       .catch((err) => {
-        console.error("No se pudo consultar el estado público de PaseCultural", err);
+        console.error("No se pudo consultar el estado público de Smarticket", err);
         if (!cancelled) setStatus("blocked");
       });
 

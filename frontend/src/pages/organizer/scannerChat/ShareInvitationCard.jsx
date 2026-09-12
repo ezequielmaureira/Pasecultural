@@ -12,7 +12,7 @@ function buildInvitationUrl(token) {
 // cual por el módulo Cortesías, que ahora lo usa con la misma experiencia.
 export default function ShareInvitationCard({ scanner }) {
   const url = buildInvitationUrl(scanner.invitationToken);
-  const shareText = `Te invito a operar como scanner de "${scanner.name}" en PaseCultural: ${url}`;
+  const shareText = `Te invito a operar como scanner de "${scanner.name}" en Smarticket: ${url}`;
 
   return (
     <Card>

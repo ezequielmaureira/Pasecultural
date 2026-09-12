@@ -12,7 +12,7 @@ const TEXT_MUTED = "#6b7280";
 const BORDER = "#e5e7eb";
 
 export function buildWithdrawalRequestOtpEmail({ code }) {
-    const subject = `PaseCultural - Código para gestionar tu compra: ${code}`;
+    const subject = `Smarticket - Código para gestionar tu compra: ${code}`;
     const preheader = "Usá este código para gestionar tu compra.";
 
     const html = `<!doctype html>
@@ -39,7 +39,7 @@ export function buildWithdrawalRequestOtpEmail({ code }) {
               <td style="padding:24px;font-family:Arial,Helvetica,sans-serif;text-align:center;">
                 <h1 style="margin:0 0 12px;font-size:18px;color:${TEXT_DARK};">Gestionar mi compra</h1>
                 <p style="margin:0 0 20px;font-size:14px;color:${TEXT_DARK};line-height:1.5;">
-                  Usá este código para gestionar tu compra en PaseCultural (solicitud de arrepentimiento/devolución).
+                  Usá este código para gestionar tu compra en Smarticket (solicitud de arrepentimiento/devolución).
                 </p>
                 <div style="margin:0 0 20px;">
                   <span style="display:inline-block;background-color:#f5f3ff;color:${BRAND_VIOLET};font-family:'Courier New',monospace;font-size:32px;font-weight:bold;letter-spacing:8px;padding:16px 24px;border-radius:10px;">
@@ -54,7 +54,7 @@ export function buildWithdrawalRequestOtpEmail({ code }) {
             <tr>
               <td style="padding:16px 24px;background-color:#f9fafb;border-top:1px solid ${BORDER};">
                 <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:${TEXT_MUTED};line-height:1.5;">
-                  Este es un email transaccional de PaseCultural. No es publicidad ni una suscripción.
+                  Este es un email transaccional de Smarticket. No es publicidad ni una suscripción.
                 </p>
               </td>
             </tr>
@@ -66,11 +66,11 @@ export function buildWithdrawalRequestOtpEmail({ code }) {
 </html>`;
 
     const text = [
-        "PaseCultural",
+        "Smarticket",
         "",
         "Gestionar mi compra",
         "",
-        "Usá este código para gestionar tu compra en PaseCultural (solicitud de arrepentimiento/devolución).",
+        "Usá este código para gestionar tu compra en Smarticket (solicitud de arrepentimiento/devolución).",
         "",
         `Código: ${code}`,
         "",
