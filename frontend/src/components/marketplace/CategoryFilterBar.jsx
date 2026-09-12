@@ -12,10 +12,10 @@ export default function CategoryFilterBar({ value, onChange, className = "" }) {
             key={id}
             type="button"
             onClick={() => onChange(id)}
-            className={`flex shrink-0 snap-start flex-col items-center gap-2 rounded-xl border px-4 py-3 text-xs font-medium transition-colors duration-150 sm:px-6 sm:py-4 ${
+            className={`flex shrink-0 snap-start flex-col items-center gap-2 rounded-xl border px-4 py-3 text-xs font-medium transition-all duration-150 sm:px-6 sm:py-4 ${
               isActive
-                ? "border-violet-500 bg-violet-500/10 text-white"
-                : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white"
+                ? "smarticket-neon-chip-active border-violet-500 bg-violet-500/10 text-white light:text-slate-900"
+                : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white light:border-slate-200 light:bg-slate-900/[0.03] light:text-slate-600 light:hover:bg-slate-900/5 light:hover:text-slate-900"
             }`}
           >
             <Icon className={`h-5 w-5 ${isActive ? "text-violet-400" : "text-slate-400"}`} />

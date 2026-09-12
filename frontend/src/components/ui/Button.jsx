@@ -1,7 +1,8 @@
 import Spinner from "./Spinner.jsx";
 
 const VARIANT_CLASSES = {
-  primary: "bg-violet-600 text-white hover:bg-violet-500",
+  primary:
+    "bg-gradient-to-r from-violet-600 to-blue-600 text-white shadow-[0_0_18px_-6px_rgba(139,92,246,0.6)] hover:from-violet-500 hover:to-blue-500 hover:shadow-[0_0_22px_-4px_rgba(139,92,246,0.75)] light:shadow-[0_0_14px_-8px_rgba(139,92,246,0.4)]",
   secondary: "bg-white/10 text-gray-100 hover:bg-white/15 light:bg-slate-900/5 light:text-slate-900 light:hover:bg-slate-900/10",
   ghost: "bg-transparent text-slate-300 hover:bg-white/5 light:text-slate-600 light:hover:bg-slate-900/5",
 };

@@ -82,18 +82,18 @@ function CarouselSkeleton() {
 
 function TrustBar() {
   return (
-    <section className="min-w-0 border-t border-white/5 bg-[#0B1120]">
+    <section className="min-w-0 border-t border-white/5 bg-[#0B1120] light:border-slate-200 light:bg-slate-50">
       <div className={`${SECTION} grid grid-cols-1 gap-6 py-6 sm:grid-cols-2 sm:py-8 lg:grid-cols-4`}>
         {TRUST_FEATURES.map(({ icon, title, subtitle }) => {
           const Icon = TRUST_ICONS[icon];
           return (
             <div key={title} className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-violet-400">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-violet-400 shadow-[0_0_14px_-4px_rgba(139,92,246,0.55)] light:shadow-[0_0_10px_-6px_rgba(139,92,246,0.3)]">
                 <Icon className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-white">{title}</p>
-                <p className="text-xs text-slate-400">{subtitle}</p>
+                <p className="text-sm font-semibold text-white light:text-slate-900">{title}</p>
+                <p className="text-xs text-slate-400 light:text-slate-500">{subtitle}</p>
               </div>
             </div>
           );
@@ -111,10 +111,10 @@ function TrustBar() {
 function RecoverPurchaseSection() {
   return (
     <section className={`${SECTION} ${SECTION_SPACING}`}>
-      <div className="flex flex-col items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/5 p-6 text-center sm:flex-row sm:text-left">
+      <div className="smarticket-neon-surface flex flex-col items-center justify-between gap-4 rounded-2xl p-6 text-center sm:flex-row sm:text-left">
         <div>
-          <p className="text-sm font-semibold text-white">¿Ya compraste una entrada?</p>
-          <p className="text-xs text-slate-400">
+          <p className="text-sm font-semibold text-white light:text-slate-900">¿Ya compraste una entrada?</p>
+          <p className="text-xs text-slate-400 light:text-slate-500">
             Si perdiste el email, podés recuperar tus entradas con tu email y tu DNI.
           </p>
         </div>
@@ -136,10 +136,10 @@ function RecoverPurchaseSection() {
 function ScannerPortalSection() {
   return (
     <section className={`${SECTION} ${SECTION_SPACING}`}>
-      <div className="flex flex-col items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/5 p-6 text-center sm:flex-row sm:text-left">
+      <div className="smarticket-neon-surface flex flex-col items-center justify-between gap-4 rounded-2xl p-6 text-center sm:flex-row sm:text-left">
         <div>
-          <p className="text-sm font-semibold text-white">¿Ya te registraste como scanner?</p>
-          <p className="text-xs text-slate-400">Entrá con tu correo y un código de verificación, sin contraseña.</p>
+          <p className="text-sm font-semibold text-white light:text-slate-900">¿Ya te registraste como scanner?</p>
+          <p className="text-xs text-slate-400 light:text-slate-500">Entrá con tu correo y un código de verificación, sin contraseña.</p>
         </div>
         <Link to="/scanner/portal" className="shrink-0">
           <Button variant="secondary" className="gap-1.5">
@@ -202,7 +202,7 @@ export default function Home() {
   );
 
   return (
-    <div>
+    <div className="smarticket-neon-page">
       <HeroCarousel events={events.slice(0, 5)} />
 
       <section className={`${SECTION} ${SECTION_SPACING}`}>
