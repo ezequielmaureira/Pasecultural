@@ -47,7 +47,7 @@ export default function Footer() {
             <Ticket className="h-4 w-4" />
           </div>
           <span className="text-sm font-bold text-white light:text-slate-900">
-            Smart<span className="text-violet-400">icket</span>
+            Smar<span className="smarticket-holo-t">T</span><span className="text-violet-400">icket</span>
           </span>
         </Link>
 

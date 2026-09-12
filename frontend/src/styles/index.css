@@ -134,3 +134,61 @@ select option {
 .code-outline-highlight {
   stroke: #8b5cf6 !important;
 }
+
+/* Wordmark "SmarTicket": tratamiento visual del logotipo (la marca sigue
+   siendo "Smarticket" en todo texto normal — esto es SOLO el logo). La T
+   mayúscula actúa de bisagra entre el blanco de "Smar" y el violeta de
+   "icket", con un degradé blanco → cyan → violeta y un glow sutil. Las
+   estelas son pseudo-elementos posicionados sobre la propia T, así no
+   afectan el ancho/layout del wordmark ni empujan nada a su alrededor. */
+.smarticket-holo-t {
+  position: relative;
+  display: inline-block;
+  background: linear-gradient(115deg, #ffffff 10%, #7dd3fc 45%, #a78bfa 70%, #8b5cf6 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 6px rgba(139, 92, 246, 0.45));
+  animation: smarticket-holo-shift 6s ease-in-out infinite;
+}
+
+.smarticket-holo-t::before,
+.smarticket-holo-t::after {
+  content: "";
+  position: absolute;
+  top: 22%;
+  left: -0.85em;
+  height: 1.5px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(167, 139, 250, 0.75));
+  pointer-events: none;
+}
+
+.smarticket-holo-t::before {
+  width: 0.85em;
+  opacity: 0.7;
+}
+
+.smarticket-holo-t::after {
+  top: 40%;
+  width: 0.55em;
+  opacity: 0.4;
+}
+
+@keyframes smarticket-holo-shift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .smarticket-holo-t {
+    animation: none;
+    background-position: 35% 50%;
+  }
+}

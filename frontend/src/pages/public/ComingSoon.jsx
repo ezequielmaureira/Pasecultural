@@ -14,7 +14,7 @@ export default function ComingSoon() {
           <Ticket className="h-6 w-6" />
         </div>
         <span className="text-2xl font-bold text-white">
-          Smart<span className="text-violet-400">icket</span>
+          Smar<span className="smarticket-holo-t">T</span><span className="text-violet-400">icket</span>
         </span>
       </div>
 

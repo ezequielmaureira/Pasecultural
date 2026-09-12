@@ -69,7 +69,7 @@ export default function Navbar() {
           </div>
           <div className="leading-tight">
             <span className="block text-lg font-bold text-white light:text-slate-900">
-              Smart<span className="text-violet-400">icket</span>
+              Smar<span className="smarticket-holo-t">T</span><span className="text-violet-400">icket</span>
             </span>
             <span className="hidden text-[11px] italic text-slate-500 sm:block light:text-slate-400">
               Descubrí, organizá y viví eventos.
