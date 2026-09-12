@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { Ticket, ShoppingCart, LayoutDashboard, Menu, X, ChevronDown } from "lucide-react";
+import { Ticket, ShoppingCart, LayoutDashboard, Menu, X, ChevronDown, MapPin } from "lucide-react";
 import Button from "../ui/Button.jsx";
 import NavbarDropdown from "./NavbarDropdown.jsx";
 import SearchBar from "./SearchBar.jsx";
@@ -22,7 +22,13 @@ const navLinkClassName = ({ isActive }) =>
       : "text-slate-300 hover:text-white light:text-slate-600 light:hover:text-slate-900"
   }`;
 
-export default function Navbar() {
+// `brandOverride` — override OPCIONAL y backward-compatible del branding
+// izquierdo, usado ÚNICAMENTE por el perfil público de una organización
+// PREMIUM (ver OrganizationProfile.jsx, que lo setea/limpia vía el
+// contexto de <Outlet> de PublicShell.jsx). Sin override: render idéntico
+// al de siempre (wordmark Smarticket), en TODAS las demás rutas. Nunca
+// hace su propio fetch — recibe {logo, name, city, province} ya resueltos.
+export default function Navbar({ brandOverride = null }) {
   const { backendUser } = useBackendUser();
   const isOrganizer = backendUser?.role?.toLowerCase() === "organizer";
   const isDeveloper = backendUser?.role?.toLowerCase() === "developer";
@@ -62,20 +68,62 @@ export default function Navbar() {
           : "border-violet-500/10 bg-[#05070B]/95 backdrop-blur"
       }`}
     >
-      <div className="mx-auto flex h-16 max-w-7xl items-center gap-6 px-3 sm:px-6 lg:px-8">
-        <Link to="/" className="flex shrink-0 items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 text-white">
-            <Ticket className="h-5 w-5" />
+      <div
+        className={`mx-auto flex max-w-7xl items-center gap-6 px-3 sm:px-6 lg:px-8 ${
+          brandOverride ? "min-h-16 py-2" : "h-16"
+        }`}
+      >
+        {brandOverride ? (
+          // Identidad de la organización PREMIUM visitada, reemplazando el
+          // wordmark Smarticket SOLO acá — `flex-1 min-w-0` (en vez del
+          // `shrink-0` del wordmark) para que un nombre largo trunque en
+          // vez de empujar carrito/UserMenu/hamburguesa fuera de pantalla.
+          <div className="flex min-w-0 flex-1 items-center gap-2.5 py-1">
+            {brandOverride.logo && (
+              <img
+                src={brandOverride.logo}
+                alt={brandOverride.name}
+                className="h-12 w-12 shrink-0 rounded-full border border-white/15 object-cover sm:h-14 sm:w-14 light:border-slate-200"
+              />
+            )}
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold text-white sm:text-base light:text-slate-900">
+                {brandOverride.name}
+              </p>
+              {/* Isotipo real de Smarticket (mismo patrón del wordmark de
+                  arriba: cuadrado con gradiente violeta→azul + Ticket) a
+                  escala de firma — nunca el wordmark completo acá. */}
+              <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-400 light:text-slate-500">
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-violet-500 to-blue-500">
+                  <Ticket className="h-2.5 w-2.5 text-white" />
+                </span>
+                <span>by Smarticket</span>
+              </div>
+              {(brandOverride.city || brandOverride.province) && (
+                <p className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-400 light:text-slate-500">
+                  <MapPin className="h-3 w-3 shrink-0" />
+                  <span className="truncate">
+                    {[brandOverride.city, brandOverride.province].filter(Boolean).join(", ")}
+                  </span>
+                </p>
+              )}
+            </div>
           </div>
-          <div className="leading-tight">
-            <span className="block text-lg font-bold text-white light:text-slate-900">
-              Smar<span className="smarticket-holo-t">T</span><span className="text-violet-400">icket</span>
-            </span>
-            <span className="hidden text-[11px] italic text-slate-500 sm:block light:text-slate-400">
-              Descubrí, organizá y viví eventos.
-            </span>
-          </div>
-        </Link>
+        ) : (
+          <Link to="/" className="flex shrink-0 items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 text-white">
+              <Ticket className="h-5 w-5" />
+            </div>
+            <div className="leading-tight">
+              <span className="block text-lg font-bold text-white light:text-slate-900">
+                Smar<span className="smarticket-holo-t">T</span><span className="text-violet-400">icket</span>
+              </span>
+              <span className="hidden text-[11px] italic text-slate-500 sm:block light:text-slate-400">
+                Descubrí, organizá y viví eventos.
+              </span>
+            </div>
+          </Link>
+        )}
 
         <nav aria-label="Navegación principal" className="hidden items-center gap-6 lg:flex">
           <NavbarDropdown label="Explorar eventos" items={EXPLORE_EVENTS_OPTIONS} />

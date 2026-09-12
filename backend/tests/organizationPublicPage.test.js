@@ -141,10 +141,15 @@ testWithDb("PUB-D: la respuesta pública nunca expone campos internos de Organiz
     try {
         org = await createOrganization(owner.id, { plan: "PREMIUM", phone: "+5491111111111" });
         const result = await getPublicOrganizationBySlugService(org.slug);
+        // "plan" se sacó de esta lista a propósito (ronda "header premium del
+        // perfil público"): ahora se expone deliberadamente en la respuesta
+        // pública para que el frontend pueda distinguir PREMIUM/FREE sin un
+        // endpoint nuevo — ver getPublicOrganizationBySlugService. El resto
+        // de los campos internos sigue prohibido sin cambios.
         const forbiddenKeys = [
             "ownerId", "email", "phone", "phoneVerifiedAt", "cuit",
             "responsibleFirstName", "responsibleLastName", "responsibleDni",
-            "status", "approvedAt", "approvedBy", "plan", "planUpdatedAt",
+            "status", "approvedAt", "approvedBy", "planUpdatedAt",
             "planUpdatedByUserId", "createdAt", "updatedAt",
         ];
         for (const key of forbiddenKeys) {

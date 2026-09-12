@@ -381,6 +381,7 @@ export const getPublicOrganizationBySlugService = async (slug, { includeEvents =
         instagram: organization.instagram,
         facebook: organization.facebook,
         tiktok: organization.tiktok,
+        plan: organization.plan,
     };
 
     if (!includeEvents) {

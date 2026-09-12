@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useOutletContext } from "react-router-dom";
 import { Camera, ThumbsUp, Clapperboard, Globe, MapPin, Ticket } from "lucide-react";
 import { apiFetch } from "../../lib/api.js";
 import EventCard from "../../components/marketplace/EventCard.jsx";
@@ -53,6 +53,11 @@ const SOCIAL_FIELDS = [
 // vacío — un evento cargado no implica nombre/logo/existencia.
 export default function OrganizationProfile() {
   const { slug } = useParams();
+  // Viene de PublicShell.jsx (<Outlet context={{ setNavbarBrandOverride }}/>)
+  // — reemplaza el wordmark del Navbar por la identidad de ESTA organización
+  // cuando es PREMIUM, reutilizando `identity` ya cargado acá (nunca un
+  // segundo fetch desde Navbar).
+  const { setNavbarBrandOverride } = useOutletContext();
 
   const [events, setEvents] = useState([]);
   const [loadingEvents, setLoadingEvents] = useState(true);
@@ -120,6 +125,36 @@ export default function OrganizationProfile() {
     };
   }, [slug]);
 
+  // Limpieza INMEDIATA al cambiar de slug (o al montar) — `identity` del
+  // efecto de arriba no se resetea a null en un cambio de slug (sigue
+  // mostrando la organización anterior hasta que la nueva resuelva), así
+  // que sin esto el branding de la organización PREVIA podría quedar
+  // pegado un instante al navegar de un perfil PREMIUM a otro. Nunca
+  // depende de `identity`/`organization` a propósito: corre ANTES de que
+  // la nueva respuesta llegue.
+  useEffect(() => {
+    setNavbarBrandOverride(null);
+    return () => setNavbarBrandOverride(null);
+  }, [slug, setNavbarBrandOverride]);
+
+  // Setea el override SÓLO cuando la organización ya resolvió y es
+  // PREMIUM; cualquier otro caso (FREE, todavía cargando, falló, no
+  // disponible) lo deja/mantiene en null. El cleanup cubre desmontaje Y
+  // cualquier cambio posterior de `identity` (ej. si la data se refresca).
+  useEffect(() => {
+    if (identity && identity.plan === "PREMIUM") {
+      setNavbarBrandOverride({
+        logo: identity.logo,
+        name: identity.name,
+        city: identity.city,
+        province: identity.province,
+      });
+    } else {
+      setNavbarBrandOverride(null);
+    }
+    return () => setNavbarBrandOverride(null);
+  }, [identity, setNavbarBrandOverride]);
+
   usePageTitle(identity?.name ? `${identity.name} | Smarticket` : "Smarticket");
 
   // Mientras identidad no resolvió, nunca se puede afirmar "no disponible"
@@ -170,31 +205,18 @@ export default function OrganizationProfile() {
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-8 px-6 py-10">
       {organization ? (
-        <div className="flex flex-col items-center gap-4 text-center">
-          {organization.logo && (
-            <img
-              src={organization.logo}
-              alt={organization.name}
-              className="h-20 w-20 rounded-full border border-white/10 object-cover"
-            />
-          )}
-          <div>
-            <h1 className="text-2xl font-bold text-white sm:text-3xl light:text-slate-900">{organization.name}</h1>
-            {(organization.city || organization.province) && (
-              <p className="mt-1 flex items-center justify-center gap-1.5 text-sm text-slate-400 light:text-slate-500">
-                <MapPin className="h-3.5 w-3.5 shrink-0" />
-                {[organization.city, organization.province].filter(Boolean).join(", ")}
-              </p>
-            )}
-          </div>
-          {organization.description && (
-            <p className="max-w-xl whitespace-pre-line text-sm text-slate-300 light:text-slate-600">
-              {organization.description}
-            </p>
-          )}
-
-          {safeSocialLinks.length > 0 && (
-            <div className="flex flex-wrap items-center justify-center gap-2">
+        organization.plan === "PREMIUM" ? (
+          // PREMIUM — la identidad de la organización ya está REALMENTE
+          // dentro del Navbar (ver el useEffect de arriba +
+          // Navbar.jsx/PublicShell.jsx), así que acá NO se repite logo/
+          // nombre/ubicación/descripción/"Powered by Smarticket": sería un
+          // segundo header duplicado. Lo único que sigue haciendo falta acá
+          // son los social links (única vía pública para website/redes),
+          // compactos, inmediatamente antes de "Próximos eventos". Si no
+          // hay ninguno, esto no renderiza nada y no deja un hueco (el
+          // `gap-8` del contenedor sólo aplica entre hijos que sí existen).
+          safeSocialLinks.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
               {safeSocialLinks.map(({ key, label, Icon, url }) => (
                 <a
                   key={key}
@@ -208,13 +230,56 @@ export default function OrganizationProfile() {
                 </a>
               ))}
             </div>
-          )}
+          )
+        ) : (
+          // FREE — perfil actual sin cambios (bloque centrado grande,
+          // descripción y "Powered by Smarticket" incluidos).
+          <div className="flex flex-col items-center gap-4 text-center">
+            {organization.logo && (
+              <img
+                src={organization.logo}
+                alt={organization.name}
+                className="h-20 w-20 rounded-full border border-white/10 object-cover"
+              />
+            )}
+            <div>
+              <h1 className="text-2xl font-bold text-white sm:text-3xl light:text-slate-900">{organization.name}</h1>
+              {(organization.city || organization.province) && (
+                <p className="mt-1 flex items-center justify-center gap-1.5 text-sm text-slate-400 light:text-slate-500">
+                  <MapPin className="h-3.5 w-3.5 shrink-0" />
+                  {[organization.city, organization.province].filter(Boolean).join(", ")}
+                </p>
+              )}
+            </div>
+            {organization.description && (
+              <p className="max-w-xl whitespace-pre-line text-sm text-slate-300 light:text-slate-600">
+                {organization.description}
+              </p>
+            )}
 
-          <p className="flex items-center gap-1.5 text-xs text-slate-600">
-            <Ticket className="h-3.5 w-3.5" />
-            Powered by Smarticket
-          </p>
-        </div>
+            {safeSocialLinks.length > 0 && (
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                {safeSocialLinks.map(({ key, label, Icon, url }) => (
+                  <a
+                    key={key}
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition-colors duration-150 hover:border-violet-500 hover:text-white"
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {label}
+                  </a>
+                ))}
+              </div>
+            )}
+
+            <p className="flex items-center gap-1.5 text-xs text-slate-600">
+              <Ticket className="h-3.5 w-3.5" />
+              Powered by Smarticket
+            </p>
+          </div>
+        )
       ) : (
         // identityError=true: fallo técnico, no "no disponible" — se omite
         // el encabezado (no hay nombre/logo/redes confiables todavía) pero
