@@ -29,7 +29,7 @@ export default function HorizontalScroller({ children, className = "" }) {
         type="button"
         aria-label="Anterior"
         onClick={() => scrollByPage(-1)}
-        className="absolute left-0 top-1/2 hidden h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/10 bg-[#0B1120] text-white opacity-0 shadow-lg shadow-black/30 transition-opacity duration-150 group-hover/scroller:opacity-100 lg:flex"
+        className="absolute left-0 top-1/2 hidden h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white opacity-0 shadow-lg shadow-black/30 backdrop-blur-md transition-opacity duration-150 group-hover/scroller:opacity-100 lg:flex"
       >
         <ChevronLeft className="h-5 w-5" />
       </button>
@@ -37,7 +37,7 @@ export default function HorizontalScroller({ children, className = "" }) {
         type="button"
         aria-label="Siguiente"
         onClick={() => scrollByPage(1)}
-        className="absolute right-0 top-1/2 hidden h-10 w-10 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full border border-white/10 bg-[#0B1120] text-white opacity-0 shadow-lg shadow-black/30 transition-opacity duration-150 group-hover/scroller:opacity-100 lg:flex"
+        className="absolute right-0 top-1/2 hidden h-10 w-10 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white opacity-0 shadow-lg shadow-black/30 backdrop-blur-md transition-opacity duration-150 group-hover/scroller:opacity-100 lg:flex"
       >
         <ChevronRight className="h-5 w-5" />
       </button>

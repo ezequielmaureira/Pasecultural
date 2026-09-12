@@ -210,28 +210,40 @@ select option {
   position: relative;
 }
 
-/* Fondo "vivo": el mismo velo diagonal fucsia→violeta→azul de siempre,
-   más una SEGUNDA capa que se desplaza extremadamente lento (28s, ida y
-   vuelta) — profundidad ambiental, no una animación notoria. Nunca cambia
-   de opacidad de golpe ni parpadea; en reduced-motion queda fija en su
-   posición intermedia (ver media query al final del archivo). */
+/* Fondo "vivo" y CONTINUO — antes era `position: fixed`: una única mancha
+   anclada arriba-izquierda del VIEWPORT, siempre igual sin importar el
+   scroll (por eso el ambiente "se cortaba" apenas terminaba el Hero). Acá
+   pasa a `position: absolute` dentro de `.smarticket-neon-page` (que
+   envuelve TODA la Home) — el pseudo-elemento crece con el contenido y
+   cubre el alto real de la página completa, así que los distintos radial-
+   gradient, anclados a distintos % de ESE alto total, van apareciendo
+   detrás de Hero/categorías/eventos/organizaciones/trust/recovery/scanner
+   a medida que se hace scroll, en vez de una única mancha fija arriba.
+   Sigue siendo sólo 2 declaraciones `background` (gradientes CSS, sin
+   imágenes) + un `transform` animado — barato incluso en mobile. */
 .smarticket-neon-page::before {
   content: "";
-  position: fixed;
-  inset: -10%;
+  position: absolute;
+  inset: -4% -10%;
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 70% 50% at 10% -10%, rgba(217, 70, 239, 0.12), transparent 60%),
-    linear-gradient(135deg, rgba(139, 92, 246, 0.18) 0%, transparent 45%, rgba(59, 130, 246, 0.16) 100%);
+    radial-gradient(ellipse 55% 22% at 12% 4%, rgba(217, 70, 239, 0.16), transparent 65%),
+    radial-gradient(ellipse 50% 22% at 88% 20%, rgba(59, 130, 246, 0.14), transparent 65%),
+    radial-gradient(ellipse 55% 24% at 8% 45%, rgba(139, 92, 246, 0.15), transparent 65%),
+    radial-gradient(ellipse 50% 22% at 92% 64%, rgba(217, 70, 239, 0.13), transparent 65%),
+    radial-gradient(ellipse 55% 24% at 15% 85%, rgba(59, 130, 246, 0.14), transparent 65%);
   background-repeat: no-repeat;
   animation: smarticket-ambient-drift 28s ease-in-out infinite;
 }
 
 .light .smarticket-neon-page::before {
   background:
-    radial-gradient(ellipse 70% 50% at 10% -10%, rgba(217, 70, 239, 0.05), transparent 60%),
-    linear-gradient(135deg, rgba(139, 92, 246, 0.06) 0%, transparent 45%, rgba(59, 130, 246, 0.05) 100%);
+    radial-gradient(ellipse 55% 22% at 12% 4%, rgba(217, 70, 239, 0.06), transparent 65%),
+    radial-gradient(ellipse 50% 22% at 88% 20%, rgba(59, 130, 246, 0.05), transparent 65%),
+    radial-gradient(ellipse 55% 24% at 8% 45%, rgba(139, 92, 246, 0.055), transparent 65%),
+    radial-gradient(ellipse 50% 22% at 92% 64%, rgba(217, 70, 239, 0.045), transparent 65%),
+    radial-gradient(ellipse 55% 24% at 15% 85%, rgba(59, 130, 246, 0.05), transparent 65%);
 }
 
 @keyframes smarticket-ambient-drift {

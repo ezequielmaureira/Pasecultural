@@ -26,7 +26,13 @@
   /* Superficies — de .smarticket-neon-surface / .smarticket-neon-card */
   --smarticket-surface: rgba(255, 255, 255, 0.08);
   --smarticket-surface-strong: rgba(255, 255, 255, 0.14);
-  --smarticket-card-bg: rgba(11, 17, 32, 0.55);
+  /* CORRECCIÓN de paridad con QuickPass.jsx: la versión anterior era
+     rgba(11,17,32,.55) — un tinte NAVY oscuro, que es exactamente lo que
+     bloqueaba el efecto vidrio (una superficie tintada de oscuro absorbe
+     el color de atrás en vez de dejarlo pasar). El panel real de
+     QuickPass usa `bg-white/10` — un tinte BLANCO — por eso su vidrio deja
+     ver el violeta/fucsia/azul de atrás. Mismo principio acá: */
+  --smarticket-card-bg: rgba(255, 255, 255, 0.07);
 
   --smarticket-border: rgba(255, 255, 255, 0.12);
   --smarticket-border-strong: rgba(255, 255, 255, 0.18);
