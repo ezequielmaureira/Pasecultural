@@ -42,16 +42,6 @@ function UpcomingSection({ events }) {
   );
 }
 
-function FeaturedSection({ events }) {
-  if (events.length === 0) return null;
-  return (
-    <section className={`${SECTION} ${SECTION_SPACING}`}>
-      <SectionHeader title="Eventos destacados" viewAllHref="/eventos" />
-      <EventsCarousel events={events} />
-    </section>
-  );
-}
-
 // "Todos los eventos": carrusel horizontal en todos los tamaños de pantalla,
 // igual que "Próximos" y "Destacados" (sin variante en grilla).
 function AllEventsSection({ events }) {
@@ -201,8 +191,7 @@ export default function Home() {
 
   // Cada sección ordena/filtra la misma lista de una forma distinta en vez
   // de pedir varios endpoints nuevos: "Próximos" por fecha más cercana,
-  // "Destacados" como los eventos pagos, "Todos" en el orden que ya
-  // devuelve la API. Sin cambios de backend.
+  // "Todos" en el orden que ya devuelve la API. Sin cambios de backend.
   const upcoming = useMemo(
     () =>
       [...events]
@@ -211,8 +200,6 @@ export default function Home() {
         .slice(0, 12),
     [events]
   );
-
-  const featured = useMemo(() => events.filter((e) => !e.isFree).slice(0, 12), [events]);
 
   return (
     <div>
@@ -242,7 +229,6 @@ export default function Home() {
         <>
           <UpcomingSection events={upcoming} />
           <FeaturedOrganizationsSection organizations={featuredOrganizations} />
-          <FeaturedSection events={featured} />
           <AllEventsSection events={events.slice(0, 12)} />
         </>
       )}
