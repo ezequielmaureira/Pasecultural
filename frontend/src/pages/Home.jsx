@@ -82,7 +82,7 @@ function CarouselSkeleton() {
 
 function TrustBar() {
   return (
-    <section className="min-w-0 border-t border-white/5 bg-[#0B1120] light:border-slate-200 light:bg-slate-50">
+    <section className="min-w-0 border-t border-white/10 bg-white/[0.03] backdrop-blur-xl light:border-slate-200 light:bg-white/60">
       <div className={`${SECTION} grid grid-cols-1 gap-6 py-6 sm:grid-cols-2 sm:py-8 lg:grid-cols-4`}>
         {TRUST_FEATURES.map(({ icon, title, subtitle }) => {
           const Icon = TRUST_ICONS[icon];

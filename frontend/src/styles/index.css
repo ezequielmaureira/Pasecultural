@@ -193,12 +193,17 @@ select option {
   }
 }
 
-/* Sistema visual "neon premium" de la Home pública (fondo ambiental,
-   cards, chips) — inspirado en el tratamiento ya usado en Fest Pass, pero
-   deliberadamente MUY sutil acá (esto es marketplace de todos los días, no
-   la experiencia de un evento puntual). Dark es el look principal; cada
-   clase trae también su variante `.light` explícita, más apagada, en vez
-   de depender de que el elemento que la usa agregue `light:` por fuera. */
+/* Sistema visual "neon premium" de la Home pública — replica la receta
+   REAL ya usada en la experiencia pública Fest Pass (QuickPass.jsx: velo
+   diagonal fucsia→violeta→azul sobre el fondo, paneles glass rounded-3xl
+   con `border-white/15 bg-white/10 shadow-2xl backdrop-blur-xl`, CTA en
+   pill con gradiente fucsia→violeta→azul y glow explícito) — no una
+   reinterpretación propia (la ronda anterior, sólo con glow en hover,
+   quedó demasiado tenue). Home usa la MISMA paleta pero ~70-80% de esa
+   intensidad: sigue siendo un marketplace de todos los días, no la
+   pantalla inmersiva de un evento puntual. Cada clase trae su propia
+   variante `.light`, más apagada, en vez de depender de que el elemento
+   que la usa agregue `light:` por fuera. */
 .smarticket-neon-page {
   position: relative;
 }
@@ -210,67 +215,80 @@ select option {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 60% 40% at 15% 0%, rgba(139, 92, 246, 0.16), transparent 60%),
-    radial-gradient(ellipse 55% 45% at 100% 20%, rgba(59, 130, 246, 0.13), transparent 60%),
-    radial-gradient(ellipse 50% 35% at 50% 100%, rgba(217, 70, 239, 0.07), transparent 60%);
+    radial-gradient(ellipse 70% 50% at 10% -10%, rgba(217, 70, 239, 0.12), transparent 60%),
+    linear-gradient(135deg, rgba(139, 92, 246, 0.18) 0%, transparent 45%, rgba(59, 130, 246, 0.16) 100%);
 }
 
 .light .smarticket-neon-page::before {
   background:
-    radial-gradient(ellipse 60% 40% at 15% 0%, rgba(139, 92, 246, 0.06), transparent 60%),
-    radial-gradient(ellipse 55% 45% at 100% 20%, rgba(59, 130, 246, 0.05), transparent 60%),
-    transparent;
+    radial-gradient(ellipse 70% 50% at 10% -10%, rgba(217, 70, 239, 0.05), transparent 60%),
+    linear-gradient(135deg, rgba(139, 92, 246, 0.06) 0%, transparent 45%, rgba(59, 130, 246, 0.05) 100%);
 }
 
-/* Superficie "glass" oscura reutilizada por los paneles de Recuperar
-   compra / Soy Scanner y por la sección de beneficios — reemplaza el
-   bloque repetido `border border-white/10 bg-white/5` por una única clase
-   con blur + glow de borde en hover. */
+/* Superficie "glass" — misma receta que los paneles de QuickPass.jsx
+   (border-white/15 + bg-white/10 + backdrop-blur-xl + shadow-2xl), usada
+   en los paneles de Recuperar compra / Soy Scanner y en TrustBar. */
 .smarticket-neon-surface {
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: 0 20px 45px -22px rgba(0, 0, 0, 0.65);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .smarticket-neon-surface:hover {
-  border-color: rgba(139, 92, 246, 0.35);
-  box-shadow: 0 0 24px -8px rgba(139, 92, 246, 0.35);
+  border-color: rgba(217, 70, 239, 0.4);
+  box-shadow: 0 20px 45px -18px rgba(139, 92, 246, 0.4);
 }
 
 .light .smarticket-neon-surface {
   border-color: rgb(226 232 240);
-  background: rgba(15, 23, 42, 0.03);
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 12px 30px -20px rgba(15, 23, 42, 0.18);
 }
 
 .light .smarticket-neon-surface:hover {
   border-color: rgba(139, 92, 246, 0.3);
-  box-shadow: 0 0 20px -10px rgba(139, 92, 246, 0.2);
+  box-shadow: 0 16px 32px -18px rgba(139, 92, 246, 0.2);
 }
 
-/* Cards de eventos/organizaciones: mismo look de siempre + glow de borde
-   sutil sólo al hover (nunca permanente, para no convertir el shelf entero
-   en una hilera de linternas). */
+/* Cards de eventos/organizaciones: dejan de ser el bloque sólido
+   `bg-[#0B1120]` de siempre y pasan a ser glass translúcido — la card
+   "flota" sobre el velo ambiental de la página en vez de ser una caja
+   opaca independiente. El glow de borde en hover es más marcado que la
+   ronda anterior pero sigue sin ser permanente. */
 .smarticket-neon-card {
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  background: rgba(11, 17, 32, 0.55);
+  border-color: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
 }
 
 .smarticket-neon-card:hover {
-  box-shadow: 0 0 20px -6px rgba(139, 92, 246, 0.3);
+  border-color: rgba(217, 70, 239, 0.45);
+  box-shadow: 0 16px 40px -16px rgba(139, 92, 246, 0.45);
+}
+
+.light .smarticket-neon-card {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgb(226 232 240);
 }
 
 .light .smarticket-neon-card:hover {
-  box-shadow: 0 0 16px -8px rgba(139, 92, 246, 0.18);
+  border-color: rgba(139, 92, 246, 0.35);
+  box-shadow: 0 14px 30px -18px rgba(139, 92, 246, 0.22);
 }
 
-/* Chip de categoría activo — el borde/fondo violeta ya existía en
-   CategoryFilterBar; esto sólo agrega el glow que lo hace sentir "neon". */
+/* Chip de categoría activo — glow violeta+fucsia (paleta tri-color de Fest
+   Pass) en vez de un único tono violeta plano. */
 .smarticket-neon-chip-active {
-  box-shadow: 0 0 16px -4px rgba(139, 92, 246, 0.55);
+  box-shadow: 0 0 18px -4px rgba(139, 92, 246, 0.6), 0 0 26px -8px rgba(217, 70, 239, 0.35);
 }
 
 .light .smarticket-neon-chip-active {
-  box-shadow: 0 0 12px -6px rgba(139, 92, 246, 0.3);
+  box-shadow: 0 0 14px -6px rgba(139, 92, 246, 0.32);
 }
 
 @media (prefers-reduced-motion: reduce) {

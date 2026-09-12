@@ -46,7 +46,7 @@ export default function HeroCarousel({ events }) {
         )}
         <div className="absolute inset-0 bg-gradient-to-r from-[#05070B] via-[#05070Bcc] to-[#05070B33]" />
         <div className="absolute inset-0 bg-gradient-to-t from-[#05070B] via-transparent to-transparent" />
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-violet-600/10 via-transparent to-blue-500/10" />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-fuchsia-500/10 via-violet-600/10 to-blue-500/15" />
       </div>
 
       <div className="relative mx-auto flex max-w-7xl flex-col gap-3 px-4 py-10 sm:gap-4 sm:px-6 sm:py-16 lg:px-8 lg:py-24">
