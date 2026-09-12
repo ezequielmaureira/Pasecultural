@@ -442,6 +442,47 @@ select option {
   box-shadow: var(--smarticket-shadow-glow), 0 0 0 2px rgba(15, 23, 42, 0.4);
 }
 
+/* Fondo ambiental de EventDetail.jsx (evento normal, NO Fest Pass) —
+   reutiliza la MISMA imagen de portada del evento como atmósfera: blur
+   fuerte + leve escala (evita bordes duros del blur) + overlay oscuro y
+   velo de color encima, mismo lenguaje que QuickPass.jsx pero SIN
+   depender de z-index negativo (ver comentario en Home.jsx/
+   .smarticket-neon-page-ambient sobre por qué esa técnica es frágil).
+   `background-image` se fija inline desde EventDetail.jsx (es dinámica
+   por evento); acá sólo vive el tratamiento visual. Sin imagen, el
+   propio elemento queda vacío y el `::before` de abajo alcanza solo como
+   velo de marca. Estática (sin animación): es una atmósfera de fondo de
+   una pantalla de detalle, no necesita el drift lento de la Home. */
+.smarticket-event-ambient {
+  position: absolute;
+  inset: -6%;
+  pointer-events: none;
+  background-size: cover;
+  background-position: center;
+  filter: blur(48px) saturate(1.15);
+  transform: scale(1.08);
+  opacity: 0.45;
+}
+
+.smarticket-event-ambient::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.8)),
+    linear-gradient(135deg, rgba(217, 70, 239, 0.18) 0%, transparent 45%, rgba(59, 130, 246, 0.16) 100%);
+}
+
+.light .smarticket-event-ambient {
+  opacity: 0.16;
+}
+
+.light .smarticket-event-ambient::before {
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.85)),
+    linear-gradient(135deg, rgba(217, 70, 239, 0.07) 0%, transparent 45%, rgba(59, 130, 246, 0.06) 100%);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .smarticket-neon-page-ambient {
     animation: none;
