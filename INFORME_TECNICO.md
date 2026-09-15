@@ -36,8 +36,10 @@ Base de datos gestionada enteramente por Prisma (schema versionado + migraciones
 ### Clerk
 Autenticación y gestión de sesión para cualquier persona con cuenta (comprador registrado, organizador, developer). El backend nunca valida contraseñas ni sesiones por su cuenta — delega 100% en el SDK (`clerkMiddleware()` en `app.js`, lee sus credenciales de variables de entorno por convención propia del SDK, nunca pasadas explícitamente en el código). El módulo Scanner es la única parte del sistema que **no** usa Clerk (sesión propia, ver §4/§9).
 
-### Render
-Host del backend. Confirmado por código, no sólo por convención: el backend lee `process.env.RENDER_GIT_COMMIT`, una variable que Render inyecta automáticamente en cada deploy — su sola presencia como variable esperada en el código es evidencia de que el backend corre en Render. No hay `render.yaml` versionado en el repositorio — la configuración del servicio (build command, variables de entorno, auto-deploy desde `main`) vive en el dashboard de Render, fuera de este repositorio.
+### Fly.io
+Host actual del backend — app `smarticket-backend-gru-test`, región `gru`/São Paulo (`backend/fly.toml`). El nombre de la app conserva el sufijo `-test` por motivos históricos (nació como instancia de prueba en paralelo a Render), pero es el backend real en uso. Deploy manual vía `flyctl deploy --app smarticket-backend-gru-test`, no automático por push a `main`. `backend/fly.toml` fija que esta imagen nunca corre `prisma migrate deploy` ni ningún seed: sólo `prisma generate` + arranca el servidor.
+
+**HISTÓRICO — Render:** el backend corrió anteriormente en Render (deploy desde `main`, configurado en su dashboard, sin `render.yaml` versionado). El código todavía lee `process.env.RENDER_GIT_COMMIT` (variable que Render inyectaba automáticamente en cada deploy) y conserva comentarios que mencionan Render/Oregon — son remanentes de esa infraestructura anterior, sin efecto en el comportamiento actual, y no deben interpretarse como evidencia de que Render siga siendo el proveedor en uso.
 
 ### Vercel
 Host del frontend. `frontend/vercel.json` está versionado en el repo, con una única regla de rewrite (`/(.*)` → `/index.html`, necesaria para que las rutas de React Router funcionen en carga directa/refresh). El build (`vite build`) y el deploy se gestionan por la integración estándar de Vercel con el repositorio Git.
@@ -57,7 +59,7 @@ Canal alternativo de creación de eventos para organizadores, vía un bot conver
 Frontend (Vercel, SPA)
   ├─ Clerk (sesión, directo desde el navegador)
   ├─ Google Maps JS API (directo desde el navegador)
-  └─ HTTP/JSON ──> Backend API (Render)
+  └─ HTTP/JSON ──> Backend API (Fly.io)
                      ├─ PostgreSQL (Supabase, vía Prisma)
                      ├─ Clerk (verificación de sesión)
                      ├─ Cloudinary (imágenes)
@@ -65,7 +67,7 @@ Frontend (Vercel, SPA)
                      ├─ Google Maps Geocoding API (best-effort)
                      └─ Meta Graph API (WhatsApp)
 
-Organizador (WhatsApp) <──mensaje──> Meta <──webhook──> Backend API (Render)
+Organizador (WhatsApp) <──mensaje──> Meta <──webhook──> Backend API (Fly.io)
 ```
 
 El motor de creación de eventos (`EventCreationEngine`/`EventServicePort`) es la única pieza de lógica de negocio compartida entre ambos canales de entrada (Web y WhatsApp) — cada canal sólo aporta su propia capa de interpretación de entrada/salida (formulario/chat vs. texto libre de WhatsApp) sobre el mismo motor y las mismas tablas.
@@ -335,7 +337,7 @@ cd frontend && npm install && npm run dev    # Vite dev server
 Antes de correr `npm test`/`npm run test:db`, `dbGuard.js` ya valida automáticamente el project-ref al importarse — pero como verificación manual adicional recomendada: confirmar que `backend/.env.test` contiene el project-ref de TEST y no el de producción, y que no hay ninguna variable `DATABASE_URL`/`DIRECT_URL` exportada en la shell que pueda pisar ese archivo (`dotenv` no sobreescribe variables ya presentes en el entorno).
 
 ### Despliegue
-**Backend:** Render, configurado vía su propio dashboard (sin `render.yaml` versionado en este repositorio) — deploy típico a partir de push a `main`. **Frontend:** Vercel, integración estándar Git — `frontend/vercel.json` sólo define la regla de rewrite SPA.
+**Backend:** Fly.io, app `smarticket-backend-gru-test` (`primary_region = gru`, `backend/fly.toml`) — deploy manual vía `flyctl deploy --app smarticket-backend-gru-test`, no automático por push a `main`. Corrió anteriormente en Render (histórico; ver §2). **Frontend:** Vercel, integración estándar Git — `frontend/vercel.json` sólo define la regla de rewrite SPA.
 
 ### Últimos resultados verificados
 | Comando | Total | Pass | Fail | Skipped | Cuándo / contra qué |

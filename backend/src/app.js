@@ -35,9 +35,10 @@ import { errorHandler } from "./errors/index.js";
 const app = express();
 
 // Necesario para que req.ip refleje la IP real del visitante (no la del
-// proxy de Render) — lo usa el rate limiter de los endpoints públicos de
-// recuperación de compra (ver middlewares/rateLimit.js). "1" = confía
-// exactamente un hop hacia atrás, que es el proxy de Render.
+// reverse proxy de la plataforma de hosting) — lo usa el rate limiter de
+// los endpoints públicos de recuperación de compra (ver
+// middlewares/rateLimit.js). "1" = confía exactamente un hop hacia atrás,
+// que es el proxy delante de la app.
 app.set("trust proxy", 1);
 
 app.use(cors());

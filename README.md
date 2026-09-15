@@ -20,14 +20,16 @@ branding visible en la interfaz y en los emails ya es Smarticket.
 **Frontend:** React 19 + Vite, desplegado en Vercel (`frontend/vercel.json`
 sólo define el rewrite de SPA).
 
-**Backend:** Node.js + Express 5. Producción corre en Render (deploy desde
-`main`, configurado en el dashboard de Render, sin `render.yaml` en este
-repo — ver `process.env.RENDER_GIT_COMMIT`, inyectada automáticamente por
-Render). Además existe una instancia de **prueba** en Fly.io
-(`smarticket-backend-gru-test`, región `gru`/São Paulo) corriendo en
-paralelo para comparar latencia — **no sirve tráfico real** y **no se
-despliega automáticamente con cada push**: su deploy es manual
-(`flyctl deploy`), ver sección Deploy.
+**Backend:** Node.js + Express 5, desplegado en Fly.io — app
+`smarticket-backend-gru-test`, región `gru`/São Paulo
+(`backend/fly.toml`). El nombre de la app conserva el sufijo `-test` por
+motivos históricos (nació como instancia de prueba en paralelo a un
+backend anterior en Render), pero es el backend real en uso hoy. Su
+deploy es **manual** vía `flyctl deploy`, no automático por push — ver
+sección Deploy. El código todavía contiene referencias históricas a
+Render (comentarios, y la variable `process.env.RENDER_GIT_COMMIT` que
+ese proveedor inyectaba) por la infraestructura anterior; no reflejan el
+estado actual.
 
 **Base de datos:** PostgreSQL (Supabase) vía Prisma.
 
@@ -132,18 +134,21 @@ Lo único confirmado por el repositorio/configuración actual:
 
 - **Frontend →** Vercel (integración Git estándar; `frontend/vercel.json`
   sólo define el rewrite de SPA).
-- **Backend, producción real →** Render, configurado fuera de este repo
-  (dashboard de Render), deploy típico a partir de push a `main`.
-- **Backend, instancia de prueba →** Fly.io, app
-  `smarticket-backend-gru-test`, `primary_region = gru`
-  (`backend/fly.toml`). Es una instancia paralela para medir latencia
-  (São Paulo vs. Oregon) — **no reemplaza a Render** y su deploy es manual
-  vía `flyctl deploy`, no automático por push. `backend/fly.toml` fija
-  además que esta imagen **nunca** corre `prisma migrate deploy` ni ningún
-  seed: sólo `prisma generate` + arranca el servidor.
+- **Backend →** Fly.io, app `smarticket-backend-gru-test`,
+  `primary_region = gru` (`backend/fly.toml`). Deploy **manual** vía
+  `flyctl deploy --app smarticket-backend-gru-test`, no automático por
+  push. `backend/fly.toml` fija además que esta imagen **nunca** corre
+  `prisma migrate deploy` ni ningún seed: sólo `prisma generate` + arranca
+  el servidor. El schema/las migraciones se gestionan exclusivamente
+  contra el proyecto Supabase configurado vía `DATABASE_URL`/`DIRECT_URL`.
 
 No asumas que un push a `main` despliega automáticamente el backend a Fly
-— nada en el repo lo demuestra.
+— nada en el repo lo demuestra; hoy requiere correr `flyctl deploy` a mano.
+
+El backend corrió anteriormente en Render; esa infraestructura quedó
+reemplazada por Fly, aunque el código conserve referencias históricas
+(comentarios, `process.env.RENDER_GIT_COMMIT`) que no afectan el
+comportamiento en runtime.
 
 ## Componentes críticos
 

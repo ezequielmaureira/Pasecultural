@@ -231,10 +231,10 @@ export async function findMercadoPagoReconciliationCandidateSaleIds() {
     return sales.map((sale) => sale.id);
 }
 
-// Sweep completo — pensado para un futuro Render Cron Job (ver
-// backend/scripts/reconcileMercadoPagoPendingSales.js), NO configurado
-// todavía en esta ronda. Un fallo reconciliando una Sale puntual nunca
-// interrumpe el resto del sweep.
+// Sweep completo — pensado para un futuro job/scheduler externo (ver
+// backend/scripts/reconcileMercadoPagoPendingSales.js), todavía no
+// desplegado. Un fallo reconciliando una Sale puntual nunca interrumpe el
+// resto del sweep.
 export async function reconcilePendingMercadoPagoSalesService() {
     const saleIds = await findMercadoPagoReconciliationCandidateSaleIds();
     const results = [];

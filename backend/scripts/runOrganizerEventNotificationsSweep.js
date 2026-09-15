@@ -1,15 +1,15 @@
-// Punto de entrada pensado para un futuro Render Cron Job — NO desplegado
-// en esta ronda (ver informe de entrega, sección "Cron/scheduler"). Cuando
-// se decida activarlo: Render Dashboard > New > Cron Job, mismo repo/build
-// que el Web Service, comando `node scripts/runOrganizerEventNotificationsSweep.js`,
-// frecuencia sugerida cada 15 minutos (ej. "*/15 * * * *") — el propio
-// mecanismo de deduplicación (OrganizerNotificationClaim) hace que correrlo
-// más o menos seguido nunca duplique un email, así que la frecuencia sólo
-// afecta qué tan preciso es el recordatorio/aviso de comienzo/fin, nunca la
-// seguridad de no repetir. Necesita las mismas env vars que el Web Service
+// Punto de entrada pensado para un futuro job/scheduler externo — todavía
+// no desplegado (ver informe de entrega, sección "Cron/scheduler"). Cuando
+// se decida activarlo: comando
+// `node scripts/runOrganizerEventNotificationsSweep.js`, frecuencia
+// sugerida cada 15 minutos (ej. "*/15 * * * *") — el propio mecanismo de
+// deduplicación (OrganizerNotificationClaim) hace que correrlo más o menos
+// seguido nunca duplique un email, así que la frecuencia sólo afecta qué
+// tan preciso es el recordatorio/aviso de comienzo/fin, nunca la seguridad
+// de no repetir. Necesita las mismas env vars que el servicio web
 // (DATABASE_URL, RESEND_API_KEY, EMAIL_FROM, FRONTEND_URL) configuradas en
-// el propio Cron Job de Render, no heredadas automáticamente del Web
-// Service.
+// el propio scheduler que se elija, no heredadas automáticamente del
+// proceso web.
 import "dotenv/config";
 import { runOrganizerEventNotificationsSweep } from "../src/services/organizerEventReminders.service.js";
 

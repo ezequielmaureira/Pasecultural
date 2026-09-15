@@ -1,10 +1,9 @@
-# Instancia de PRUEBA en Fly.io — región São Paulo (gru) del backend de
-# Smarticket/PaseCultural, en paralelo a Render (Oregon). NO reemplaza
-# producción: Render sigue sirviendo el 100% del tráfico real mientras esta
-# instancia exista. Ver auditoría de infraestructura Oregon -> São Paulo.
+# Backend de Smarticket/PaseCultural en Fly.io — región São Paulo (gru).
+# El nombre de la app conserva el sufijo "-test" por motivos históricos
+# (nació como instancia de prueba en paralelo a un backend anterior en
+# Render/Oregon, migrado desde entonces) — hoy es el backend real en uso.
 #
-# A propósito: UNA sola región (gru), sin autoscaling multi-región, para que
-# la medición de latencia sea comparable 1 a 1 contra Oregon.
+# A propósito: UNA sola región (gru), sin autoscaling multi-región.
 app = "smarticket-backend-gru-test"
 primary_region = "gru"
 

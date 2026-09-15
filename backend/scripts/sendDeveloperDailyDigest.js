@@ -1,11 +1,10 @@
-// Punto de entrada pensado para un futuro Render Cron Job — NO desplegado
-// en esta ronda (ver informe de entrega, sección "Resumen diario"). Cuando
-// se decida activarlo: Render Dashboard > New > Cron Job, mismo repo/build
-// que el Web Service, comando `node scripts/sendDeveloperDailyDigest.js`,
+// Punto de entrada pensado para un futuro job/scheduler externo — todavía
+// no desplegado (ver informe de entrega, sección "Resumen diario"). Cuando
+// se decida activarlo: comando `node scripts/sendDeveloperDailyDigest.js`,
 // horario sugerido una vez por día (ej. "0 9 * * *" — 9am UTC). Necesita
-// las mismas env vars que el Web Service (DATABASE_URL, RESEND_API_KEY,
-// EMAIL_FROM, DEVELOPER_ALERT_EMAIL) configuradas en el propio Cron Job de
-// Render, no heredadas automáticamente del Web Service.
+// las mismas env vars que el servicio web (DATABASE_URL, RESEND_API_KEY,
+// EMAIL_FROM, DEVELOPER_ALERT_EMAIL) configuradas en el propio scheduler
+// que se elija, no heredadas automáticamente del proceso web.
 import "dotenv/config";
 import { generateAndSendDeveloperDailyDigest } from "../src/services/developerAlertDigest.service.js";
 

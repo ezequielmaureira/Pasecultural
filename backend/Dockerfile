@@ -1,14 +1,15 @@
-# Imagen de la instancia de PRUEBA en Fly.io (región gru / São Paulo) del
-# backend de Smarticket/PaseCultural — en paralelo a Render (Oregon), que
-# sigue sirviendo producción sin cambios. Ver auditoría de infraestructura
-# Oregon -> São Paulo.
+# Imagen del backend de Smarticket/PaseCultural en Fly.io (región gru /
+# São Paulo) — el nombre de la app conserva el sufijo "-test" por motivos
+# históricos (nació como instancia de prueba en paralelo a un backend
+# anterior en Render/Oregon), pero hoy es el backend real en uso.
 #
 # A propósito esta imagen NUNCA ejecuta `prisma migrate deploy` ni ningún
 # seed: sólo genera el cliente Prisma (`prisma generate`, necesario para que
 # @prisma/client tenga el engine correcto para esta plataforma) y arranca el
-# servidor con el mismo comando que ya usa Render (`npm start` ->
-# node src/server.js). El schema/las migraciones de la base los sigue
-# gestionando exclusivamente el flujo actual de Render/Supabase.
+# servidor con el mismo comando de siempre (`npm start` ->
+# node src/server.js). El schema/las migraciones de la base se gestionan
+# exclusivamente contra el proyecto Supabase configurado vía DATABASE_URL/
+# DIRECT_URL, nunca automáticamente desde esta imagen.
 #
 # node:22-slim (Debian, no Alpine) a propósito: el proyecto no fija una
 # versión de Node en package.json ("engines" ausente); se eligió el LTS
