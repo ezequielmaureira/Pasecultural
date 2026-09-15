@@ -103,7 +103,7 @@ export function buildSaleConfirmationEmail(
             <tr>
               <td style="background-color:#0B1120;padding:20px 24px;">
                 <span style="font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:bold;color:#ffffff;">
-                  Pase<span style="color:#a78bfa;">Cultural</span>
+                  Smart<span style="color:#a78bfa;">icket</span>
                 </span>
               </td>
             </tr>

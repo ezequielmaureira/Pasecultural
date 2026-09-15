@@ -26,7 +26,7 @@ function buildOrganizerNotificationEmail({ badge, title, intro, rows, ctaLabel, 
           <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="width:520px;max-width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;">
             <tr>
               <td style="background-color:#0B1120;padding:16px 24px;">
-                <span style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:bold;color:#ffffff;">Pase<span style="color:#a78bfa;">Cultural</span></span>
+                <span style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:bold;color:#ffffff;">Smart<span style="color:#a78bfa;">icket</span></span>
               </td>
             </tr>
             <tr>
