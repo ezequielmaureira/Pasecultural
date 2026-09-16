@@ -1,5 +1,6 @@
 import { escapeHtml } from "../../utils/htmlEscape.js";
 import { formatFunctionDateTimeAR } from "./formatDateAR.js";
+import { renderSmarticketEmailHeader } from "./emailBrandHeader.js";
 
 // Plantilla del email de confirmación de compra: sólo HTML con estilos
 // inline (tablas, no flex/grid) + una versión text/plain — nada de CSS
@@ -100,13 +101,7 @@ export function buildSaleConfirmationEmail(
       <tr>
         <td align="center">
           <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;">
-            <tr>
-              <td style="background-color:#0B1120;padding:20px 24px;">
-                <span style="font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:bold;color:#ffffff;">
-                  Smart<span style="color:#a78bfa;">icket</span>
-                </span>
-              </td>
-            </tr>
+${renderSmarticketEmailHeader()}
             <tr>
               <td style="padding:24px;font-family:Arial,Helvetica,sans-serif;">
                 <h1 style="margin:0 0 12px;font-size:20px;color:${TEXT_DARK};">¡Tu compra fue confirmada!</h1>

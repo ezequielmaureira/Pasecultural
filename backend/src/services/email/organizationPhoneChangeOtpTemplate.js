@@ -1,4 +1,5 @@
 import { escapeHtml } from "../../utils/htmlEscape.js";
+import { renderSmarticketEmailHeader } from "./emailBrandHeader.js";
 
 // Verificación de teléfono/WhatsApp de Organización — PASO 1 del flujo de
 // CAMBIO (nunca del alta nueva, que no tiene nada que proteger todavía).
@@ -29,13 +30,7 @@ export function buildOrganizationPhoneChangeOtpEmail({ code, organizationName })
       <tr>
         <td align="center">
           <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="width:480px;max-width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;">
-            <tr>
-              <td style="background-color:#0B1120;padding:20px 24px;">
-                <span style="font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:bold;color:#ffffff;">
-                  Smart<span style="color:#a78bfa;">icket</span>
-                </span>
-              </td>
-            </tr>
+${renderSmarticketEmailHeader()}
             <tr>
               <td style="padding:24px;font-family:Arial,Helvetica,sans-serif;text-align:center;">
                 <h1 style="margin:0 0 12px;font-size:18px;color:${TEXT_DARK};">Cambiar WhatsApp de contacto</h1>
