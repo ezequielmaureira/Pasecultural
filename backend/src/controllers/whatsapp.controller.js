@@ -2,6 +2,7 @@ import { logger } from "../logging/logger.js";
 import prisma from "../config/prisma.js";
 import { isFeatureAvailable, PremiumFeature } from "../services/organizationPlanPolicy.js";
 import {
+    buildWhatsappInboundDiagnostic,
     evaluateWebhookVerification,
     getWhatsappVerifyToken,
     isWhatsappTestModeEnabled,
@@ -1967,12 +1968,20 @@ export const receiveWhatsappWebhook = (req, res) => {
 
     // Nunca se loguea text.body, el nombre del contacto ni el teléfono
     // completo — sólo lo mínimo para confirmar en desarrollo que llegó un
-    // mensaje real.
+    // mensaje real. Diagnóstico de entrega (investigación del saludo
+    // espontáneo — ver buildWhatsappInboundDiagnostic): messageTimestamp es
+    // el instante real en que Meta dice haber enviado el mensaje;
+    // deliveryDelaySeconds compara eso contra receivedAt (ahora) para poder
+    // detectar si Meta está entregando un webhook con retraso real.
     for (const message of messages) {
+        const diagnostic = buildWhatsappInboundDiagnostic(message);
         logger.info("WhatsApp inbound message", {
             messageId: message.messageId,
             type: message.type,
             phoneNumberId: message.phoneNumberId,
+            messageTimestamp: diagnostic.messageTimestamp,
+            receivedAt: diagnostic.receivedAt,
+            deliveryDelaySeconds: diagnostic.deliveryDelaySeconds,
         });
     }
 

@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { evaluateWebhookVerification, parseInboundWhatsappMessages } from "../src/services/whatsapp.service.js";
+import { buildWhatsappInboundDiagnostic, evaluateWebhookVerification, parseInboundWhatsappMessages } from "../src/services/whatsapp.service.js";
 import { receiveWhatsappWebhook } from "../src/controllers/whatsapp.controller.js";
+import { logger } from "../src/logging/logger.js";
 
 // Verificación de teléfono de Organizaciones — auditoría: receiveWhatsappWebhook
 // ahora exige una firma X-Hub-Signature-256 válida (ver
@@ -427,4 +428,112 @@ test("receiveWhatsappWebhook rejects a request with no signature header at all (
     receiveWhatsappWebhook(req, res);
 
     assert.equal(statusSent, 401);
+});
+
+// ==================================================
+// buildWhatsappInboundDiagnostic — diagnóstico de entrega (investigación
+// del saludo espontáneo). Pura, sin I/O — se prueba directo, sin pasar por
+// el webhook.
+// ==================================================
+
+// N.1) timestamp válido -> messageTimestamp ISO correcto + delay correcto.
+test("buildWhatsappInboundDiagnostic converts a valid epoch-seconds timestamp and computes the delay in seconds", () => {
+    const receivedAt = new Date("2026-09-16T17:28:38.020Z");
+    // 2026-09-16T16:15:10.000Z en epoch seconds.
+    const messageTimestampSeconds = Math.floor(new Date("2026-09-16T16:15:10.000Z").getTime() / 1000);
+
+    const diagnostic = buildWhatsappInboundDiagnostic({ timestamp: String(messageTimestampSeconds) }, receivedAt);
+
+    assert.equal(diagnostic.messageTimestamp, "2026-09-16T16:15:10.000Z");
+    assert.equal(diagnostic.receivedAt, "2026-09-16T17:28:38.020Z");
+    // (17:28:38.020 - 16:15:10.000) = 1h13m28.02s = 4408.02s -> redondeado 4408.
+    assert.equal(diagnostic.deliveryDelaySeconds, 4408);
+});
+
+// N.2) timestamp ausente -> null en ambos campos derivados, nunca rompe.
+test("buildWhatsappInboundDiagnostic returns null fields when timestamp is missing", () => {
+    const diagnostic = buildWhatsappInboundDiagnostic({}, new Date("2026-09-16T17:28:38.020Z"));
+
+    assert.equal(diagnostic.messageTimestamp, null);
+    assert.equal(diagnostic.deliveryDelaySeconds, null);
+    assert.equal(diagnostic.receivedAt, "2026-09-16T17:28:38.020Z");
+});
+
+// N.3) timestamp inválido (no numérico, negativo, cero, o con forma rara
+// que Number() aceptaría sin ser epoch seconds real) -> null, nunca rompe.
+test("buildWhatsappInboundDiagnostic returns null fields for any invalid timestamp shape", () => {
+    const receivedAt = new Date("2026-09-16T17:28:38.020Z");
+    const invalidValues = [null, undefined, "", "   ", "not-a-number", "-5", "0", "0x10", "1.5e9", " 1700000000 with junk"];
+
+    for (const value of invalidValues) {
+        const diagnostic = buildWhatsappInboundDiagnostic({ timestamp: value }, receivedAt);
+        assert.equal(diagnostic.messageTimestamp, null, `esperaba null para timestamp=${JSON.stringify(value)}`);
+        assert.equal(diagnostic.deliveryDelaySeconds, null, `esperaba null para timestamp=${JSON.stringify(value)}`);
+    }
+});
+
+// N.4) espacios alrededor de un timestamp válido igual se aceptan (mismo
+// criterio de tolerancia que el resto del parser de WhatsApp).
+test("buildWhatsappInboundDiagnostic tolerates surrounding whitespace on an otherwise valid timestamp", () => {
+    const diagnostic = buildWhatsappInboundDiagnostic({ timestamp: "  1700000000  " }, new Date("2023-11-14T22:14:00.000Z"));
+    assert.equal(diagnostic.messageTimestamp, new Date(1700000000 * 1000).toISOString());
+});
+
+// ==================================================
+// Log "WhatsApp inbound message" extendido — diagnóstico de entrega, sin
+// filtrar nunca contenido del mensaje.
+// ==================================================
+
+// O.1) el log real (vía receiveWhatsappWebhook) incluye los 3 campos nuevos
+// con los valores correctos, y nunca el texto del mensaje.
+test("receiveWhatsappWebhook logs messageTimestamp/receivedAt/deliveryDelaySeconds without ever leaking message text or phone", () => {
+    const originalInfo = logger.info;
+    const calls = [];
+    logger.info = (message, context) => calls.push({ message, context });
+
+    try {
+        const payload = buildTextMessagePayload({ from: "5491122334455" });
+        payload.entry[0].changes[0].value.messages[0].timestamp = "1700000000";
+        payload.entry[0].changes[0].value.messages[0].text.body = "un texto cualquiera que nunca debe loguearse";
+
+        const req = buildSignedReq(payload);
+        const res = { sendStatus: () => {} };
+
+        receiveWhatsappWebhook(req, res);
+
+        const inboundLog = calls.find((c) => c.message === "WhatsApp inbound message");
+        assert.ok(inboundLog, 'esperaba una línea "WhatsApp inbound message"');
+        assert.equal(inboundLog.context.messageId, "wamid.A");
+        assert.equal(inboundLog.context.messageTimestamp, new Date(1700000000 * 1000).toISOString());
+        assert.equal(typeof inboundLog.context.receivedAt, "string");
+        assert.equal(typeof inboundLog.context.deliveryDelaySeconds, "number");
+
+        const serialized = JSON.stringify(inboundLog);
+        assert.ok(!serialized.includes("un texto cualquiera"));
+        assert.ok(!serialized.includes("5491122334455"));
+        assert.ok(!serialized.includes("Elvis Bar"));
+    } finally {
+        logger.info = originalInfo;
+    }
+});
+
+// O.2) un payload de status (sin messages[]) nunca produce ninguna línea
+// "WhatsApp inbound message" — el diagnóstico nuevo no cambia esto.
+test("receiveWhatsappWebhook never logs \"WhatsApp inbound message\" for a status-only payload", () => {
+    const originalInfo = logger.info;
+    const calls = [];
+    logger.info = (message, context) => calls.push({ message, context });
+
+    try {
+        const req = buildSignedReq({
+            entry: [{ changes: [{ value: { statuses: [{ id: "wamid.A", status: "read", timestamp: "1700000000" }] } }] }],
+        });
+        const res = { sendStatus: () => {} };
+
+        receiveWhatsappWebhook(req, res);
+
+        assert.equal(calls.filter((c) => c.message === "WhatsApp inbound message").length, 0);
+    } finally {
+        logger.info = originalInfo;
+    }
 });

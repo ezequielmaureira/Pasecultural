@@ -466,3 +466,31 @@ export function parseInboundWhatsappMessages(body) {
 
     return messages;
 }
+
+// Diagnóstico de entrega — puro, sin I/O, NUNCA lanza. Investigación del
+// saludo espontáneo (GREETING inesperado ~1h después de una publicación
+// exitosa): sospecha de que Meta entrega tarde un webhook. Meta manda
+// `message.timestamp` como epoch Unix en SEGUNDOS, siempre como string
+// (ya preservado tal cual por normalizeMessage/toNullableString de arriba).
+// Se valida con una regex estricta de sólo dígitos antes de convertir —
+// nunca se confía en Number() solo, que acepta formas raras ("0x10",
+// notación científica, espacios) que no son epoch seconds real. Un
+// timestamp ausente/vacío/no numérico/<=0 deja messageTimestamp y
+// deliveryDelaySeconds en null, sin romper nunca el webhook.
+export function buildWhatsappInboundDiagnostic(message, receivedAt = new Date()) {
+    const receivedAtIso = receivedAt.toISOString();
+    const rawTimestamp = message?.timestamp;
+    const isValidEpochSeconds = typeof rawTimestamp === "string" && /^\d+$/.test(rawTimestamp.trim());
+    const epochSeconds = isValidEpochSeconds ? Number(rawTimestamp.trim()) : NaN;
+
+    if (!Number.isFinite(epochSeconds) || epochSeconds <= 0) {
+        return { messageTimestamp: null, receivedAt: receivedAtIso, deliveryDelaySeconds: null };
+    }
+
+    const messageTimestampMs = epochSeconds * 1000;
+    return {
+        messageTimestamp: new Date(messageTimestampMs).toISOString(),
+        receivedAt: receivedAtIso,
+        deliveryDelaySeconds: Math.round((receivedAt.getTime() - messageTimestampMs) / 1000),
+    };
+}
