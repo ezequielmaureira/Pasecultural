@@ -13,6 +13,8 @@
 // crear/editar/publicar un evento (ver informe de entrega, sección "Fallo
 // del geocoder").
 
+import { logger } from "../logging/logger.js";
+
 const GEOCODING_TIMEOUT_MS = 5000;
 const DEFAULT_COUNTRY = "Argentina";
 
@@ -48,19 +50,41 @@ async function requestGeocode(queryAddress, apiKey) {
 
     try {
         const response = await fetch(url, { signal: controller.signal });
-        if (!response.ok) return null;
+        if (!response.ok) {
+            // DIAGNÓSTICO TEMPORAL (ver informe de entrega) — nunca loguea la
+            // key ni la URL, sólo el status HTTP.
+            logger.warn("GOOGLE_GEOCODING_HTTP_ERROR", { status: response.status });
+            return null;
+        }
 
         const payload = await response.json();
         // "OK" es el único status que trae resultados usables — cualquier
         // otro (ZERO_RESULTS, OVER_QUERY_LIMIT, REQUEST_DENIED,
         // INVALID_REQUEST, UNKNOWN_ERROR) se trata igual: sin resultado.
         if (payload?.status !== "OK" || !Array.isArray(payload.results) || payload.results.length === 0) {
+            // DIAGNÓSTICO TEMPORAL — no cambia la condición de arriba, sólo
+            // clasifica el motivo del `null` sin exponer address/queryAddress.
+            if (payload?.status !== "OK") {
+                logger.warn("GOOGLE_GEOCODING_API_STATUS", { status: payload?.status });
+                // error_message es texto fijo de Google (nunca la key), pero
+                // por las dudas nunca se loguea si por algún motivo contuviera
+                // la key.
+                if (typeof payload?.error_message === "string" && payload.error_message && !payload.error_message.includes(apiKey)) {
+                    logger.warn("GOOGLE_GEOCODING_API_ERROR", { message: payload.error_message });
+                }
+            } else {
+                logger.warn("GOOGLE_GEOCODING_INVALID_RESULT");
+            }
             return null;
         }
 
         const [result] = payload.results;
         const location = result?.geometry?.location;
-        if (typeof location?.lat !== "number" || typeof location?.lng !== "number") return null;
+        if (typeof location?.lat !== "number" || typeof location?.lng !== "number") {
+            // DIAGNÓSTICO TEMPORAL — mismo caso "OK pero sin geometry usable".
+            logger.warn("GOOGLE_GEOCODING_INVALID_RESULT");
+            return null;
+        }
 
         return {
             latitude: location.lat,
@@ -68,8 +92,11 @@ async function requestGeocode(queryAddress, apiKey) {
             formattedAddress: typeof result.formatted_address === "string" ? result.formatted_address : null,
             googlePlaceId: typeof result.place_id === "string" ? result.place_id : null,
         };
-    } catch {
+    } catch (err) {
         // Timeout (AbortError), error de red, o JSON inválido — todos caen acá.
+        // DIAGNÓSTICO TEMPORAL — sólo el nombre del error (p.ej. "AbortError"),
+        // nunca el mensaje completo (podría incluir la URL con la key).
+        logger.warn("GOOGLE_GEOCODING_REQUEST_ERROR", { type: err?.name });
         return null;
     } finally {
         clearTimeout(timeoutId);
@@ -85,7 +112,12 @@ export async function geocodeAddress({ address, city, province, country } = {}) 
     if (!address || !city || !province) return null;
 
     const apiKey = getGoogleMapsServerApiKey();
-    if (!apiKey) return null;
+    if (!apiKey) {
+        // DIAGNÓSTICO TEMPORAL (ver informe de entrega) — nunca loguea la key,
+        // sólo el hecho de que falta.
+        logger.warn("GOOGLE_GEOCODING_KEY_MISSING");
+        return null;
+    }
 
     const queryAddress = buildQueryAddress({ address, city, province, country });
     return requestGeocode(queryAddress, apiKey);
