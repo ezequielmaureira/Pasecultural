@@ -13,9 +13,8 @@
 #
 # node:22-slim (Debian, no Alpine) a propósito: el proyecto no fija una
 # versión de Node en package.json ("engines" ausente); se eligió el LTS
-# activo más reciente al momento de esta prueba. Debian (glibc) evita
-# problemas de compatibilidad del binding nativo de `bcrypt` con musl
-# (Alpine) sin tener que instalar toolchain de compilación extra.
+# activo más reciente al momento de esta prueba. Debian (glibc) es la base
+# actualmente validada para este backend.
 FROM node:22-slim
 
 WORKDIR /app

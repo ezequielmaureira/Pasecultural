@@ -17,7 +17,6 @@
   "dependencies": {
     "@clerk/express": "^2.1.40",
     "@prisma/client": "^6.19.3",
-    "bcrypt": "^6.0.0",
     "cloudinary": "^2.10.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
@@ -25,7 +24,6 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.2.0",
     "pdfkit": "^0.19.1",
-    "pg": "^8.22.0",
     "prisma": "^6.19.3",
     "qrcode": "^1.5.4",
     "resend": "^6.18.1"
