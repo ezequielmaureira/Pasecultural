@@ -132,16 +132,24 @@ function appendHistory(history, stepId) {
 // state al hacer commit (ver handlePreviewInput más abajo). `null` (default)
 // reproduce exactamente el comportamiento legacy que ya usa Web
 // (conversation.controller.js no manda este campo).
-export async function start({ clerkId, channel, channelRef, organizationId = null }) {
+// `initialStepId` (Fest Pass, WhatsApp) — único parámetro nuevo: default
+// FIRST_STEP_ID reproduce exactamente el comportamiento de siempre (Web
+// nunca lo manda, conversation.controller.js no cambia). Se valida con
+// getStep ANTES de escribir en Prisma — un stepId inexistente nunca debe
+// poder crear un ConversationState roto que después reviente en el primer
+// buildPrompt/handleInput.
+export async function start({ clerkId, channel, channelRef, organizationId = null, initialStepId = FIRST_STEP_ID }) {
+    getStep(initialStepId);
+
     const state = await prisma.conversationState.create({
         data: {
             userId: clerkId ?? null,
             channel,
             channelRef,
             organizationId,
-            currentStepId: FIRST_STEP_ID,
+            currentStepId: initialStepId,
             draftEvent: {},
-            history: [FIRST_STEP_ID],
+            history: [initialStepId],
             status: "ACTIVE",
         },
     });

@@ -67,6 +67,33 @@ export function buildWhatsappImageUploadErrorText(reason) {
     return IMAGE_UPLOAD_ERROR_TEXTS[reason] ?? "No pudimos procesar esa imagen. Probá enviarla de nuevo.";
 }
 
+// Fest Pass — el step actual no es VIDEO_UPLOAD pero llegó un video (ej.
+// todavía está en COVER_IMAGE). Mismo criterio que WHATSAPP_IMAGE_NOT_EXPECTED_TEXT:
+// nunca se procesa ni se le pasa al motor, se re-muestra el prompt vigente.
+export const WHATSAPP_VIDEO_NOT_EXPECTED_TEXT = "En este paso no necesito un video.";
+
+// El step SÍ es VIDEO_UPLOAD pero llegó texto/imagen/ubicación/audio/
+// documento/sticker en vez de un video — nunca se le pasa eso al motor
+// (inputHandlers/videoUpload.js sólo entiende {url, publicId} ya subido).
+export const WHATSAPP_VIDEO_REQUIRED_TEXT = "Mandame un video para continuar.";
+
+// `reason` viene siempre de uploadWhatsappVideoMessage (whatsappMediaUpload.service.js)
+// — mismo criterio que buildWhatsappImageUploadErrorText: nunca se expone el
+// código técnico crudo al usuario.
+const VIDEO_UPLOAD_ERROR_TEXTS = {
+    MISSING_MEDIA_ID: "No pudimos leer ese video. Probá enviarlo de nuevo.",
+    INVALID_MIME_TYPE: "El formato del video no es compatible. Mandame un video MP4, MOV o WEBM.",
+    FILE_TOO_LARGE: "El video es demasiado pesado. El máximo permitido es 100 MB.",
+    META_METADATA_ERROR: "No pude descargar el video desde WhatsApp. Probá enviándolo nuevamente.",
+    META_DOWNLOAD_ERROR: "No pude descargar el video desde WhatsApp. Probá enviándolo nuevamente.",
+    CLOUDINARY_ERROR: "No pude subir el video. Probá nuevamente.",
+    VIDEO_TOO_LONG: "El video no puede superar los 30 segundos.",
+};
+
+export function buildWhatsappVideoUploadErrorText(reason) {
+    return VIDEO_UPLOAD_ERROR_TEXTS[reason] ?? "No pude subir el video. Probá nuevamente.";
+}
+
 // ==================================================================
 // Fase 3D — ubicación conversacional: al llegar al step LOCATION, WhatsApp
 // pregunta PRIMERO cómo cargarla (compartir vs dirección manual paso a
@@ -839,7 +866,8 @@ export const WHATSAPP_PREVIEW_INVALID_TEXT =
 export function buildWhatsappPublicEventUrl(event) {
     const base = process.env.FRONTEND_URL?.trim()?.replace(/\/+$/, "");
     if (!base || !event?.slug) return null;
-    return `${base}/evento/${event.slug}`;
+    const path = event.quickPassEnabled ? "fest-pass" : "evento";
+    return `${base}/${path}/${event.slug}`;
 }
 
 // ==================================================================
@@ -861,7 +889,9 @@ const SUMMARY_MAX_FUNCTIONS = 10;
 const SUMMARY_MAX_TICKET_TYPES = 10;
 
 export function buildWhatsappEventSummaryText(draft) {
-    const lines = ["📋 RESUMEN DEL EVENTO", "", `🎭 Nombre: ${draft.title || "Sin nombre"}`];
+    const lines = ["📋 RESUMEN DEL EVENTO", ""];
+    if (draft.quickPassEnabled) lines.push("⚡ Tipo: Fest Pass");
+    lines.push(`🎭 Nombre: ${draft.title || "Sin nombre"}`);
 
     if (draft.description) lines.push(`📝 Descripción: ${draft.description}`);
     lines.push(`🖼️ Imagen: ${draft.coverImage ? "Cargada ✅" : "No cargada"}`);
@@ -898,6 +928,10 @@ export function buildWhatsappEventSummaryText(draft) {
     }
 
     lines.push("", `🎬 YouTube: ${draft.promoVideoUrl ? "Sí" : "No"}`);
+    // Campos distintos a propósito (ver FEST_PASS_VIDEO_UPLOAD/PROMO_VIDEO_URL
+    // en steps/definitions.js): YouTube es promoVideoUrl, el fondo del Fest
+    // Pass es quickPassVideoUrl — nunca se muestran como si fueran lo mismo.
+    if (draft.quickPassEnabled) lines.push(`🎥 Video de fondo: ${draft.quickPassVideoUrl ? "Sí" : "No"}`);
     lines.push(`📱 Redes sociales: ${draft.socialLinks?.length ? "Sí" : "No"}`);
 
     return lines.join("\n");

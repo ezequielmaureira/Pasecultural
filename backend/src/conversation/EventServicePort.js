@@ -137,6 +137,18 @@ export async function commit(clerkId, draftEvent, action, organizationId = null)
                 // (incluido undefined, si el organizador todavía no llegó a
                 // ese paso) preserva el default TICKETED de siempre.
                 admissionType: draftEvent.admissionType,
+                // Fest Pass (WhatsApp) — los 4 campos ya existen en el Event
+                // (UPDATABLE_FIELDS, event.service.js) y ya validan su propia
+                // invariante ahí (assertQuickPassInvariant); acá sólo se
+                // transportan del draft, sin reimplementar ninguna regla.
+                // `undefined` cuando el draft nunca pasó por EVENT_CREATION_TYPE
+                // (evento tradicional legacy/Web) preserva el default de
+                // siempre — nunca fuerza quickPassEnabled=false explícito
+                // donde antes no se mandaba nada.
+                quickPassEnabled: draftEvent.quickPassEnabled,
+                quickPassImageUrl: draftEvent.quickPassImageUrl,
+                quickPassVideoUrl: draftEvent.quickPassVideoUrl,
+                quickPassVideoPublicId: draftEvent.quickPassVideoPublicId,
             },
             organizationId,
             { context, developerAlertConfig }

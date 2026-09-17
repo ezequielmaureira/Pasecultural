@@ -92,6 +92,35 @@ function generateRecurringSlots(from, to, weekdays, schedules) {
 }
 
 export const STEPS = {
+    // Exclusivo del arranque de WhatsApp (ver EventCreationEngine.start
+    // #initialStepId) — Web nunca llega acá porque su propio start() sigue
+    // usando FIRST_STEP_ID=NAME como default y ningún otro step.next()
+    // apunta a este. `_creationType` es bookkeeping puro (mismo criterio que
+    // `_ticketDraft`/`_functionsDraft`): nunca viaja a EventServicePort.commit,
+    // sólo sirve para que este mismo setValue sepa qué acaba de elegirse.
+    // Fest Pass deja el draft YA armado como si hubiera pasado por
+    // EVENT_PRICING_TYPE#PAID (mismos 4 campos, ver ese step) — así
+    // FUNCTIONS_LIST puede saltar directo a TICKET_NAME sin volver a
+    // preguntar "¿gratis o pago?".
+    EVENT_CREATION_TYPE: {
+        id: "EVENT_CREATION_TYPE",
+        section: "INFO",
+        inputType: "SINGLE_SELECT",
+        buildPrompt: () => ({
+            text: "🎟️ ¿Qué querés crear?",
+            options: [
+                { id: "FEST_PASS", label: "Fest Pass ⚡" },
+                { id: "TRADITIONAL", label: "Evento tradicional" },
+            ],
+        }),
+        getValue: (draft) => draft._creationType,
+        setValue: (draft, value) =>
+            value === "FEST_PASS"
+                ? { ...draft, _creationType: value, quickPassEnabled: true, admissionType: "TICKETED", hasTickets: true, pricingType: "PAID" }
+                : { ...draft, _creationType: value, quickPassEnabled: false },
+        next: () => "NAME",
+    },
+
     NAME: {
         id: "NAME",
         section: "INFO",
@@ -142,7 +171,12 @@ export const STEPS = {
         editReturnsToPreview: true,
         buildPrompt: () => ({ text: "Mandame la imagen principal de tu evento." }),
         getValue: (draft) => draft.coverImage,
-        setValue: (draft, value) => ({ ...draft, coverImage: value }),
+        // Fest Pass usa UNA sola foto: la misma URL sirve como coverImage
+        // (feed/detalle normal del evento) y como quickPassImageUrl (poster/
+        // fondo de fallback del Fest Pass, ver EventServicePort.commit) — sin
+        // segundo upload, sin segunda pregunta. Evento tradicional intacto.
+        setValue: (draft, value) =>
+            draft.quickPassEnabled ? { ...draft, coverImage: value, quickPassImageUrl: value } : { ...draft, coverImage: value },
         next: () => "LOCATION",
     },
 
@@ -273,7 +307,11 @@ export const STEPS = {
         // pierde acá, retroceder más allá de este paso deja esas tres
         // preguntas sin nada que precargar.
         setValue: (draft, value) => ({ ...draft, functions: value }),
-        next: () => "EVENT_PRICING_TYPE",
+        // Fest Pass ya quedó configurado como TICKETED/PAID en
+        // EVENT_CREATION_TYPE — preguntar "¿gratis o pago?" de nuevo acá
+        // sería redundante (y permitiría contradecir esa elección), así que
+        // salta directo a cargar la primera entrada.
+        next: (draft) => (draft.quickPassEnabled ? "TICKET_NAME" : "EVENT_PRICING_TYPE"),
     },
 
     // Primero preguntamos gratis/pago (cómo piensa el organizador su evento)
@@ -476,7 +514,55 @@ export const STEPS = {
         // borrador (con él, su _key) para que la próxima entrada no herede
         // la identidad de la anterior.
         setValue: (draft, value) => ({ ...draft, _ticketDraft: value === "ADD" ? {} : draft._ticketDraft }),
-        next: (draft, value) => (value === "ADD" ? "TICKET_NAME" : "PROMO_VIDEO_ASK"),
+        // Fest Pass reemplaza la pregunta Sí/No de PROMO_VIDEO_ASK por un
+        // selector de 3 opciones (subir video de fondo / YouTube / nada) —
+        // ver FEST_PASS_VIDEO_CHOICE. Evento tradicional intacto.
+        next: (draft, value) => {
+            if (value !== "CONTINUE") return "TICKET_NAME";
+            return draft.quickPassEnabled ? "FEST_PASS_VIDEO_CHOICE" : "PROMO_VIDEO_ASK";
+        },
+    },
+
+    // Exclusivo de Fest Pass (sólo alcanzable desde ADD_ANOTHER_TICKET
+    // cuando quickPassEnabled). promoVideoUrl (YouTube) y quickPassVideoUrl
+    // (fondo animado del Fest Pass, ver FEST_PASS_VIDEO_UPLOAD) son campos
+    // completamente distintos — elegir "YOUTUBE" acá reusa PROMO_VIDEO_URL
+    // tal cual, sin tocar ningún campo Quick Pass.
+    FEST_PASS_VIDEO_CHOICE: {
+        id: "FEST_PASS_VIDEO_CHOICE",
+        section: "VIDEO",
+        inputType: "SINGLE_SELECT",
+        buildPrompt: () => ({
+            text: "🎥 ¿Querés agregar un video?",
+            options: [
+                { id: "UPLOAD", label: "Subir video para Fest Pass" },
+                { id: "YOUTUBE", label: "Usar link de YouTube" },
+                { id: "SKIP", label: "Continuar sin video" },
+            ],
+        }),
+        getValue: () => undefined,
+        setValue: (draft) => draft,
+        next: (draft, value) => {
+            if (value === "UPLOAD") return "FEST_PASS_VIDEO_UPLOAD";
+            if (value === "YOUTUBE") return "PROMO_VIDEO_URL";
+            return "SOCIAL_LINKS_ASK";
+        },
+    },
+
+    // No hace uploads: sólo recibe {url, publicId} ya validado y subido por
+    // el adaptador de WhatsApp (ver whatsappMediaUpload.service.js
+    // #uploadWhatsappVideoMessage e inputHandlers/videoUpload.js). El video
+    // es opcional y nunca reemplaza quickPassImageUrl (que sigue siendo
+    // obligatoria desde COVER_IMAGE) — es el fondo animado, la imagen sigue
+    // siendo el poster/fallback.
+    FEST_PASS_VIDEO_UPLOAD: {
+        id: "FEST_PASS_VIDEO_UPLOAD",
+        section: "VIDEO",
+        inputType: "VIDEO_UPLOAD",
+        buildPrompt: () => ({ text: "Mandame el video que querés usar como fondo de tu Fest Pass." }),
+        getValue: (draft) => (draft.quickPassVideoUrl ? { url: draft.quickPassVideoUrl, publicId: draft.quickPassVideoPublicId } : undefined),
+        setValue: (draft, value) => ({ ...draft, quickPassVideoUrl: value.url, quickPassVideoPublicId: value.publicId }),
+        next: () => "SOCIAL_LINKS_ASK",
     },
 
     PROMO_VIDEO_ASK: {

@@ -1,5 +1,14 @@
 import { fetchWhatsappMediaMetadata, downloadWhatsappMedia } from "./whatsapp.service.js";
-import { uploadImageService, ALLOWED_IMAGE_MIME_TYPES, MAX_IMAGE_FILE_SIZE } from "./media.service.js";
+import {
+    uploadImageService,
+    ALLOWED_IMAGE_MIME_TYPES,
+    MAX_IMAGE_FILE_SIZE,
+    uploadVideoService,
+    deleteVideoService,
+    isVideoDurationWithinLimit,
+    ALLOWED_VIDEO_MIME_TYPES,
+    MAX_VIDEO_FILE_SIZE,
+} from "./media.service.js";
 import { logger } from "../logging/logger.js";
 
 // Bug fix (carga de imagen del evento) — único punto que conecta
@@ -67,4 +76,82 @@ export async function uploadWhatsappImageMessage(
         logger.warn("whatsapp media upload: Cloudinary rechazó la imagen", { reason: "CLOUDINARY_ERROR" });
         return { success: false, reason: "CLOUDINARY_ERROR" };
     }
+}
+
+// Fest Pass — video de fondo, mismo orquestador exacto que
+// uploadWhatsappImageMessage (Meta Media API -> descarga -> validación ->
+// Cloudinary), reusando fetchWhatsappMediaMetadata/downloadWhatsappMedia
+// (ya genéricos, sirven para cualquier media type) y las mismas
+// constantes/servicios de media.service.js que ya usa el upload Web de
+// video (ALLOWED_VIDEO_MIME_TYPES/MAX_VIDEO_FILE_SIZE/uploadVideoService/
+// deleteVideoService/isVideoDurationWithinLimit) — nunca un segundo
+// whitelist ni una segunda config de Cloudinary. Única diferencia real con
+// el camino de imagen: Cloudinary sólo informa la DURACIÓN real después de
+// subir el archivo (no antes, a diferencia del tamaño/MIME que Meta ya
+// adelanta), así que la validación de duración es la única que puede
+// obligar a un delete post-upload (deleteVideoService) — un video que ya
+// se subió pero excede MAX_VIDEO_DURATION_SECONDS nunca queda huérfano en
+// Cloudinary.
+export async function uploadWhatsappVideoMessage(
+    mediaId,
+    {
+        getMetadata = fetchWhatsappMediaMetadata,
+        downloadMedia = downloadWhatsappMedia,
+        uploadToCloudinary = uploadVideoService,
+        deleteFromCloudinary = deleteVideoService,
+    } = {}
+) {
+    if (!mediaId) {
+        return { success: false, reason: "MISSING_MEDIA_ID" };
+    }
+
+    const metadata = await getMetadata(mediaId);
+    if (!metadata.success || !metadata.url) {
+        logger.warn("whatsapp media upload: no se pudo leer la metadata del video", { reason: "META_METADATA_ERROR" });
+        return { success: false, reason: "META_METADATA_ERROR" };
+    }
+
+    if (!ALLOWED_VIDEO_MIME_TYPES.has(metadata.mimeType)) {
+        return { success: false, reason: "INVALID_MIME_TYPE" };
+    }
+    if (typeof metadata.fileSize === "number" && metadata.fileSize > MAX_VIDEO_FILE_SIZE) {
+        return { success: false, reason: "FILE_TOO_LARGE" };
+    }
+
+    const download = await downloadMedia(metadata.url);
+    if (!download.success || !download.buffer) {
+        logger.warn("whatsapp media upload: no se pudo descargar el video desde Meta", { reason: "META_DOWNLOAD_ERROR" });
+        return { success: false, reason: "META_DOWNLOAD_ERROR" };
+    }
+
+    if (download.buffer.byteLength > MAX_VIDEO_FILE_SIZE) {
+        return { success: false, reason: "FILE_TOO_LARGE" };
+    }
+    if (download.contentType && !ALLOWED_VIDEO_MIME_TYPES.has(download.contentType)) {
+        return { success: false, reason: "INVALID_MIME_TYPE" };
+    }
+
+    let uploaded;
+    try {
+        uploaded = await uploadToCloudinary(download.buffer);
+    } catch (error) {
+        logger.warn("whatsapp media upload: Cloudinary rechazó el video", { reason: "CLOUDINARY_ERROR" });
+        return { success: false, reason: "CLOUDINARY_ERROR" };
+    }
+    if (!uploaded?.secure_url || !uploaded?.public_id) {
+        return { success: false, reason: "CLOUDINARY_ERROR" };
+    }
+
+    // Único chequeo posible recién DESPUÉS de subir: Cloudinary es la única
+    // fuente confiable de la duración real (nunca la del cliente/WhatsApp).
+    if (!isVideoDurationWithinLimit(uploaded.duration)) {
+        try {
+            await deleteFromCloudinary(uploaded.public_id);
+        } catch (deleteError) {
+            logger.warn("whatsapp media upload: no se pudo borrar el video demasiado largo de Cloudinary", { reason: "VIDEO_TOO_LONG" });
+        }
+        return { success: false, reason: "VIDEO_TOO_LONG" };
+    }
+
+    return { success: true, url: uploaded.secure_url, publicId: uploaded.public_id, duration: uploaded.duration };
 }

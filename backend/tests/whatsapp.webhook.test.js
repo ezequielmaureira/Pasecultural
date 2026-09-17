@@ -111,6 +111,7 @@ test("parseInboundWhatsappMessages normalizes a valid text message", () => {
         text: "Hola",
         image: null,
         location: null,
+        video: null,
         profileName: "Elvis Bar",
         phoneNumberId: "PHONE_ID_1",
     });

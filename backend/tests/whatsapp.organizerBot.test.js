@@ -418,6 +418,7 @@ test("Caso A) single matching organization + 'S铆' calls EventCreationEngine.sta
         channel: "WHATSAPP",
         channelRef: "5491100001111",
         organizationId: "org_1",
+        initialStepId: "EVENT_CREATION_TYPE",
     });
     assert.equal(sendCalls[0].text, "驴C贸mo se llama tu evento?");
 });
@@ -435,6 +436,7 @@ test("Caso A) single matching organization + '1' (numbered S铆) calls EventCreat
         channel: "WHATSAPP",
         channelRef: "5491100001111",
         organizationId: "org_1",
+        initialStepId: "EVENT_CREATION_TYPE",
     });
     assert.equal(sendCalls[0].text, "驴C贸mo se llama tu evento?");
 });
@@ -623,6 +625,7 @@ test("REGRESSION end-to-end: Cine Nadia + La Taberna de Mou (mismo tel茅fono) 鈥
         channel: "WHATSAPP",
         channelRef: FROM,
         organizationId: "org_la_taberna_real_id",
+        initialStepId: "EVENT_CREATION_TYPE",
     });
     assert.equal(deps3.clearPendingSelection.calls.length, 1);
     // FASE 3K sigue normalmente: la siguiente pregunta es la primera del
@@ -665,6 +668,7 @@ test("pending AWAITING_SELECTION + a valid index persists the selection and star
         channel: "WHATSAPP",
         channelRef: "5491100003333",
         organizationId: "org_2",
+        initialStepId: "EVENT_CREATION_TYPE",
     });
     // La conversaci贸n nunca arranca dos veces para una sola elecci贸n.
     assert.equal(deps.startConversation.calls.length, 1);

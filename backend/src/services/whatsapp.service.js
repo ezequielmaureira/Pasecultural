@@ -79,6 +79,21 @@ function normalizeImage(message) {
 // mensaje. Se validan explícitamente como `number` (nunca se asume el tipo
 // del payload) y se descarta el mensaje (`null`) si falta cualquiera de las
 // dos coordenadas — sin lat/lng no hay "ubicación" posible.
+// Fest Pass — mismo patrón exacto que normalizeImage: sólo se conservan
+// id/mime_type/sha256/caption, nunca la URL temporal de Meta (eso vive
+// exclusivamente dentro de fetchWhatsappMediaMetadata) ni ningún otro campo
+// del payload. `id` es lo único imprescindible para uploadWhatsappVideoMessage.
+function normalizeVideo(message) {
+    const video = message?.video;
+    if (!video?.id) return null;
+    return {
+        id: toNullableString(video.id),
+        mimeType: toNullableString(video.mime_type),
+        sha256: toNullableString(video.sha256),
+        caption: toNullableString(video.caption),
+    };
+}
+
 function normalizeLocation(message) {
     const location = message?.location;
     if (typeof location?.latitude !== "number" || typeof location?.longitude !== "number") return null;
@@ -110,6 +125,8 @@ function normalizeMessage(message, value) {
         image: type === "image" ? normalizeImage(message) : null,
         // Idem para type==="location".
         location: type === "location" ? normalizeLocation(message) : null,
+        // Idem para type==="video" (Fest Pass, video de fondo).
+        video: type === "video" ? normalizeVideo(message) : null,
         profileName: findProfileName(value?.contacts, from),
         phoneNumberId: toNullableString(value?.metadata?.phone_number_id),
     };

@@ -14,6 +14,7 @@ import {
 import { getWhatsappAppSecret, verifyWhatsappWebhookSignature } from "../config/whatsappWebhookSignature.js";
 import { parseOrganizationPhoneConfirmationMessage, confirmOrganizationPhoneFromWebhook } from "../services/organizationPhoneVerification.service.js";
 import * as EventCreationEngine from "../conversation/EventCreationEngine.js";
+import { FEST_PASS_PRICE_REQUIRED_ERROR } from "../conversation/inputHandlers/price.js";
 // Fase 2F, legacy — whatsappOrganizerIdentity.service.js/
 // createOrReuseWhatsappLinkChallenge ya no se importan acá: el flujo de
 // código de 6 dígitos dejó de ofrecerse desde WhatsApp Organizer (ver
@@ -43,6 +44,9 @@ import {
     WHATSAPP_SELECTION_INVALID_TEXT,
     WHATSAPP_IMAGE_NOT_EXPECTED_TEXT,
     WHATSAPP_IMAGE_REQUIRED_TEXT,
+    WHATSAPP_VIDEO_NOT_EXPECTED_TEXT,
+    WHATSAPP_VIDEO_REQUIRED_TEXT,
+    buildWhatsappVideoUploadErrorText,
     WHATSAPP_LOCATION_NOT_EXPECTED_TEXT,
     WHATSAPP_LOCATION_INSUFFICIENT_TEXT,
     WHATSAPP_LOCATION_METHOD_PROMPT_TEXT,
@@ -92,7 +96,7 @@ import {
     resolveWhatsappTicketNameOptionId,
     buildWhatsappTicketComboInvalidText,
 } from "../services/whatsappOrganizerBot.service.js";
-import { uploadWhatsappImageMessage } from "../services/whatsappMediaUpload.service.js";
+import { uploadWhatsappImageMessage, uploadWhatsappVideoMessage } from "../services/whatsappMediaUpload.service.js";
 import {
     getPendingStepInput,
     resetPendingStepInput,
@@ -1028,9 +1032,16 @@ async function tryHandleTicketComboSubflow({ conversationId, text, reply, handle
 
     result = await handleConversationInput(conversationId, { value: parsed.price });
     if (result?.prompt?.error) {
-        // No debería pasar nunca (parseWhatsappTicketPriceText ya exige un
-        // entero >= 0, la misma regla real de inputHandlers/price.js).
-        await reply(buildWhatsappTicketComboInvalidText(), "TICKET_COMBO_PRICE_REJECTED");
+        // Ya no es "nunca" para el caso puntual de Fest Pass (ver
+        // inputHandlers/price.js#FEST_PASS_PRICE_REQUIRED_ERROR): un precio
+        // con formato válido para parseWhatsappTicketComboText (>= 0) puede
+        // igual ser rechazado acá por esa regla (quickPassEnabled exige > 0)
+        // — ahí sí se relaya el error real del motor para que el organizador
+        // entienda POR QUÉ. Cualquier OTRO error defensivo/inesperado en
+        // este punto conserva el mensaje genérico de siempre (nunca debería
+        // pasar en la práctica, ver comentario histórico de este archivo).
+        const text = result.prompt.error === FEST_PASS_PRICE_REQUIRED_ERROR ? extractWhatsappReplyText(result) : buildWhatsappTicketComboInvalidText();
+        await reply(text, "TICKET_COMBO_PRICE_REJECTED");
         return { handled: true };
     }
 
@@ -1215,6 +1226,7 @@ export async function processInboundMessage(
         // arriba en este archivo para la implementación real (default).
         getOrganizationPlanForWhatsapp: getOrganizationPlanForWhatsappDep = getOrganizationPlanForWhatsapp,
         uploadImage = uploadWhatsappImageMessage,
+        uploadVideo = uploadWhatsappVideoMessage,
         getPendingStepInput: getPendingStepInputDep = getPendingStepInput,
         resetPendingStepInput: resetPendingStepInputDep = resetPendingStepInput,
         updatePendingStepInputStatus: updatePendingStepInputStatusDep = updatePendingStepInputStatus,
@@ -1233,20 +1245,37 @@ export async function processInboundMessage(
     // es la única condición adicional, explícita, para dejar pasar un
     // mensaje de imagen con un media id real.
     const isProcessableImage = message?.type === "image" && Boolean(message.image?.id);
+    // Fest Pass — mismo criterio aditivo exacto que isProcessableImage: un
+    // mensaje type==="video" también queda descartado por shouldAutoReply
+    // si no se lo deja pasar explícito acá.
+    const isProcessableVideo = message?.type === "video" && Boolean(message.video?.id);
     // Bug fix (ubicación por WhatsApp Location): mismo criterio aditivo que
     // isProcessableImage — un mensaje type==="location" también queda
     // descartado por shouldAutoReply si no se lo deja pasar explícito acá.
     const isProcessableLocation = message?.type === "location" && Boolean(message.location);
     // Bug fix (imagen esperada en WhatsApp): cualquier OTRO tipo de mensaje
-    // (video/audio/documento/sticker/contacts/etc. — nunca text/image/
+    // (audio/documento/sticker/contacts/etc. — nunca text/image/video/
     // location, que ya tienen su propio camino) también queda descartado
     // por shouldAutoReply. Antes de este fix se ignoraba en silencio incluso
     // cuando el organizador estaba parado justo en COVER_IMAGE (IMAGE_URL);
     // se deja pasar acá para poder revisar el step real más abajo y, sólo
-    // en ese caso puntual, pedir explícitamente una foto.
+    // en ese caso puntual, pedir explícitamente una foto (o un video, ver
+    // Fest Pass/VIDEO_UPLOAD — a diferencia de isProcessableImage/image (un
+    // type==="image" SIEMPRE queda afuera de isOtherMediaType, tenga o no
+    // media id real, y un id faltante se ignora en silencio, ver
+    // whatsapp.imageUpload.controller.test.js), un video malformado (sin
+    // media id real) preserva el comportamiento histórico previo a Fest
+    // Pass: sigue cayendo acá como "otro tipo de media" (pide la foto/video
+    // según el step real, ver whatsapp.imageRequired.controller.test.js).
+    // Sólo un video PROCESABLE (con id real) sale de este bucket, hacia su
+    // propia rama dedicada más abajo.
     const isOtherMediaType =
-        typeof message?.type === "string" && message.type !== "text" && message.type !== "image" && message.type !== "location";
-    if (!shouldAutoReply(message) && !isProcessableImage && !isProcessableLocation && !isOtherMediaType) return;
+        typeof message?.type === "string" &&
+        message.type !== "text" &&
+        message.type !== "image" &&
+        message.type !== "location" &&
+        !isProcessableVideo;
+    if (!shouldAutoReply(message) && !isProcessableImage && !isProcessableVideo && !isProcessableLocation && !isOtherMediaType) return;
 
     // channelRef identifica la conversación de forma estable por el wa_id
     // de origen — SIEMPRE el número tal cual lo manda Meta (message.from),
@@ -1370,6 +1399,45 @@ export async function processInboundMessage(
             return;
         }
 
+        // Fest Pass — mismo patrón exacto que isProcessableImage: sólo tiene
+        // sentido subir un video si hay conversación activa Y el step real
+        // vigente es justo VIDEO_UPLOAD (FEST_PASS_VIDEO_UPLOAD). Si llega un
+        // video en cualquier otro step (incluido COVER_IMAGE) NUNCA se sube
+        // ni se toca Cloudinary/el motor — se responde con el prompt vigente
+        // (aclarando "necesito una foto, no un video" si el step es
+        // justamente COVER_IMAGE).
+        if (isProcessableVideo) {
+            if (!active) return;
+            if (await blockIfWhatsappEventCreationUnavailable(active, reply, getOrganizationPlanForWhatsappDep)) return;
+
+            const currentState = await resumeConversation(active.id);
+            perf.mark("RESUME");
+            if (currentState?.prompt?.inputType === "IMAGE_URL") {
+                await reply(WHATSAPP_IMAGE_REQUIRED_TEXT, "IMAGE_REQUIRED_INVALID_CONTENT");
+                return;
+            }
+            if (currentState?.prompt?.inputType !== "VIDEO_UPLOAD") {
+                await reply(`${WHATSAPP_VIDEO_NOT_EXPECTED_TEXT}\n\n${extractWhatsappReplyText(currentState)}`, "VIDEO_NOT_EXPECTED");
+                return;
+            }
+
+            const uploadResult = await uploadVideo(message.video.id);
+            if (!uploadResult.success) {
+                // NUNCA se llama a handleConversationInput acá: el motor
+                // queda exactamente donde estaba, el organizador puede volver
+                // a mandar otro video sin perder nada (mismo criterio que la
+                // rama de imagen).
+                await reply(buildWhatsappVideoUploadErrorText(uploadResult.reason), "VIDEO_UPLOAD_ERROR");
+                return;
+            }
+
+            const result = await handleConversationInput(active.id, {
+                value: { url: uploadResult.url, publicId: uploadResult.publicId },
+            });
+            await reply(extractWhatsappReplyText(result), "VIDEO_UPLOADED");
+            return;
+        }
+
         // Fase 3D — mensaje type==="location": sólo tiene sentido procesarlo
         // si hay conversación activa. tryHandleLocationSubflow decide todo
         // lo demás (incluido si el step real es LOCATION o no); si no lo
@@ -1413,19 +1481,26 @@ export async function processInboundMessage(
                 await reply(WHATSAPP_IMAGE_REQUIRED_TEXT, "IMAGE_REQUIRED_INVALID_CONTENT");
                 return;
             }
+            // Fest Pass — mismo criterio: si el step real es VIDEO_UPLOAD,
+            // "no necesito ubicación" es igual de engañoso; el ConversationState
+            // permanece en FEST_PASS_VIDEO_UPLOAD (nunca se llama al motor acá).
+            if (currentState?.prompt?.inputType === "VIDEO_UPLOAD") {
+                await reply(WHATSAPP_VIDEO_REQUIRED_TEXT, "VIDEO_REQUIRED_INVALID_CONTENT");
+                return;
+            }
 
             await reply(`${WHATSAPP_LOCATION_NOT_EXPECTED_TEXT}\n\n${extractWhatsappReplyText(currentState)}`, "LOCATION_NOT_EXPECTED");
             return;
         }
 
         // Bug fix (imagen esperada en WhatsApp): cualquier tipo de mensaje
-        // que no sea text/image/location (video/audio/documento/sticker/
+        // que no sea text/image/video/location (audio/documento/sticker/
         // etc.) sólo importa si hay una conversación activa parada justo en
-        // COVER_IMAGE — ahí se pide la foto explícitamente, sin tocar el
-        // motor, el draft, el pending step ni Cloudinary. Para cualquier
-        // otro step se preserva el comportamiento previo a este fix: se
-        // ignora en silencio (mismo criterio que shouldAutoReply ya aplicaba
-        // para estos tipos).
+        // COVER_IMAGE o FEST_PASS_VIDEO_UPLOAD — ahí se pide la foto/video
+        // explícitamente, sin tocar el motor, el draft, el pending step ni
+        // Cloudinary. Para cualquier otro step se preserva el comportamiento
+        // previo a este fix: se ignora en silencio (mismo criterio que
+        // shouldAutoReply ya aplicaba para estos tipos).
         if (isOtherMediaType) {
             if (!active) return;
 
@@ -1433,6 +1508,8 @@ export async function processInboundMessage(
             perf.mark("RESUME");
             if (currentState?.prompt?.inputType === "IMAGE_URL") {
                 await reply(WHATSAPP_IMAGE_REQUIRED_TEXT, "IMAGE_REQUIRED_INVALID_CONTENT");
+            } else if (currentState?.prompt?.inputType === "VIDEO_UPLOAD") {
+                await reply(WHATSAPP_VIDEO_REQUIRED_TEXT, "VIDEO_REQUIRED_INVALID_CONTENT");
             }
             return;
         }
@@ -1802,6 +1879,7 @@ export async function processInboundMessage(
                 channel: WHATSAPP_CHANNEL,
                 channelRef,
                 organizationId: choice.organizationId,
+                initialStepId: "EVENT_CREATION_TYPE",
             });
             perf.mark("START");
             await reply(extractWhatsappReplyText(startResult), "START");
@@ -1849,6 +1927,7 @@ export async function processInboundMessage(
                     channel: WHATSAPP_CHANNEL,
                     channelRef,
                     organizationId: organization.organizationId,
+                    initialStepId: "EVENT_CREATION_TYPE",
                 });
                 perf.mark("START");
                 await reply(extractWhatsappReplyText(startResult), "START");
