@@ -9,12 +9,21 @@ import cloudinary from "../config/cloudinary.js";
 export const ALLOWED_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 export const MAX_IMAGE_FILE_SIZE = 5 * 1024 * 1024;
 
+// Diagnóstico 2026-09-17 — un JPEG mínimo válido subido directo desde la VM
+// de Fly (gru) también terminó en TimeoutError/http_code 499 de Cloudinary,
+// con el fallo real observado en producción a los ~6-8s. El SDK corta antes
+// de que la latencia real desde esa región alcance a completarse. 30s da
+// margen sin dejar requests colgados indefinidamente; no es un retry, sólo
+// un timeout más realista para el mismo upload_stream de siempre.
+export const CLOUDINARY_UPLOAD_TIMEOUT_MS = 30000;
+
 export const uploadImageService = (fileBuffer) => {
     return new Promise((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
             {
                 resource_type: "image",
                 folder: "pasecultural",
+                timeout: CLOUDINARY_UPLOAD_TIMEOUT_MS,
             },
             (error, result) => {
                 if (error) return reject(error);
@@ -47,6 +56,7 @@ export const uploadVideoService = (fileBuffer) => {
             {
                 resource_type: "video",
                 folder: "pasecultural",
+                timeout: CLOUDINARY_UPLOAD_TIMEOUT_MS,
             },
             (error, result) => {
                 if (error) return reject(error);
