@@ -245,6 +245,46 @@ test("parseInboundWhatsappMessages keeps image=null for a text message", () => {
     assert.equal(message.image, null);
 });
 
+// G.4) mismo contrato que la imagen (G.1/G.2), ahora para un mensaje
+// type="video" real de Meta — video de fondo de Fest Pass, ver
+// whatsappMediaUpload.service.js#uploadWhatsappVideoMessage.
+test("parseInboundWhatsappMessages preserves the real WhatsApp media id, mime_type, sha256 and caption for a video message", () => {
+    const payload = buildTextMessagePayload({ from: "5491122334455" });
+    payload.entry[0].changes[0].value.messages = [
+        {
+            id: "media-video-1",
+            from: "5491122334455",
+            timestamp: "1700000002",
+            type: "video",
+            video: { id: "media-video-1", mime_type: "video/mp4", sha256: "video-sha", caption: "video fest" },
+        },
+    ];
+
+    const [message] = parseInboundWhatsappMessages(payload);
+
+    assert.equal(message.type, "video");
+    assert.equal(message.text, null);
+    assert.deepEqual(message.video, {
+        id: "media-video-1",
+        mimeType: "video/mp4",
+        sha256: "video-sha",
+        caption: "video fest",
+    });
+});
+
+// G.5) un mensaje type="video" sin `video.id` (payload malformado/inesperado)
+// nunca rompe el parseo — queda con video=null, mismo criterio que G.2.
+test("parseInboundWhatsappMessages returns video=null for a malformed video message without an id", () => {
+    const payload = buildTextMessagePayload({ from: "5491122334455" });
+    payload.entry[0].changes[0].value.messages = [
+        { id: "wamid.B", from: "5491122334455", timestamp: "1700000002", type: "video" },
+    ];
+
+    const [message] = parseInboundWhatsappMessages(payload);
+
+    assert.equal(message.video, null);
+});
+
 // ==================================================
 // Bug fix (ubicación por WhatsApp Location) — mensaje type="location".
 // Contrato real de la Cloud API: latitude/longitude siempre; name/address

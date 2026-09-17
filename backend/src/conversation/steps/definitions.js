@@ -114,10 +114,53 @@ export const STEPS = {
             ],
         }),
         getValue: (draft) => draft._creationType,
-        setValue: (draft, value) =>
-            value === "FEST_PASS"
-                ? { ...draft, _creationType: value, quickPassEnabled: true, admissionType: "TICKETED", hasTickets: true, pricingType: "PAID" }
-                : { ...draft, _creationType: value, quickPassEnabled: false },
+        // Este step es revisitable por BACK (ver EventCreationEngine —
+        // handleBack nunca revierte draftEvent), así que un CAMBIO REAL de
+        // tipo (detectado comparando contra el `_creationType` previo, no
+        // sólo contra el `value` actual) tiene que limpiar los campos que
+        // sólo tienen sentido bajo el tipo anterior — si no, el draft final
+        // termina representando una mezcla incoherente de ambos tipos en
+        // vez de la última elección real del usuario. Re-seleccionar el
+        // MISMO tipo (o elegir por primera vez, `_creationType` aún
+        // undefined) es un no-op sobre estos campos: nunca se pisa
+        // información compatible sin necesidad.
+        setValue: (draft, value) => {
+            const previousType = draft._creationType;
+            const isRealChange = Boolean(previousType) && previousType !== value;
+
+            if (value === "FEST_PASS") {
+                const base = { ...draft, _creationType: value, quickPassEnabled: true, admissionType: "TICKETED", hasTickets: true, pricingType: "PAID" };
+                if (!isRealChange) return base;
+                // TRADITIONAL -> FEST_PASS: un evento tradicional puede
+                // tener entradas a $0 (o directamente ninguna, si venía de
+                // FREE_ENTRY) — incompatibles con la exigencia de Fest Pass
+                // de precio > 0 (ver inputHandlers/price.js). Se descartan
+                // para no arrastrar un catálogo que Fest Pass rechazaría.
+                return { ...base, ticketTypes: [], _ticketDraft: {} };
+            }
+
+            const base = { ...draft, _creationType: value, quickPassEnabled: false };
+            if (!isRealChange) return base;
+            // FEST_PASS -> TRADITIONAL: se descartan los campos que sólo
+            // existen para Fest Pass (imagen/video de fondo) y se dejan
+            // pricingType/admissionType/hasTickets sin definir para que
+            // EVENT_PRICING_TYPE los vuelva a fijar desde cero más adelante
+            // — exactamente como si el organizador nunca hubiera pasado por
+            // la rama Fest Pass. ticketTypes/_ticketDraft también se
+            // descartan: fueron cargados bajo la regla de precio > 0 de
+            // Fest Pass, no bajo las reglas del evento tradicional.
+            return {
+                ...base,
+                quickPassImageUrl: null,
+                quickPassVideoUrl: null,
+                quickPassVideoPublicId: null,
+                pricingType: undefined,
+                admissionType: undefined,
+                hasTickets: undefined,
+                ticketTypes: [],
+                _ticketDraft: {},
+            };
+        },
         next: () => "NAME",
     },
 
@@ -541,7 +584,21 @@ export const STEPS = {
             ],
         }),
         getValue: () => undefined,
-        setValue: (draft) => draft,
+        // Revisitable por BACK (ver el mismo comentario en
+        // EVENT_CREATION_TYPE): la elección ACTUAL siempre gana sobre
+        // cualquier dato que haya quedado de una vuelta anterior por este
+        // mismo step — nunca se acumulan campos de dos elecciones distintas
+        // (ej. subir un video, volver, y elegir YouTube no debe dejar el
+        // video anterior colgado). FEST_PASS_VIDEO_UPLOAD es quien
+        // efectivamente escribe quickPassVideoUrl/quickPassVideoPublicId
+        // cuando elige UPLOAD — acá sólo se limpia lo que pertenece a la
+        // rama que el usuario NO eligió esta vez.
+        setValue: (draft, value) => {
+            if (value === "UPLOAD") return { ...draft, promoVideoUrl: null, wantsPromoVideo: false };
+            if (value === "YOUTUBE") return { ...draft, quickPassVideoUrl: null, quickPassVideoPublicId: null };
+            // SKIP
+            return { ...draft, quickPassVideoUrl: null, quickPassVideoPublicId: null, promoVideoUrl: null, wantsPromoVideo: false };
+        },
         next: (draft, value) => {
             if (value === "UPLOAD") return "FEST_PASS_VIDEO_UPLOAD";
             if (value === "YOUTUBE") return "PROMO_VIDEO_URL";

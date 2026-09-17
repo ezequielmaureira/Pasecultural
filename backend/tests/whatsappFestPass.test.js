@@ -388,6 +388,191 @@ testWithDb("G9) FEST_PASS_VIDEO_UPLOAD rechaza cualquier valor que no sea {url, 
 });
 
 // ==================================================================
+// G-bis) HARDENING — FEST_PASS_VIDEO_CHOICE nunca deja datos de la rama
+// NO elegida esta vez (BACK no revierte draftEvent, ver comentario en
+// definitions.js#FEST_PASS_VIDEO_CHOICE).
+// ==================================================================
+
+testWithDb("G10) upload previo + volver + SKIP deja quickPassVideoUrl/PublicId vacíos", async () => {
+    const conv = await createConversationState({
+        currentStepId: "FEST_PASS_VIDEO_CHOICE",
+        draftEvent: {
+            quickPassEnabled: true,
+            quickPassVideoUrl: "https://res.cloudinary.com/pasecultural/video/upload/v1/fest.mp4",
+            quickPassVideoPublicId: "pasecultural/fest",
+        },
+        history: ["ADD_ANOTHER_TICKET", "FEST_PASS_VIDEO_CHOICE"],
+    });
+    try {
+        await EventCreationEngine.handleInput(conv.id, { value: "SKIP" });
+        const persisted = await prisma.conversationState.findUnique({ where: { id: conv.id } });
+        assert.equal(persisted.draftEvent.quickPassVideoUrl, null);
+        assert.equal(persisted.draftEvent.quickPassVideoPublicId, null);
+    } finally {
+        await deleteConversationState(conv.id);
+    }
+});
+
+testWithDb("G11) YouTube previo + volver + SKIP deja promoVideoUrl vacío", async () => {
+    const conv = await createConversationState({
+        currentStepId: "FEST_PASS_VIDEO_CHOICE",
+        draftEvent: { quickPassEnabled: true, promoVideoUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", wantsPromoVideo: true },
+        history: ["ADD_ANOTHER_TICKET", "FEST_PASS_VIDEO_CHOICE"],
+    });
+    try {
+        await EventCreationEngine.handleInput(conv.id, { value: "SKIP" });
+        const persisted = await prisma.conversationState.findUnique({ where: { id: conv.id } });
+        assert.equal(persisted.draftEvent.promoVideoUrl, null);
+    } finally {
+        await deleteConversationState(conv.id);
+    }
+});
+
+testWithDb("G12) upload previo + volver + YOUTUBE deja quickPassVideoUrl/PublicId vacíos", async () => {
+    const conv = await createConversationState({
+        currentStepId: "FEST_PASS_VIDEO_CHOICE",
+        draftEvent: {
+            quickPassEnabled: true,
+            quickPassVideoUrl: "https://res.cloudinary.com/pasecultural/video/upload/v1/fest.mp4",
+            quickPassVideoPublicId: "pasecultural/fest",
+        },
+        history: ["ADD_ANOTHER_TICKET", "FEST_PASS_VIDEO_CHOICE"],
+    });
+    try {
+        const result = await EventCreationEngine.handleInput(conv.id, { value: "YOUTUBE" });
+        assert.equal(result.prompt.stepId, "PROMO_VIDEO_URL");
+        const persisted = await prisma.conversationState.findUnique({ where: { id: conv.id } });
+        assert.equal(persisted.draftEvent.quickPassVideoUrl, null);
+        assert.equal(persisted.draftEvent.quickPassVideoPublicId, null);
+    } finally {
+        await deleteConversationState(conv.id);
+    }
+});
+
+testWithDb("G13) YouTube previo + volver + UPLOAD deja promoVideoUrl vacío", async () => {
+    const conv = await createConversationState({
+        currentStepId: "FEST_PASS_VIDEO_CHOICE",
+        draftEvent: { quickPassEnabled: true, promoVideoUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", wantsPromoVideo: true },
+        history: ["ADD_ANOTHER_TICKET", "FEST_PASS_VIDEO_CHOICE"],
+    });
+    try {
+        const result = await EventCreationEngine.handleInput(conv.id, { value: "UPLOAD" });
+        assert.equal(result.prompt.stepId, "FEST_PASS_VIDEO_UPLOAD");
+        const persisted = await prisma.conversationState.findUnique({ where: { id: conv.id } });
+        assert.equal(persisted.draftEvent.promoVideoUrl, null);
+    } finally {
+        await deleteConversationState(conv.id);
+    }
+});
+
+// ==================================================================
+// A-bis) HARDENING — EVENT_CREATION_TYPE nunca arrastra campos
+// incompatibles al cambiar realmente de tipo (BACK no revierte draftEvent).
+// ==================================================================
+
+testWithDb("A8) FEST_PASS -> volver -> TRADITIONAL elimina los campos quickPass", async () => {
+    const conv = await createConversationState({
+        currentStepId: "EVENT_CREATION_TYPE",
+        draftEvent: {
+            _creationType: "FEST_PASS",
+            quickPassEnabled: true,
+            quickPassImageUrl: "https://res.cloudinary.com/pasecultural/image/upload/v1/fest.jpg",
+            quickPassVideoUrl: "https://res.cloudinary.com/pasecultural/video/upload/v1/fest.mp4",
+            quickPassVideoPublicId: "pasecultural/fest",
+            admissionType: "TICKETED",
+            hasTickets: true,
+            pricingType: "PAID",
+            ticketTypes: [{ name: "General", price: 5000, quantity: 100 }],
+        },
+        history: ["EVENT_CREATION_TYPE"],
+    });
+    try {
+        await EventCreationEngine.handleInput(conv.id, { value: "TRADITIONAL" });
+        const persisted = await prisma.conversationState.findUnique({ where: { id: conv.id } });
+        assert.equal(persisted.draftEvent.quickPassEnabled, false);
+        assert.equal(persisted.draftEvent.quickPassImageUrl, null);
+        assert.equal(persisted.draftEvent.quickPassVideoUrl, null);
+        assert.equal(persisted.draftEvent.quickPassVideoPublicId, null);
+        assert.equal(persisted.draftEvent.pricingType, undefined);
+        assert.equal(persisted.draftEvent.admissionType, undefined);
+        assert.equal(persisted.draftEvent.hasTickets, undefined);
+        assert.deepEqual(persisted.draftEvent.ticketTypes, []);
+    } finally {
+        await deleteConversationState(conv.id);
+    }
+});
+
+testWithDb("A9) TRADITIONAL con entrada a $0 -> volver -> FEST_PASS limpia esos ticketTypes", async () => {
+    const conv = await createConversationState({
+        currentStepId: "EVENT_CREATION_TYPE",
+        draftEvent: {
+            _creationType: "TRADITIONAL",
+            quickPassEnabled: false,
+            ticketTypes: [{ name: "General", price: 0, quantity: 100 }],
+            _ticketDraft: { name: "General", price: 0, quantity: 100 },
+        },
+        history: ["EVENT_CREATION_TYPE"],
+    });
+    try {
+        await EventCreationEngine.handleInput(conv.id, { value: "FEST_PASS" });
+        const persisted = await prisma.conversationState.findUnique({ where: { id: conv.id } });
+        assert.equal(persisted.draftEvent.quickPassEnabled, true);
+        assert.equal(persisted.draftEvent.admissionType, "TICKETED");
+        assert.equal(persisted.draftEvent.pricingType, "PAID");
+        assert.deepEqual(persisted.draftEvent.ticketTypes, []);
+        assert.deepEqual(persisted.draftEvent._ticketDraft, {});
+    } finally {
+        await deleteConversationState(conv.id);
+    }
+});
+
+testWithDb("A10) re-seleccionar FEST_PASS cuando ya era FEST_PASS no borra información compatible", async () => {
+    const conv = await createConversationState({
+        currentStepId: "EVENT_CREATION_TYPE",
+        draftEvent: {
+            _creationType: "FEST_PASS",
+            quickPassEnabled: true,
+            quickPassImageUrl: "https://res.cloudinary.com/pasecultural/image/upload/v1/fest.jpg",
+            admissionType: "TICKETED",
+            hasTickets: true,
+            pricingType: "PAID",
+            ticketTypes: [{ name: "General", price: 5000, quantity: 100 }],
+        },
+        history: ["EVENT_CREATION_TYPE"],
+    });
+    try {
+        await EventCreationEngine.handleInput(conv.id, { value: "FEST_PASS" });
+        const persisted = await prisma.conversationState.findUnique({ where: { id: conv.id } });
+        assert.equal(persisted.draftEvent.quickPassImageUrl, "https://res.cloudinary.com/pasecultural/image/upload/v1/fest.jpg");
+        assert.deepEqual(persisted.draftEvent.ticketTypes, [{ name: "General", price: 5000, quantity: 100 }]);
+    } finally {
+        await deleteConversationState(conv.id);
+    }
+});
+
+testWithDb("A11) re-seleccionar TRADITIONAL cuando ya era TRADITIONAL no rompe el draft", async () => {
+    const conv = await createConversationState({
+        currentStepId: "EVENT_CREATION_TYPE",
+        draftEvent: {
+            _creationType: "TRADITIONAL",
+            quickPassEnabled: false,
+            title: "Ya cargado antes de volver",
+            ticketTypes: [{ name: "General", price: 0, quantity: 50 }],
+        },
+        history: ["EVENT_CREATION_TYPE"],
+    });
+    try {
+        await EventCreationEngine.handleInput(conv.id, { value: "TRADITIONAL" });
+        const persisted = await prisma.conversationState.findUnique({ where: { id: conv.id } });
+        assert.equal(persisted.draftEvent.quickPassEnabled, false);
+        assert.equal(persisted.draftEvent.title, "Ya cargado antes de volver");
+        assert.deepEqual(persisted.draftEvent.ticketTypes, [{ name: "General", price: 0, quantity: 50 }]);
+    } finally {
+        await deleteConversationState(conv.id);
+    }
+});
+
+// ==================================================================
 // H) PERSISTENCIA (EventServicePort.commit -> createEventService real)
 // ==================================================================
 
