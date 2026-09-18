@@ -673,7 +673,12 @@ export default function FestPass() {
       {screen === "info" && <FestPassIntro />}
 
       {screen === "info" && (
-        <Card className="mx-auto flex w-full max-w-md flex-col gap-4">
+        // Ancho igual al bloque superior (FestPassIntro), no max-w-md: en
+        // desktop, con la pantalla ya ensanchada por ScreenShell wide, el
+        // formulario aprovecha el mismo ancho del hero en vez de quedar
+        // angosto flotando en el medio. En mobile sigue siendo 100% del
+        // espacio disponible (ScreenShell ya cae a su ancho natural ahí).
+        <Card className="flex w-full flex-col gap-4">
           <Field label="Nombre del evento">
             <input
               className={inputClass}
