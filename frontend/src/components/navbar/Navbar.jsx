@@ -75,10 +75,17 @@ export default function Navbar({ brandOverride = null }) {
       >
         {brandOverride ? (
           // Identidad de la organización PREMIUM visitada, reemplazando el
-          // wordmark Smarticket SOLO acá — `flex-1 min-w-0` (en vez del
-          // `shrink-0` del wordmark) para que un nombre largo trunque en
-          // vez de empujar carrito/UserMenu/hamburguesa fuera de pantalla.
-          <div className="flex min-w-0 flex-1 items-center gap-2.5 py-1">
+          // wordmark Smarticket SOLO acá. `min-w-[180px]` + `shrink-0`
+          // (en vez del `flex-1 min-w-0` que antes lo dejaba comprimirse
+          // hasta casi desaparecer en desktop intermedio, ~1366px, cuando
+          // competía por espacio con el nav completo) — el logo/nombre/
+          // "by Smarticket" siempre reservan ese ancho mínimo; el `max-w`
+          // sólo acota cuánto puede CRECER un nombre muy largo antes de
+          // truncar. El nav completo recién compite por espacio desde
+          // `2xl` (ver más abajo) — por debajo de eso el hamburguesa
+          // asume toda la navegación, así que acá nunca hace falta ceder
+          // ancho al menú desktop.
+          <div className="flex min-w-[180px] max-w-[280px] shrink-0 items-center gap-2.5 py-1 sm:min-w-[200px]">
             {brandOverride.logo && (
               <img
                 src={brandOverride.logo}
@@ -125,7 +132,17 @@ export default function Navbar({ brandOverride = null }) {
           </Link>
         )}
 
-        <nav aria-label="Navegación principal" className="hidden items-center gap-6 lg:flex">
+        {/* Con brandOverride, el bloque de identidad (arriba) ya reserva un
+            ancho mínimo fijo — el nav completo (5 links + 2 dropdowns) no
+            entra cómodo compartiendo fila con eso hasta pantallas grandes,
+            así que recién se muestra desde `2xl` (en vez de `lg`). El
+            hamburguesa de abajo usa el mismo breakpoint invertido
+            (`2xl:hidden` en vez de `lg:hidden`) para que nunca haya un
+            rango intermedio sin nav NI hamburguesa. */}
+        <nav
+          aria-label="Navegación principal"
+          className={`hidden items-center gap-6 ${brandOverride ? "2xl:flex" : "lg:flex"}`}
+        >
           <NavbarDropdown label="Explorar eventos" items={EXPLORE_EVENTS_OPTIONS} />
           <NavbarDropdown label="Categorías" items={CATEGORY_ITEMS} />
           <NavLink to="/como-funciona" className={navLinkClassName}>
@@ -145,7 +162,9 @@ export default function Navbar({ brandOverride = null }) {
           </NavLink>
         </nav>
 
-        <SearchBar className="ml-2 hidden max-w-xs flex-1 md:block" />
+        <SearchBar
+          className={`ml-2 hidden max-w-xs flex-1 ${brandOverride ? "2xl:block" : "md:block"}`}
+        />
 
         <div className="ml-auto flex items-center gap-2">
           <button
@@ -170,7 +189,9 @@ export default function Navbar({ brandOverride = null }) {
             aria-expanded={mobileOpen}
             aria-controls="mobile-nav-menu"
             onClick={() => setMobileOpen((open) => !open)}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-300 transition-colors duration-150 hover:bg-white/5 hover:text-white light:text-slate-500 light:hover:bg-slate-900/5 light:hover:text-slate-900 lg:hidden"
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-300 transition-colors duration-150 hover:bg-white/5 hover:text-white light:text-slate-500 light:hover:bg-slate-900/5 light:hover:text-slate-900 ${
+              brandOverride ? "2xl:hidden" : "lg:hidden"
+            }`}
           >
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
@@ -178,8 +199,19 @@ export default function Navbar({ brandOverride = null }) {
       </div>
 
       {mobileOpen && (
-        <div id="mobile-nav-menu" className="border-t border-white/5 bg-[#05070B] px-4 py-4 light:border-slate-200 light:bg-white sm:px-6 lg:hidden">
-          <SearchBar className="mb-4 w-full md:hidden" />
+        <div
+          id="mobile-nav-menu"
+          className={`border-t border-white/5 bg-[#05070B] px-4 py-4 light:border-slate-200 light:bg-white sm:px-6 ${
+            brandOverride ? "2xl:hidden" : "lg:hidden"
+          }`}
+        >
+          {/* El SearchBar de arriba (fila superior del navbar) se muestra
+              recién desde `2xl` cuando hay brandOverride (igual que el
+              nav completo) — así que este, el del panel del hamburguesa,
+              tiene que quedar visible en ese mismo rango ampliado, o
+              habría una franja de pantalla (entre `md` y `2xl`) sin
+              buscador en ningún lado. */}
+          <SearchBar className={`mb-4 w-full ${brandOverride ? "2xl:hidden" : "md:hidden"}`} />
           <nav aria-label="Navegación" className="flex flex-col gap-1">
             <details className="group">
               <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium text-slate-200 transition-colors duration-150 hover:bg-white/5 hover:text-white light:text-slate-700 light:hover:bg-slate-900/5 light:hover:text-slate-900 [&::-webkit-details-marker]:hidden">

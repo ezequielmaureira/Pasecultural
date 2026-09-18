@@ -79,8 +79,8 @@ export default function EventDetail() {
   if (notFound || !event) {
     return (
       <div className="mx-auto flex max-w-2xl flex-col items-center gap-3 px-6 py-24 text-center">
-        <p className="text-lg font-semibold text-white">Evento no encontrado</p>
-        <p className="text-sm text-slate-400">
+        <p className="text-lg font-semibold text-white light:text-slate-900">Evento no encontrado</p>
+        <p className="text-sm text-slate-400 light:text-slate-600">
           Puede que ya no esté disponible o que el enlace sea incorrecto.
         </p>
         <Link to="/eventos">
@@ -119,13 +119,13 @@ export default function EventDetail() {
       <div className="relative flex flex-col gap-6">
         <Link
           to="/eventos"
-          className="flex w-fit items-center gap-1.5 text-sm text-slate-400 hover:text-white"
+          className="flex w-fit items-center gap-1.5 text-sm text-slate-400 hover:text-white light:text-slate-500 light:hover:text-slate-900"
         >
           <ArrowLeft className="h-4 w-4" />
           Volver a eventos
         </Link>
 
-        <div className="mx-auto w-full max-w-xs overflow-hidden rounded-3xl border border-white/15 bg-white/5 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.65)] sm:max-w-sm">
+        <div className="mx-auto w-full max-w-xs overflow-hidden rounded-3xl border border-white/15 bg-white/5 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.65)] sm:max-w-sm light:border-slate-200 light:bg-white light:shadow-slate-300/50">
           <div className="aspect-[4/5] w-full bg-black/30">
             {event.coverImage ? (
               <img
@@ -146,19 +146,19 @@ export default function EventDetail() {
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-2">
                 {event.category && (
-                  <span className="rounded-full border border-white/15 bg-violet-500/10 px-2.5 py-1 text-xs font-medium text-violet-300 backdrop-blur-sm">
+                  <span className="rounded-full border border-white/15 bg-violet-500/10 px-2.5 py-1 text-xs font-medium text-violet-300 backdrop-blur-sm light:border-violet-200 light:bg-violet-50 light:text-violet-700">
                     {getEventCategoryLabel(event)}
                   </span>
                 )}
                 {event.organization?.name && (
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-slate-500 light:text-slate-600">
                     Organiza {event.organization.name}
                   </span>
                 )}
               </div>
-              <h1 className="text-2xl font-bold text-white sm:text-3xl">{event.title}</h1>
+              <h1 className="text-2xl font-bold text-white sm:text-3xl light:text-slate-900">{event.title}</h1>
               {event.shortDescription && (
-                <p className="text-sm text-slate-300">{event.shortDescription}</p>
+                <p className="text-sm text-slate-300 light:text-slate-700">{event.shortDescription}</p>
               )}
             </div>
 
@@ -174,7 +174,7 @@ export default function EventDetail() {
 
             {event.description && (
               <Card variant="glass" title="Sobre el evento">
-                <p className="whitespace-pre-line text-sm text-slate-300">
+                <p className="whitespace-pre-line text-sm text-slate-300 light:text-slate-700">
                   {event.description}
                 </p>
               </Card>
@@ -188,7 +188,7 @@ export default function EventDetail() {
 
             <Card variant="glass" title="Ubicación">
               {(event.city || event.province) && (
-                <p className="mb-3 text-xs text-slate-500">
+                <p className="mb-3 text-xs text-slate-500 light:text-slate-600">
                   {[event.city, event.province].filter(Boolean).join(", ")}
                 </p>
               )}
@@ -205,43 +205,43 @@ export default function EventDetail() {
             <Card variant="glass">
               <div className="flex flex-col gap-4">
                 <div className="flex items-center gap-3">
-                  <CalendarDays className="h-4 w-4 shrink-0 text-slate-500" />
-                  <span className="text-sm text-slate-300">
+                  <CalendarDays className="h-4 w-4 shrink-0 text-slate-500 light:text-slate-500" />
+                  <span className="text-sm text-slate-300 light:text-slate-700">
                     {formatEventDateTime(event.startDate)}
                   </span>
                 </div>
                 {event.doorsOpenAt && (
                   <div className="flex items-center gap-3">
-                    <Clock3 className="h-4 w-4 shrink-0 text-slate-500" />
-                    <span className="text-sm text-slate-300">
+                    <Clock3 className="h-4 w-4 shrink-0 text-slate-500 light:text-slate-500" />
+                    <span className="text-sm text-slate-300 light:text-slate-700">
                       Apertura de puertas: {formatEventDateTime(event.doorsOpenAt)}
                     </span>
                   </div>
                 )}
                 <div className="flex items-center gap-3">
-                  <MapPin className="h-4 w-4 shrink-0 text-slate-500" />
-                  <span className="text-sm text-slate-300">
+                  <MapPin className="h-4 w-4 shrink-0 text-slate-500 light:text-slate-500" />
+                  <span className="text-sm text-slate-300 light:text-slate-700">
                     {formatEventLocation(event)}
                   </span>
                 </div>
 
                 {finished ? (
-                  <div className="border-t border-white/10 pt-4">
-                    <p className="rounded-lg bg-white/5 px-3 py-2 text-center text-sm font-medium text-slate-300">
+                  <div className="border-t border-white/10 pt-4 light:border-slate-200">
+                    <p className="rounded-lg bg-white/5 px-3 py-2 text-center text-sm font-medium text-slate-300 light:bg-slate-100 light:text-slate-700">
                       Este evento finalizó
                     </p>
                   </div>
                 ) : event.admissionType === "FREE_ENTRY" ? (
-                  <div className="border-t border-white/10 pt-4">
-                    <p className="text-xs text-slate-500">Precio</p>
-                    <p className="text-lg font-bold text-violet-400">Entrada gratuita</p>
-                    <p className="mt-1 text-xs text-slate-500">Ingreso por orden de llegada.</p>
+                  <div className="border-t border-white/10 pt-4 light:border-slate-200">
+                    <p className="text-xs text-slate-500 light:text-slate-600">Precio</p>
+                    <p className="text-lg font-bold text-violet-400 light:text-violet-600">Entrada gratuita</p>
+                    <p className="mt-1 text-xs text-slate-500 light:text-slate-600">Ingreso por orden de llegada.</p>
                   </div>
                 ) : (
                   <>
-                    <div className="border-t border-white/10 pt-4">
-                      <p className="text-xs text-slate-500">Precio</p>
-                      <p className="text-lg font-bold text-violet-400">
+                    <div className="border-t border-white/10 pt-4 light:border-slate-200">
+                      <p className="text-xs text-slate-500 light:text-slate-600">Precio</p>
+                      <p className="text-lg font-bold text-violet-400 light:text-violet-600">
                         {formatEventPrice(event)}
                       </p>
                     </div>
@@ -271,7 +271,7 @@ export default function EventDetail() {
                     >
                       Comprar Entradas
                     </button>
-                    <p className="text-center text-xs text-slate-500">Irás al checkout para completar la compra.</p>
+                    <p className="text-center text-xs text-slate-500 light:text-slate-600">Irás al checkout para completar la compra.</p>
                   </>
                 )}
               </div>
