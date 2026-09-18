@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@clerk/clerk-react";
-import { Pencil, Rocket, Archive, Ban, Trash2, Plus, ShieldAlert } from "lucide-react";
+import { Pencil, Rocket, Archive, Ban, Trash2, Plus, ShieldAlert, Sparkles } from "lucide-react";
 import Button from "../../components/ui/Button.jsx";
 import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
 import Spinner from "../../components/ui/Spinner.jsx";
@@ -145,12 +145,27 @@ export default function OrganizerEvents() {
             Creá y administrá tus eventos
           </p>
         </div>
-        <Link to="/organizador/eventos/nuevo" state={{ fresh: true }}>
-          <Button>
-            <Plus className="h-4 w-4" />
-            Crear evento
-          </Button>
-        </Link>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          {/* Mismo destino/mismo creador que "Crear evento" — únicamente
+              cambia `state.tutorial` (ver ConversationView.jsx vía
+              OrganizerEventChat.jsx). Botón secundario a propósito: nunca
+              debe competir en jerarquía visual con el CTA primario. */}
+          <Link to="/organizador/eventos/nuevo" state={{ fresh: true, tutorial: true }}>
+            <Button
+              variant="secondary"
+              className="w-full border border-violet-400/30 bg-violet-500/5 text-violet-300 hover:border-violet-400/50 hover:bg-violet-500/10 hover:text-violet-200 sm:w-auto"
+            >
+              <Sparkles className="h-4 w-4" />
+              Crear con tutorial
+            </Button>
+          </Link>
+          <Link to="/organizador/eventos/nuevo" state={{ fresh: true, tutorial: false }}>
+            <Button className="w-full sm:w-auto">
+              <Plus className="h-4 w-4" />
+              Crear evento
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {!canPublish && !loading && (

@@ -12,20 +12,39 @@ import {
 import { apiFetch } from "../../../lib/api.js";
 import ConfirmDialog from "../../../components/ui/ConfirmDialog.jsx";
 import PublishOverlay from "../../../components/ui/PublishOverlay.jsx";
+import TutorialSpotlight from "../../../components/tutorial/TutorialSpotlight.jsx";
 import { usePublishFlow } from "../../../hooks/usePublishFlow.js";
 import { useToast } from "../../../context/ToastContext.jsx";
 import { NEW_EVENT_REQUEST_EVENT } from "../../../lib/eventChatEvents.js";
 import SectionsNav from "./SectionsNav.jsx";
 import QuestionRenderer from "./QuestionRenderer.jsx";
 import PreviewCard from "./PreviewCard.jsx";
+import {
+  ORGANIZER_EVENT_TUTORIAL_STEPS,
+  ORGANIZER_EVENT_TUTORIAL_ORDER,
+  ORGANIZER_EVENT_TUTORIAL_PREVIEW_OVERVIEW,
+  ORGANIZER_EVENT_TUTORIAL_PREVIEW_PUBLISH,
+  ORGANIZER_EVENT_TUTORIAL_SECTIONS_NAV,
+} from "../../../tutorials/organizerEventTutorial.js";
 
 const STORAGE_KEY = "pasecultural:eventChat:conversationId";
+
+// Distinto de STORAGE_KEY a propósito (ver comentario en
+// OrganizerEventChat.jsx sobre TUTORIAL_STORAGE_KEY) — esta es la única
+// llamada del tutorial que se muestra como mucho una vez por sesión, nunca
+// en cada paso (ver sección "SectionsNav" del pedido original).
+const TUTORIAL_SECTIONS_NAV_SEEN_KEY = "pasecultural:eventChat:tutorialSectionsNavSeen";
 
 // Dueño del estado de la conversación. No decide el siguiente paso: sólo
 // guarda el último `prompt` que devolvió el Event Creation Engine y lo
 // vuelve a mandar a QuestionRenderer/PreviewCard. El draftEvent nunca se
 // reconstruye acá — sólo se ve cuando llega dentro de un prompt PREVIEW.
-export default function ConversationView({ onDone }) {
+//
+// `tutorialEnabled`/`onExitTutorial` — capa puramente visual (ver
+// OrganizerEventChat.jsx, dueño real del estado): decide únicamente si acá
+// abajo se renderiza <TutorialSpotlight>. Nunca participa en `send()`,
+// nunca toca conversationId/prompt/sections por su cuenta.
+export default function ConversationView({ onDone, tutorialEnabled = false, onExitTutorial = () => {} }) {
   const { getToken } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -46,6 +65,61 @@ export default function ConversationView({ onDone }) {
   const [showRestartDialog, setShowRestartDialog] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const questionRef = useRef(null);
+
+  // Sub-pasos del tutorial DENTRO de PREVIEW (overview de la card, después
+  // el botón Publicar) — ver sección 8/9 del pedido. Puramente visual: no
+  // afecta a `prompt`/`send()`. Vuelve a "overview" cada vez que se ENTRA a
+  // PREVIEW de nuevo (incluido un GOTO de vuelta desde una sección editada).
+  const [previewTutorialSubStep, setPreviewTutorialSubStep] = useState("overview");
+  useEffect(() => {
+    if (prompt?.type === "PREVIEW") setPreviewTutorialSubStep("overview");
+  }, [prompt?.type, prompt?.stepId]);
+
+  // "Podés volver atrás" sobre SectionsNav — como mucho una vez por sesión
+  // de navegador (ver TUTORIAL_SECTIONS_NAV_SEEN_KEY), nunca en cada paso.
+  const [sectionsNavTutorialSeen, setSectionsNavTutorialSeen] = useState(() => {
+    try {
+      return sessionStorage.getItem(TUTORIAL_SECTIONS_NAV_SEEN_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  function markSectionsNavTutorialSeen() {
+    setSectionsNavTutorialSeen(true);
+    try {
+      sessionStorage.setItem(TUTORIAL_SECTIONS_NAV_SEEN_KEY, "true");
+    } catch {
+      // No persiste entre tabs/sesiones, pero no rompe nada en esta.
+    }
+  }
+
+  // Único punto que decide QUÉ llamada del tutorial corresponde al estado
+  // real actual del motor — nunca al revés. Cambia automáticamente cuando
+  // cambia `prompt.stepId`/`prompt.type` (GOTO, BACK, avance normal), sin
+  // que el tutorial "gobierne" nada de esa navegación.
+  function getTutorialStep() {
+    if (!prompt) return null;
+    if (prompt.type === "PREVIEW") {
+      return previewTutorialSubStep === "overview"
+        ? { ...ORGANIZER_EVENT_TUTORIAL_PREVIEW_OVERVIEW, stepKey: "PREVIEW:overview" }
+        : { ...ORGANIZER_EVENT_TUTORIAL_PREVIEW_PUBLISH, stepKey: "PREVIEW:publish" };
+    }
+    if (!sectionsNavTutorialSeen && sections.some((s) => s.status === "completed")) {
+      // Sólo tiene sentido una vez que existe al menos una sección ya
+      // completada (recién ahí "volver atrás" significa algo real).
+      return { ...ORGANIZER_EVENT_TUTORIAL_SECTIONS_NAV, stepKey: "SECTIONS_NAV" };
+    }
+    const entry = ORGANIZER_EVENT_TUTORIAL_STEPS[prompt.stepId];
+    if (!entry) return null;
+    const orderIndex = ORGANIZER_EVENT_TUTORIAL_ORDER.indexOf(prompt.stepId);
+    return {
+      ...entry,
+      stepKey: prompt.stepId,
+      index: orderIndex >= 0 ? orderIndex + 1 : undefined,
+      total: ORGANIZER_EVENT_TUTORIAL_ORDER.length,
+    };
+  }
+  const tutorialStep = tutorialEnabled ? getTutorialStep() : null;
 
   // Única responsable de arrancar una conversación completamente nueva:
   // la usan tanto el primer ingreso a "Crear evento" como cualquier reinicio
@@ -307,7 +381,9 @@ export default function ConversationView({ onDone }) {
   if (prompt.type === "PREVIEW") {
     return (
       <div ref={questionRef} className="flex w-full flex-1 flex-col items-center gap-4 py-8">
-        <SectionsNav sections={sections} onSelect={handleGoto} disabled={submitting} />
+        <div data-tutorial="event-sections">
+          <SectionsNav sections={sections} onSelect={handleGoto} disabled={submitting} />
+        </div>
         {discardButton}
         {canGoBack && (
           <button
@@ -320,31 +396,50 @@ export default function ConversationView({ onDone }) {
             Volver
           </button>
         )}
-        <PreviewCard
-          draft={prompt.draft}
-          categoryLabel={categoryLabel}
-          submitting={submitting}
-          publishing={publishing}
-          error={prompt.error}
-          onEdit={handleGoto}
-          onSaveDraft={() => send({ action: "DRAFT" })}
-          onPublish={() => send({ action: "PUBLISH" })}
-        />
+        <div data-tutorial="event-preview" className="w-full max-w-2xl">
+          <PreviewCard
+            draft={prompt.draft}
+            categoryLabel={categoryLabel}
+            submitting={submitting}
+            publishing={publishing}
+            error={prompt.error}
+            onEdit={handleGoto}
+            onSaveDraft={() => send({ action: "DRAFT" })}
+            onPublish={() => send({ action: "PUBLISH" })}
+          />
+        </div>
         {discardDialog}
         {restartDialog}
         <PublishOverlay open={publishing || checkingOutcome} checking={checkingOutcome} />
+        {tutorialStep && (
+          <TutorialSpotlight
+            active
+            targetKey={tutorialStep.target}
+            stepKey={tutorialStep.stepKey}
+            title={tutorialStep.title}
+            description={tutorialStep.description}
+            videoUrl={tutorialStep.videoUrl}
+            onExitTutorial={onExitTutorial}
+            onStepDismissed={() => {
+              if (tutorialStep.stepKey === "PREVIEW:overview") setPreviewTutorialSubStep("publish");
+            }}
+          />
+        )}
       </div>
     );
   }
 
   return (
     <div className="flex w-full flex-1 flex-col items-center justify-center gap-6 py-8">
-      <SectionsNav sections={sections} onSelect={handleGoto} disabled={submitting} />
+      <div data-tutorial="event-sections">
+        <SectionsNav sections={sections} onSelect={handleGoto} disabled={submitting} />
+      </div>
       {discardButton}
 
       <div
         key={`${conversationId}-${prompt.stepId}`}
         ref={questionRef}
+        data-tutorial="event-question"
         className="event-chat-question flex w-full max-w-xl flex-col items-center gap-4"
       >
         {canGoBack && (
@@ -369,6 +464,22 @@ export default function ConversationView({ onDone }) {
       </div>
       {discardDialog}
       {restartDialog}
+      {tutorialStep && (
+        <TutorialSpotlight
+          active
+          targetKey={tutorialStep.target}
+          stepKey={tutorialStep.stepKey}
+          title={tutorialStep.title}
+          description={tutorialStep.description}
+          videoUrl={tutorialStep.videoUrl}
+          index={tutorialStep.index}
+          total={tutorialStep.total}
+          onExitTutorial={onExitTutorial}
+          onStepDismissed={() => {
+            if (tutorialStep.stepKey === "SECTIONS_NAV") markSectionsNavTutorialSeen();
+          }}
+        />
+      )}
     </div>
   );
 }

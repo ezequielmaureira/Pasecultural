@@ -165,6 +165,7 @@ export default function PreviewCard({
           Guardar borrador
         </Button>
         <Button
+          data-tutorial="event-publish"
           loading={publishing}
           loadingText="Publicando..."
           disabled={submitting}
