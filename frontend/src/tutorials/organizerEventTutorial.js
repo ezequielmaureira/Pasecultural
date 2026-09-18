@@ -102,10 +102,11 @@ export const ORGANIZER_EVENT_TUTORIAL_STEPS = {
   },
 };
 
-// Orden REAL del flujo web (ver auditoría del motor) — usado sólo para el
-// contador "n/total" del tutorial, nunca para decidir navegación (eso lo
-// sigue haciendo exclusivamente el Event Creation Engine).
-export const ORGANIZER_EVENT_TUTORIAL_ORDER = Object.keys(ORGANIZER_EVENT_TUTORIAL_STEPS);
+// V1 no muestra contador "n/total": Object.keys(ORGANIZER_EVENT_TUTORIAL_STEPS)
+// incluye ramas alternativas del flujo (ej. FUNCTIONS_SINGLE_CARD y
+// FUNCTIONS_RANGE nunca ocurren en la misma creación) — un índice sobre esa
+// lista completa da un contador engañoso ("7/24" saltando a "12/24"). Sin
+// reemplazo estimado: progreso real por secciones queda para más adelante.
 
 // prompt.type === "PREVIEW" — dos micro-pasos sobre la MISMA pantalla:
 // primero una explicación general de la card, después el botón Publicar.

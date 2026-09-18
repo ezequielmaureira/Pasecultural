@@ -21,7 +21,6 @@ import QuestionRenderer from "./QuestionRenderer.jsx";
 import PreviewCard from "./PreviewCard.jsx";
 import {
   ORGANIZER_EVENT_TUTORIAL_STEPS,
-  ORGANIZER_EVENT_TUTORIAL_ORDER,
   ORGANIZER_EVENT_TUTORIAL_PREVIEW_OVERVIEW,
   ORGANIZER_EVENT_TUTORIAL_PREVIEW_PUBLISH,
   ORGANIZER_EVENT_TUTORIAL_SECTIONS_NAV,
@@ -111,13 +110,12 @@ export default function ConversationView({ onDone, tutorialEnabled = false, onEx
     }
     const entry = ORGANIZER_EVENT_TUTORIAL_STEPS[prompt.stepId];
     if (!entry) return null;
-    const orderIndex = ORGANIZER_EVENT_TUTORIAL_ORDER.indexOf(prompt.stepId);
-    return {
-      ...entry,
-      stepKey: prompt.stepId,
-      index: orderIndex >= 0 ? orderIndex + 1 : undefined,
-      total: ORGANIZER_EVENT_TUTORIAL_ORDER.length,
-    };
+    // V1 sin contador "n/total" (ver comentario en organizerEventTutorial.js
+    // — el orden completo de stepIds incluye ramas alternativas que nunca
+    // conviven en la misma creación, así que un índice sobre esa lista da
+    // un número engañoso). Sin index/total, TutorialCallout simplemente no
+    // renderiza ningún contador.
+    return { ...entry, stepKey: prompt.stepId };
   }
   const tutorialStep = tutorialEnabled ? getTutorialStep() : null;
 
@@ -472,8 +470,6 @@ export default function ConversationView({ onDone, tutorialEnabled = false, onEx
           title={tutorialStep.title}
           description={tutorialStep.description}
           videoUrl={tutorialStep.videoUrl}
-          index={tutorialStep.index}
-          total={tutorialStep.total}
           onExitTutorial={onExitTutorial}
           onStepDismissed={() => {
             if (tutorialStep.stepKey === "SECTIONS_NAV") markSectionsNavTutorialSeen();

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { PartyPopper, ArrowRight, Sparkles } from "lucide-react";
 import Button from "../../components/ui/Button.jsx";
 import ConversationView from "./eventChat/ConversationView.jsx";
@@ -60,24 +60,41 @@ function SuccessScreen({ result }) {
 
 export default function OrganizerEventChat() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [result, setResult] = useState(null);
 
-  // `location.state` sólo existe cuando se navegó acá explícitamente por un
-  // <Link>/navigate con `state` (Sidebar, OrganizerEvents.jsx) — un F5 en
-  // medio de la creación lo pierde por completo (queda `null`), y ESE es
-  // justo el caso que tiene que sobrevivir leyendo sessionStorage en vez de
-  // reiniciar en false. Cuando SÍ hay `state` (cualquier navegación nueva,
-  // incluida "Crear evento" del Sidebar que nunca manda `tutorial`), el
-  // valor explícito manda siempre — así "Crear evento" entra sin tutorial
-  // por más que la sesión anterior lo hubiera dejado prendido.
+  // `location.state.fresh` es el ÚNICO flag de "esto es una navegación
+  // NUEVA" (Sidebar/OrganizerEvents.jsx siempre lo mandan junto con
+  // cualquier `tutorial` — ver ambos call sites). A diferencia del state
+  // de React, `history.state` (de donde sale `location.state`) puede
+  // sobrevivir un F5 según el navegador — así que "existe location.state"
+  // NO alcanza para distinguir una navegación nueva de una reanudación por
+  // refresh (eso fue el bug: apagar el tutorial a mano, F5, y volver a leer
+  // un `tutorial:true` viejo del history state). Fuera de una navegación
+  // fresh, sessionStorage es la ÚNICA fuente de verdad.
   const [tutorialEnabled, setTutorialEnabled] = useState(() => {
-    const hasNavigationState = location.state != null;
-    const initial = hasNavigationState
+    const isFreshNavigation = location.state?.fresh === true;
+    const initial = isFreshNavigation
       ? location.state?.tutorial === true
       : readStoredTutorialEnabled() === "true";
     writeStoredTutorialEnabled(initial);
     return initial;
   });
+
+  // Consume el history state de ESTA navegación una sola vez, al montar —
+  // necesario para que el fix de arriba sea real: si no se limpia, un F5
+  // futuro seguiría viendo el mismo `fresh:true`/`tutorial` de la
+  // navegación original (el history state persiste más allá del ciclo de
+  // vida del componente React) y el toggle manual volvería a perderse.
+  // Nunca toca conversationId: ConversationView ya consumió
+  // `location.state.fresh` en su propio efecto de montaje (corre antes que
+  // este, por ser el hijo) antes de que este replace ocurra.
+  useEffect(() => {
+    if (location.state != null) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function toggleTutorial() {
     setTutorialEnabled((prev) => {
