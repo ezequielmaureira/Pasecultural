@@ -226,24 +226,41 @@ export default function Sidebar({ open = false, onClose }) {
                 <TopNavItem {...item} />
                 {item.children && (
                   <div className="ml-6 mt-1 flex flex-col gap-1 border-l border-white/10 pl-4">
-                    {item.children.map((child) => (
-                      <NavLink
-                        key={child.label}
-                        to={child.path}
-                        end={child.end}
-                        state={child.state}
-                        onClick={(event) => handleNavClick(event, child)}
-                        className={({ isActive }) =>
-                          `rounded-lg px-3 py-1.5 text-sm transition-colors duration-150 ${
-                            isActive
-                              ? "text-violet-300"
-                              : "text-slate-500 hover:text-white light:hover:text-slate-900"
-                          }`
-                        }
-                      >
-                        {child.label}
-                      </NavLink>
-                    ))}
+                    {item.children.map((child) => {
+                      // Fest Pass — único hijo destacado del menú (glow sutil,
+                      // sin badge "Nuevo"): mismo <NavLink> y misma lista que
+                      // el resto de los children. A diferencia del resto,
+                      // mantiene su identidad (fondo/borde/glow violeta) TANTO
+                      // activo como inactivo — sólo cambia de intensidad entre
+                      // los dos estados; el resto de los children conserva
+                      // exactamente el mismo comportamiento de siempre
+                      // (texto violeta liso cuando está activo, gris cuando no).
+                      const isFestPass = child.path === "/organizador/fest-pass";
+                      return (
+                        <NavLink
+                          key={child.label}
+                          to={child.path}
+                          end={child.end}
+                          state={child.state}
+                          onClick={(event) => handleNavClick(event, child)}
+                          className={({ isActive }) => {
+                            if (isFestPass && isActive) {
+                              return "-mx-1 rounded-lg border border-violet-400/50 bg-violet-500/20 px-4 py-1.5 text-sm font-semibold text-violet-100 shadow-[0_0_22px_rgba(168,85,247,0.35)] transition-shadow duration-300";
+                            }
+                            if (isFestPass) {
+                              return "-mx-1 rounded-lg border border-violet-500/25 bg-violet-500/10 px-4 py-1.5 text-sm font-medium text-violet-200 shadow-[0_0_16px_rgba(168,85,247,0.18)] transition-shadow duration-300 hover:border-violet-400/40 hover:bg-violet-500/15 hover:shadow-[0_0_22px_rgba(168,85,247,0.3)]";
+                            }
+                            return `rounded-lg px-3 py-1.5 text-sm transition-colors duration-150 ${
+                              isActive
+                                ? "text-violet-300"
+                                : "text-slate-500 hover:text-white light:hover:text-slate-900"
+                            }`;
+                          }}
+                        >
+                          {child.label}
+                        </NavLink>
+                      );
+                    })}
                   </div>
                 )}
               </div>

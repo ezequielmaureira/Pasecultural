@@ -9,6 +9,7 @@ import ShareLinkPanel from "../../components/organizer/ShareLinkPanel.jsx";
 import { Field, inputClass, textareaClass } from "../../components/ui/FormField.jsx";
 import ImageUploader from "../../components/ui/ImageUploader.jsx";
 import VideoUploader from "../../components/ui/VideoUploader.jsx";
+import FestPassIntro from "../../components/organizer/FestPassIntro.jsx";
 import TimePicker from "../../components/ui/TimePicker.jsx";
 import LocationPicker from "../../components/location/LocationPicker.jsx";
 import { createEmptyLocation, hasCoordinates } from "../../lib/locationUtils.js";
@@ -110,8 +111,16 @@ function createEmptyGeneral() {
   };
 }
 
-function ScreenShell({ children }) {
-  return <div className="mx-auto flex w-full max-w-md flex-col gap-5 pb-10">{children}</div>;
+// `wide` — sólo lo usa el screen "info" (ver más abajo), para poder mostrar
+// FestPassIntro con su mockup + beneficios en 2 columnas en desktop, sin
+// tocar el ancho angosto (max-w-md) que ya usan tickets/preview/success —
+// esas 3 pantallas siguen exactamente igual que antes de este cambio.
+function ScreenShell({ children, wide = false }) {
+  return (
+    <div className={`mx-auto flex w-full flex-col gap-5 pb-10 ${wide ? "max-w-3xl" : "max-w-md"}`}>
+      {children}
+    </div>
+  );
 }
 
 const STAGE_LABEL = { info: "1. Tu evento", tickets: "2. Entradas", preview: "3. Vista previa" };
@@ -649,7 +658,7 @@ export default function FestPass() {
 
   // ===================== TU EVENTO / ENTRADAS =====================
   return (
-    <ScreenShell>
+    <ScreenShell wide={screen === "info"}>
       <div className="flex flex-col items-center gap-1 text-center">
         <span className="flex items-center gap-2 text-2xl font-extrabold text-white">
           <Zap className="h-6 w-6 text-violet-400" />
@@ -659,8 +668,12 @@ export default function FestPass() {
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{STAGE_LABEL[screen]}</p>
       </div>
 
+      {/* Sólo antes del formulario, sólo en la primera pantalla — nunca se
+          repite al pasar a "Entradas" ni queda arriba del preview/success. */}
+      {screen === "info" && <FestPassIntro />}
+
       {screen === "info" && (
-        <Card className="flex flex-col gap-4">
+        <Card className="mx-auto flex w-full max-w-md flex-col gap-4">
           <Field label="Nombre del evento">
             <input
               className={inputClass}
