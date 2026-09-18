@@ -82,6 +82,10 @@ export default function OrganizerEvents() {
   }, []);
 
   const canPublish = canPublishEvents(organization);
+  // Sólo decide algo una vez que `events` refleja la respuesta real de
+  // GET /api/events/mine (nunca durante loading=true, donde `events` todavía
+  // es el array vacío inicial y daría un falso positivo).
+  const isFirstEvent = !loading && events.length === 0;
 
   async function patchEvent(id, patch, action) {
     setUpdatingId(id);
@@ -159,8 +163,14 @@ export default function OrganizerEvents() {
               Crear con tutorial
             </Button>
           </Link>
-          <Link to="/organizador/eventos/nuevo" state={{ fresh: true, tutorial: false }}>
-            <Button className="w-full sm:w-auto">
+          {/* Primera creación del Organizer (isFirstEvent, calculado arriba
+              recién con loading=false) — mismo botón/CTA de siempre, sólo
+              con glow pulsante (ver .smarticket-cta-pulse en index.css,
+              respeta prefers-reduced-motion) y tutorial encendido por
+              default. El usuario sigue pudiendo apagarlo desde el toggle
+              dentro del creador — esto nunca lo fuerza ni lo bloquea. */}
+          <Link to="/organizador/eventos/nuevo" state={{ fresh: true, tutorial: isFirstEvent }}>
+            <Button className={`w-full sm:w-auto ${isFirstEvent ? "smarticket-cta-pulse" : ""}`}>
               <Plus className="h-4 w-4" />
               Crear evento
             </Button>

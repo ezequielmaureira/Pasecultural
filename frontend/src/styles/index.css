@@ -68,6 +68,31 @@ select option {
   animation: event-chat-fade-in 0.3s ease-out;
 }
 
+/* CTA "Crear evento" cuando es la primera creación del Organizer (ver
+   OrganizerEvents.jsx, isFirstEvent) — glow que sube/baja MUY suave,
+   nunca parpadeo ni cambio de tamaño (nada de scale, sólo box-shadow).
+   2.2s, infinito mientras siga siendo el primer evento. */
+@keyframes smarticket-cta-pulse-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 18px -6px rgba(139, 92, 246, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 30px -4px rgba(139, 92, 246, 0.95), 0 0 14px -2px rgba(59, 130, 246, 0.5);
+  }
+}
+
+.smarticket-cta-pulse {
+  animation: smarticket-cta-pulse-glow 2.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .smarticket-cta-pulse {
+    animation: none;
+    box-shadow: 0 0 18px -6px rgba(139, 92, 246, 0.6);
+  }
+}
+
 /* Overlays bloqueantes (ej: publicar evento): fade del fondo + pop suave
    del panel central, en vez de aparecer de golpe. */
 @keyframes overlay-fade-in {
