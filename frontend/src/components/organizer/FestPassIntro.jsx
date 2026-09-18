@@ -1,4 +1,4 @@
-import { Zap, Link2, ImageIcon, Ticket as TicketIcon, VolumeX } from "lucide-react";
+import { Zap, Link2, ImageIcon, Ticket as TicketIcon, VolumeX, Share2 } from "lucide-react";
 import Card from "../ui/Card.jsx";
 
 // Bloque explicativo mostrado ÚNICA Y EXCLUSIVAMENTE arriba del formulario
@@ -34,51 +34,71 @@ export default function FestPassIntro() {
       variant="glass"
       className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-[170px_1fr] sm:items-center sm:gap-5 sm:p-5 lg:grid-cols-[220px_1fr] lg:gap-8 lg:p-6"
     >
-      {/* Mockup ilustrativo — mismo lenguaje visual que el screen "preview"
-          real (fondo oscuro, gradiente, CTA en degradé), pero estático y
-          sin datos del organizador. Referencia visual: mockup vertical con
-          marco tipo teléfono, apoyado a la izquierda de la card, ocupando
-          una columna angosta y fija (nunca crece para "llenar" la card). */}
-      <div className="mx-auto w-full max-w-[150px] shrink-0 rounded-[26px] border border-white/10 bg-black/40 p-1.5 shadow-[0_0_24px_rgba(168,85,247,0.25)] sm:max-w-[170px] lg:max-w-[220px]">
-        <div className="relative aspect-[9/18] w-full overflow-hidden rounded-[20px] bg-gradient-to-br from-violet-950 via-slate-950 to-black">
-          <div className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-black/50 text-white/70 lg:h-6 lg:w-6">
-            <VolumeX className="h-2.5 w-2.5 lg:h-3 lg:w-3" />
-          </div>
-          <div className="absolute inset-x-0 bottom-0 flex flex-col gap-1.5 bg-gradient-to-t from-black via-black/80 to-transparent p-2.5 pt-8 lg:gap-2 lg:p-3 lg:pt-10">
-            <span className="w-fit rounded-full bg-violet-500/20 px-1.5 py-0.5 text-[7px] font-semibold uppercase tracking-wide text-violet-200 lg:text-[9px]">
-              Smarticket · Fest Pass
+      {/* Mockup ilustrativo — réplica en miniatura de la pantalla REAL del
+          comprador (mismo layering/clases que pages/public/QuickPass.jsx,
+          fase "event": foto + overlays, FestPassBadge, card glass con
+          datos+entradas, CTA degradé, botón "ver detalle" y "Compartir"),
+          escalado a tamaño de preview — nunca los datos reales del
+          organizador, sólo para que se entienda de un vistazo qué es. */}
+      <div className="relative mx-auto aspect-[9/19] w-full max-w-[150px] shrink-0 overflow-hidden rounded-[22px] border border-white/10 bg-slate-950 shadow-[0_0_24px_rgba(168,85,247,0.25)] sm:max-w-[170px] lg:max-w-[220px]">
+        {/* "Foto" simulada (sin imagen real acá) + los 3 overlays EXACTOS
+            que ya usa QuickPass.jsx sobre la imagen real. */}
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_22%,rgba(139,92,246,0.35),transparent_60%),linear-gradient(180deg,#1e1b4b,#020617)]" />
+        <div className="absolute inset-0 bg-black/50" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-br from-violet-600/20 via-transparent to-blue-600/20" />
+
+        <div className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white lg:right-2 lg:top-2 lg:h-5 lg:w-5">
+          <VolumeX className="h-2 w-2 lg:h-2.5 lg:w-2.5" />
+        </div>
+
+        <div className="absolute inset-x-0 bottom-0 flex flex-col gap-1.5 p-2 lg:gap-2 lg:p-2.5">
+          <div className="flex items-center justify-center gap-1 pb-0.5 text-center">
+            <span className="text-[6px] font-bold uppercase tracking-[0.2em] text-white/80 lg:text-[7px]">
+              Smarticket
             </span>
-            <p className="text-xs font-bold leading-tight text-white lg:text-base">Fest</p>
-            <p className="text-[9px] leading-tight text-white/60 lg:text-[11px]">
-              29 de sept de 2026, 08:00 p.m.
-              <br />
-              San Martín 850 · General Roca
-            </p>
-            <div className="flex items-center justify-between border-t border-white/10 pt-1.5 text-[9px] lg:text-[11px]">
-              <span className="text-white/50">
+            <span className="h-[3px] w-[3px] rounded-full bg-fuchsia-400" />
+            <span className="text-[6px] font-bold uppercase tracking-[0.2em] text-fuchsia-300 lg:text-[7px]">
+              Fest Pass
+            </span>
+          </div>
+
+          <div className="rounded-xl border border-white/15 bg-white/10 p-2 backdrop-blur-xl lg:rounded-2xl lg:p-2.5">
+            <p className="text-xs font-extrabold leading-tight text-white lg:text-sm">Fest</p>
+            <p className="mt-0.5 text-[8px] leading-tight text-white/80 lg:text-[9px]">29 de sept de 2026, 08:00 p.m.</p>
+            <p className="text-[8px] leading-tight text-white/70 lg:text-[9px]">San Martín 850 · General Roca</p>
+
+            <div className="mt-1.5 flex flex-col gap-1 border-t border-white/10 pt-1.5">
+              <p className="text-[6px] font-semibold uppercase tracking-wide text-white/60 lg:text-[7px]">
                 Elegí tus entradas
-                <br />
-                <span className="text-white/80">VIP</span>
-              </span>
-              <span className="font-semibold text-white">$6.000</span>
+              </p>
+              <div className="flex items-center justify-between text-[8px] lg:text-[9px]">
+                <span className="text-white/90">VIP</span>
+                <span className="font-semibold text-white">$6.000</span>
+              </div>
             </div>
-            <button
-              type="button"
-              tabIndex={-1}
-              aria-hidden="true"
-              className="mt-0.5 flex items-center justify-center gap-1 rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-blue-500 py-1.5 text-[9px] font-bold text-white lg:py-2 lg:text-[11px]"
-            >
-              <TicketIcon className="h-2.5 w-2.5 lg:h-3 lg:w-3" />
-              Comprar entradas
-            </button>
-            <button
-              type="button"
-              tabIndex={-1}
-              aria-hidden="true"
-              className="flex items-center justify-center rounded-full border border-white/15 py-1.5 text-[8px] font-medium text-white/70 lg:py-1.5 lg:text-[10px]"
-            >
-              Ver detalle del evento
-            </button>
+          </div>
+
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-hidden="true"
+            className="flex items-center justify-center gap-1 rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-blue-500 py-1.5 text-[8px] font-bold text-white shadow-[0_0_14px_rgba(168,85,247,0.5)] lg:text-[9px]"
+          >
+            <TicketIcon className="h-2.5 w-2.5" />
+            Comprar entradas
+          </button>
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-hidden="true"
+            className="flex items-center justify-center rounded-full border border-white/25 bg-white/5 py-1.5 text-[7px] font-semibold text-white lg:text-[8px]"
+          >
+            Ver detalle del evento
+          </button>
+          <div className="flex items-center justify-center gap-1 pb-0.5 text-[7px] font-medium text-white/70 lg:text-[8px]">
+            <Share2 className="h-2 w-2" />
+            Compartir
           </div>
         </div>
       </div>
