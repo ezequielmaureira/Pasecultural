@@ -28,6 +28,8 @@ import developerAlertConfigRoutes from "./routes/developerAlertConfig.routes.js"
 import developerPlanLimitsRoutes from "./routes/developerPlanLimits.routes.js";
 import publicLaunchSettingsRoutes from "./routes/publicLaunchSettings.routes.js";
 import publicLaunchStatusRoutes from "./routes/publicLaunchStatus.routes.js";
+import contentRoutes from "./routes/content.routes.js";
+import contentPublicRoutes from "./routes/content.public.routes.js";
 import whatsappRoutes from "./routes/whatsapp.routes.js";
 import mercadoPagoRoutes from "./routes/mercadoPago.routes.js";
 import { errorHandler } from "./errors/index.js";
@@ -149,11 +151,22 @@ app.use("/api/developer", publicLaunchSettingsRoutes);
 // que consuma estos límites (eso es una fase posterior) — ver
 // organizationPlanPolicy.js.
 app.use("/api/developer", developerPlanLimitsRoutes);
+// Mismo prefijo "/api/developer", décimo router en paralelo (sin tocar
+// ninguno de los anteriores) — Developer > Contenido (V1 mínima): GET/PUT
+// /api/developer/content/fest-pass-intro (imagen que reemplaza la
+// introducción actual de Organizer > Fest Pass). Exclusivo DEVELOPER, es
+// GLOBAL (no por Organization). Ver content.service.js.
+app.use("/api/developer", contentRoutes);
 // Router propio, prefijo nuevo "/api/public" — SIN auth: GET
 // /api/public/launch-status, lo necesita cualquier visitante anónimo antes
 // de que exista sesión. Nunca agregar otros endpoints públicos de datos
 // acá — ver publicLaunchStatus.routes.js.
 app.use("/api/public", publicLaunchStatusRoutes);
+// Router propio, prefijo nuevo "/api/content" — SIN auth: GET
+// /api/content/fest-pass-intro, lo consume Organizer > Fest Pass (y
+// cualquiera con sesión) para saber si mostrar la imagen configurada por
+// Developer o el fallback actual. Ver content.public.routes.js.
+app.use("/api/content", contentPublicRoutes);
 // Webhook de Meta WhatsApp Cloud API — Fase 2A: sólo verificación GET y
 // recepción POST del webhook, público (Meta no manda ningún header de
 // sesión de PaseCultural). No conecta EventCreationEngine/EventServicePort

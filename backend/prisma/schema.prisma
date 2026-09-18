@@ -2163,3 +2163,30 @@ model EventScanner {
   @@index([email])
   @@map("event_scanners")
 }
+
+// Developer > Contenido (V1 mínima) — un único placement soportado hoy:
+// la introducción de Organizer > Fest Pass. Deliberadamente genérico
+// (placement + campos mínimos) para poder agregar otros placements después
+// sin migrar de nuevo la forma del modelo, pero esta versión NO agrega
+// campos que esa card todavía no necesita (title/description/cta/type/
+// startsAt/endsAt/sortOrder) porque el diseño completo vive DENTRO de la
+// imagen — ver ContentCard más abajo.
+enum ContentPlacement {
+  ORGANIZER_FEST_PASS_INTRO
+}
+
+// Configuración GLOBAL (no por Organization) que Developer controla y que
+// Organizer consume de sólo lectura — ver content.routes.js (Developer,
+// GET/PUT) y content.public.routes.js (público, sólo lectura). Como mucho
+// una fila por placement (@@unique) — no hay historial/versionado en V1.
+model ContentCard {
+  id        String           @id @default(cuid())
+  placement ContentPlacement @unique
+  imageUrl  String?
+  active    Boolean          @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("content_cards")
+}

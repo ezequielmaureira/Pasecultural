@@ -9,7 +9,7 @@ import ShareLinkPanel from "../../components/organizer/ShareLinkPanel.jsx";
 import { Field, inputClass, textareaClass } from "../../components/ui/FormField.jsx";
 import ImageUploader from "../../components/ui/ImageUploader.jsx";
 import VideoUploader from "../../components/ui/VideoUploader.jsx";
-import FestPassIntro from "../../components/organizer/FestPassIntro.jsx";
+import FestPassIntroContent from "../../components/organizer/FestPassIntroContent.jsx";
 import TimePicker from "../../components/ui/TimePicker.jsx";
 import LocationPicker from "../../components/location/LocationPicker.jsx";
 import { createEmptyLocation, hasCoordinates } from "../../lib/locationUtils.js";
@@ -670,7 +670,7 @@ export default function FestPass() {
 
       {/* Sólo antes del formulario, sólo en la primera pantalla — nunca se
           repite al pasar a "Entradas" ni queda arriba del preview/success. */}
-      {screen === "info" && <FestPassIntro />}
+      {screen === "info" && <FestPassIntroContent />}
 
       {screen === "info" && (
         // Ancho igual al bloque superior (FestPassIntro), no max-w-md: en

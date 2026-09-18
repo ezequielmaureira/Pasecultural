@@ -673,6 +673,14 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "The proposed publicLaunchEnabled value was not a boolean.",
         userMessage: "El valor enviado no es válido.",
     },
+
+    // Developer > Contenido (V1 mínima) — configuración global de la card
+    // de introducción de Fest Pass. Ver content.service.js.
+    CONTENT_CARD_INVALID: {
+        httpStatus: 400,
+        logMessage: "The proposed ContentCard config failed validation: active=true requires a valid http/https imageUrl, or active was not a real boolean.",
+        userMessage: "La configuración tiene errores. Revisá la imagen y el estado e intentá de nuevo.",
+    },
     // Superficie pública bloqueada mientras dura el prelanzamiento — nunca
     // un error real, es el estado esperado hasta que un DEVELOPER habilite
     // el sitio desde Developer > Configuración.
