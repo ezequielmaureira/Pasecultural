@@ -17,6 +17,7 @@ import {
   Undo2,
   Sparkles,
   Image,
+  Zap,
 } from "lucide-react";
 import { useBackendUser } from "../../context/AuthContext.jsx";
 import { NEW_EVENT_REQUEST_EVENT } from "../../lib/eventChatEvents.js";
@@ -232,15 +233,57 @@ export default function Sidebar({ open = false, onClose }) {
                 {item.children && (
                   <div className="ml-6 mt-1 flex flex-col gap-1 border-l border-white/10 pl-4">
                     {item.children.map((child) => {
-                      // Fest Pass — único hijo destacado del menú (glow sutil,
-                      // sin badge "Nuevo"): mismo <NavLink> y misma lista que
-                      // el resto de los children. A diferencia del resto,
-                      // mantiene su identidad (fondo/borde/glow violeta) TANTO
-                      // activo como inactivo — sólo cambia de intensidad entre
-                      // los dos estados; el resto de los children conserva
-                      // exactamente el mismo comportamiento de siempre
-                      // (texto violeta liso cuando está activo, gris cuando no).
+                      // Fest Pass — único hijo destacado del menú: mismo
+                      // <NavLink> y misma lista que el resto de los children,
+                      // pero con tratamiento "premium/neon" (botón propio,
+                      // no un submenu común): gradiente azul→violeta→fucsia,
+                      // borde luminoso, doble glow exterior, ícono Zap con
+                      // drop-shadow, y una capa de brillo diagonal interna
+                      // (span absoluto, pointer-events-none, no interfiere
+                      // con el click) para sensación glass/neon. Mantiene su
+                      // identidad TANTO activo como inactivo — sólo cambia
+                      // de intensidad entre los dos estados. El resto de los
+                      // children conserva exactamente el mismo comportamiento
+                      // de siempre (texto violeta liso cuando está activo,
+                      // gris cuando no).
                       const isFestPass = child.path === "/organizador/fest-pass";
+                      if (isFestPass) {
+                        return (
+                          <NavLink
+                            key={child.label}
+                            to={child.path}
+                            end={child.end}
+                            state={child.state}
+                            onClick={(event) => handleNavClick(event, child)}
+                            className={({ isActive }) =>
+                              `group relative -mx-1 flex items-center gap-2 overflow-hidden rounded-xl border px-4 py-2.5 text-sm transition-all duration-300 ease-out ${
+                                isActive
+                                  ? "border-white/30 bg-gradient-to-r from-blue-600 via-violet-600 to-fuchsia-500 font-semibold text-white shadow-[0_0_14px_rgba(99,102,241,0.65),0_0_28px_rgba(168,85,247,0.45),0_0_38px_rgba(236,72,153,0.20)]"
+                                  : "border-violet-500/40 bg-gradient-to-r from-blue-950/60 via-violet-900/50 to-fuchsia-900/40 font-medium text-violet-100 shadow-[0_0_10px_rgba(99,102,241,0.2)] hover:border-violet-400/60 hover:from-blue-600/40 hover:via-violet-600/40 hover:to-fuchsia-500/30 hover:text-white hover:shadow-[0_0_16px_rgba(99,102,241,0.4),0_0_26px_rgba(168,85,247,0.3)]"
+                              }`
+                            }
+                          >
+                            {({ isActive }) => (
+                              <>
+                                {/* Capa de brillo diagonal — puramente visual,
+                                    no capta clicks (pointer-events-none). */}
+                                <span
+                                  aria-hidden="true"
+                                  className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/25 via-white/0 to-transparent opacity-60"
+                                />
+                                <Zap
+                                  className={`relative h-4 w-4 shrink-0 transition-colors duration-300 ${
+                                    isActive
+                                      ? "text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.9)]"
+                                      : "text-violet-300 group-hover:text-white"
+                                  }`}
+                                />
+                                <span className="relative">{child.label}</span>
+                              </>
+                            )}
+                          </NavLink>
+                        );
+                      }
                       return (
                         <NavLink
                           key={child.label}
@@ -248,19 +291,13 @@ export default function Sidebar({ open = false, onClose }) {
                           end={child.end}
                           state={child.state}
                           onClick={(event) => handleNavClick(event, child)}
-                          className={({ isActive }) => {
-                            if (isFestPass && isActive) {
-                              return "-mx-1 rounded-lg border border-violet-400/50 bg-violet-500/20 px-4 py-1.5 text-sm font-semibold text-violet-100 shadow-[0_0_22px_rgba(168,85,247,0.35)] transition-shadow duration-300";
-                            }
-                            if (isFestPass) {
-                              return "-mx-1 rounded-lg border border-violet-500/25 bg-violet-500/10 px-4 py-1.5 text-sm font-medium text-violet-200 shadow-[0_0_16px_rgba(168,85,247,0.18)] transition-shadow duration-300 hover:border-violet-400/40 hover:bg-violet-500/15 hover:shadow-[0_0_22px_rgba(168,85,247,0.3)]";
-                            }
-                            return `rounded-lg px-3 py-1.5 text-sm transition-colors duration-150 ${
+                          className={({ isActive }) =>
+                            `rounded-lg px-3 py-1.5 text-sm transition-colors duration-150 ${
                               isActive
                                 ? "text-violet-300"
                                 : "text-slate-500 hover:text-white light:hover:text-slate-900"
-                            }`;
-                          }}
+                            }`
+                          }
                         >
                           {child.label}
                         </NavLink>
