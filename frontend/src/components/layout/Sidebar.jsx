@@ -185,6 +185,15 @@ export default function Sidebar({ open = false, onClose }) {
   // resuelto.
   const [organizerHasEvents, setOrganizerHasEvents] = useState(null);
 
+  // `location.pathname` en las deps a propósito — AppShell/Sidebar quedan
+  // montados mientras se navega DENTRO de /organizador/* (nunca remontan
+  // por sí solos), así que sin esto `organizerHasEvents` quedaba pegado en
+  // `false` para siempre después del primer chequeo: crear el primer
+  // evento y volver a Eventos > Lista no alcanzaba para que el pulse
+  // desapareciera sin un F5. Cada cambio de ruta dentro del panel vuelve a
+  // preguntar. Nunca resetea `organizerHasEvents` a `null`/`false` ANTES
+  // del fetch — se deja el valor anterior hasta tener la respuesta nueva,
+  // así nunca hay un flash de "vuelve a pulsar" mientras se revalida.
   useEffect(() => {
     if (role !== "organizer") return undefined;
     let cancelled = false;
@@ -194,8 +203,9 @@ export default function Sidebar({ open = false, onClose }) {
         const { events } = await apiFetch("/api/events/mine", { token });
         if (!cancelled) setOrganizerHasEvents(events.length > 0);
       } catch (err) {
-        // Conservador: se queda en null (nunca se asume "primera
-        // creación" ante un error) — sin toast, es un fetch auxiliar.
+        // Conservador: se queda en el valor anterior (nunca se asume
+        // "primera creación" ante un error) — sin toast, es un fetch
+        // auxiliar.
         console.error("No se pudo determinar si el Organizer ya tiene eventos", err);
       }
     }
@@ -204,7 +214,7 @@ export default function Sidebar({ open = false, onClose }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role]);
+  }, [role, location.pathname]);
 
   const isFirstEvent = role === "organizer" && organizerHasEvents === false;
 
