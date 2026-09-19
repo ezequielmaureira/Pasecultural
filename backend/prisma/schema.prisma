@@ -2175,6 +2175,7 @@ enum ContentPlacement {
   ORGANIZER_FEST_PASS_INTRO
   HOW_IT_WORKS_ATTENDEES
   HOW_IT_WORKS_ORGANIZERS
+  HOW_IT_WORKS_SCANNERS
 }
 
 // Configuración GLOBAL (no por Organization) que Developer controla y que

@@ -8,6 +8,7 @@ import {
 const FEST_PASS_INTRO_PLACEMENT = "ORGANIZER_FEST_PASS_INTRO";
 const HOW_IT_WORKS_ATTENDEES_PLACEMENT = "HOW_IT_WORKS_ATTENDEES";
 const HOW_IT_WORKS_ORGANIZERS_PLACEMENT = "HOW_IT_WORKS_ORGANIZERS";
+const HOW_IT_WORKS_SCANNERS_PLACEMENT = "HOW_IT_WORKS_SCANNERS";
 
 // GET /api/developer/content/fest-pass-intro — exclusivo DEVELOPER (ver
 // content.routes.js).
@@ -48,13 +49,15 @@ export const getPublicFestPassIntroContent = async (req, res, next) => {
 // modelo nuevo, sólo dos placements leídos juntos por conveniencia de UI.
 export const getHowItWorksContent = async (req, res, next) => {
     try {
-        const [attendees, organizers] = await Promise.all([
+        const [attendees, organizers, scanners] = await Promise.all([
             getContentCardService(HOW_IT_WORKS_ATTENDEES_PLACEMENT),
             getContentCardService(HOW_IT_WORKS_ORGANIZERS_PLACEMENT),
+            getContentCardService(HOW_IT_WORKS_SCANNERS_PLACEMENT),
         ]);
         res.status(200).json({
             attendees: attendees ?? { placement: HOW_IT_WORKS_ATTENDEES_PLACEMENT, imageUrl: null, active: false },
             organizers: organizers ?? { placement: HOW_IT_WORKS_ORGANIZERS_PLACEMENT, imageUrl: null, active: false },
+            scanners: scanners ?? { placement: HOW_IT_WORKS_SCANNERS_PLACEMENT, imageUrl: null, active: false },
         });
     } catch (error) {
         next(AppError.from(error));
@@ -62,12 +65,12 @@ export const getHowItWorksContent = async (req, res, next) => {
 };
 
 // PUT /api/developer/content/how-it-works — exclusivo DEVELOPER. Recibe
-// ambas configuraciones y las guarda como dos upserts independientes (cada
+// las tres configuraciones y las guarda como upserts independientes (cada
 // placement sigue siendo una fila propia, @@unique en el schema).
 export const updateHowItWorksContent = async (req, res, next) => {
     try {
-        const { attendees, organizers } = req.body;
-        const [attendeesCard, organizersCard] = await Promise.all([
+        const { attendees, organizers, scanners } = req.body;
+        const [attendeesCard, organizersCard, scannersCard] = await Promise.all([
             updateContentCardService(HOW_IT_WORKS_ATTENDEES_PLACEMENT, {
                 imageUrl: attendees?.imageUrl,
                 active: attendees?.active,
@@ -76,8 +79,12 @@ export const updateHowItWorksContent = async (req, res, next) => {
                 imageUrl: organizers?.imageUrl,
                 active: organizers?.active,
             }),
+            updateContentCardService(HOW_IT_WORKS_SCANNERS_PLACEMENT, {
+                imageUrl: scanners?.imageUrl,
+                active: scanners?.active,
+            }),
         ]);
-        res.status(200).json({ attendees: attendeesCard, organizers: organizersCard });
+        res.status(200).json({ attendees: attendeesCard, organizers: organizersCard, scanners: scannersCard });
     } catch (error) {
         next(AppError.from(error));
     }
@@ -88,11 +95,12 @@ export const updateHowItWorksContent = async (req, res, next) => {
 // pestaña.
 export const getPublicHowItWorksContent = async (req, res, next) => {
     try {
-        const [attendees, organizers] = await Promise.all([
+        const [attendees, organizers, scanners] = await Promise.all([
             getPublicContentCardService(HOW_IT_WORKS_ATTENDEES_PLACEMENT),
             getPublicContentCardService(HOW_IT_WORKS_ORGANIZERS_PLACEMENT),
+            getPublicContentCardService(HOW_IT_WORKS_SCANNERS_PLACEMENT),
         ]);
-        res.status(200).json({ attendees, organizers });
+        res.status(200).json({ attendees, organizers, scanners });
     } catch (error) {
         next(AppError.from(error));
     }

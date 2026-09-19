@@ -35,6 +35,7 @@ export default function DeveloperContent() {
 
   const [attendeesImageUrl, setAttendeesImageUrl] = useState(null);
   const [organizersImageUrl, setOrganizersImageUrl] = useState(null);
+  const [scannersImageUrl, setScannersImageUrl] = useState(null);
   const [howItWorksLoading, setHowItWorksLoading] = useState(true);
   const [howItWorksLoadError, setHowItWorksLoadError] = useState(false);
   const [howItWorksSaving, setHowItWorksSaving] = useState(false);
@@ -49,6 +50,7 @@ export default function DeveloperContent() {
       const config = await getHowItWorksContent(token);
       setAttendeesImageUrl(config?.attendees?.imageUrl || null);
       setOrganizersImageUrl(config?.organizers?.imageUrl || null);
+      setScannersImageUrl(config?.scanners?.imageUrl || null);
     } catch (err) {
       console.error("No se pudo cargar el contenido de ¿Cómo funciona?", err);
       setHowItWorksLoadError(true);
@@ -71,9 +73,11 @@ export default function DeveloperContent() {
       const config = await updateHowItWorksContent(token, {
         attendees: { imageUrl: attendeesImageUrl, active: Boolean(attendeesImageUrl) },
         organizers: { imageUrl: organizersImageUrl, active: Boolean(organizersImageUrl) },
+        scanners: { imageUrl: scannersImageUrl, active: Boolean(scannersImageUrl) },
       });
       setAttendeesImageUrl(config?.attendees?.imageUrl || null);
       setOrganizersImageUrl(config?.organizers?.imageUrl || null);
+      setScannersImageUrl(config?.scanners?.imageUrl || null);
       setHowItWorksSavedMessage("Configuración guardada.");
     } catch (err) {
       setHowItWorksSaveError(err.message || "No pudimos guardar la configuración.");
@@ -185,8 +189,9 @@ export default function DeveloperContent() {
         <div className="mb-4 flex flex-col gap-1">
           <h2 className="text-sm font-semibold text-white">¿Cómo funciona?</h2>
           <p className="text-xs leading-relaxed text-slate-500">
-            Imágenes mostradas en las pestañas "Para asistentes" y "Para organizadores" de la página pública
-            ¿Cómo funciona?. Cada imagen ya contiene todo el diseño y el contenido — no se superpone texto.
+            Imágenes mostradas en las pestañas "Para asistentes", "Para organizadores" y "Para scanners" de la
+            página pública ¿Cómo funciona?. Cada imagen ya contiene todo el diseño y el contenido — no se
+            superpone texto.
           </p>
         </div>
 
@@ -210,7 +215,7 @@ export default function DeveloperContent() {
               </div>
             )}
 
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
               <ImageUploader
                 label="Para asistentes"
                 helperText="Imagen mostrada en la pestaña Para asistentes de la página ¿Cómo funciona?. PNG, JPG, JPEG o WEBP. Máximo 5 MB."
@@ -223,6 +228,13 @@ export default function DeveloperContent() {
                 helperText="Imagen mostrada en la pestaña Para organizadores de la página ¿Cómo funciona?. PNG, JPG, JPEG o WEBP. Máximo 5 MB."
                 value={organizersImageUrl}
                 onChange={setOrganizersImageUrl}
+                previewHeightClass="h-56"
+              />
+              <ImageUploader
+                label="Para scanners"
+                helperText="Imagen mostrada en la pestaña Para scanners de la página ¿Cómo funciona?. PNG, JPG, JPEG o WEBP. Máximo 5 MB."
+                value={scannersImageUrl}
+                onChange={setScannersImageUrl}
                 previewHeightClass="h-56"
               />
             </div>

@@ -23,6 +23,7 @@ const testWithDb = hasDatabase ? test : test.skip;
 const PLACEMENT = "ORGANIZER_FEST_PASS_INTRO";
 const ATTENDEES_PLACEMENT = "HOW_IT_WORKS_ATTENDEES";
 const ORGANIZERS_PLACEMENT = "HOW_IT_WORKS_ORGANIZERS";
+const SCANNERS_PLACEMENT = "HOW_IT_WORKS_SCANNERS";
 
 function uniqueSuffix() {
     return randomUUID().slice(0, 8);
@@ -67,7 +68,9 @@ async function resetCard() {
 }
 
 async function resetHowItWorksCards() {
-    await prisma.contentCard.deleteMany({ where: { placement: { in: [ATTENDEES_PLACEMENT, ORGANIZERS_PLACEMENT] } } });
+    await prisma.contentCard.deleteMany({
+        where: { placement: { in: [ATTENDEES_PLACEMENT, ORGANIZERS_PLACEMENT, SCANNERS_PLACEMENT] } },
+    });
 }
 
 testWithDb("a DEVELOPER can read the config via the controller", async () => {
@@ -198,7 +201,7 @@ testWithDb("the public endpoint returns active:false when no configuration exist
 // ¿Cómo funciona? — pestañas asistentes/organizadores (HOW_IT_WORKS_ATTENDEES
 // / HOW_IT_WORKS_ORGANIZERS), reutilizando el mismo ContentCard genérico.
 
-testWithDb("a DEVELOPER can read both how-it-works configs via the controller", async () => {
+testWithDb("a DEVELOPER can read the three how-it-works configs via the controller", async () => {
     await resetHowItWorksCards();
     const developer = await createUser({ role: "DEVELOPER" });
     try {
@@ -210,13 +213,15 @@ testWithDb("a DEVELOPER can read both how-it-works configs via the controller", 
         assert.equal(state.jsonBody.attendees.active, false);
         assert.equal(state.jsonBody.organizers.placement, ORGANIZERS_PLACEMENT);
         assert.equal(state.jsonBody.organizers.active, false);
+        assert.equal(state.jsonBody.scanners.placement, SCANNERS_PLACEMENT);
+        assert.equal(state.jsonBody.scanners.active, false);
     } finally {
         await cleanup({ userIds: [developer.id] });
         await resetHowItWorksCards();
     }
 });
 
-testWithDb("a DEVELOPER can update both how-it-works images in one call", async () => {
+testWithDb("a DEVELOPER can update the three how-it-works images in one call", async () => {
     await resetHowItWorksCards();
     const developer = await createUser({ role: "DEVELOPER" });
     try {
@@ -224,6 +229,7 @@ testWithDb("a DEVELOPER can update both how-it-works images in one call", async 
         req.body = {
             attendees: { imageUrl: "https://example.com/attendees.png", active: true },
             organizers: { imageUrl: "https://example.com/organizers.png", active: true },
+            scanners: { imageUrl: "https://example.com/scanners.png", active: true },
         };
         const { res, state } = fakeRes();
         await updateHowItWorksContent(req, res, () => {});
@@ -231,23 +237,26 @@ testWithDb("a DEVELOPER can update both how-it-works images in one call", async 
         assert.equal(state.statusCode, 200);
         assert.equal(state.jsonBody.attendees.imageUrl, "https://example.com/attendees.png");
         assert.equal(state.jsonBody.organizers.imageUrl, "https://example.com/organizers.png");
+        assert.equal(state.jsonBody.scanners.imageUrl, "https://example.com/scanners.png");
 
         const getReq = fakeReqWithAuth(developer.clerkId);
         const getRes = fakeRes();
         await getHowItWorksContent(getReq, getRes.res, () => {});
         assert.equal(getRes.state.jsonBody.attendees.active, true);
         assert.equal(getRes.state.jsonBody.organizers.active, true);
+        assert.equal(getRes.state.jsonBody.scanners.active, true);
     } finally {
         await cleanup({ userIds: [developer.id] });
         await resetHowItWorksCards();
     }
 });
 
-testWithDb("the public how-it-works endpoint only exposes active/imageUrl per tab", async () => {
+testWithDb("the public how-it-works endpoint only exposes active/imageUrl per tab, including scanners", async () => {
     await resetHowItWorksCards();
     try {
         await updateContentCardService(ATTENDEES_PLACEMENT, { imageUrl: "https://example.com/attendees.png", active: true });
         await updateContentCardService(ORGANIZERS_PLACEMENT, { imageUrl: "https://example.com/organizers.png", active: false });
+        await updateContentCardService(SCANNERS_PLACEMENT, { imageUrl: "https://example.com/scanners.png", active: true });
 
         const req = {};
         const { res, state } = fakeRes();
@@ -256,6 +265,7 @@ testWithDb("the public how-it-works endpoint only exposes active/imageUrl per ta
         assert.deepEqual(state.jsonBody, {
             attendees: { active: true, imageUrl: "https://example.com/attendees.png" },
             organizers: { active: false, imageUrl: null },
+            scanners: { active: true, imageUrl: "https://example.com/scanners.png" },
         });
     } finally {
         await resetHowItWorksCards();
@@ -271,7 +281,21 @@ testWithDb("the public how-it-works endpoint returns a safe state when nothing i
     assert.deepEqual(state.jsonBody, {
         attendees: { active: false, imageUrl: null },
         organizers: { active: false, imageUrl: null },
+        scanners: { active: false, imageUrl: null },
     });
+});
+
+testWithDb("scanners without configuration returns active:false and imageUrl:null on its own", async () => {
+    await resetHowItWorksCards();
+    try {
+        await updateContentCardService(ATTENDEES_PLACEMENT, { imageUrl: "https://example.com/attendees.png", active: true });
+        await updateContentCardService(ORGANIZERS_PLACEMENT, { imageUrl: "https://example.com/organizers.png", active: true });
+
+        const result = await getPublicContentCardService(SCANNERS_PLACEMENT);
+        assert.deepEqual(result, { active: false, imageUrl: null });
+    } finally {
+        await resetHowItWorksCards();
+    }
 });
 
 testWithDb("Fest Pass intro is unaffected by how-it-works reads/writes", async () => {

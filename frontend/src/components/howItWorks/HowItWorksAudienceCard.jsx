@@ -5,13 +5,15 @@ import { getPublicHowItWorksContent } from "../../lib/contentApi.js";
 const TABS = [
   { key: "attendees", label: "Para asistentes" },
   { key: "organizers", label: "Para organizadores" },
+  { key: "scanners", label: "Para scanners" },
 ];
 
-// Card administrable de la página pública /como-funciona: dos pestañas
-// (asistentes/organizadores), cada una mostrando UNA imagen completa
-// configurada desde Developer > Contenido (ver DeveloperContent.jsx). El
-// diseño y el contenido viven enteramente dentro de la imagen — acá nunca
-// se reconstruye texto ni se superpone nada sobre ella.
+// Card administrable de la página pública /como-funciona: tres pestañas
+// (asistentes/organizadores/scanners), cada una mostrando UNA imagen
+// completa configurada desde Developer > Contenido (ver
+// DeveloperContent.jsx). El diseño y el contenido viven enteramente dentro
+// de la imagen — acá nunca se reconstruye texto ni se superpone nada sobre
+// ella.
 export default function HowItWorksAudienceCard() {
   const [activeTab, setActiveTab] = useState("attendees");
   const [content, setContent] = useState(null);
@@ -42,13 +44,13 @@ export default function HowItWorksAudienceCard() {
 
   return (
     <section className="mx-auto w-full max-w-[1600px] px-2 pt-4 pb-16 sm:px-4 lg:px-6">
-      <div className="mx-auto flex w-fit max-w-full items-center gap-1 rounded-full border border-white/10 bg-black/30 p-1">
+      <div className="mx-auto grid w-full max-w-xl grid-cols-3 gap-1 rounded-full border border-white/10 bg-black/30 p-1">
         {TABS.map((tab) => (
           <button
             key={tab.key}
             type="button"
             onClick={() => setActiveTab(tab.key)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-all duration-150 sm:px-5 ${
+            className={`rounded-full px-1.5 py-1.5 text-center text-[11px] font-medium leading-tight transition-all duration-150 sm:px-3 sm:text-sm ${
               activeTab === tab.key
                 ? "bg-gradient-to-r from-violet-600 to-blue-500 text-white shadow-md shadow-violet-500/30"
                 : "text-slate-400 hover:text-white"

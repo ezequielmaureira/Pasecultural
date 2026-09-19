@@ -22,17 +22,17 @@ export async function getPublicFestPassIntroContent() {
 }
 
 // Developer > Contenido — "¿Cómo funciona?" (pestañas asistentes/
-// organizadores). GET/PUT /api/developer/content/how-it-works, exclusivo
-// DEVELOPER.
+// organizadores/scanners). GET/PUT /api/developer/content/how-it-works,
+// exclusivo DEVELOPER.
 export async function getHowItWorksContent(token) {
   return apiFetch("/api/developer/content/how-it-works", { token });
 }
 
-export async function updateHowItWorksContent(token, { attendees, organizers }) {
+export async function updateHowItWorksContent(token, { attendees, organizers, scanners }) {
   return apiFetch("/api/developer/content/how-it-works", {
     token,
     method: "PUT",
-    body: JSON.stringify({ attendees, organizers }),
+    body: JSON.stringify({ attendees, organizers, scanners }),
   });
 }
 
