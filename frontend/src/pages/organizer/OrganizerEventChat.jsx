@@ -132,7 +132,21 @@ export default function OrganizerEventChat() {
   }
 
   return (
-    <div className="flex min-h-[70vh] flex-1 flex-col">
+    // pb-28/sm:pb-32/lg:pb-8 — "zona segura" para el botón flotante GLOBAL
+    // de WhatsApp (OrganizerWhatsAppShortcutButton.jsx, fixed bottom-right,
+    // sigue visible acá a propósito: NO se oculta en esta ruta). La página
+    // entera scrollea (AppShell.jsx no tiene un contenedor interno con
+    // overflow propio), así que este padding-bottom en la raíz del creador
+    // es lo que garantiza que el último control de CADA paso (Continuar,
+    // Guardar borrador, Publicar) pueda desplazarse completamente por
+    // encima del botón, sin superponerse — nunca se tocó el propio botón
+    // (posición/tamaño/colores/z-index intactos). Mobile pb-28 (7rem)
+    // cubre altura del botón (~py-3.5 + ícono + texto) + su offset
+    // bottom-[1.25rem+safe-area] + margen; sm:pb-32 (8rem) por el botón
+    // más grande (py-4/text-base) a partir de `sm`; lg:pb-8 vuelve a un
+    // padding normal porque en desktop el creador (max-w-xl centrado)
+    // nunca comparte la esquina inferior derecha con el botón.
+    <div className="flex min-h-[70vh] flex-1 flex-col pb-28 sm:pb-32 lg:pb-8">
       <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-white">Crear evento</h1>
