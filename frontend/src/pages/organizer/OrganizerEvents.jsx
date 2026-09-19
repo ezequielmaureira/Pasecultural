@@ -53,6 +53,14 @@ export default function OrganizerEvents() {
   const { getToken } = useAuth();
   const toast = useToast();
   const [events, setEvents] = useState([]);
+  // Sólo para decidir onboarding (isFirstEvent, más abajo) — GET
+  // /api/events/mine EXCLUYE archivados, así que sin esto un Organizer que
+  // ya creó eventos mucho antes y hoy los tiene todos archivados quedaría
+  // con events.length===0 y Smarticket lo trataría como su primera
+  // creación. Nunca se renderiza una lista con esto, es puramente un
+  // conteo. Mismo endpoint ya existente (GET /api/events/archived) — sin
+  // tocar backend.
+  const [archivedEvents, setArchivedEvents] = useState([]);
   const [organization, setOrganization] = useState(null);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState(null);
@@ -63,12 +71,14 @@ export default function OrganizerEvents() {
   async function loadEvents() {
     try {
       const token = await getToken();
-      const [{ events: list }, { organization: org }] = await Promise.all([
+      const [{ events: list }, { organization: org }, { events: archivedList }] = await Promise.all([
         apiFetch("/api/events/mine", { token }),
         apiFetch("/api/organizations/me", { token }),
+        apiFetch("/api/events/archived", { token }),
       ]);
       setEvents(list);
       setOrganization(org);
+      setArchivedEvents(archivedList);
     } catch (err) {
       console.error("No se pudieron cargar los eventos", err);
     } finally {
@@ -82,10 +92,12 @@ export default function OrganizerEvents() {
   }, []);
 
   const canPublish = canPublishEvents(organization);
-  // Sólo decide algo una vez que `events` refleja la respuesta real de
-  // GET /api/events/mine (nunca durante loading=true, donde `events` todavía
-  // es el array vacío inicial y daría un falso positivo).
-  const isFirstEvent = !loading && events.length === 0;
+  // "Primera creación" = el Organizer NUNCA creó un evento, nunca "no tiene
+  // ninguno activo ahora" — por eso exige también archivedEvents.length===0
+  // (ver comentario arriba). Sólo decide algo una vez que ambas listas
+  // reflejan la respuesta real (nunca durante loading=true, donde siguen
+  // siendo los arrays vacíos iniciales y darían un falso positivo).
+  const isFirstEvent = !loading && events.length === 0 && archivedEvents.length === 0;
 
   async function patchEvent(id, patch, action) {
     setUpdatingId(id);
