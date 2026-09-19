@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { Ticket, ShoppingCart, LayoutDashboard, Menu, X, ChevronDown, MapPin } from "lucide-react";
+import { Ticket, ShoppingCart, LayoutDashboard, Menu, X, ChevronDown, MapPin, Sparkles } from "lucide-react";
 import Button from "../ui/Button.jsx";
 import NavbarDropdown from "./NavbarDropdown.jsx";
 import SearchBar from "./SearchBar.jsx";
@@ -129,6 +129,16 @@ export default function Navbar({ brandOverride = null }) {
                 Descubrí, organizá y viví eventos.
               </span>
             </div>
+          </Link>
+        )}
+
+        {!brandOverride && (
+          <Link
+            to="/como-funciona"
+            className="flex shrink-0 items-center gap-1 rounded-full border border-violet-400/60 bg-gradient-to-r from-violet-600/30 via-fuchsia-500/20 to-blue-500/30 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-[0_0_14px_rgba(139,92,246,0.5)] transition-all duration-150 hover:border-blue-400/70 hover:shadow-[0_0_20px_rgba(59,130,246,0.6)] sm:px-3 sm:text-xs"
+          >
+            <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-300" />
+            <span className="whitespace-nowrap">¿Cómo funciona?</span>
           </Link>
         )}
 
