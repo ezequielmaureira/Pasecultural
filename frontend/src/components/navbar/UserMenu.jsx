@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useAuth, useClerk } from "@clerk/clerk-react";
-import { Bell, User, Ticket, LayoutDashboard, LogOut } from "lucide-react";
+import { User, Ticket, LayoutDashboard, LogOut } from "lucide-react";
 import Button from "../ui/Button.jsx";
 import Avatar from "../ui/Avatar.jsx";
 import NavbarDropdown from "./NavbarDropdown.jsx";
@@ -43,30 +43,18 @@ export default function UserMenu() {
   ];
 
   return (
-    <div className="flex items-center gap-1.5">
-      <button
-        type="button"
-        disabled
-        aria-label="Notificaciones (próximamente)"
-        title="Notificaciones (próximamente)"
-        className="flex h-9 w-9 cursor-not-allowed items-center justify-center rounded-lg text-slate-500"
-      >
-        <Bell className="h-[18px] w-[18px]" />
-      </button>
-
-      <NavbarDropdown
-        align="right"
-        items={items}
-        trigger={
-          <span className="relative block shrink-0 rounded-full ring-0 ring-violet-500/40 transition-shadow duration-150 hover:ring-4">
-            <Avatar
-              name={fullName || undefined}
-              size="sm"
-              className="bg-gradient-to-br from-violet-500 to-blue-500 text-white"
-            />
-          </span>
-        }
-      />
-    </div>
+    <NavbarDropdown
+      align="right"
+      items={items}
+      trigger={
+        <span className="relative block shrink-0 rounded-full ring-0 ring-violet-500/40 transition-shadow duration-150 hover:ring-4">
+          <Avatar
+            name={fullName || undefined}
+            size="sm"
+            className="bg-gradient-to-br from-violet-500 to-blue-500 text-white"
+          />
+        </span>
+      }
+    />
   );
 }

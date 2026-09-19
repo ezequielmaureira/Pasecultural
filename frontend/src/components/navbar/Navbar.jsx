@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { Ticket, ShoppingCart, LayoutDashboard, Menu, X, ChevronDown, MapPin, Sparkles } from "lucide-react";
+import { Ticket, LayoutDashboard, Menu, X, ChevronDown, MapPin, Sparkles } from "lucide-react";
 import Button from "../ui/Button.jsx";
 import NavbarDropdown from "./NavbarDropdown.jsx";
 import SearchBar from "./SearchBar.jsx";
@@ -177,13 +177,6 @@ export default function Navbar({ brandOverride = null }) {
         />
 
         <div className="ml-auto flex items-center gap-2">
-          <button
-            type="button"
-            aria-label="Carrito"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 transition-colors duration-150 hover:bg-white/5 hover:text-white light:text-slate-500 light:hover:bg-slate-900/5 light:hover:text-slate-900"
-          >
-            <ShoppingCart className="h-[18px] w-[18px]" />
-          </button>
           {isDeveloper && (
             <Link to="/developer">
               <Button size="sm" className="ml-2 hidden items-center gap-1.5 sm:flex">
