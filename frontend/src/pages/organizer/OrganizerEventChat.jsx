@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { PartyPopper, ArrowRight, Sparkles } from "lucide-react";
 import Button from "../../components/ui/Button.jsx";
 import ConversationView from "./eventChat/ConversationView.jsx";
+import { NEW_EVENT_REQUEST_EVENT } from "../../lib/eventChatEvents.js";
 
 // Sibling de STORAGE_KEY ("pasecultural:eventChat:conversationId", ver
 // ConversationView.jsx) — mismo namespace/convención (raw string, sin
@@ -94,6 +95,23 @@ export default function OrganizerEventChat() {
       navigate(location.pathname, { replace: true, state: null });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Listener SEPARADO del de ConversationView.jsx (que reacciona a este
+  // mismo evento para reiniciar/confirmar la conversación — eso NO cambia
+  // acá) — este sólo sincroniza el toggle visual con el onboarding que
+  // decidió Sidebar.jsx (ver ese archivo: `detail.tutorial` viaja como
+  // isFirstEvent en el momento del click). Nunca toca conversationId,
+  // nunca llama startConversation/GOTO/BACK — sólo tutorialEnabled.
+  useEffect(() => {
+    function handleNewEventRequested(event) {
+      const tutorial = event.detail?.tutorial;
+      if (typeof tutorial !== "boolean") return;
+      setTutorialEnabled(tutorial);
+      writeStoredTutorialEnabled(tutorial);
+    }
+    window.addEventListener(NEW_EVENT_REQUEST_EVENT, handleNewEventRequested);
+    return () => window.removeEventListener(NEW_EVENT_REQUEST_EVENT, handleNewEventRequested);
   }, []);
 
   function toggleTutorial() {

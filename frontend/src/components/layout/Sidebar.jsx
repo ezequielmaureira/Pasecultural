@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
+import { useAuth } from "@clerk/clerk-react";
 import {
   LayoutDashboard,
   CalendarDays,
@@ -21,6 +23,7 @@ import {
 } from "lucide-react";
 import { useBackendUser } from "../../context/AuthContext.jsx";
 import { NEW_EVENT_REQUEST_EVENT } from "../../lib/eventChatEvents.js";
+import { apiFetch } from "../../lib/api.js";
 
 const NAV_BY_ROLE = {
   developer: [
@@ -165,9 +168,45 @@ function TopNavItem({ label, icon: Icon, path, end }) {
 
 export default function Sidebar({ open = false, onClose }) {
   const { backendUser } = useBackendUser();
+  const { getToken } = useAuth();
   const location = useLocation();
   const role = backendUser?.role?.toLowerCase();
   const navItems = NAV_BY_ROLE[role] ?? [];
+
+  // Onboarding de "Crear evento" (mismo criterio que Organizer > Eventos >
+  // Lista, ver OrganizerEvents.jsx) — pero Sidebar vive FUERA de
+  // OrganizerDataProvider (montado en AppShell.jsx, no dentro del Outlet de
+  // /organizador), así que NUNCA puede usar useOrganizerData() acá. Fetch
+  // propio y liviano, sólo para Organizer, sólo para saber si la lista está
+  // vacía (mismo endpoint/misma regla que Lista: GET /api/events/mine
+  // devuelve [] -> onboarding; nunca se consultan archivados para esta
+  // señal puntual del Sidebar). null = todavía no se sabe (nunca pulsa
+  // mientras tanto, evita el flash al abrir el panel); true/false = ya
+  // resuelto.
+  const [organizerHasEvents, setOrganizerHasEvents] = useState(null);
+
+  useEffect(() => {
+    if (role !== "organizer") return undefined;
+    let cancelled = false;
+    async function checkHasEvents() {
+      try {
+        const token = await getToken();
+        const { events } = await apiFetch("/api/events/mine", { token });
+        if (!cancelled) setOrganizerHasEvents(events.length > 0);
+      } catch (err) {
+        // Conservador: se queda en null (nunca se asume "primera
+        // creación" ante un error) — sin toast, es un fetch auxiliar.
+        console.error("No se pudo determinar si el Organizer ya tiene eventos", err);
+      }
+    }
+    checkHasEvents();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role]);
+
+  const isFirstEvent = role === "organizer" && organizerHasEvents === false;
 
   // "Crear evento" ya está resuelto por react-router cuando cambia de
   // pantalla (ver el efecto `startFresh` en ConversationView.jsx). Pero si
@@ -175,11 +214,14 @@ export default function Sidebar({ open = false, onClose }) {
   // (volver a tocar "Crear evento" desde dentro del wizard conversacional),
   // el Link no navega ni remonta nada — así que ese caso puntual se resuelve
   // avisándole directamente a ConversationView vía este evento en vez de
-  // depender de la navegación.
-  function handleNavClick(event, item) {
+  // depender de la navegación. `tutorial` viaja en `detail` para que
+  // OrganizerEventChat.jsx (un listener SEPARADO, sólo visual — ver ese
+  // archivo) pueda sincronizar el toggle sin que este Sidebar necesite
+  // saber nada de tutorialEnabled/sessionStorage.
+  function handleNavClick(event, item, tutorial) {
     if (item.path === "/organizador/eventos/nuevo" && location.pathname === item.path) {
       event.preventDefault();
-      window.dispatchEvent(new CustomEvent(NEW_EVENT_REQUEST_EVENT));
+      window.dispatchEvent(new CustomEvent(NEW_EVENT_REQUEST_EVENT, { detail: { tutorial } }));
     }
   }
 
@@ -284,19 +326,34 @@ export default function Sidebar({ open = false, onClose }) {
                           </NavLink>
                         );
                       }
+                      // "Crear evento" — mismo onboarding que Organizer >
+                      // Eventos > Lista (ver OrganizerEvents.jsx): mientras
+                      // sea la primera creación real, este item también
+                      // pulsa (reutiliza .smarticket-cta-pulse, ya resuelve
+                      // prefers-reduced-motion) y manda tutorial:true. Con
+                      // eventos ya creados, vuelve EXACTAMENTE al estilo
+                      // plano de siempre — mismo className que el resto de
+                      // los children, sin ninguna rama nueva.
+                      const isCreateEvent = child.path === "/organizador/eventos/nuevo";
+                      const createEventState = isCreateEvent
+                        ? { fresh: true, tutorial: isFirstEvent }
+                        : child.state;
+
                       return (
                         <NavLink
                           key={child.label}
                           to={child.path}
                           end={child.end}
-                          state={child.state}
-                          onClick={(event) => handleNavClick(event, child)}
+                          state={createEventState}
+                          onClick={(event) => handleNavClick(event, child, isCreateEvent ? isFirstEvent : undefined)}
                           className={({ isActive }) =>
-                            `rounded-lg px-3 py-1.5 text-sm transition-colors duration-150 ${
-                              isActive
-                                ? "text-violet-300"
-                                : "text-slate-500 hover:text-white light:hover:text-slate-900"
-                            }`
+                            isCreateEvent && isFirstEvent
+                              ? "smarticket-cta-pulse rounded-lg border border-violet-400/30 bg-violet-500/10 px-3 py-1.5 text-sm font-medium text-violet-100 transition-colors duration-150 hover:bg-violet-500/15 hover:text-white"
+                              : `rounded-lg px-3 py-1.5 text-sm transition-colors duration-150 ${
+                                  isActive
+                                    ? "text-violet-300"
+                                    : "text-slate-500 hover:text-white light:hover:text-slate-900"
+                                }`
                           }
                         >
                           {child.label}
