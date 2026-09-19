@@ -3,7 +3,14 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import prisma from "../src/config/prisma.js";
 import { getContentCardService, updateContentCardService, getPublicContentCardService } from "../src/services/content.service.js";
-import { getFestPassIntroContent, updateFestPassIntroContent, getPublicFestPassIntroContent } from "../src/controllers/content.controller.js";
+import {
+    getFestPassIntroContent,
+    updateFestPassIntroContent,
+    getPublicFestPassIntroContent,
+    getHowItWorksContent,
+    updateHowItWorksContent,
+    getPublicHowItWorksContent,
+} from "../src/controllers/content.controller.js";
 import { requireRole } from "../src/middlewares/requireRole.js";
 
 // Developer > Contenido (V1 mínima) — CRUD real contra Postgres real
@@ -14,6 +21,8 @@ import { hasDatabase } from "./helpers/dbGuard.js";
 const testWithDb = hasDatabase ? test : test.skip;
 
 const PLACEMENT = "ORGANIZER_FEST_PASS_INTRO";
+const ATTENDEES_PLACEMENT = "HOW_IT_WORKS_ATTENDEES";
+const ORGANIZERS_PLACEMENT = "HOW_IT_WORKS_ORGANIZERS";
 
 function uniqueSuffix() {
     return randomUUID().slice(0, 8);
@@ -55,6 +64,10 @@ function fakeReqWithAuth(clerkId) {
 
 async function resetCard() {
     await prisma.contentCard.deleteMany({ where: { placement: PLACEMENT } });
+}
+
+async function resetHowItWorksCards() {
+    await prisma.contentCard.deleteMany({ where: { placement: { in: [ATTENDEES_PLACEMENT, ORGANIZERS_PLACEMENT] } } });
 }
 
 testWithDb("a DEVELOPER can read the config via the controller", async () => {
@@ -180,4 +193,98 @@ testWithDb("the public endpoint returns active:false when no configuration exist
     await resetCard();
     const result = await getPublicContentCardService(PLACEMENT);
     assert.deepEqual(result, { active: false, imageUrl: null });
+});
+
+// ¿Cómo funciona? — pestañas asistentes/organizadores (HOW_IT_WORKS_ATTENDEES
+// / HOW_IT_WORKS_ORGANIZERS), reutilizando el mismo ContentCard genérico.
+
+testWithDb("a DEVELOPER can read both how-it-works configs via the controller", async () => {
+    await resetHowItWorksCards();
+    const developer = await createUser({ role: "DEVELOPER" });
+    try {
+        const req = fakeReqWithAuth(developer.clerkId);
+        const { res, state } = fakeRes();
+        await getHowItWorksContent(req, res, () => {});
+        assert.equal(state.statusCode, 200);
+        assert.equal(state.jsonBody.attendees.placement, ATTENDEES_PLACEMENT);
+        assert.equal(state.jsonBody.attendees.active, false);
+        assert.equal(state.jsonBody.organizers.placement, ORGANIZERS_PLACEMENT);
+        assert.equal(state.jsonBody.organizers.active, false);
+    } finally {
+        await cleanup({ userIds: [developer.id] });
+        await resetHowItWorksCards();
+    }
+});
+
+testWithDb("a DEVELOPER can update both how-it-works images in one call", async () => {
+    await resetHowItWorksCards();
+    const developer = await createUser({ role: "DEVELOPER" });
+    try {
+        const req = fakeReqWithAuth(developer.clerkId);
+        req.body = {
+            attendees: { imageUrl: "https://example.com/attendees.png", active: true },
+            organizers: { imageUrl: "https://example.com/organizers.png", active: true },
+        };
+        const { res, state } = fakeRes();
+        await updateHowItWorksContent(req, res, () => {});
+
+        assert.equal(state.statusCode, 200);
+        assert.equal(state.jsonBody.attendees.imageUrl, "https://example.com/attendees.png");
+        assert.equal(state.jsonBody.organizers.imageUrl, "https://example.com/organizers.png");
+
+        const getReq = fakeReqWithAuth(developer.clerkId);
+        const getRes = fakeRes();
+        await getHowItWorksContent(getReq, getRes.res, () => {});
+        assert.equal(getRes.state.jsonBody.attendees.active, true);
+        assert.equal(getRes.state.jsonBody.organizers.active, true);
+    } finally {
+        await cleanup({ userIds: [developer.id] });
+        await resetHowItWorksCards();
+    }
+});
+
+testWithDb("the public how-it-works endpoint only exposes active/imageUrl per tab", async () => {
+    await resetHowItWorksCards();
+    try {
+        await updateContentCardService(ATTENDEES_PLACEMENT, { imageUrl: "https://example.com/attendees.png", active: true });
+        await updateContentCardService(ORGANIZERS_PLACEMENT, { imageUrl: "https://example.com/organizers.png", active: false });
+
+        const req = {};
+        const { res, state } = fakeRes();
+        await getPublicHowItWorksContent(req, res, () => {});
+        assert.equal(state.statusCode, 200);
+        assert.deepEqual(state.jsonBody, {
+            attendees: { active: true, imageUrl: "https://example.com/attendees.png" },
+            organizers: { active: false, imageUrl: null },
+        });
+    } finally {
+        await resetHowItWorksCards();
+    }
+});
+
+testWithDb("the public how-it-works endpoint returns a safe state when nothing is configured", async () => {
+    await resetHowItWorksCards();
+    const req = {};
+    const { res, state } = fakeRes();
+    await getPublicHowItWorksContent(req, res, () => {});
+    assert.equal(state.statusCode, 200);
+    assert.deepEqual(state.jsonBody, {
+        attendees: { active: false, imageUrl: null },
+        organizers: { active: false, imageUrl: null },
+    });
+});
+
+testWithDb("Fest Pass intro is unaffected by how-it-works reads/writes", async () => {
+    await resetCard();
+    await resetHowItWorksCards();
+    try {
+        await updateContentCardService(PLACEMENT, { imageUrl: "https://example.com/festpass.png", active: true });
+        await updateContentCardService(ATTENDEES_PLACEMENT, { imageUrl: "https://example.com/attendees.png", active: true });
+
+        const festPass = await getPublicContentCardService(PLACEMENT);
+        assert.deepEqual(festPass, { active: true, imageUrl: "https://example.com/festpass.png" });
+    } finally {
+        await resetCard();
+        await resetHowItWorksCards();
+    }
 });

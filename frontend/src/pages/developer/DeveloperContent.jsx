@@ -4,7 +4,12 @@ import { Save } from "lucide-react";
 import Button from "../../components/ui/Button.jsx";
 import InlineErrorNotice from "../../components/ui/InlineErrorNotice.jsx";
 import ImageUploader from "../../components/ui/ImageUploader.jsx";
-import { getFestPassIntroContent, updateFestPassIntroContent } from "../../lib/contentApi.js";
+import {
+  getFestPassIntroContent,
+  updateFestPassIntroContent,
+  getHowItWorksContent,
+  updateHowItWorksContent,
+} from "../../lib/contentApi.js";
 
 // Developer > Contenido (V1 mínima) — administra UN único slot hoy: la
 // imagen que reemplaza la introducción de Organizer > Fest Pass (ver
@@ -27,6 +32,55 @@ export default function DeveloperContent() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [savedMessage, setSavedMessage] = useState("");
+
+  const [attendeesImageUrl, setAttendeesImageUrl] = useState(null);
+  const [organizersImageUrl, setOrganizersImageUrl] = useState(null);
+  const [howItWorksLoading, setHowItWorksLoading] = useState(true);
+  const [howItWorksLoadError, setHowItWorksLoadError] = useState(false);
+  const [howItWorksSaving, setHowItWorksSaving] = useState(false);
+  const [howItWorksSaveError, setHowItWorksSaveError] = useState("");
+  const [howItWorksSavedMessage, setHowItWorksSavedMessage] = useState("");
+
+  async function loadHowItWorks() {
+    setHowItWorksLoading(true);
+    setHowItWorksLoadError(false);
+    try {
+      const token = await getToken();
+      const config = await getHowItWorksContent(token);
+      setAttendeesImageUrl(config?.attendees?.imageUrl || null);
+      setOrganizersImageUrl(config?.organizers?.imageUrl || null);
+    } catch (err) {
+      console.error("No se pudo cargar el contenido de ¿Cómo funciona?", err);
+      setHowItWorksLoadError(true);
+    } finally {
+      setHowItWorksLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadHowItWorks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleSaveHowItWorks() {
+    setHowItWorksSaveError("");
+    setHowItWorksSavedMessage("");
+    setHowItWorksSaving(true);
+    try {
+      const token = await getToken();
+      const config = await updateHowItWorksContent(token, {
+        attendees: { imageUrl: attendeesImageUrl, active: Boolean(attendeesImageUrl) },
+        organizers: { imageUrl: organizersImageUrl, active: Boolean(organizersImageUrl) },
+      });
+      setAttendeesImageUrl(config?.attendees?.imageUrl || null);
+      setOrganizersImageUrl(config?.organizers?.imageUrl || null);
+      setHowItWorksSavedMessage("Configuración guardada.");
+    } catch (err) {
+      setHowItWorksSaveError(err.message || "No pudimos guardar la configuración.");
+    } finally {
+      setHowItWorksSaving(false);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -125,6 +179,62 @@ export default function DeveloperContent() {
             Guardar cambios
           </Button>
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-[#0B1120]/90 p-5">
+        <div className="mb-4 flex flex-col gap-1">
+          <h2 className="text-sm font-semibold text-white">¿Cómo funciona?</h2>
+          <p className="text-xs leading-relaxed text-slate-500">
+            Imágenes mostradas en las pestañas "Para asistentes" y "Para organizadores" de la página pública
+            ¿Cómo funciona?. Cada imagen ya contiene todo el diseño y el contenido — no se superpone texto.
+          </p>
+        </div>
+
+        {howItWorksLoading ? (
+          <p className="text-sm text-slate-400">Cargando contenido...</p>
+        ) : howItWorksLoadError ? (
+          <InlineErrorNotice
+            message="No pudimos cargar la configuración de ¿Cómo funciona?."
+            onRetry={loadHowItWorks}
+          />
+        ) : (
+          <>
+            {howItWorksSaveError && (
+              <div className="mb-4 rounded-lg border border-rose-500/20 bg-rose-500/5 p-3">
+                <p className="text-sm text-rose-300">{howItWorksSaveError}</p>
+              </div>
+            )}
+            {howItWorksSavedMessage && (
+              <div className="mb-4 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+                <p className="text-sm text-emerald-300">{howItWorksSavedMessage}</p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <ImageUploader
+                label="Para asistentes"
+                helperText="Imagen mostrada en la pestaña Para asistentes de la página ¿Cómo funciona?. PNG, JPG, JPEG o WEBP. Máximo 5 MB."
+                value={attendeesImageUrl}
+                onChange={setAttendeesImageUrl}
+                previewHeightClass="h-56"
+              />
+              <ImageUploader
+                label="Para organizadores"
+                helperText="Imagen mostrada en la pestaña Para organizadores de la página ¿Cómo funciona?. PNG, JPG, JPEG o WEBP. Máximo 5 MB."
+                value={organizersImageUrl}
+                onChange={setOrganizersImageUrl}
+                previewHeightClass="h-56"
+              />
+            </div>
+
+            <div className="mt-5 flex justify-end">
+              <Button onClick={handleSaveHowItWorks} loading={howItWorksSaving} loadingText="Guardando...">
+                <Save className="h-4 w-4" />
+                Guardar cambios
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

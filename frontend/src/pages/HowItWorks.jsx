@@ -1,5 +1,6 @@
 import { QrCode, Mail } from "lucide-react";
 import HeroSection from "../components/howItWorks/HeroSection.jsx";
+import HowItWorksAudienceCard from "../components/howItWorks/HowItWorksAudienceCard.jsx";
 import StepCard from "../components/howItWorks/StepCard.jsx";
 import FaqAccordion from "../components/howItWorks/FaqAccordion.jsx";
 import SecurityCard from "../components/howItWorks/SecurityCard.jsx";
@@ -102,6 +103,7 @@ export default function HowItWorks() {
         ctaLabel="Explorar eventos"
         ctaTo="/eventos"
       />
+      <HowItWorksAudienceCard />
       <StepsSection />
       <FaqSection />
       <SecuritySection />

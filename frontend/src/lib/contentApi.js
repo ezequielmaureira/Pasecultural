@@ -20,3 +20,23 @@ export async function updateFestPassIntroContent(token, { imageUrl, active }) {
 export async function getPublicFestPassIntroContent() {
   return apiFetch("/api/content/fest-pass-intro");
 }
+
+// Developer > Contenido — "¿Cómo funciona?" (pestañas asistentes/
+// organizadores). GET/PUT /api/developer/content/how-it-works, exclusivo
+// DEVELOPER.
+export async function getHowItWorksContent(token) {
+  return apiFetch("/api/developer/content/how-it-works", { token });
+}
+
+export async function updateHowItWorksContent(token, { attendees, organizers }) {
+  return apiFetch("/api/developer/content/how-it-works", {
+    token,
+    method: "PUT",
+    body: JSON.stringify({ attendees, organizers }),
+  });
+}
+
+// Consumo público (página /como-funciona) — sin auth.
+export async function getPublicHowItWorksContent() {
+  return apiFetch("/api/content/how-it-works");
+}

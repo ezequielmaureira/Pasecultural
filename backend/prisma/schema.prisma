@@ -2173,6 +2173,8 @@ model EventScanner {
 // imagen — ver ContentCard más abajo.
 enum ContentPlacement {
   ORGANIZER_FEST_PASS_INTRO
+  HOW_IT_WORKS_ATTENDEES
+  HOW_IT_WORKS_ORGANIZERS
 }
 
 // Configuración GLOBAL (no por Organization) que Developer controla y que
