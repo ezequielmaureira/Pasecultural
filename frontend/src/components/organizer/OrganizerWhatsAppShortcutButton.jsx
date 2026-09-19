@@ -44,8 +44,16 @@ export default function OrganizerWhatsAppShortcutButton() {
   // Pass. No distingue Fest Pass de normal a propósito: el problema
   // (botón flotante sobre un CTA de pago/confirmación) es el mismo en
   // ambos casos.
+  // "/organizador/eventos/nuevo" — mismo motivo: el creador tradicional
+  // (ConversationView.jsx) es de ancho angosto centrado y en mobile el
+  // atajo flotante quedaba encima de sus controles (confirmado en
+  // COVER_IMAGE, tapando parcialmente "Continuar") durante TODO el flujo
+  // (nombre, descripción, categoría, imagen, ubicación, funciones,
+  // entradas, video, redes, preview/publicación) — nunca sólo un paso
+  // puntual, así que se oculta para el prefijo completo de la ruta.
   if (
     pathname.startsWith("/organizador/fest-pass") ||
+    pathname.startsWith("/organizador/eventos/nuevo") ||
     pathname.startsWith("/fest-pass/") ||
     pathname.startsWith("/quick-pass/") ||
     pathname.startsWith("/comprar")
