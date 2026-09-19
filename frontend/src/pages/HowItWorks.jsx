@@ -1,5 +1,4 @@
 import { QrCode, Mail } from "lucide-react";
-import HeroSection from "../components/howItWorks/HeroSection.jsx";
 import HowItWorksAudienceCard from "../components/howItWorks/HowItWorksAudienceCard.jsx";
 import StepCard from "../components/howItWorks/StepCard.jsx";
 import FaqAccordion from "../components/howItWorks/FaqAccordion.jsx";
@@ -97,12 +96,6 @@ function ContactSection() {
 export default function HowItWorks() {
   return (
     <div className="flex flex-col">
-      <HeroSection
-        title="¿Cómo funciona Smarticket?"
-        subtitle="Comprar una entrada nunca fue tan simple."
-        ctaLabel="Explorar eventos"
-        ctaTo="/eventos"
-      />
       <HowItWorksAudienceCard />
       <StepsSection />
       <FaqSection />

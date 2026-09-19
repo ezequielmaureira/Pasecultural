@@ -41,47 +41,46 @@ export default function HowItWorksAudienceCard() {
   const hasImage = Boolean(activeCard?.active && activeCard?.imageUrl);
 
   return (
-    <section className="mx-auto max-w-7xl px-6 py-16">
-      <div className="mx-auto rounded-2xl border border-white/10 bg-[#0B1120]/90 p-4 shadow-lg shadow-black/20 sm:p-6">
-        <div className="mx-auto mb-6 flex w-fit max-w-full items-center gap-1 rounded-full border border-white/10 bg-black/30 p-1">
-          {TABS.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => setActiveTab(tab.key)}
-              className={`rounded-full px-4 py-2 text-sm font-medium transition-all duration-150 sm:px-5 ${
-                activeTab === tab.key
-                  ? "bg-gradient-to-r from-violet-600 to-blue-500 text-white shadow-md shadow-violet-500/30"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+    <section className="mx-auto w-full max-w-[1600px] px-2 pt-4 pb-16 sm:px-4 lg:px-6">
+      <div className="mx-auto flex w-fit max-w-full items-center gap-1 rounded-full border border-white/10 bg-black/30 p-1">
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setActiveTab(tab.key)}
+            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-all duration-150 sm:px-5 ${
+              activeTab === tab.key
+                ? "bg-gradient-to-r from-violet-600 to-blue-500 text-white shadow-md shadow-violet-500/30"
+                : "text-slate-400 hover:text-white"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-        <div className="flex min-h-[220px] items-center justify-center overflow-hidden rounded-xl border border-white/5 bg-black/20">
-          {loading ? (
-            <div className="flex h-56 w-full animate-pulse items-center justify-center text-sm text-slate-500">
-              Cargando...
-            </div>
-          ) : error ? (
-            <div className="flex h-56 w-full flex-col items-center justify-center gap-2 text-slate-500">
-              <ImageOff className="h-6 w-6" />
-              <p className="text-sm">No pudimos cargar este contenido.</p>
-            </div>
-          ) : hasImage ? (
-            <img
-              src={activeCard.imageUrl}
-              alt={TABS.find((tab) => tab.key === activeTab)?.label ?? ""}
-              className="max-h-[520px] w-full object-contain"
-            />
-          ) : (
-            <div className="flex h-56 w-full items-center justify-center text-sm text-slate-500">
-              Contenido próximamente
-            </div>
-          )}
-        </div>
+      <div className="mt-4 rounded-2xl border border-violet-500/20 bg-[#0B1120]/90 p-1.5 sm:p-2">
+        {loading ? (
+          <div className="flex h-40 w-full animate-pulse items-center justify-center rounded-xl bg-black/20 text-sm text-slate-500">
+            Cargando...
+          </div>
+        ) : error ? (
+          <div className="flex h-40 w-full flex-col items-center justify-center gap-2 rounded-xl bg-black/20 text-slate-500">
+            <ImageOff className="h-6 w-6" />
+            <p className="text-sm">No pudimos cargar este contenido.</p>
+          </div>
+        ) : hasImage ? (
+          <img
+            src={activeCard.imageUrl}
+            alt={TABS.find((tab) => tab.key === activeTab)?.label ?? ""}
+            className="block w-full rounded-xl"
+            style={{ height: "auto", objectFit: "contain" }}
+          />
+        ) : (
+          <div className="flex h-40 w-full items-center justify-center rounded-xl bg-black/20 text-sm text-slate-500">
+            Contenido próximamente
+          </div>
+        )}
       </div>
     </section>
   );
