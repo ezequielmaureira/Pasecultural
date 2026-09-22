@@ -25,6 +25,7 @@ import DashboardDeveloper from "./pages/DashboardDeveloper.jsx";
 import DeveloperOrganizations from "./pages/developer/DeveloperOrganizations.jsx";
 import DeveloperUsers from "./pages/developer/DeveloperUsers.jsx";
 import DeveloperDatabase from "./pages/developer/DeveloperDatabase.jsx";
+import DeveloperQaChecklist from "./pages/developer/DeveloperQaChecklist.jsx";
 import DeveloperEvents from "./pages/developer/DeveloperEvents.jsx";
 import DeveloperTickets from "./pages/developer/DeveloperTickets.jsx";
 import DeveloperScanners from "./pages/developer/DeveloperScanners.jsx";
@@ -180,6 +181,7 @@ export default function App() {
                 <Route path="/developer/configuracion" element={<DeveloperSettings />} />
                 <Route path="/developer/contenido" element={<DeveloperContent />} />
                 <Route path="/developer/base-de-datos" element={<DeveloperDatabase />} />
+                <Route path="/developer/qa-checklist" element={<DeveloperQaChecklist />} />
               </Route>
 
               <Route element={<RoleGuard allowedRoles={["organizer"]} />}>

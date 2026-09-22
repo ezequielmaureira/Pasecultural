@@ -26,6 +26,7 @@ import developerSalesRoutes from "./routes/developerSales.routes.js";
 import developerServiceFeeRoutes from "./routes/developerServiceFee.routes.js";
 import developerAlertConfigRoutes from "./routes/developerAlertConfig.routes.js";
 import developerPlanLimitsRoutes from "./routes/developerPlanLimits.routes.js";
+import developerQaChecklistRoutes from "./routes/developerQaChecklist.routes.js";
 import publicLaunchSettingsRoutes from "./routes/publicLaunchSettings.routes.js";
 import publicLaunchStatusRoutes from "./routes/publicLaunchStatus.routes.js";
 import contentRoutes from "./routes/content.routes.js";
@@ -157,6 +158,13 @@ app.use("/api/developer", developerPlanLimitsRoutes);
 // introducción actual de Organizer > Fest Pass). Exclusivo DEVELOPER, es
 // GLOBAL (no por Organization). Ver content.service.js.
 app.use("/api/developer", contentRoutes);
+// Mismo prefijo "/api/developer", onceavo router en paralelo (sin tocar
+// ninguno de los anteriores) — Developer > QA / Checklist: GET
+// /api/developer/qa-checklist (catálogo + estado + estadísticas) y PATCH
+// /api/developer/qa-checklist/:key (tildar/destildar UNA funcionalidad).
+// Exclusivo DEVELOPER. Tablero personal de QA manual, NO un sistema de
+// testing automatizado — ver qaChecklistCatalog.js y qaChecklist.service.js.
+app.use("/api/developer", developerQaChecklistRoutes);
 // Router propio, prefijo nuevo "/api/public" — SIN auth: GET
 // /api/public/launch-status, lo necesita cualquier visitante anónimo antes
 // de que exista sesión. Nunca agregar otros endpoints públicos de datos

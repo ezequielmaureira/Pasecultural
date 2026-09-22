@@ -765,4 +765,16 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "No OrganizationPlanLimits row exists for FREE and/or PREMIUM — the seeded singleton rows were likely deleted manually.",
         userMessage: "No pudimos cargar la configuración de límites por plan.",
     },
+
+    // --- Developer > QA / Checklist ---
+    QA_CHECKLIST_UNKNOWN_KEY: {
+        httpStatus: 404,
+        logMessage: "QA checklist update attempted for a key that does not exist in the code catalog (qaChecklistCatalog.js).",
+        userMessage: "Esta funcionalidad no existe en el catálogo de QA.",
+    },
+    QA_CHECKLIST_INVALID_INPUT: {
+        httpStatus: 400,
+        logMessage: "QA checklist update attempted with a `checked` value that is not a boolean.",
+        userMessage: "El estado debe ser tildado o destildado.",
+    },
 });

@@ -241,6 +241,10 @@ model User {
   // OrganizationPlanLimits más abajo). Mismo criterio que
   // planOrganizationsUpdated/serviceFeeTiersUpdated/developerAlertConfigsUpdated.
   organizationPlanLimitsUpdated                  OrganizationPlanLimits[]
+  // Developer > QA / Checklist — trazabilidad de quién tildó (o destildó)
+  // por última vez cada funcionalidad (ver QaChecklistState más abajo).
+  // Mismo criterio que organizationPlanLimitsUpdated.
+  qaChecklistStatesChecked                       QaChecklistState[]
 }
 
 model Organization {
@@ -2192,4 +2196,36 @@ model ContentCard {
   updatedAt DateTime @updatedAt
 
   @@map("content_cards")
+}
+
+// Developer > QA / Checklist — tablero personal de QA manual, NO un
+// sistema de testing automatizado. El catálogo de funcionalidades (key,
+// role, entity, label, order) vive versionado en código (ver
+// backend/src/qa/qaChecklistCatalog.js), a propósito, para no duplicar en
+// la base algo que ya vive en Git: esta tabla guarda ÚNICAMENTE el estado
+// de cada `key` (tildado o no), nunca la definición. Una fila sólo existe
+// para una `key` que un DEVELOPER tocó al menos una vez — una `key` del
+// catálogo sin fila acá se interpreta como no verificada (checked=false),
+// así que no hace falta sembrar cientos de filas al desplegar el catálogo
+// inicial. Si una `key` se elimina del catálogo (funcionalidad que dejó de
+// existir), su fila queda huérfana sin romper nada — el service simplemente
+// no la muestra más.
+model QaChecklistState {
+  id      String  @id @default(cuid())
+  key     String  @unique
+  checked Boolean @default(false)
+
+  // Nulos juntos cuando checked=false — no se conserva un historial de
+  // quién/cuándo destildó ni de tildados anteriores (deliberadamente sin
+  // historial, ver el pedido: esto es un checkbox, no un sistema de QA con
+  // auditoría). onDelete: SetNull — si se elimina el User que tildó algo,
+  // el check en sí sobrevive (no es información suya, es información de la
+  // funcionalidad).
+  checkedAt       DateTime?
+  checkedByUserId String?
+  checkedBy       User?     @relation(fields: [checkedByUserId], references: [id], onDelete: SetNull)
+
+  updatedAt DateTime @updatedAt
+
+  @@map("qa_checklist_states")
 }

@@ -20,6 +20,7 @@ import {
   Sparkles,
   Image,
   Zap,
+  ClipboardCheck,
 } from "lucide-react";
 import { useBackendUser } from "../../context/AuthContext.jsx";
 import { NEW_EVENT_REQUEST_EVENT } from "../../lib/eventChatEvents.js";
@@ -62,6 +63,9 @@ const NAV_BY_ROLE = {
       path: "/developer/base-de-datos",
       end: true,
     },
+    // QA / Checklist — tablero personal de QA manual (NO un sistema de
+    // testing automatizado). Ver pages/developer/DeveloperQaChecklist.jsx.
+    { label: "QA / Checklist", icon: ClipboardCheck, path: "/developer/qa-checklist", end: true },
   ],
   organizer: [
     { label: "Dashboard", icon: LayoutDashboard, path: "/organizador", end: true },
