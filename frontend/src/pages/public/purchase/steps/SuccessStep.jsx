@@ -136,16 +136,12 @@ export default function SuccessStep({ tickets, buyerEmail, emailDeliveryStatus, 
   return (
     <Card variant={cardVariant}>
       <div className="flex flex-col items-center gap-3 py-4 text-center">
-        <div
-          className={`flex h-16 w-16 items-center justify-center rounded-full ${
-            isFestPass ? "bg-fuchsia-500/15 shadow-[0_0_20px_rgba(217,70,239,0.35)]" : "bg-emerald-500/10"
-          }`}
-        >
-          <CheckCircle2 className={`h-9 w-9 ${isFestPass ? "text-fuchsia-300" : "text-emerald-400"}`} />
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10">
+          <CheckCircle2 className="h-9 w-9 text-emerald-400" />
         </div>
 
         {isFestPass && (
-          <span className="text-xs font-bold uppercase tracking-[0.3em] text-fuchsia-300">PAGO APROBADO</span>
+          <span className="text-xs font-bold uppercase tracking-[0.3em] text-emerald-400">PAGO APROBADO</span>
         )}
 
         <h2 className="text-lg font-bold text-white">
@@ -186,7 +182,7 @@ export default function SuccessStep({ tickets, buyerEmail, emailDeliveryStatus, 
             También te vamos a mandar tus entradas al correo{" "}
             <span className="text-slate-300">{buyerEmail}</span>. Si no las recibís en unos minutos, podés
             recuperarlas más tarde desde{" "}
-            <Link to="/recuperar-compra" className="text-lime-400 hover:text-lime-300">
+            <Link to="/recuperar-compra" className="text-brand hover:text-brand-soft">
               "Recuperar mis entradas"
             </Link>
             .

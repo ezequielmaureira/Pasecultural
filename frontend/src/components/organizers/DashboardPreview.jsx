@@ -28,11 +28,11 @@ const CHART_POINTS = "0,38 20,30 40,34 60,18 80,24 100,10 120,16 140,4";
 
 export default function DashboardPreview() {
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0B1120] shadow-2xl shadow-black/40">
+    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#111713] shadow-2xl shadow-black/40">
       <div className="flex">
         <aside className="hidden w-32 shrink-0 flex-col gap-1 border-r border-white/5 p-3 sm:flex">
           <div className="mb-3 flex items-center gap-1.5 px-1">
-            <div className="flex h-5 w-5 items-center justify-center rounded-md bg-gradient-to-br from-lime-500 to-blue-500 text-slate-950">
+            <div className="flex h-5 w-5 items-center justify-center rounded-md bg-brand text-slate-950">
               <Ticket className="h-3 w-3" />
             </div>
             <span className="text-[11px] font-bold text-white">Smarticket</span>
@@ -42,7 +42,7 @@ export default function DashboardPreview() {
               key={label}
               className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-[10px] font-medium ${
                 active
-                  ? "bg-lime-500/10 text-lime-300"
+                  ? "bg-brand/10 text-brand-soft"
                   : "text-slate-500"
               }`}
             >
@@ -87,8 +87,8 @@ export default function DashboardPreview() {
               />
               <defs>
                 <linearGradient id="previewGradient" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stopColor="#a3e635" />
-                  <stop offset="100%" stopColor="#60a5fa" />
+                  <stop offset="0%" stopColor="#b6ff2e" />
+                  <stop offset="100%" stopColor="#9de620" />
                 </linearGradient>
               </defs>
             </svg>

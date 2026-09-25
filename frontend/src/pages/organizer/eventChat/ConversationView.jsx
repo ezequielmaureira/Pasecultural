@@ -321,7 +321,7 @@ export default function ConversationView({ onDone, tutorialEnabled = false, onEx
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-lime-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-brand" />
       </div>
     );
   }

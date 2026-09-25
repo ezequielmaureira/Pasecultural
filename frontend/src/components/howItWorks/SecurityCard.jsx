@@ -1,8 +1,8 @@
 // Tarjeta reutilizable para la sección "Compra segura".
 export default function SecurityCard({ icon: Icon, title, description }) {
   return (
-    <div className="flex flex-col gap-4 rounded-xl border border-white/10 bg-[#0B1120] p-6 transition-colors duration-200 hover:border-lime-500/40">
-      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-lime-500/15 text-lime-400">
+    <div className="flex flex-col gap-4 rounded-xl border border-white/10 bg-[#111713] p-6 transition-colors duration-200 hover:border-brand/40">
+      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand/15 text-brand">
         <Icon className="h-5 w-5" />
       </div>
       <div>

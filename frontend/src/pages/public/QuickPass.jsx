@@ -118,8 +118,8 @@ export default function QuickPass() {
     return (
       <div className="flex items-center justify-center gap-2 pb-1 text-center">
         <span className="text-xs font-bold uppercase tracking-[0.3em] text-white/80">Smarticket</span>
-        <span className="h-1 w-1 rounded-full bg-fuchsia-400" />
-        <span className="text-xs font-bold uppercase tracking-[0.3em] text-fuchsia-300">{brandName}</span>
+        <span className="h-1 w-1 rounded-full bg-brand" />
+        <span className="text-xs font-bold uppercase tracking-[0.3em] text-brand">{brandName}</span>
       </div>
     );
   }
@@ -373,11 +373,12 @@ export default function QuickPass() {
         />
       )}
       {/* Overlay oscuro + degradado — nunca branding configurable por
-          organización (brandPrimaryColor), paleta fija violeta/magenta/azul
-          eléctrico a propósito (ver el informe de la ronda). */}
+          organización (brandPrimaryColor), un único velo de marca (lima)
+          a propósito (ver el informe de la ronda "simplificación de
+          identidad"). */}
       <div className="absolute inset-0 bg-black/50" />
       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-br from-lime-600/20 via-transparent to-blue-600/20" />
+      <div className="absolute inset-0 bg-brand/10" />
 
       {backgroundVideo && (
         <button
@@ -439,7 +440,7 @@ export default function QuickPass() {
                 type="button"
                 onClick={handleStartPurchase}
                 disabled={fullEventState.status === "loading"}
-                className="flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-fuchsia-500 via-lime-500 to-blue-500 px-6 py-4 text-base font-bold text-slate-950 shadow-[0_0_25px_rgba(190,242,100,0.5)] transition-transform duration-150 active:scale-95 disabled:opacity-70"
+                className="flex items-center justify-center gap-2 rounded-full bg-brand px-6 py-4 text-base font-bold text-slate-950 shadow-[0_0_20px_rgba(182,255,46,0.4)] hover:bg-brand-hover transition-transform duration-150 active:scale-95 disabled:opacity-70"
               >
                 <Ticket className="h-5 w-5" />
                 {fullEventState.status === "loading" ? "CARGANDO..." : "COMPRAR ENTRADAS"}
@@ -493,11 +494,11 @@ export default function QuickPass() {
           <div className="rounded-3xl border border-white/15 bg-white/10 p-5 shadow-2xl backdrop-blur-xl">
             <h1 className="text-2xl font-extrabold leading-tight text-white">{event.title}</h1>
             <div className="mt-3 flex items-start gap-2.5 text-sm text-white/80">
-              <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-fuchsia-300" />
+              <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
               <span>{firstFunction ? formatEventDateTime(firstFunction.date) : "Fecha a confirmar"}</span>
             </div>
             <div className="mt-2 flex items-start gap-2.5 text-sm text-white/80">
-              <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-fuchsia-300" />
+              <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
               <span>{locationLabel}</span>
             </div>
           </div>
@@ -515,14 +516,14 @@ export default function QuickPass() {
 
           {fullEvent?.description && (
             <div className="rounded-3xl border border-white/15 bg-white/10 p-5 shadow-2xl backdrop-blur-xl">
-              <p className="text-xs font-semibold uppercase tracking-wide text-fuchsia-300">Sobre el evento</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-brand">Sobre el evento</p>
               <p className="mt-2 whitespace-pre-line text-sm text-white/80">{fullEvent.description}</p>
             </div>
           )}
 
           {fullEvent && (fullEvent.venueName || fullEvent.formattedAddress || fullEvent.addressLine || fullEvent.address) && (
             <div className="rounded-3xl border border-white/15 bg-white/10 p-5 shadow-2xl backdrop-blur-xl">
-              <p className="text-xs font-semibold uppercase tracking-wide text-fuchsia-300">Ubicación</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-brand">Ubicación</p>
               {fullEvent.venueName && <p className="mt-2 text-sm font-semibold text-white">{fullEvent.venueName}</p>}
               {(fullEvent.formattedAddress || fullEvent.addressLine || fullEvent.address) && (
                 <p className="mt-1 text-sm text-white/70">
@@ -545,7 +546,7 @@ export default function QuickPass() {
                 type="button"
                 onClick={handleStartPurchase}
                 disabled={fullEventState.status !== "ready"}
-                className="flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-fuchsia-500 via-lime-500 to-blue-500 px-6 py-4 text-base font-bold text-slate-950 shadow-[0_0_25px_rgba(190,242,100,0.5)] transition-transform duration-150 active:scale-95 disabled:opacity-70"
+                className="flex items-center justify-center gap-2 rounded-full bg-brand px-6 py-4 text-base font-bold text-slate-950 shadow-[0_0_20px_rgba(182,255,46,0.4)] hover:bg-brand-hover transition-transform duration-150 active:scale-95 disabled:opacity-70"
               >
                 <Ticket className="h-5 w-5" />
                 COMPRAR ENTRADAS

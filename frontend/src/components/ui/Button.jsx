@@ -2,7 +2,7 @@ import Spinner from "./Spinner.jsx";
 
 const VARIANT_CLASSES = {
   primary:
-    "bg-gradient-to-r from-lime-600 to-blue-600 text-slate-950 shadow-[0_0_18px_-6px_rgba(132,204,22,0.6)] hover:from-lime-500 hover:to-blue-500 hover:shadow-[0_0_22px_-4px_rgba(132,204,22,0.75)] light:shadow-[0_0_14px_-8px_rgba(132,204,22,0.4)]",
+    "bg-brand text-slate-950 shadow-[0_0_18px_-6px_rgba(182,255,46,0.5)] hover:bg-brand-hover hover:shadow-[0_0_22px_-4px_rgba(182,255,46,0.6)] light:shadow-[0_0_14px_-8px_rgba(182,255,46,0.35)]",
   secondary: "bg-white/10 text-gray-100 hover:bg-white/15 light:bg-slate-900/5 light:text-slate-900 light:hover:bg-slate-900/10",
   ghost: "bg-transparent text-slate-300 hover:bg-white/5 light:text-slate-600 light:hover:bg-slate-900/5",
 };
@@ -31,7 +31,7 @@ const SPINNER_TONE_BY_VARIANT = {
 // antes no había ninguno propio y dependía del outline por default del
 // navegador, que puede quedar invisible sobre este fondo oscuro.
 export function buttonClassNames({ variant = "primary", size = "md", className = "" } = {}) {
-  return `inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#05070B] light:focus-visible:ring-offset-white ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]} ${className}`;
+  return `inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-[#090D0A] light:focus-visible:ring-offset-white ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]} ${className}`;
 }
 
 // `loading` es el estado reutilizable para cualquier accion asincrona

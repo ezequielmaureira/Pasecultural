@@ -27,9 +27,9 @@ export default function UserMenu() {
         <Avatar
           name={fullName || undefined}
           size="sm"
-          className="bg-gradient-to-br from-lime-500 to-blue-500 text-slate-950"
+          className="bg-brand text-slate-950"
         />
-        <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0B1120] bg-emerald-400" />
+        <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#111713] bg-emerald-400" />
       </div>
       <div className="min-w-0">
         <p className="truncate text-sm font-semibold text-white">
@@ -46,7 +46,7 @@ export default function UserMenu() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-30 mt-2 w-44 overflow-hidden rounded-xl border border-white/10 bg-[#0B1120] shadow-xl shadow-black/40">
+        <div className="absolute right-0 top-full z-30 mt-2 w-44 overflow-hidden rounded-xl border border-white/10 bg-[#111713] shadow-xl shadow-black/40">
           <button
             type="button"
             onClick={() => signOut({ redirectUrl: "/" })}

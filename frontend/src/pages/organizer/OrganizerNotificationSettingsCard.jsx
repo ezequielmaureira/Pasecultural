@@ -30,7 +30,7 @@ function ToggleRow({ label, checked, onChange, numberField }) {
         type="checkbox"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
-        className="h-4 w-4 rounded border-white/20 bg-white/5 text-lime-500 focus:ring-lime-500/40"
+        className="h-4 w-4 rounded border-white/20 bg-white/5 text-brand focus:ring-brand/40"
       />
       <span className="text-sm text-gray-100">{label}</span>
       {numberField && checked && (

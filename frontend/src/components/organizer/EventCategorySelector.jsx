@@ -17,13 +17,13 @@ function CategoryTab({ category, isActive, count, onSelect }) {
       type="button"
       onClick={() => onSelect(category.key)}
       aria-pressed={isActive}
-      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B1120] ${
-        isActive ? "bg-lime-600 text-slate-950" : "text-slate-400 hover:bg-white/5 hover:text-slate-950"
+      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-[#111713] ${
+        isActive ? "bg-brand-hover text-slate-950" : "text-slate-400 hover:bg-white/5 hover:text-slate-950"
       }`}
     >
       <span aria-hidden="true">{category.emoji}</span>
       {category.label}
-      <span className={isActive ? "text-lime-200" : "text-slate-500"}>({count})</span>
+      <span className={isActive ? "text-brand-soft" : "text-slate-500"}>({count})</span>
     </button>
   );
 }
@@ -44,7 +44,7 @@ export default function EventCategorySelector({
 }) {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="inline-flex w-fit flex-wrap gap-1 rounded-xl border border-white/10 bg-[#0B1120] p-1">
+      <div className="inline-flex w-fit flex-wrap gap-1 rounded-xl border border-white/10 bg-[#111713] p-1">
         {CATEGORIES.map((category) => (
           <CategoryTab
             key={category.key}

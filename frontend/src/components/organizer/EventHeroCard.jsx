@@ -44,7 +44,7 @@ export default function EventHeroCard({ event, eventFunction, category = "upcomi
   if (!event || !eventFunction) {
     const empty = EMPTY_STATE_BY_CATEGORY[category] ?? EMPTY_STATE_BY_CATEGORY.upcoming;
     return (
-      <div className="rounded-2xl border border-white/10 bg-[#0B1120] p-8 shadow-lg shadow-black/20">
+      <div className="rounded-2xl border border-white/10 bg-[#111713] p-8 shadow-lg shadow-black/20">
         <EmptyState icon={CalendarClock} title={empty.title}>
           {empty.description}
         </EmptyState>
@@ -55,7 +55,7 @@ export default function EventHeroCard({ event, eventFunction, category = "upcomi
   const badge = BADGE_BY_CATEGORY[category] ?? BADGE_BY_CATEGORY.upcoming;
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0B1120] shadow-lg shadow-black/20">
+    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#111713] shadow-lg shadow-black/20">
       <div className="flex flex-col md:flex-row">
         <EventCoverImage
           src={event.coverImage}

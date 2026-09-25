@@ -4,7 +4,7 @@ import Button from "../../../../components/ui/Button.jsx";
 import { PERIODS, buildSlots, HOURS, MINUTES } from "../../../../lib/timeSlots.js";
 
 const selectClass =
-  "h-10 rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-gray-100 outline-none focus:border-lime-500 focus:bg-white/10 focus:ring-2 focus:ring-lime-500/20";
+  "h-10 rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-gray-100 outline-none focus:border-brand focus:bg-white/10 focus:ring-2 focus:ring-brand/20";
 
 // Selector de horario estilo chat: chips con los horarios más usuales
 // agrupados por franja (un click ya envía la respuesta, sin submit
@@ -35,7 +35,7 @@ export default function TimeAnswer({ onSubmit, disabled }) {
             onChange={(e) => setHour(e.target.value)}
           >
             {HOURS.map((h) => (
-              <option key={h} value={h} className="bg-[#0B1120]">
+              <option key={h} value={h} className="bg-[#111713]">
                 {h}
               </option>
             ))}
@@ -48,7 +48,7 @@ export default function TimeAnswer({ onSubmit, disabled }) {
             onChange={(e) => setMinute(e.target.value)}
           >
             {MINUTES.map((m) => (
-              <option key={m} value={m} className="bg-[#0B1120]">
+              <option key={m} value={m} className="bg-[#111713]">
                 {m}
               </option>
             ))}
@@ -80,7 +80,7 @@ export default function TimeAnswer({ onSubmit, disabled }) {
                 type="button"
                 disabled={disabled}
                 onClick={() => onSubmit(slot)}
-                className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm font-medium text-slate-200 transition-colors duration-150 hover:border-lime-500/60 hover:bg-lime-500/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm font-medium text-slate-200 transition-colors duration-150 hover:border-brand/60 hover:bg-brand/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {slot}
               </button>

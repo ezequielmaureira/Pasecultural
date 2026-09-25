@@ -28,7 +28,7 @@ export default function EventCard({ event }) {
           </div>
         )}
         {event.category && (
-          <span className="absolute left-3 top-3 rounded-md bg-lime-600/90 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
+          <span className="absolute left-3 top-3 rounded-md bg-black/60 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-brand backdrop-blur-sm">
             {getEventCategoryLabel(event)}
           </span>
         )}
@@ -48,10 +48,10 @@ export default function EventCard({ event }) {
           <span className="truncate">{formatEventLocation(event)}</span>
         </p>
         <div className="mt-auto flex items-center justify-between pt-1.5">
-          <span className="text-sm font-bold text-lime-400">
+          <span className="text-sm font-bold text-brand">
             {formatEventPrice(event)}
           </span>
-          <span className="text-xs font-medium text-lime-400 group-hover:underline">
+          <span className="text-xs font-medium text-brand group-hover:underline">
             Ver evento
           </span>
         </div>

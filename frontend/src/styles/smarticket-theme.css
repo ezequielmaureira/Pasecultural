@@ -1,26 +1,22 @@
-/* Smarticket Design Tokens — Fase 1.
+/* Smarticket Design Tokens.
    Capa PEQUEÑA de variables CSS, no un framework: separa los VALORES del
    lenguaje visual (glass, glow, radios, blur) de las clases que los
-   consumen (.smarticket-neon-* en styles/index.css, y las nuevas de esta
-   ronda). Ningún valor acá es inventado — todos vienen de dos lugares:
+   consumen (.smarticket-neon-* en styles/index.css).
 
-   1) La receta REAL de la experiencia pública Fest Pass
-      (frontend/src/pages/public/QuickPass.jsx, NO modificado en esta
-      ronda): paneles `rounded-3xl border-white/15 bg-white/10 shadow-2xl
-      backdrop-blur-xl`, CTA `bg-gradient-to-r from-fuchsia-500
-      via-lime-500 to-blue-500` con `shadow-[0_0_25px_rgba(190,242,100,.5)]`,
-      velo `bg-gradient-to-br from-lime-600/20 via-transparent
-      to-blue-600/20`.
-   2) El sistema `.smarticket-neon-*` ya aprobado y publicado en Home
-      (styles/index.css), que ya había traducido esa receta a valores
-      concretos — acá simplemente se nombran y centralizan esos mismos
-      números para no repetirlos sueltos en cada clase.
+   Identidad simplificada a UN SOLO color de marca (Acid Lime, #B6FF2E —
+   ver el informe de la ronda "simplificación de identidad"): el sistema
+   .smarticket-neon-* originalmente mezclaba fuchsia/lima/blue (herencia
+   de la receta de QuickPass.jsx) — esa mezcla quedó retirada del
+   branding decorativo. QuickPass.jsx mismo ya no usa esa mezcla (ver el
+   informe); todo lo que era gradiente multicolor pasó a lima sólido o a
+   un glow lima de una sola intensidad.
 
    Compatibilidad: son variables CSS estándar, conviven con Tailwind sin
    tocar su configuración. Se consumen con `var(--token)` desde CSS plano
    (las clases .smarticket-neon-*, .smarticket-hero-cta, etc.), nunca
-   desde `className` de Tailwind directamente (Tailwind no lee variables
-   arbitrarias sin config extra, y no se toca esa config en esta ronda). */
+   desde `className` de Tailwind directamente. Los tokens de MARCA que sí
+   se consumen desde className viven en el `@theme` de index.css
+   (--color-brand / --color-brand-hover / --color-brand-soft). */
 
 :root {
   /* Superficies — de .smarticket-neon-surface / .smarticket-neon-card */
@@ -37,18 +33,16 @@
   --smarticket-border: rgba(255, 255, 255, 0.12);
   --smarticket-border-strong: rgba(255, 255, 255, 0.18);
 
-  /* Paleta — mismos tonos Tailwind que ya usa QuickPass.jsx (fuchsia-500,
-     lime-500, blue-500), como valores hex reutilizables en CSS plano. */
-  --smarticket-lime: #84cc16;
-  --smarticket-fuchsia: #d946ef;
-  --smarticket-blue: #3b82f6;
+  /* Paleta — un único color de marca (Acid Lime, ver el informe de la
+     ronda "simplificación de identidad"). fuchsia/blue decorativos
+     RETIRADOS a propósito: ya no forman parte del lenguaje visual de
+     Smarticket, sólo quedan como colores SEMÁNTICOS sueltos (info/sky,
+     success/emerald) fuera de este sistema de tokens de marca. */
+  --smarticket-lime: #b6ff2e;
 
-  /* Glow — el mismo par de tonos usado en los hovers ya aprobados
-     (violeta principal, fucsia de acento) y el glow explícito del CTA de
-     QuickPass (rgba(190,242,100,.5) — el violeta/fucsia intermedio real
-     que usa su `shadow-[...]`). */
-  --smarticket-glow: rgba(132, 204, 22, 0.45);
-  --smarticket-glow-strong: rgba(190, 242, 100, 0.55);
+  /* Glow — un solo tono (marca), dos intensidades. */
+  --smarticket-glow: rgba(182, 255, 46, 0.35);
+  --smarticket-glow-strong: rgba(182, 255, 46, 0.5);
 
   /* Radios — rounded-2xl (cards), rounded-3xl (paneles, igual que los
      `rounded-3xl` de los paneles glass en QuickPass.jsx), pill (CTA). */
@@ -78,11 +72,11 @@
   --smarticket-card-bg: rgba(255, 255, 255, 0.92);
 
   --smarticket-border: rgb(226 232 240);
-  --smarticket-border-strong: rgba(132, 204, 22, 0.3);
+  --smarticket-border-strong: rgba(182, 255, 46, 0.3);
 
-  --smarticket-glow: rgba(132, 204, 22, 0.22);
-  --smarticket-glow-strong: rgba(190, 242, 100, 0.28);
+  --smarticket-glow: rgba(182, 255, 46, 0.18);
+  --smarticket-glow-strong: rgba(182, 255, 46, 0.25);
 
   --smarticket-shadow: 0 12px 30px -20px rgba(15, 23, 42, 0.18);
-  --smarticket-shadow-glow: 0 0 16px rgba(190, 242, 100, 0.22);
+  --smarticket-shadow-glow: 0 0 16px rgba(182, 255, 46, 0.2);
 }

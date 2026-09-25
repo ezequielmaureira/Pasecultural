@@ -49,7 +49,7 @@ function Hero() {
           Organizá tus eventos.
           <br />
           Nosotros nos ocupamos de{" "}
-          <span className="bg-gradient-to-r from-lime-400 to-blue-400 bg-clip-text text-transparent">
+          <span className="text-brand">
             las entradas.
           </span>
         </h1>
@@ -81,7 +81,7 @@ function Features() {
         {ORGANIZER_FEATURES.map(({ icon: Icon, iconClass, title, description }) => (
           <div
             key={title}
-            className="flex flex-col gap-4 rounded-xl border border-white/10 bg-[#0B1120] p-6"
+            className="flex flex-col gap-4 rounded-xl border border-white/10 bg-[#111713] p-6"
           >
             <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${iconClass}`}>
               <Icon className="h-5 w-5" />
@@ -106,10 +106,10 @@ function HowItWorks() {
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
         {ORGANIZER_STEPS.map(({ icon: Icon, title, description }, index) => (
           <div key={title} className="relative flex flex-col items-center gap-3 text-center">
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-lime-600 text-sm font-bold text-slate-950">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-hover text-sm font-bold text-slate-950">
               {index + 1}
             </span>
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-[#0B1120] text-lime-400">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-[#111713] text-brand">
               <Icon className="h-6 w-6" />
             </div>
             <p className="text-sm font-semibold text-white">{title}</p>
@@ -130,12 +130,12 @@ function CtaBanner() {
           alt=""
           className="absolute inset-0 h-full w-full object-cover"
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-[#05070Bf2] via-[#05070Bcc] to-[#05070B66]" />
+        <div className="absolute inset-0 bg-gradient-to-r from-[#090D0Af2] via-[#090D0Acc] to-[#090D0A66]" />
         <div className="relative flex flex-col gap-6 p-10 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="text-2xl font-bold text-white sm:text-3xl">
               ¿Listo para llevar tus eventos al{" "}
-              <span className="bg-gradient-to-r from-lime-400 to-blue-400 bg-clip-text text-transparent">
+              <span className="text-brand">
                 siguiente nivel
               </span>
               ?
@@ -159,7 +159,7 @@ function TrustBar() {
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {ORGANIZER_TRUST_FEATURES.map(({ icon: Icon, title, subtitle }) => (
           <div key={title} className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-lime-500/15 text-lime-400">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand">
               <Icon className="h-5 w-5" />
             </div>
             <div>

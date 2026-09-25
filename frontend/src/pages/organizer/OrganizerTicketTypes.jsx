@@ -79,7 +79,7 @@ export default function OrganizerTicketTypes() {
         </p>
       </div>
 
-      <div className="rounded-xl border border-white/10 bg-[#0B1120]">
+      <div className="rounded-xl border border-white/10 bg-[#111713]">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
@@ -104,7 +104,7 @@ export default function OrganizerTicketTypes() {
                     </td>
                     <td className="px-6 py-4">
                       <span className="flex items-center gap-2 font-medium text-white">
-                        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-lime-500" />
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-brand" />
                         {row.name}
                       </span>
                     </td>

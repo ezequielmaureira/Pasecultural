@@ -309,7 +309,7 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
               type="button"
               onClick={handleResendEmailOtp}
               disabled={reopening || cooldownRemaining > 0}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-lime-400 transition-colors duration-150 hover:text-lime-300 disabled:cursor-not-allowed disabled:text-slate-600"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-brand transition-colors duration-150 hover:text-brand-soft disabled:cursor-not-allowed disabled:text-slate-600"
             >
               <RefreshCw className={`h-3 w-3 ${reopening ? "animate-spin" : ""}`} />
               {cooldownRemaining > 0 ? `Reenviar código (${cooldownRemaining}s)` : "Reenviar código"}
@@ -361,7 +361,7 @@ export default function OrganizationPhoneVerificationCard({ organizationId }) {
               type="button"
               onClick={reissueAndOpenWhatsapp}
               disabled={reopening || cooldownRemaining > 0}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-lime-400 transition-colors duration-150 hover:text-lime-300 disabled:cursor-not-allowed disabled:text-slate-600"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-brand transition-colors duration-150 hover:text-brand-soft disabled:cursor-not-allowed disabled:text-slate-600"
             >
               <RefreshCw className={`h-3 w-3 ${reopening ? "animate-spin" : ""}`} />
               {cooldownRemaining > 0 ? `Abrir WhatsApp nuevamente (${cooldownRemaining}s)` : "Abrir WhatsApp nuevamente"}

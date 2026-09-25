@@ -46,7 +46,7 @@ export default function UserDetailModal({
             src={user.imageUrl}
             name={name}
             size="lg"
-            className="bg-gradient-to-br from-lime-500 to-blue-500 text-slate-950"
+            className="bg-brand text-slate-950"
           />
           <div className="min-w-0 flex-1">
             <p className="truncate text-lg font-semibold text-white">{name}</p>

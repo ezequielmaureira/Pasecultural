@@ -3,10 +3,10 @@
 // QR ilustrativo del paso 3) sin crear una variante de componente aparte.
 export default function StepCard({ step, icon: Icon, title, description, children }) {
   return (
-    <div className="group flex flex-col items-center gap-4 rounded-2xl border border-white/10 bg-[#0B1120] p-6 text-center transition-colors duration-200 hover:border-lime-500/40">
-      <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-lime-400 transition-transform duration-200 group-hover:scale-105">
+    <div className="group flex flex-col items-center gap-4 rounded-2xl border border-white/10 bg-[#111713] p-6 text-center transition-colors duration-200 hover:border-brand/40">
+      <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-brand transition-transform duration-200 group-hover:scale-105">
         <Icon className="h-6 w-6" />
-        <span className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-lime-600 text-xs font-bold text-slate-950">
+        <span className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-brand-hover text-xs font-bold text-slate-950">
           {step}
         </span>
       </div>

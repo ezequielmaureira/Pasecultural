@@ -1,6 +1,19 @@
 @import "tailwindcss";
 @import "./smarticket-theme.css";
 
+/* Identidad simplificada — UN SOLO color de marca (Acid Lime), ver el
+   informe de la ronda "simplificación de identidad". Genera las clases
+   Tailwind bg-brand/text-brand/border-brand/ring-brand (+ hover/soft,
+   + modificadores de opacidad tipo bg-brand/10) sin tocar el resto del
+   tema Tailwind default. Nunca usar violet/purple/indigo/fuchsia/cyan ni
+   blue como color DECORATIVO de marca — blue queda reservado para el tono
+   semántico "info" real (ver Badge.jsx/ActivityTimeline.jsx). */
+@theme {
+  --color-brand: #b6ff2e;
+  --color-brand-hover: #9de620;
+  --color-brand-soft: #d8ff8a;
+}
+
 /* Selector universal claro/oscuro — Tailwind v4 no trae un variant "light"
    propio (sólo "dark", basado en prefers-color-scheme por default). Se
    define acá un variant CUSTOM que matchea cuando <html> tiene la clase
@@ -35,7 +48,7 @@ body {
 
 body {
   @apply text-gray-100 antialiased;
-  background-color: #05070b;
+  background-color: #090d0a;
 }
 
 .light body {
@@ -44,7 +57,7 @@ body {
 }
 
 select option {
-  background-color: #0b1120;
+  background-color: #111713;
   color: #e5e7eb;
 }
 
@@ -78,7 +91,7 @@ select option {
     box-shadow: 0 0 18px -6px rgba(132, 204, 22, 0.6);
   }
   50% {
-    box-shadow: 0 0 30px -4px rgba(132, 204, 22, 0.95), 0 0 14px -2px rgba(59, 130, 246, 0.5);
+    box-shadow: 0 0 30px -4px rgba(132, 204, 22, 0.95);
   }
 }
 
@@ -152,30 +165,32 @@ select option {
 
 /* qr-scanner dibuja su propio recuadro de escaneo (marco con esquinas
    animado) como un SVG inyectado junto al <video>, con su color por
-   default (amarillo). Se pisa acá para que use el violeta de marca en vez
+   default (amarillo). Se pisa acá para que use el lima de marca en vez
    de tocar el paquete o reimplementar el marco a mano. */
 .scan-region-highlight-svg {
-  stroke: #84cc16 !important;
+  stroke: #b6ff2e !important;
 }
 .code-outline-highlight {
-  stroke: #84cc16 !important;
+  stroke: #b6ff2e !important;
 }
 
 /* Wordmark "SmarTicket": tratamiento visual del logotipo (la marca sigue
-   siendo "Smarticket" en todo texto normal — esto es SOLO el logo). La T
-   mayúscula actúa de bisagra entre el blanco de "Smar" y el violeta de
-   "icket", con un degradé blanco → cyan → violeta y un glow sutil. Las
-   estelas son pseudo-elementos posicionados sobre la propia T, así no
-   afectan el ancho/layout del wordmark ni empujan nada a su alrededor. */
+   siendo "Smarticket" en todo texto normal — esto es SOLO el logo).
+   Identidad simplificada: "Smar" blanco, "Ticket" lima — un único
+   degradé blanco → lima, sin cyan/violeta intermedios (ver el informe de
+   la ronda "simplificación de identidad"). La T mayúscula sigue de
+   bisagra visual entre ambos tramos. Las estelas son pseudo-elementos
+   posicionados sobre la propia T, así no afectan el ancho/layout del
+   wordmark ni empujan nada a su alrededor. */
 .smarticket-holo-t {
   position: relative;
   display: inline-block;
-  background: linear-gradient(115deg, #ffffff 10%, #7dd3fc 45%, #a3e635 70%, #84cc16 100%);
+  background: linear-gradient(115deg, #ffffff 15%, #b6ff2e 100%);
   background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  filter: drop-shadow(0 0 6px rgba(132, 204, 22, 0.45));
+  filter: drop-shadow(0 0 6px rgba(182, 255, 46, 0.45));
   animation: smarticket-holo-shift 6s ease-in-out infinite;
 }
 
@@ -187,7 +202,7 @@ select option {
   left: -0.85em;
   height: 1.5px;
   border-radius: 999px;
-  background: linear-gradient(90deg, transparent, rgba(163, 230, 53, 0.75));
+  background: linear-gradient(90deg, transparent, rgba(182, 255, 46, 0.75));
   pointer-events: none;
 }
 
@@ -241,7 +256,7 @@ select option {
    tuviera su propio stacking context (position:relative SIN z-index NO lo
    crea) — al no tenerlo, ese z-index negativo escapaba al stacking
    context de todo el documento, donde el fondo NO posicionado de
-   PublicShell.jsx (`bg-[#05070B]`) pintaba DESPUÉS (paso 3 del algoritmo
+   PublicShell.jsx (`bg-[#090D0A]`) pintaba DESPUÉS (paso 3 del algoritmo
    de pintado CSS, "descendientes en flujo no posicionados") y tapaba por
    completo el ambiente (paso 2, "z-index negativo"). Un elemento DOM real
    sin z-index negativo, PRIMERO en el orden del DOM dentro de un
@@ -257,34 +272,30 @@ select option {
    `position:absolute`, sin importar el orden del DOM.
    Mantiene: 5 radial-gradient distribuidos verticalmente, animación de
    28s (sólo `transform`, compositor-only), `pointer-events:none`,
-   soporte de `prefers-reduced-motion` y `.light`. */
+   soporte de `prefers-reduced-motion` y `.light`. Identidad simplificada:
+   un solo tono (lima) a distintas opacidades para dar profundidad, sin
+   fuchsia/blue (ver el informe de la ronda "simplificación de identidad"). */
 .smarticket-neon-page-ambient {
   position: absolute;
   inset: -4% -10%;
   pointer-events: none;
-  /* El primer radial (12% 4%) queda MÁS TENUE (0.10 en vez de 0.16) porque
-     esa zona ya coincide con el propio velo de color de HeroCarousel.jsx
-     (no modificado) — antes del fix esto no se notaba porque la capa
-     global nunca llegaba a pintarse; ahora que sí pinta, doblar intensidad
-     justo ahí se veía redundante/más fuerte de lo previsto. El resto de
-     los gradientes (fuera del área del Hero) mantiene su valor original. */
   background:
-    radial-gradient(ellipse 55% 22% at 12% 4%, rgba(217, 70, 239, 0.1), transparent 65%),
-    radial-gradient(ellipse 50% 22% at 88% 20%, rgba(59, 130, 246, 0.14), transparent 65%),
-    radial-gradient(ellipse 55% 24% at 8% 45%, rgba(132, 204, 22, 0.15), transparent 65%),
-    radial-gradient(ellipse 50% 22% at 92% 64%, rgba(217, 70, 239, 0.13), transparent 65%),
-    radial-gradient(ellipse 55% 24% at 15% 85%, rgba(59, 130, 246, 0.14), transparent 65%);
+    radial-gradient(ellipse 55% 22% at 12% 4%, rgba(182, 255, 46, 0.07), transparent 65%),
+    radial-gradient(ellipse 50% 22% at 88% 20%, rgba(182, 255, 46, 0.09), transparent 65%),
+    radial-gradient(ellipse 55% 24% at 8% 45%, rgba(182, 255, 46, 0.1), transparent 65%),
+    radial-gradient(ellipse 50% 22% at 92% 64%, rgba(182, 255, 46, 0.08), transparent 65%),
+    radial-gradient(ellipse 55% 24% at 15% 85%, rgba(182, 255, 46, 0.09), transparent 65%);
   background-repeat: no-repeat;
   animation: smarticket-ambient-drift 28s ease-in-out infinite;
 }
 
 .light .smarticket-neon-page-ambient {
   background:
-    radial-gradient(ellipse 55% 22% at 12% 4%, rgba(217, 70, 239, 0.06), transparent 65%),
-    radial-gradient(ellipse 50% 22% at 88% 20%, rgba(59, 130, 246, 0.05), transparent 65%),
-    radial-gradient(ellipse 55% 24% at 8% 45%, rgba(132, 204, 22, 0.055), transparent 65%),
-    radial-gradient(ellipse 50% 22% at 92% 64%, rgba(217, 70, 239, 0.045), transparent 65%),
-    radial-gradient(ellipse 55% 24% at 15% 85%, rgba(59, 130, 246, 0.05), transparent 65%);
+    radial-gradient(ellipse 55% 22% at 12% 4%, rgba(132, 204, 22, 0.04), transparent 65%),
+    radial-gradient(ellipse 50% 22% at 88% 20%, rgba(132, 204, 22, 0.04), transparent 65%),
+    radial-gradient(ellipse 55% 24% at 8% 45%, rgba(132, 204, 22, 0.045), transparent 65%),
+    radial-gradient(ellipse 50% 22% at 92% 64%, rgba(132, 204, 22, 0.035), transparent 65%),
+    radial-gradient(ellipse 55% 24% at 15% 85%, rgba(132, 204, 22, 0.04), transparent 65%);
 }
 
 @keyframes smarticket-ambient-drift {
@@ -312,7 +323,7 @@ select option {
 }
 
 .smarticket-neon-surface:hover {
-  border-color: rgba(217, 70, 239, 0.4);
+  border-color: rgba(182, 255, 46, 0.4);
   box-shadow: 0 20px 45px -18px var(--smarticket-glow);
 }
 
@@ -322,7 +333,7 @@ select option {
 }
 
 /* Cards de eventos/organizaciones: glass translúcido (no el bloque sólido
-   `bg-[#0B1120]` de antes) — la card "flota" sobre el velo ambiental de
+   `bg-[#111713]` de antes) — la card "flota" sobre el velo ambiental de
    la página. Hover premium: leve elevación (3px), glow ambiental y borde
    más luminoso — nunca rebote ni escalado grande. */
 .smarticket-neon-card {
@@ -337,7 +348,7 @@ select option {
 .smarticket-neon-card:hover,
 .smarticket-neon-card:focus-visible {
   transform: translateY(-3px);
-  border-color: rgba(217, 70, 239, 0.45);
+  border-color: rgba(182, 255, 46, 0.45);
   box-shadow: 0 16px 40px -16px var(--smarticket-glow);
 }
 
@@ -361,11 +372,10 @@ select option {
 }
 
 /* Borde de luz — EventCard únicamente (OrganizationCard tiene su propia
-   identidad, ver .smarticket-org-halo). Pseudo-elemento con gradiente
-   fucsia→violeta→azul recortado a sólo el aro del borde vía mask
+   identidad, ver .smarticket-org-halo). Pseudo-elemento con un único tono
+   (lima, dos intensidades) recortado a sólo el aro del borde vía mask
    (content-box vs. borde completo, XOR) — nunca gira ni parpadea, sólo
-   aparece/desaparece en hover/focus con un fundido de opacidad. Se ve
-   como una refracción fina, no como una línea RGB de streaming. */
+   aparece/desaparece en hover/focus con un fundido de opacidad. */
 .smarticket-card-edge-glow::before {
   content: "";
   position: absolute;
@@ -373,7 +383,7 @@ select option {
   z-index: 1;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(120deg, rgba(217, 70, 239, 0.7), rgba(132, 204, 22, 0.7), rgba(59, 130, 246, 0.7));
+  background: linear-gradient(120deg, rgba(182, 255, 46, 0.75), rgba(182, 255, 46, 0.35));
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
@@ -388,7 +398,7 @@ select option {
 }
 
 .light .smarticket-card-edge-glow::before {
-  background: linear-gradient(120deg, rgba(217, 70, 239, 0.35), rgba(132, 204, 22, 0.35), rgba(59, 130, 246, 0.35));
+  background: linear-gradient(120deg, rgba(132, 204, 22, 0.35), rgba(132, 204, 22, 0.15));
 }
 
 /* Halo de OrganizationCard — el logo "flota" sobre un resplandor circular
@@ -405,7 +415,7 @@ select option {
   inset: -10%;
   z-index: -1;
   border-radius: 999px;
-  background: radial-gradient(circle, rgba(132, 204, 22, 0.35), rgba(217, 70, 239, 0.18) 55%, transparent 75%);
+  background: radial-gradient(circle, rgba(182, 255, 46, 0.35), transparent 75%);
   opacity: 0.5;
   filter: blur(6px);
   transition: opacity 0.25s ease;
@@ -417,24 +427,23 @@ select option {
 }
 
 .light .smarticket-org-halo::before {
-  background: radial-gradient(circle, rgba(132, 204, 22, 0.18), rgba(217, 70, 239, 0.1) 55%, transparent 75%);
+  background: radial-gradient(circle, rgba(132, 204, 22, 0.18), transparent 75%);
 }
 
-/* Chip de categoría activo — glow violeta+fucsia (paleta tri-color de Fest
-   Pass) en vez de un único tono violeta plano. */
+/* Chip de categoría activo — un único tono (lima). */
 .smarticket-neon-chip-active {
-  box-shadow: 0 0 18px -4px var(--smarticket-glow), 0 0 26px -8px rgba(217, 70, 239, 0.35);
+  box-shadow: 0 0 18px -4px var(--smarticket-glow);
 }
 
 .light .smarticket-neon-chip-active {
   box-shadow: 0 0 14px -6px var(--smarticket-glow);
 }
 
-/* CTA del Hero — variante LOCAL, calcada del botón real de QuickPass.jsx
-   (rounded-full, gradiente fucsia→violeta→azul, glow explícito,
-   active:scale) sin tocar Button.jsx (compartido por
+/* CTA del Hero — variante LOCAL, sin tocar Button.jsx (compartido por
    Organizer/Scanner/Developer, fuera de alcance). Sólo se usa en
-   HeroCarousel.jsx. */
+   HeroCarousel.jsx. Identidad simplificada: fondo lima SÓLIDO, texto
+   oscuro, glow lima muy suave — sin gradiente (ver el informe de la
+   ronda "simplificación de identidad"). */
 .smarticket-hero-cta {
   display: inline-flex;
   align-items: center;
@@ -444,14 +453,15 @@ select option {
   padding: 0.75rem 1.5rem;
   font-size: 1rem;
   font-weight: 700;
-  color: #fff;
-  background-image: linear-gradient(90deg, #d946ef, #84cc16, #3b82f6);
-  box-shadow: var(--smarticket-shadow-glow);
-  transition: transform 0.15s ease, box-shadow 0.2s ease;
+  color: #090d0a;
+  background-color: #b6ff2e;
+  box-shadow: 0 0 16px rgba(182, 255, 46, 0.3);
+  transition: transform 0.15s ease, box-shadow 0.2s ease, background-color 0.15s ease;
 }
 
 .smarticket-hero-cta:hover {
-  box-shadow: 0 0 30px rgba(190, 242, 100, 0.65);
+  background-color: #9de620;
+  box-shadow: 0 0 22px rgba(182, 255, 46, 0.4);
 }
 
 .smarticket-hero-cta:active {
@@ -495,7 +505,7 @@ select option {
   inset: 0;
   background:
     linear-gradient(to bottom, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.8)),
-    linear-gradient(135deg, rgba(217, 70, 239, 0.18) 0%, transparent 45%, rgba(59, 130, 246, 0.16) 100%);
+    linear-gradient(135deg, rgba(182, 255, 46, 0.14) 0%, transparent 55%);
 }
 
 .light .smarticket-event-ambient {
@@ -505,7 +515,7 @@ select option {
 .light .smarticket-event-ambient::before {
   background:
     linear-gradient(to bottom, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.85)),
-    linear-gradient(135deg, rgba(217, 70, 239, 0.07) 0%, transparent 45%, rgba(59, 130, 246, 0.06) 100%);
+    linear-gradient(135deg, rgba(132, 204, 22, 0.06) 0%, transparent 55%);
 }
 
 @media (prefers-reduced-motion: reduce) {

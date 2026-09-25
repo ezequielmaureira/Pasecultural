@@ -132,7 +132,7 @@ function PublicLaunchSection() {
   }
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#0B1120]/90 p-5">
+    <div className="rounded-2xl border border-white/10 bg-[#111713]/90 p-5">
       <div className="mb-4 flex flex-col gap-1">
         <h2 className="text-sm font-semibold text-white">Estado público de Smarticket</h2>
         <p className="text-xs leading-relaxed text-slate-500">
@@ -277,7 +277,7 @@ function DeveloperAlertConfigSection() {
   }
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#0B1120]/90 p-5">
+    <div className="rounded-2xl border border-white/10 bg-[#111713]/90 p-5">
       <div className="mb-4 flex flex-col gap-1">
         <h2 className="text-sm font-semibold text-white">Alertas Developer</h2>
         <p className="text-xs leading-relaxed text-slate-500">
@@ -425,7 +425,7 @@ export default function DeveloperSettings() {
         <p className="text-sm text-slate-400">Administrá la comisión de servicio que Smarticket suma al comprador.</p>
       </div>
 
-      <div className="rounded-2xl border border-white/10 bg-[#0B1120]/90 p-5">
+      <div className="rounded-2xl border border-white/10 bg-[#111713]/90 p-5">
         <div className="mb-4 flex flex-col gap-1">
           <h2 className="text-sm font-semibold text-white">Comisión de servicio (Mercado Pago)</h2>
           <p className="text-xs leading-relaxed text-slate-500">
@@ -521,7 +521,7 @@ export default function DeveloperSettings() {
         <button
           type="button"
           onClick={handleAdd}
-          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 py-2.5 text-sm font-medium text-slate-400 hover:border-lime-500/60 hover:text-lime-300"
+          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 py-2.5 text-sm font-medium text-slate-400 hover:border-brand/60 hover:text-brand-soft"
         >
           <Plus className="h-4 w-4" />
           Agregar rango
@@ -535,7 +535,7 @@ export default function DeveloperSettings() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-white/10 bg-[#0B1120]/90 p-5">
+      <div className="rounded-2xl border border-white/10 bg-[#111713]/90 p-5">
         <h2 className="mb-3 text-sm font-semibold text-white">Previsualización</h2>
         <p className="mb-3 text-xs text-slate-500">
           Ejemplos calculados con los rangos de arriba (sin guardar todavía) — así podés revisar el resultado antes

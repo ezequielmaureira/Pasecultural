@@ -45,7 +45,7 @@ export default function PreLaunchGate() {
 
   if (status === "loading") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#05070B] text-sm text-slate-400">
+      <div className="flex min-h-screen items-center justify-center bg-[#090D0A] text-sm text-slate-400">
         Cargando...
       </div>
     );

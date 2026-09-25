@@ -141,7 +141,7 @@ export default function DeveloperContent() {
         </p>
       </div>
 
-      <div className="rounded-2xl border border-white/10 bg-[#0B1120]/90 p-5">
+      <div className="rounded-2xl border border-white/10 bg-[#111713]/90 p-5">
         <div className="mb-4 flex flex-col gap-1">
           <h2 className="text-sm font-semibold text-white">Fest Pass · Introducción</h2>
           <p className="text-xs leading-relaxed text-slate-500">
@@ -185,7 +185,7 @@ export default function DeveloperContent() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-white/10 bg-[#0B1120]/90 p-5">
+      <div className="rounded-2xl border border-white/10 bg-[#111713]/90 p-5">
         <div className="mb-4 flex flex-col gap-1">
           <h2 className="text-sm font-semibold text-white">¿Cómo funciona?</h2>
           <p className="text-xs leading-relaxed text-slate-500">

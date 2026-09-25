@@ -169,7 +169,7 @@ export default function OrganizerEvents() {
           <Link to="/organizador/eventos/nuevo" state={{ fresh: true, tutorial: true }}>
             <Button
               variant="secondary"
-              className="w-full border border-lime-400/30 bg-lime-500/5 text-lime-300 hover:border-lime-400/50 hover:bg-lime-500/10 hover:text-lime-200 sm:w-auto"
+              className="w-full border border-brand/30 bg-brand/5 text-brand-soft hover:border-brand/50 hover:bg-brand/10 hover:text-brand-soft sm:w-auto"
             >
               <Sparkles className="h-4 w-4" />
               Crear con tutorial
@@ -213,7 +213,7 @@ export default function OrganizerEvents() {
         <p className="text-sm text-rose-400">{actionError}</p>
       )}
 
-      <div className="rounded-xl border border-white/10 bg-[#0B1120]">
+      <div className="rounded-xl border border-white/10 bg-[#111713]">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>

@@ -215,7 +215,7 @@ export default function IssueCourtesyWizard() {
                     {result.deliveryMethod === "SHARE" ? (
                         <div className="flex flex-col gap-3">
                             <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                                <Link2 className="h-4 w-4 text-lime-400" />
+                                <Link2 className="h-4 w-4 text-brand" />
                                 Compartir cortesía
                             </div>
                             <ShareLinkPanel
@@ -228,7 +228,7 @@ export default function IssueCourtesyWizard() {
                         </div>
                     ) : (
                         <div className="flex flex-col items-center gap-2 py-4 text-center">
-                            <Mail className="h-6 w-6 text-lime-400" />
+                            <Mail className="h-6 w-6 text-brand" />
                             <p className="text-sm text-white">
                                 {result.emailDeliveryStatus === "SENT" || result.emailDeliveryStatus === "PENDING"
                                     ? `Enviamos las entradas a ${result.recipientEmail}.`
@@ -253,7 +253,7 @@ export default function IssueCourtesyWizard() {
     return (
         <div className="mx-auto max-w-lg">
             <div className="mb-4 flex items-center gap-2">
-                <Gift className="h-5 w-5 text-lime-400" />
+                <Gift className="h-5 w-5 text-brand" />
                 <h1 className="text-xl font-bold text-white">Emitir cortesía</h1>
             </div>
 
@@ -269,7 +269,7 @@ export default function IssueCourtesyWizard() {
                                     key={event.id}
                                     type="button"
                                     onClick={() => handleSelectEvent(event)}
-                                    className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-left text-sm text-white transition-colors duration-150 hover:border-lime-500/40"
+                                    className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-left text-sm text-white transition-colors duration-150 hover:border-brand/40"
                                 >
                                     {event.title}
                                 </button>
@@ -290,7 +290,7 @@ export default function IssueCourtesyWizard() {
                                     key={fn.id}
                                     type="button"
                                     onClick={() => handleSelectFunction(fn)}
-                                    className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-left text-sm text-white transition-colors duration-150 hover:border-lime-500/40"
+                                    className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-left text-sm text-white transition-colors duration-150 hover:border-brand/40"
                                 >
                                     {formatEventDateTime(fn.date)}
                                 </button>
@@ -314,7 +314,7 @@ export default function IssueCourtesyWizard() {
                                         key={tt.id}
                                         type="button"
                                         onClick={() => handleSelectTicketType(tt.id)}
-                                        className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-left text-sm text-white transition-colors duration-150 hover:border-lime-500/40"
+                                        className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-left text-sm text-white transition-colors duration-150 hover:border-brand/40"
                                     >
                                         {tt.name}
                                     </button>
@@ -377,7 +377,7 @@ export default function IssueCourtesyWizard() {
                         <div className="flex flex-col gap-2">
                             <label
                                 className={`flex cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 text-sm transition-colors duration-150 ${
-                                    deliveryMethod === "SHARE" ? "border-lime-500 bg-lime-500/10 text-white" : "border-white/10 bg-white/5 text-slate-300"
+                                    deliveryMethod === "SHARE" ? "border-brand bg-brand/10 text-white" : "border-white/10 bg-white/5 text-slate-300"
                                 }`}
                             >
                                 <input
@@ -391,7 +391,7 @@ export default function IssueCourtesyWizard() {
                             </label>
                             <label
                                 className={`flex cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 text-sm transition-colors duration-150 ${
-                                    deliveryMethod === "EMAIL" ? "border-lime-500 bg-lime-500/10 text-white" : "border-white/10 bg-white/5 text-slate-300"
+                                    deliveryMethod === "EMAIL" ? "border-brand bg-brand/10 text-white" : "border-white/10 bg-white/5 text-slate-300"
                                 }`}
                             >
                                 <input

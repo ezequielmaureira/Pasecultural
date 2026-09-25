@@ -223,7 +223,7 @@ export default function OrganizationProfile() {
                   href={url}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition-colors duration-150 hover:border-lime-500 hover:text-white"
+                  className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition-colors duration-150 hover:border-brand hover:text-white"
                 >
                   <Icon className="h-3.5 w-3.5" />
                   {label}
@@ -265,7 +265,7 @@ export default function OrganizationProfile() {
                     href={url}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition-colors duration-150 hover:border-lime-500 hover:text-white"
+                    className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition-colors duration-150 hover:border-brand hover:text-white"
                   >
                     <Icon className="h-3.5 w-3.5" />
                     {label}

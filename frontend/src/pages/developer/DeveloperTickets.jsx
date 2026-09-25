@@ -63,7 +63,7 @@ function FilterPills({ options, value, onChange, disabled = false }) {
             onClick={() => onChange(option.id)}
             className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${
               isActive
-                ? "bg-lime-500/10 text-lime-300"
+                ? "bg-brand/10 text-brand-soft"
                 : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
             }`}
           >
@@ -395,12 +395,12 @@ export default function DeveloperTickets() {
 
       {error && <InlineErrorNotice message="No pudimos cargar las entradas." onRetry={loadTickets} />}
 
-      <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-[#0B1120]/90 p-4">
+      <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-[#111713]/90 p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
           <div className="relative flex-1 sm:max-w-sm">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
             <input
-              className="h-10 w-full rounded-lg border border-white/10 bg-white/5 pl-9 pr-3 text-sm text-gray-100 outline-none placeholder:text-slate-500 focus:border-lime-500 focus:bg-white/10 focus:ring-2 focus:ring-lime-500/20"
+              className="h-10 w-full rounded-lg border border-white/10 bg-white/5 pl-9 pr-3 text-sm text-gray-100 outline-none placeholder:text-slate-500 focus:border-brand focus:bg-white/10 focus:ring-2 focus:ring-brand/20"
               placeholder="Buscar por número, nombre, correo o DNI"
               value={search}
               onChange={(e) => handleSearchChange(e.target.value)}
@@ -457,7 +457,7 @@ export default function DeveloperTickets() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-white/10 bg-[#0B1120]">
+      <div className="rounded-xl border border-white/10 bg-[#111713]">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>

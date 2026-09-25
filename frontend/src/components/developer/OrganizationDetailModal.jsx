@@ -105,7 +105,7 @@ export default function OrganizationDetailModal({
             src={organization.logo}
             name={organization.name}
             size="lg"
-            className="bg-gradient-to-br from-lime-500 to-blue-500 text-slate-950"
+            className="bg-brand text-slate-950"
           />
           <div className="min-w-0 flex-1">
             <p className="truncate text-lg font-semibold text-white">
@@ -147,10 +147,10 @@ export default function OrganizationDetailModal({
               value={organization.organizationCategory ?? ""}
               onChange={(e) => onChangeCategory(organization, e.target.value || null)}
               disabled={updating}
-              className="h-9 rounded-lg border border-white/10 bg-white/5 px-3 text-sm font-medium text-gray-100 outline-none transition-colors duration-150 hover:bg-white/10 focus:border-lime-500 disabled:cursor-not-allowed disabled:opacity-50"
+              className="h-9 rounded-lg border border-white/10 bg-white/5 px-3 text-sm font-medium text-gray-100 outline-none transition-colors duration-150 hover:bg-white/10 focus:border-brand disabled:cursor-not-allowed disabled:opacity-50"
             >
               {ORG_CATEGORY_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value} className="bg-[#0B1120]">
+                <option key={opt.value} value={opt.value} className="bg-[#111713]">
                   {opt.label}
                 </option>
               ))}
@@ -205,7 +205,7 @@ export default function OrganizationDetailModal({
           </div>
           <div className="mb-4 h-2 w-full overflow-hidden rounded-full bg-white/10">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-lime-500 to-blue-500 transition-all duration-300"
+              className="h-full rounded-full bg-brand transition-all duration-300"
               style={{ width: `${completion}%` }}
             />
           </div>

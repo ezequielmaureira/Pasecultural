@@ -21,7 +21,7 @@ function EditButton({ section, onEdit }) {
     <button
       type="button"
       onClick={() => onEdit(EDIT_STEP_BY_SECTION[section])}
-      className="inline-flex min-h-[40px] items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium text-lime-400 transition-colors duration-150 hover:bg-lime-500/10 hover:text-lime-300"
+      className="inline-flex min-h-[40px] items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium text-brand transition-colors duration-150 hover:bg-brand/10 hover:text-brand-soft"
     >
       <Pencil className="h-3 w-3" />
       Editar
@@ -69,7 +69,7 @@ export default function PreviewCard({
 
       <SectionCard title="Información" section="info" onEdit={onEdit}>
         <h2 className="text-xl font-bold text-white">{draft.title}</h2>
-        <span className="w-fit rounded-full bg-lime-500/15 px-2.5 py-1 text-xs font-medium text-lime-300">
+        <span className="w-fit rounded-full bg-brand/15 px-2.5 py-1 text-xs font-medium text-brand-soft">
           {categoryLabel}
         </span>
         <p className="text-sm text-slate-300">{draft.description}</p>
@@ -83,7 +83,7 @@ export default function PreviewCard({
 
       <SectionCard title="Ubicación" section="location" onEdit={onEdit}>
         <p className="flex items-center gap-2 text-sm text-slate-300">
-          <MapPin className="h-4 w-4 shrink-0 text-lime-400" />
+          <MapPin className="h-4 w-4 shrink-0 text-brand" />
           {draft.location?.venueName ? `${draft.location.venueName} — ` : ""}
           {draft.location?.address}, {draft.location?.city}, {draft.location?.province}
         </p>
@@ -93,7 +93,7 @@ export default function PreviewCard({
         <ul className="flex flex-col gap-1.5">
           {(draft.functions ?? []).map((fn, i) => (
             <li key={i} className="flex items-center gap-2 text-sm text-slate-300">
-              <CalendarDays className="h-4 w-4 shrink-0 text-lime-400" />
+              <CalendarDays className="h-4 w-4 shrink-0 text-brand" />
               {formatLocalDate(fn.date)} · {fn.startTime} a {fn.endTime}
             </li>
           ))}
@@ -105,7 +105,7 @@ export default function PreviewCard({
           <ul className="flex flex-col gap-1.5">
             {(draft.ticketTypes ?? []).map((tt, i) => (
               <li key={i} className="flex items-center gap-2 text-sm text-slate-300">
-                <Ticket className="h-4 w-4 shrink-0 text-lime-400" />
+                <Ticket className="h-4 w-4 shrink-0 text-brand" />
                 {tt.name} — ${tt.price} · {tt.quantity} disponibles
               </li>
             ))}
@@ -141,7 +141,7 @@ export default function PreviewCard({
                   rel="noreferrer"
                   className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 hover:text-white"
                 >
-                  <Icon className="h-3.5 w-3.5 text-lime-400" />
+                  <Icon className="h-3.5 w-3.5 text-brand" />
                   {link.network}
                 </a>
               );

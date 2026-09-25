@@ -8,7 +8,7 @@ import { X } from "lucide-react";
 // una salida chica y fija en la esquina — nunca un menú.
 export default function ScannerShell() {
     return (
-        <div className="min-h-screen bg-[#05070B] text-white">
+        <div className="min-h-screen bg-[#090D0A] text-white">
             <Link
                 to="/"
                 aria-label="Salir del modo Scanner"

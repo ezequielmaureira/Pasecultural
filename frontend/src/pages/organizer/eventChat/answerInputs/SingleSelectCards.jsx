@@ -49,13 +49,13 @@ export default function SingleSelectCards({ options, onSubmit, disabled, getIcon
                 type="button"
                 disabled={disabled}
                 onClick={() => onSubmit(option.id)}
-                className={`flex flex-col items-center gap-2 rounded-xl border px-3 py-4 text-center text-sm font-medium transition-colors duration-150 hover:border-lime-500/60 hover:bg-lime-500/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 ${
+                className={`flex flex-col items-center gap-2 rounded-xl border px-3 py-4 text-center text-sm font-medium transition-colors duration-150 hover:border-brand/60 hover:bg-brand/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 ${
                   isSelected
-                    ? "border-lime-500/60 bg-lime-500/15 text-white"
+                    ? "border-brand/60 bg-brand/15 text-white"
                     : "border-white/10 bg-white/5 text-slate-200"
                 }`}
               >
-                <Icon className="h-6 w-6 text-lime-400" />
+                <Icon className="h-6 w-6 text-brand" />
                 {option.label}
               </button>
             );

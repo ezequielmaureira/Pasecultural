@@ -168,7 +168,7 @@ export default function OrganizerWithdrawalRequests() {
           <p className="text-sm text-slate-400">Todavía no hay solicitudes registradas.</p>
         </Card>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-white/10 bg-[#0B1120]/90">
+        <div className="overflow-x-auto rounded-2xl border border-white/10 bg-[#111713]/90">
           <table className="w-full min-w-[720px] text-left text-sm">
             <thead>
               <tr className="border-b border-white/10 text-xs uppercase tracking-wide text-slate-500">
@@ -252,12 +252,12 @@ export default function OrganizerWithdrawalRequests() {
                     <label
                       key={t.id}
                       className={`flex items-center gap-2.5 rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-slate-200 ${
-                        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer has-[:checked]:border-lime-500/60 has-[:checked]:bg-lime-500/10"
+                        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer has-[:checked]:border-brand/60 has-[:checked]:bg-brand/10"
                       }`}
                     >
                       <input
                         type="checkbox"
-                        className="accent-lime-500"
+                        className="accent-brand"
                         checked={selectedTicketIds.has(t.id)}
                         disabled={disabled}
                         onChange={() => toggleTicketSelected(t.id)}

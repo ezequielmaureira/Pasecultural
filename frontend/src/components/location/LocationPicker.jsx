@@ -13,14 +13,14 @@ import {
 } from "../../lib/locationUtils.js";
 
 const DARK_MAP_STYLE = [
-  { elementType: "geometry", stylers: [{ color: "#0B1120" }] },
-  { elementType: "labels.text.stroke", stylers: [{ color: "#0B1120" }] },
+  { elementType: "geometry", stylers: [{ color: "#111713" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#111713" }] },
   { elementType: "labels.text.fill", stylers: [{ color: "#94a3b8" }] },
   { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#1e293b" }] },
   { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
   { featureType: "road", elementType: "geometry", stylers: [{ color: "#1e293b" }] },
   { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#94a3b8" }] },
-  { featureType: "water", elementType: "geometry", stylers: [{ color: "#05070B" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#090D0A" }] },
 ];
 
 // Componente controlado: <LocationPicker value={location} onChange={setLocation} />.
@@ -333,7 +333,7 @@ export default function LocationPicker({ value, onChange, required = false, erro
         )}
 
         {showSuggestions && suggestions.length > 0 && (
-          <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-y-auto rounded-lg border border-white/10 bg-[#0B1120] shadow-xl">
+          <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-y-auto rounded-lg border border-white/10 bg-[#111713] shadow-xl">
             {suggestions.map((suggestion, index) => (
               <li key={suggestion.place_id}>
                 <button
@@ -342,7 +342,7 @@ export default function LocationPicker({ value, onChange, required = false, erro
                   onClick={() => handlePlaceSelect(suggestion)}
                   className={`block w-full truncate px-3 py-2 text-left text-sm transition-colors duration-100 ${
                     index === activeIndex
-                      ? "bg-lime-600/20 text-white"
+                      ? "bg-brand-hover/20 text-white"
                       : "text-slate-300 hover:bg-white/5"
                   }`}
                 >
@@ -354,7 +354,7 @@ export default function LocationPicker({ value, onChange, required = false, erro
         )}
 
         {showSuggestions && suggestions.length === 0 && noResults && (
-          <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-lg border border-white/10 bg-[#0B1120] p-3 text-xs text-slate-500">
+          <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-lg border border-white/10 bg-[#111713] p-3 text-xs text-slate-500">
             No encontramos resultados. Probá con otra búsqueda.
           </div>
         )}
@@ -367,14 +367,14 @@ export default function LocationPicker({ value, onChange, required = false, erro
         <div ref={mapRef} className="h-full w-full" />
 
         {mapsStatus === "loading" && (
-          <div className="absolute inset-0 flex items-center justify-center gap-2 bg-[#0B1120] text-sm text-slate-400">
+          <div className="absolute inset-0 flex items-center justify-center gap-2 bg-[#111713] text-sm text-slate-400">
             <Loader2 className="h-4 w-4 animate-spin" />
             Cargando mapa...
           </div>
         )}
 
         {mapsStatus === "error" && (
-          <div className="absolute inset-0 flex items-start gap-2 bg-[#0B1120] p-3 text-amber-300">
+          <div className="absolute inset-0 flex items-start gap-2 bg-[#111713] p-3 text-amber-300">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <p className="text-xs">{mapsErrorMessage}</p>
           </div>

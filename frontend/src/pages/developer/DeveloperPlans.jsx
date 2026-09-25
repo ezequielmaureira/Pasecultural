@@ -59,7 +59,7 @@ function ToggleField({ label, checked, onChange }) {
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={`relative h-6 w-11 shrink-0 overflow-hidden rounded-full transition-colors duration-150 ${
-          checked ? "bg-lime-500" : "bg-white/15 light:bg-slate-300"
+          checked ? "bg-brand" : "bg-white/15 light:bg-slate-300"
         }`}
       >
         <span
@@ -125,7 +125,7 @@ function PlanBlock({ plan, initialLimits, getToken, onSaved }) {
   }
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#0B1120]/90 p-5 light:border-slate-200 light:bg-white">
+    <div className="rounded-2xl border border-white/10 bg-[#111713]/90 p-5 light:border-slate-200 light:bg-white">
       <h2 className="mb-4 text-base font-semibold text-white light:text-slate-900">{PLAN_LABELS[plan]}</h2>
 
       {(saveError || validationErrors.length > 0) && (

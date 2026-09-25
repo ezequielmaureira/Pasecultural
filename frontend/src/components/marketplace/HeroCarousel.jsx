@@ -43,14 +43,14 @@ export default function HeroCarousel({ events }) {
             <ImageOff className="h-10 w-10" />
           </div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-r from-[#05070B] via-[#05070Bcc] to-[#05070B33]" />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#05070B] via-transparent to-transparent" />
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-fuchsia-500/10 via-lime-600/10 to-blue-500/15" />
+        <div className="absolute inset-0 bg-gradient-to-r from-[#090D0A] via-[#090D0Acc] to-[#090D0A33]" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#090D0A] via-transparent to-transparent" />
+        <div className="pointer-events-none absolute inset-0 bg-brand/10" />
       </div>
 
       <div className="relative mx-auto flex max-w-7xl flex-col gap-3 px-4 py-10 sm:gap-4 sm:px-6 sm:py-16 lg:px-8 lg:py-24">
         {event.category && (
-          <span className="w-fit rounded-full bg-lime-500/15 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-lime-300">
+          <span className="w-fit rounded-full bg-brand/15 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-brand">
             {getEventCategoryLabel(event)}
           </span>
         )}
@@ -111,7 +111,7 @@ export default function HeroCarousel({ events }) {
                 onClick={() => goTo(i)}
                 className={`h-1.5 rounded-full transition-all duration-150 ${
                   i === index
-                    ? "w-6 bg-lime-400 shadow-[0_0_10px_-2px_rgba(163,230,53,0.9)]"
+                    ? "w-6 bg-brand shadow-[0_0_10px_-2px_rgba(182,255,46,0.9)]"
                     : "w-1.5 bg-white/30 hover:bg-white/50"
                 }`}
               />

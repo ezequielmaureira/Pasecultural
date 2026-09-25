@@ -78,7 +78,7 @@ export default function SelectTicketsStep({
                   <p className="text-sm font-semibold text-white">{option.name}</p>
                   {option.description && <p className="truncate text-xs text-slate-500">{option.description}</p>}
                 </div>
-                <p className="shrink-0 text-sm text-lime-400">{currency(option.price)}</p>
+                <p className="shrink-0 text-sm text-brand">{currency(option.price)}</p>
               </div>
 
               {option.available > 0 ? (
@@ -107,7 +107,7 @@ export default function SelectTicketsStep({
                   disabled={atMax}
                   onClick={() => onQuantityChange(option.ticketTypeId, 1)}
                   aria-label={`Sumar ${option.name}`}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-lime-600 text-slate-950 transition-colors duration-150 hover:bg-lime-500 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-hover text-slate-950 transition-colors duration-150 hover:bg-brand disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Plus className="h-4 w-4" />
                 </button>

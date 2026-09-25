@@ -14,8 +14,8 @@ const ICON_BY_SECTION = {
 };
 
 const TONE_BY_STATUS = {
-  current: "border-lime-500/60 bg-lime-500/15 text-white",
-  completed: "border-white/10 bg-white/5 text-slate-300 hover:border-lime-500/40 hover:bg-lime-500/10 hover:text-white",
+  current: "border-brand/60 bg-brand/15 text-white",
+  completed: "border-white/10 bg-white/5 text-slate-300 hover:border-brand/40 hover:bg-brand/10 hover:text-white",
   pending: "cursor-not-allowed border-white/5 bg-transparent text-slate-600",
 };
 

@@ -224,7 +224,7 @@ export default function ScannerInvitationClaim() {
   if (step === "verify") {
     return (
       <Shell>
-        <ScanLine className="h-9 w-9 text-lime-400" />
+        <ScanLine className="h-9 w-9 text-brand" />
         <h1 className="text-lg font-bold text-white">Ingresá el código</h1>
         <p className="text-sm text-slate-400">
           Te lo mandamos a <span className="font-medium text-slate-200">{registeredEmail}</span>. Vence en 10 minutos.
@@ -263,7 +263,7 @@ export default function ScannerInvitationClaim() {
           type="button"
           onClick={handleResend}
           disabled={resending || cooldownRemaining > 0}
-          className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-lime-400 transition-colors duration-150 hover:text-lime-300 disabled:cursor-not-allowed disabled:text-slate-600"
+          className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-brand transition-colors duration-150 hover:text-brand-soft disabled:cursor-not-allowed disabled:text-slate-600"
         >
           <RefreshCw className={`h-3 w-3 ${resending ? "animate-spin" : ""}`} />
           {cooldownRemaining > 0 ? `Reenviar código (${cooldownRemaining}s)` : "Reenviar código"}
@@ -274,7 +274,7 @@ export default function ScannerInvitationClaim() {
 
   return (
     <Shell wide>
-      <ScanLine className="h-9 w-9 text-lime-400" />
+      <ScanLine className="h-9 w-9 text-brand" />
       <h1 className="text-lg font-bold text-white">Te invitaron a operar como scanner</h1>
       <p className="text-sm text-slate-400">
         <span className="font-medium text-slate-200">{invitation.eventTitle}</span> — {invitation.gate}

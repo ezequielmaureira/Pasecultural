@@ -16,9 +16,9 @@ export default function LoadingOverlay({ open, title, message }) {
       aria-live="polite"
       className="overlay-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
     >
-      <div className="modal-pop-in flex w-full max-w-sm flex-col items-center gap-4 rounded-2xl border border-white/10 bg-[#0B1120] px-8 py-10 text-center shadow-2xl shadow-black/50">
+      <div className="modal-pop-in flex w-full max-w-sm flex-col items-center gap-4 rounded-2xl border border-white/10 bg-[#111713] px-8 py-10 text-center shadow-2xl shadow-black/50">
         <div className="relative flex h-16 w-16 items-center justify-center">
-          <div className="absolute inset-0 animate-pulse rounded-full bg-lime-500/20 blur-lg" />
+          <div className="absolute inset-0 animate-pulse rounded-full bg-brand/20 blur-lg" />
           <Spinner size="xl" />
         </div>
 

@@ -112,7 +112,7 @@ export default function ScannerInviteChat({ onDone }) {
     return (
       <div className="flex w-full flex-1 flex-col items-center gap-4 py-8">
         <div className="event-chat-question flex w-full max-w-xl flex-col items-center gap-4 text-center">
-          <PartyPopper className="h-10 w-10 text-lime-400" />
+          <PartyPopper className="h-10 w-10 text-brand" />
           <h1 className="text-xl font-semibold text-white sm:text-2xl">
             {created.length === 1
               ? "¡Listo! Compartí esta invitación."

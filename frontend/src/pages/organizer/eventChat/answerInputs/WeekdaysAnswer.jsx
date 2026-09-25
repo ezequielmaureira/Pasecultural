@@ -35,8 +35,8 @@ export default function WeekdaysAnswer({ onSubmit, disabled, currentValue }) {
             onClick={() => toggle(day.id)}
             className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${
               selected.includes(day.id)
-                ? "border-lime-500/60 bg-lime-500/20 text-white"
-                : "border-white/10 bg-white/5 text-slate-300 hover:border-lime-500/40 hover:bg-lime-500/10"
+                ? "border-brand/60 bg-brand/20 text-white"
+                : "border-white/10 bg-white/5 text-slate-300 hover:border-brand/40 hover:bg-brand/10"
             }`}
           >
             {day.label}

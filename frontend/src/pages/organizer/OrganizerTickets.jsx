@@ -247,7 +247,7 @@ export default function OrganizerTickets() {
         </p>
       </div>
 
-      <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-[#0B1120]/90 p-4">
+      <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-[#111713]/90 p-4">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-end">
             <label className="flex min-w-[240px] flex-1 flex-col gap-2 text-sm text-slate-300">
@@ -299,7 +299,7 @@ export default function OrganizerTickets() {
           <div className="relative w-full sm:w-72">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
             <input
-              className="h-10 w-full rounded-lg border border-white/10 bg-white/5 pl-9 pr-3 text-sm text-gray-100 outline-none placeholder:text-slate-500 focus:border-lime-500 focus:bg-white/10 focus:ring-2 focus:ring-lime-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+              className="h-10 w-full rounded-lg border border-white/10 bg-white/5 pl-9 pr-3 text-sm text-gray-100 outline-none placeholder:text-slate-500 focus:border-brand focus:bg-white/10 focus:ring-2 focus:ring-brand/20 disabled:cursor-not-allowed disabled:opacity-60"
               placeholder="Buscar por número, nombre, correo o DNI"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -323,9 +323,9 @@ export default function OrganizerTickets() {
                 aria-pressed={isActive}
                 disabled={!selectedEventId}
                 onClick={() => setStatusFilter(filter.id)}
-                className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime-400 disabled:cursor-not-allowed disabled:opacity-40 ${
+                className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-40 ${
                   isActive
-                    ? "bg-lime-600 text-slate-950"
+                    ? "bg-brand-hover text-slate-950"
                     : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
                 }`}
               >
@@ -430,10 +430,10 @@ export default function OrganizerTickets() {
       )}
 
       {selectedIds.length > 0 && (
-        <div className="flex flex-col gap-3 rounded-xl border border-lime-500/20 bg-lime-500/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 rounded-xl border border-brand/20 bg-brand/10 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-medium text-lime-200">{selectedIds.length} entradas seleccionadas</p>
-            <p className="text-xs text-lime-300/90">Elegí una acción para ejecutarla sobre todas ellas.</p>
+            <p className="text-sm font-medium text-brand-soft">{selectedIds.length} entradas seleccionadas</p>
+            <p className="text-xs text-brand-soft/90">Elegí una acción para ejecutarla sobre todas ellas.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {bulkActions.map((action) => (
@@ -453,11 +453,11 @@ export default function OrganizerTickets() {
       )}
 
       {!selectedEventId ? (
-        <div className="rounded-xl border border-dashed border-white/10 bg-[#0B1120] p-12 text-center text-sm text-slate-400">
+        <div className="rounded-xl border border-dashed border-white/10 bg-[#111713] p-12 text-center text-sm text-slate-400">
           Elegí un evento para ver sus entradas y empezar a administrar.
         </div>
       ) : (
-        <div className="rounded-xl border border-white/10 bg-[#0B1120]">
+        <div className="rounded-xl border border-white/10 bg-[#111713]">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>

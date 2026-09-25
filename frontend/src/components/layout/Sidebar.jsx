@@ -148,7 +148,7 @@ function TopNavItem({ label, icon: Icon, path, end }) {
       className={({ isActive }) =>
         `group relative flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors duration-150 ${
           isActive
-            ? "bg-lime-500/10 text-lime-300"
+            ? "bg-brand/10 text-brand-soft"
             : "text-slate-400 hover:bg-white/5 hover:text-white light:text-slate-500 light:hover:bg-slate-900/5 light:hover:text-slate-900"
         }`
       }
@@ -156,11 +156,11 @@ function TopNavItem({ label, icon: Icon, path, end }) {
       {({ isActive }) => (
         <>
           {isActive && (
-            <span className="absolute -left-2 top-1/2 h-6 w-1 -translate-y-1/2 rounded-full bg-lime-500" />
+            <span className="absolute -left-2 top-1/2 h-6 w-1 -translate-y-1/2 rounded-full bg-brand" />
           )}
           <Icon
             className={`h-[18px] w-[18px] shrink-0 transition-colors duration-150 ${
-              isActive ? "text-lime-400" : "text-slate-500 group-hover:text-white light:group-hover:text-slate-900"
+              isActive ? "text-brand" : "text-slate-500 group-hover:text-white light:group-hover:text-slate-900"
             }`}
           />
           {label}
@@ -256,7 +256,7 @@ export default function Sidebar({ open = false, onClose }) {
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="relative flex h-full flex-col overflow-hidden rounded-[28px] bg-[#0B1120] shadow-xl shadow-black/30 light:bg-white light:shadow-slate-300/60">
+        <div className="relative flex h-full flex-col overflow-hidden rounded-[28px] bg-[#111713] shadow-xl shadow-black/30 light:bg-white light:shadow-slate-300/60">
           <button
             type="button"
             onClick={onClose}
@@ -266,7 +266,7 @@ export default function Sidebar({ open = false, onClose }) {
           </button>
 
         <Link to="/" className="flex items-center gap-3 px-5 pb-6 pt-6">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-lime-500 to-blue-500 text-lg font-extrabold text-slate-950">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand text-lg font-extrabold text-slate-950">
             P
           </div>
           <div className="min-w-0">
@@ -298,10 +298,9 @@ export default function Sidebar({ open = false, onClose }) {
                       // (span absoluto, pointer-events-none, no interfiere
                       // con el click) para sensación glass/neon. Mantiene su
                       // identidad TANTO activo como inactivo — sólo cambia
-                      // de intensidad entre los dos estados. El resto de los
-                      // children conserva exactamente el mismo comportamiento
-                      // de siempre (texto violeta liso cuando está activo,
-                      // gris cuando no).
+                      // de intensidad entre los dos estados. Un único color
+                      // de marca (lima) — sin gradiente multicolor (ver el
+                      // informe de la ronda "simplificación de identidad").
                       const isFestPass = child.path === "/organizador/fest-pass";
                       if (isFestPass) {
                         return (
@@ -314,8 +313,8 @@ export default function Sidebar({ open = false, onClose }) {
                             className={({ isActive }) =>
                               `group relative -mx-1 flex items-center gap-2 overflow-hidden rounded-xl border px-4 py-2.5 text-sm transition-all duration-300 ease-out ${
                                 isActive
-                                  ? "border-white/30 bg-gradient-to-r from-blue-600 via-lime-600 to-fuchsia-500 font-semibold text-slate-950 shadow-[0_0_14px_rgba(99,102,241,0.65),0_0_28px_rgba(190,242,100,0.45),0_0_38px_rgba(236,72,153,0.20)]"
-                                  : "border-lime-500/40 bg-gradient-to-r from-blue-950/60 via-lime-900/50 to-fuchsia-900/40 font-medium text-lime-100 shadow-[0_0_10px_rgba(99,102,241,0.2)] hover:border-lime-400/60 hover:from-blue-600/40 hover:via-lime-600/40 hover:to-fuchsia-500/30 hover:text-white hover:shadow-[0_0_16px_rgba(99,102,241,0.4),0_0_26px_rgba(190,242,100,0.3)]"
+                                  ? "border-brand bg-brand font-semibold text-slate-950 shadow-[0_0_14px_rgba(182,255,46,0.5),0_0_26px_rgba(182,255,46,0.3)]"
+                                  : "border-brand/40 bg-black/30 font-medium text-brand-soft shadow-[0_0_10px_rgba(182,255,46,0.15)] hover:border-brand/70 hover:bg-brand/10 hover:text-white hover:shadow-[0_0_16px_rgba(182,255,46,0.3)]"
                               }`
                             }
                           >
@@ -329,9 +328,7 @@ export default function Sidebar({ open = false, onClose }) {
                                 />
                                 <Zap
                                   className={`relative h-4 w-4 shrink-0 transition-colors duration-300 ${
-                                    isActive
-                                      ? "text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.9)]"
-                                      : "text-lime-300 group-hover:text-white"
+                                    isActive ? "text-slate-950" : "text-brand group-hover:text-white"
                                   }`}
                                 />
                                 <span className="relative">{child.label}</span>
@@ -362,10 +359,10 @@ export default function Sidebar({ open = false, onClose }) {
                           onClick={(event) => handleNavClick(event, child, isCreateEvent ? isFirstEvent : undefined)}
                           className={({ isActive }) =>
                             isCreateEvent && isFirstEvent
-                              ? "smarticket-cta-pulse rounded-lg border border-lime-400/30 bg-lime-500/10 px-3 py-1.5 text-sm font-medium text-lime-100 transition-colors duration-150 hover:bg-lime-500/15 hover:text-white"
+                              ? "smarticket-cta-pulse rounded-lg border border-brand/30 bg-brand/10 px-3 py-1.5 text-sm font-medium text-brand-soft transition-colors duration-150 hover:bg-brand/15 hover:text-white"
                               : `rounded-lg px-3 py-1.5 text-sm transition-colors duration-150 ${
                                   isActive
-                                    ? "text-lime-300"
+                                    ? "text-brand-soft"
                                     : "text-slate-500 hover:text-white light:hover:text-slate-900"
                                 }`
                           }

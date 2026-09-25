@@ -89,7 +89,7 @@ export default function Modal({ title, onClose, children, maxWidth = "max-w-md" 
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`max-h-[90vh] w-full ${maxWidth} overflow-y-auto rounded-xl border border-white/10 bg-[#0B1120] p-6 outline-none focus-visible:ring-2 focus-visible:ring-lime-500/50 light:border-slate-200 light:bg-white`}
+        className={`max-h-[90vh] w-full ${maxWidth} overflow-y-auto rounded-xl border border-white/10 bg-[#111713] p-6 outline-none focus-visible:ring-2 focus-visible:ring-brand/50 light:border-slate-200 light:bg-white`}
       >
         <div className="mb-4 flex items-center justify-between">
           <h3 id={titleId} className="text-sm font-semibold text-white light:text-slate-900">{title}</h3>

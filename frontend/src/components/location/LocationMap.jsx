@@ -112,7 +112,7 @@ export default function LocationMap({
         href={buildGoogleMapsDirectionsUrl(latitude, longitude)}
         target="_blank"
         rel="noopener noreferrer"
-        className="flex w-fit items-center gap-1.5 rounded-lg bg-lime-600 px-3 py-2 text-xs font-medium text-slate-950 transition-colors duration-150 hover:bg-lime-500"
+        className="flex w-fit items-center gap-1.5 rounded-lg bg-brand-hover px-3 py-2 text-xs font-medium text-slate-950 transition-colors duration-150 hover:bg-brand"
       >
         <Navigation className="h-3.5 w-3.5" />
         Cómo llegar
@@ -122,8 +122,8 @@ export default function LocationMap({
 }
 
 const DARK_MAP_STYLE = [
-  { elementType: "geometry", stylers: [{ color: "#0B1120" }] },
-  { elementType: "labels.text.stroke", stylers: [{ color: "#0B1120" }] },
+  { elementType: "geometry", stylers: [{ color: "#111713" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#111713" }] },
   { elementType: "labels.text.fill", stylers: [{ color: "#94a3b8" }] },
   {
     featureType: "administrative",
@@ -148,6 +148,6 @@ const DARK_MAP_STYLE = [
   {
     featureType: "water",
     elementType: "geometry",
-    stylers: [{ color: "#05070B" }],
+    stylers: [{ color: "#090D0A" }],
   },
 ];

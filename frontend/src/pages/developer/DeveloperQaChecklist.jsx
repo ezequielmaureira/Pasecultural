@@ -235,7 +235,7 @@ export default function DeveloperQaChecklist() {
 
       {!loading && !loadError && (
         <>
-          <div className="rounded-2xl border border-white/10 bg-[#0B1120]/90 p-5 light:border-slate-200 light:bg-white">
+          <div className="rounded-2xl border border-white/10 bg-[#111713]/90 p-5 light:border-slate-200 light:bg-white">
             <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-sm font-semibold text-white light:text-slate-900">Progreso general</p>
               <p className="text-sm text-slate-400 light:text-slate-600">
@@ -267,7 +267,7 @@ export default function DeveloperQaChecklist() {
                   onClick={() => setFilter(f.id)}
                   className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors duration-150 ${
                     filter === f.id
-                      ? "bg-lime-500/10 text-lime-300"
+                      ? "bg-brand/10 text-brand-soft"
                       : "text-slate-400 hover:bg-white/5 hover:text-white light:text-slate-500 light:hover:bg-slate-900/5"
                   }`}
                 >

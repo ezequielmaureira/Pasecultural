@@ -1,5 +1,5 @@
 export const inputClass =
-  "h-10 w-full rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-gray-100 outline-none placeholder:text-slate-500 focus:border-lime-500 focus:bg-white/10 focus:ring-2 focus:ring-lime-500/20 light:border-slate-300 light:bg-white light:text-slate-900 light:placeholder:text-slate-400 light:focus:bg-white";
+  "h-10 w-full rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-gray-100 outline-none placeholder:text-slate-500 focus:border-brand focus:bg-white/10 focus:ring-2 focus:ring-brand/20 light:border-slate-300 light:bg-white light:text-slate-900 light:placeholder:text-slate-400 light:focus:bg-white";
 
 export const textareaClass = `${inputClass} h-24 resize-none py-2`;
 

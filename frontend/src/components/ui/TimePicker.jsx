@@ -3,7 +3,7 @@ import { Clock } from "lucide-react";
 import { PERIODS, buildSlots, HOURS, MINUTES } from "../../lib/timeSlots.js";
 
 const exactSelectClass =
-  "h-7 rounded-md border border-white/10 bg-white/5 px-1.5 text-xs text-gray-100 outline-none focus:border-lime-500";
+  "h-7 rounded-md border border-white/10 bg-white/5 px-1.5 text-xs text-gray-100 outline-none focus:border-brand";
 
 // Selector de horario en dropdown: mismos chips de horarios (cada 30 min,
 // agrupados por franja) que el TimeAnswer del chat, pero compacto para
@@ -36,7 +36,7 @@ export default function TimePicker({ value, onChange, placeholder = "Elegir hora
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className={`flex h-10 w-full items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 text-sm outline-none transition-colors duration-150 focus:border-lime-500 focus:ring-2 focus:ring-lime-500/20 ${
+        className={`flex h-10 w-full items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 text-sm outline-none transition-colors duration-150 focus:border-brand focus:ring-2 focus:ring-brand/20 ${
           value ? "text-gray-100" : "text-slate-500"
         }`}
       >
@@ -45,7 +45,7 @@ export default function TimePicker({ value, onChange, placeholder = "Elegir hora
       </button>
 
       {open && (
-        <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-lg border border-white/10 bg-[#0B1120] p-3 shadow-xl sm:inset-x-auto sm:left-1/2 sm:w-64 sm:-translate-x-1/2">
+        <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-lg border border-white/10 bg-[#111713] p-3 shadow-xl sm:inset-x-auto sm:left-1/2 sm:w-64 sm:-translate-x-1/2">
           {PERIODS.map((period) => (
             <div key={period.label} className="mb-3 flex flex-col gap-1.5 last:mb-0">
               <span className="text-[11px] font-medium text-slate-500">{period.label}</span>
@@ -57,8 +57,8 @@ export default function TimePicker({ value, onChange, placeholder = "Elegir hora
                     onClick={() => select(slot)}
                     className={`rounded-md px-2 py-1 text-xs font-medium transition-colors duration-150 ${
                       slot === value
-                        ? "bg-lime-600 text-slate-950"
-                        : "bg-white/5 text-slate-300 hover:bg-lime-500/20 hover:text-white"
+                        ? "bg-brand-hover text-slate-950"
+                        : "bg-white/5 text-slate-300 hover:bg-brand/20 hover:text-white"
                     }`}
                   >
                     {slot}
@@ -77,7 +77,7 @@ export default function TimePicker({ value, onChange, placeholder = "Elegir hora
                 onChange={(e) => select(`${e.target.value}:${exactMinute}`)}
               >
                 {HOURS.map((h) => (
-                  <option key={h} value={h} className="bg-[#0B1120]">
+                  <option key={h} value={h} className="bg-[#111713]">
                     {h}
                   </option>
                 ))}
@@ -89,7 +89,7 @@ export default function TimePicker({ value, onChange, placeholder = "Elegir hora
                 onChange={(e) => select(`${exactHour}:${e.target.value}`)}
               >
                 {MINUTES.map((m) => (
-                  <option key={m} value={m} className="bg-[#0B1120]">
+                  <option key={m} value={m} className="bg-[#111713]">
                     {m}
                   </option>
                 ))}

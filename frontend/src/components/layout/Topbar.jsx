@@ -4,7 +4,7 @@ import UserMenu from "./UserMenu.jsx";
 
 export default function Topbar({ onOpenSidebar }) {
   return (
-    <header className="fixed inset-x-0 top-0 z-10 h-[var(--topbar-height)] border-b border-white/5 bg-[#0B1120] light:border-slate-200 light:bg-white lg:pl-[var(--sidebar-width)]">
+    <header className="fixed inset-x-0 top-0 z-10 h-[var(--topbar-height)] border-b border-white/5 bg-[#111713] light:border-slate-200 light:bg-white lg:pl-[var(--sidebar-width)]">
       <div className="flex h-full items-center justify-between gap-4 px-4 sm:px-6">
         <button
           type="button"

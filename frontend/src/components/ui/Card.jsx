@@ -4,7 +4,7 @@
 // vez del fondo sólido de siempre. Default ("solid") no cambia ni un pixel
 // para ningún caller existente (PurchaseWizard, etc.).
 const VARIANT_CLASSES = {
-  solid: "border-white/10 bg-[#0B1120] light:border-slate-200 light:bg-white",
+  solid: "border-white/10 bg-[#111713] light:border-slate-200 light:bg-white",
   // `light:` acá sólo aplica cuando el ancestro <html> tiene la clase
   // `.light` (ver ThemeContext.jsx) — Fest Pass/QuickPass (el otro caller
   // de este variant, vía FestPassIntro.jsx) vive exclusivamente en

@@ -132,9 +132,9 @@ function CropEditor({ file, aspectRatio, onCancel, onConfirm }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-      <div className="flex w-full max-w-sm flex-col gap-3 rounded-xl border border-white/10 bg-[#0B1120] p-4">
+      <div className="flex w-full max-w-sm flex-col gap-3 rounded-xl border border-white/10 bg-[#111713] p-4">
         <p className="flex items-center gap-1.5 text-sm font-medium text-white">
-          <Move className="h-4 w-4 text-lime-400" />
+          <Move className="h-4 w-4 text-brand" />
           Elegí cómo se va a ver tu imagen
         </p>
 
@@ -180,7 +180,7 @@ function CropEditor({ file, aspectRatio, onCancel, onConfirm }) {
             step={0.05}
             value={zoom}
             onChange={(e) => handleZoomChange(Number(e.target.value))}
-            className="h-1.5 flex-1 accent-lime-500"
+            className="h-1.5 flex-1 accent-brand"
           />
         </div>
         <p className="text-xs text-slate-500">Arrastrá la imagen para elegir la posición.</p>
@@ -197,7 +197,7 @@ function CropEditor({ file, aspectRatio, onCancel, onConfirm }) {
             type="button"
             onClick={handleConfirm}
             disabled={!natural}
-            className="flex items-center gap-1.5 rounded-lg bg-lime-600 px-3 py-2 text-sm font-medium text-slate-950 transition-colors duration-150 hover:bg-lime-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-lg bg-brand-hover px-3 py-2 text-sm font-medium text-slate-950 transition-colors duration-150 hover:bg-brand disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Check className="h-4 w-4" />
             Aplicar
@@ -304,8 +304,8 @@ export default function ImageUploader({
     toast.success("Imagen eliminada.");
   }
 
-  let boxToneClass = "border-white/15 bg-white/5 hover:border-lime-500/60 hover:bg-white/10";
-  if (dragActive) boxToneClass = "border-lime-500 bg-lime-500/10";
+  let boxToneClass = "border-white/15 bg-white/5 hover:border-brand/60 hover:bg-white/10";
+  if (dragActive) boxToneClass = "border-brand bg-brand/10";
   else if (preview) boxToneClass = "border-white/10 bg-black/30";
 
   return (
@@ -360,7 +360,7 @@ export default function ImageUploader({
           <div className="flex flex-col items-center gap-2 text-slate-400">
             <ImagePlus className="h-6 w-6" />
             <p className="text-xs">
-              <span className="font-medium text-lime-400">Subí una imagen</span> o
+              <span className="font-medium text-brand">Subí una imagen</span> o
               arrastrala acá
             </p>
           </div>

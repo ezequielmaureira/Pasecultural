@@ -74,7 +74,7 @@ export default function RecoverPurchase() {
             onClick={() => setMode("resend")}
             className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-4 text-left transition-colors duration-150 hover:bg-white/10"
           >
-            <Ticket className="mt-0.5 h-5 w-5 shrink-0 text-lime-400" />
+            <Ticket className="mt-0.5 h-5 w-5 shrink-0 text-brand" />
             <div>
               <p className="text-sm font-semibold text-white">Reenviar mis entradas</p>
               <p className="mt-0.5 text-xs text-slate-400">Ya tenés tu compra confirmada y querés volver a verla o recibirla por correo.</p>
@@ -85,7 +85,7 @@ export default function RecoverPurchase() {
             onClick={() => setMode("payment")}
             className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-4 text-left transition-colors duration-150 hover:bg-white/10"
           >
-            <Receipt className="mt-0.5 h-5 w-5 shrink-0 text-lime-400" />
+            <Receipt className="mt-0.5 h-5 w-5 shrink-0 text-brand" />
             <div>
               <p className="text-sm font-semibold text-white">Pagué pero no recibí mis entradas</p>
               <p className="mt-0.5 text-xs text-slate-400">Mercado Pago te cobró, pero nunca llegaste a ver la compra confirmada.</p>
@@ -363,7 +363,7 @@ function ResendTicketsFlow({ onBack }) {
       <div className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
         <Card>
           <div className="flex flex-col items-center gap-3 py-2 text-center">
-            <Search className="h-9 w-9 text-lime-400" />
+            <Search className="h-9 w-9 text-brand" />
             <h1 className="text-lg font-bold text-white">Encontramos una compra asociada a esos datos.</h1>
             <p className="text-sm text-slate-400">
               Te enviamos un código de verificación al correo registrado:{" "}
@@ -403,7 +403,7 @@ function ResendTicketsFlow({ onBack }) {
               type="button"
               onClick={handleResend}
               disabled={resending || cooldownRemaining > 0}
-              className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-lime-400 transition-colors duration-150 hover:text-lime-300 disabled:cursor-not-allowed disabled:text-slate-600"
+              className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-brand transition-colors duration-150 hover:text-brand-soft disabled:cursor-not-allowed disabled:text-slate-600"
             >
               <RefreshCw className={`h-3 w-3 ${resending ? "animate-spin" : ""}`} />
               {cooldownRemaining > 0 ? `Reenviar código (${cooldownRemaining}s)` : "Reenviar código"}
@@ -729,7 +729,7 @@ function PaymentRecoveryFlow({ onBack }) {
       <div className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
         <Card>
           <div className="flex flex-col items-center gap-3 py-2 text-center">
-            <Search className="h-9 w-9 text-lime-400" />
+            <Search className="h-9 w-9 text-brand" />
             <h1 className="text-lg font-bold text-white">Verificá tu identidad</h1>
             <p className="text-sm text-slate-400">
               Te enviamos un código de verificación al correo registrado:{" "}
@@ -769,7 +769,7 @@ function PaymentRecoveryFlow({ onBack }) {
               type="button"
               onClick={handleResend}
               disabled={resending || cooldownRemaining > 0}
-              className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-lime-400 transition-colors duration-150 hover:text-lime-300 disabled:cursor-not-allowed disabled:text-slate-600"
+              className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-brand transition-colors duration-150 hover:text-brand-soft disabled:cursor-not-allowed disabled:text-slate-600"
             >
               <RefreshCw className={`h-3 w-3 ${resending ? "animate-spin" : ""}`} />
               {cooldownRemaining > 0 ? `Reenviar código (${cooldownRemaining}s)` : "Reenviar código"}

@@ -14,7 +14,7 @@ export default function InlineErrorNotice({ message = "No pudimos cargar esta in
         <button
           type="button"
           onClick={onRetry}
-          className="rounded text-xs font-medium text-rose-300 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#05070B]"
+          className="rounded text-xs font-medium text-rose-300 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#090D0A]"
         >
           Reintentar
         </button>

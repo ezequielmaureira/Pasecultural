@@ -32,8 +32,8 @@ export default function DashboardScreen({ dashboard, events, activeEventId, onSe
 
     return (
         <ScannerCenter>
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-lime-500/10">
-                <ScanLine className="h-7 w-7 text-lime-400" />
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-brand/10">
+                <ScanLine className="h-7 w-7 text-brand" />
             </div>
             <h1 className="text-lg font-bold text-white">{displayName}</h1>
 
@@ -64,7 +64,7 @@ export default function DashboardScreen({ dashboard, events, activeEventId, onSe
                     </div>
                     <div className="flex items-center justify-between gap-3 border-t border-white/10 pt-2">
                         <dt className="text-slate-500">Validadas hoy</dt>
-                        <dd className="text-base font-bold text-lime-300">{dashboard.validatedToday}</dd>
+                        <dd className="text-base font-bold text-brand-soft">{dashboard.validatedToday}</dd>
                     </div>
                 </dl>
             </div>
@@ -72,7 +72,7 @@ export default function DashboardScreen({ dashboard, events, activeEventId, onSe
             <button
                 type="button"
                 onClick={onStartScanning}
-                className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-lime-500 bg-lime-500/10 px-4 py-4 text-sm font-bold uppercase tracking-wide text-lime-300 transition-colors duration-150 hover:bg-lime-500/20"
+                className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-brand bg-brand/10 px-4 py-4 text-sm font-bold uppercase tracking-wide text-brand-soft transition-colors duration-150 hover:bg-brand/20"
             >
                 <ScanLine className="h-4 w-4" />
                 Escanear entradas

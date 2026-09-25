@@ -146,7 +146,7 @@ export default function EventDetail() {
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-2">
                 {event.category && (
-                  <span className="rounded-full border border-white/15 bg-lime-500/10 px-2.5 py-1 text-xs font-medium text-lime-300 backdrop-blur-sm light:border-lime-200 light:bg-lime-50 light:text-lime-700">
+                  <span className="rounded-full border border-white/15 bg-brand/10 px-2.5 py-1 text-xs font-medium text-brand-soft backdrop-blur-sm light:border-brand-soft light:bg-brand-soft light:text-brand-hover">
                     {getEventCategoryLabel(event)}
                   </span>
                 )}
@@ -234,21 +234,20 @@ export default function EventDetail() {
                 ) : event.admissionType === "FREE_ENTRY" ? (
                   <div className="border-t border-white/10 pt-4 light:border-slate-200">
                     <p className="text-xs text-slate-500 light:text-slate-600">Precio</p>
-                    <p className="text-lg font-bold text-lime-400 light:text-lime-600">Entrada gratuita</p>
+                    <p className="text-lg font-bold text-brand light:text-brand-hover">Entrada gratuita</p>
                     <p className="mt-1 text-xs text-slate-500 light:text-slate-600">Ingreso por orden de llegada.</p>
                   </div>
                 ) : (
                   <>
                     <div className="border-t border-white/10 pt-4 light:border-slate-200">
                       <p className="text-xs text-slate-500 light:text-slate-600">Precio</p>
-                      <p className="text-lg font-bold text-lime-400 light:text-lime-600">
+                      <p className="text-lg font-bold text-brand light:text-brand-hover">
                         {formatEventPrice(event)}
                       </p>
                     </div>
 
                     {/* CTA local — mismo `.smarticket-hero-cta` ya usado en
-                        HeroCarousel.jsx (pill, gradiente fucsia→violeta→azul,
-                        glow calcado del CTA real de QuickPass.jsx,
+                        HeroCarousel.jsx (pill lima sólida, glow suave,
                         active:scale) en vez del `Button.jsx` compartido, para
                         no afectar Organizer/Scanner/Developer. Handler,
                         navegación y validaciones sin ningún cambio. */}

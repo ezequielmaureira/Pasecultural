@@ -6,5 +6,5 @@ export const ORG_PLAN_LABEL = {
 
 export const ORG_PLAN_STYLES = {
   FREE: "bg-white/5 text-slate-400",
-  PREMIUM: "bg-lime-500/10 text-lime-300",
+  PREMIUM: "bg-brand/10 text-brand",
 };

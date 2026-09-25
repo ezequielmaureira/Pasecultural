@@ -119,7 +119,7 @@ export default function ScannerPortal() {
   if (step === "code") {
     return (
       <Shell>
-        <ScanLine className="h-9 w-9 text-lime-400" />
+        <ScanLine className="h-9 w-9 text-brand" />
         <h1 className="text-lg font-bold text-white">Ingresá el código</h1>
         <p className="text-sm text-slate-400">
           Te lo mandamos a <span className="font-medium text-slate-200">{email.trim()}</span>. Vence en 10 minutos.
@@ -158,7 +158,7 @@ export default function ScannerPortal() {
           type="button"
           onClick={handleResend}
           disabled={resending || cooldownRemaining > 0}
-          className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-lime-400 transition-colors duration-150 hover:text-lime-300 disabled:cursor-not-allowed disabled:text-slate-600"
+          className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-brand transition-colors duration-150 hover:text-brand-soft disabled:cursor-not-allowed disabled:text-slate-600"
         >
           <RefreshCw className={`h-3 w-3 ${resending ? "animate-spin" : ""}`} />
           {cooldownRemaining > 0 ? `Reenviar código (${cooldownRemaining}s)` : "Reenviar código"}
@@ -177,7 +177,7 @@ export default function ScannerPortal() {
 
   return (
     <Shell>
-      <ScanLine className="h-9 w-9 text-lime-400" />
+      <ScanLine className="h-9 w-9 text-brand" />
       <h1 className="text-lg font-bold text-white">Soy Scanner</h1>
       <p className="text-sm text-slate-400">Ingresá el correo con el que fuiste registrado por el organizador.</p>
 

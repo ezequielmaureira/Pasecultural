@@ -62,7 +62,7 @@ export default function ScanHistoryDrawer({ eventId, functionId, contextLabel, o
                 role="dialog"
                 aria-modal="true"
                 aria-label="Historial de escaneos"
-                className="flex max-h-[70vh] flex-col rounded-t-2xl border-t border-white/10 bg-[#0B1120]"
+                className="flex max-h-[70vh] flex-col rounded-t-2xl border-t border-white/10 bg-[#111713]"
             >
                 <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
                     <div className="min-w-0">

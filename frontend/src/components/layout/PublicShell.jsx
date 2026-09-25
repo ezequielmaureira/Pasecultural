@@ -15,7 +15,7 @@ export default function PublicShell() {
   const [navbarBrandOverride, setNavbarBrandOverride] = useState(null);
 
   return (
-    <div className="flex min-h-screen flex-col overflow-x-hidden bg-[#05070B] light:bg-slate-50">
+    <div className="flex min-h-screen flex-col overflow-x-hidden bg-[#090D0A] light:bg-slate-50">
       <Navbar brandOverride={navbarBrandOverride} />
 
       <main className="flex-1">

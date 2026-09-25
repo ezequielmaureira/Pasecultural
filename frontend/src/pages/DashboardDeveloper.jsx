@@ -21,7 +21,7 @@ function ClickableKpiCard({ to, label, value, icon: Icon, loading }) {
     <Link
       to={to}
       aria-label={loading ? `${label}: cargando` : `${label}: ${value}. Ver ${label.toLowerCase()}`}
-      className="group block min-w-0 rounded-xl border border-white/10 bg-[#0B1120] p-6 transition-colors duration-150 hover:border-lime-500/40 hover:bg-white/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime-400"
+      className="group block min-w-0 rounded-xl border border-white/10 bg-[#111713] p-6 transition-colors duration-150 hover:border-brand/40 hover:bg-white/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
     >
       <div className="flex items-center gap-2 text-sm text-slate-400 group-hover:text-slate-300">
         <Icon className="h-4 w-4" aria-hidden="true" />

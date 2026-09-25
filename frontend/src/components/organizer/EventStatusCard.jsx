@@ -25,7 +25,7 @@ export default function EventStatusCard({
   hideOccupancy = false,
 }) {
   return (
-    <div className="flex flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0B1120] transition-colors duration-200 hover:border-white/20">
+    <div className="flex flex-col overflow-hidden rounded-xl border border-white/10 bg-[#111713] transition-colors duration-200 hover:border-white/20">
       <EventCoverImage
         src={event.coverImage}
         icon={CalendarDays}

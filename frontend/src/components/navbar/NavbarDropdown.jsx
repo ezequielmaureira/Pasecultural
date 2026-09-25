@@ -81,7 +81,7 @@ export default function NavbarDropdown({ label, trigger, items, align = "left" }
       <div
         role="menu"
         onKeyDown={handleMenuKeyDown}
-        className={`absolute top-full z-30 mt-3 min-w-[15rem] origin-top rounded-xl border border-white/10 bg-[#0B1120] p-1.5 shadow-xl shadow-black/40 transition-all duration-150 ease-out light:border-slate-200 light:bg-white light:shadow-slate-300/60 ${
+        className={`absolute top-full z-30 mt-3 min-w-[15rem] origin-top rounded-xl border border-white/10 bg-[#111713] p-1.5 shadow-xl shadow-black/40 transition-all duration-150 ease-out light:border-slate-200 light:bg-white light:shadow-slate-300/60 ${
           align === "right" ? "right-0" : "left-0"
         } ${
           open

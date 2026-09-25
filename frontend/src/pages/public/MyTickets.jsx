@@ -10,7 +10,7 @@ import TicketQrModal from "./tickets/TicketQrModal.jsx";
 
 function TicketCardSkeleton() {
     return (
-        <div className="flex items-stretch gap-4 rounded-xl border border-white/10 bg-[#0B1120] p-3">
+        <div className="flex items-stretch gap-4 rounded-xl border border-white/10 bg-[#111713] p-3">
             <div className="aspect-square w-20 shrink-0 animate-pulse rounded-lg bg-white/5 sm:w-24" />
             <div className="flex flex-1 flex-col gap-2 py-1">
                 <div className="h-4 w-2/3 animate-pulse rounded bg-white/10" />
@@ -73,7 +73,7 @@ export default function MyTickets() {
             )}
 
             {!loading && error && (
-                <div className="flex flex-col items-center gap-3 rounded-xl border border-white/10 bg-[#0B1120] px-6 py-16 text-center">
+                <div className="flex flex-col items-center gap-3 rounded-xl border border-white/10 bg-[#111713] px-6 py-16 text-center">
                     <AlertTriangle className="h-8 w-8 text-rose-400" />
                     <p className="text-sm text-slate-400">{error}</p>
                     <Button size="sm" variant="secondary" onClick={load}>
@@ -84,9 +84,9 @@ export default function MyTickets() {
             )}
 
             {!loading && !error && tickets.length === 0 && (
-                <div className="flex flex-col items-center gap-3 rounded-xl border border-white/10 bg-[#0B1120] px-6 py-16 text-center">
-                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-lime-500/10">
-                        <Ticket className="h-7 w-7 text-lime-400" />
+                <div className="flex flex-col items-center gap-3 rounded-xl border border-white/10 bg-[#111713] px-6 py-16 text-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-brand/10">
+                        <Ticket className="h-7 w-7 text-brand" />
                     </div>
                     <h2 className="text-base font-semibold text-white">Todavía no tenés entradas</h2>
                     <p className="max-w-sm text-sm text-slate-400">

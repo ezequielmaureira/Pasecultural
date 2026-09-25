@@ -25,7 +25,7 @@ function StepsSection() {
         {HOW_IT_WORKS_STEPS.map(({ step, icon, title, description }) => (
           <StepCard key={step} step={step} icon={icon} title={title} description={description}>
             {step === 3 && (
-              <div className="mt-1 flex h-24 w-24 items-center justify-center rounded-xl border border-dashed border-lime-500/40 bg-lime-500/5 text-lime-400">
+              <div className="mt-1 flex h-24 w-24 items-center justify-center rounded-xl border border-dashed border-brand/40 bg-brand/5 text-brand">
                 <QrCode className="h-12 w-12" />
               </div>
             )}
@@ -53,7 +53,7 @@ function FaqSection() {
 
 function SecuritySection() {
   return (
-    <section className="border-t border-white/5 bg-[#0B1120]">
+    <section className="border-t border-white/5 bg-[#111713]">
       <div className="mx-auto max-w-7xl px-6 py-16">
         <div className="mx-auto mb-10 max-w-xl text-center">
           <h2 className="text-2xl font-bold text-white sm:text-3xl">Compra segura</h2>
@@ -81,7 +81,7 @@ function ContactSection() {
       </p>
       <a
         href="mailto:hola@pasecultural.com"
-        className="mt-6 inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-lime-600 px-6 text-base font-medium text-slate-950 transition-colors duration-150 hover:bg-lime-500"
+        className="mt-6 inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-brand-hover px-6 text-base font-medium text-slate-950 transition-colors duration-150 hover:bg-brand"
       >
         <Mail className="h-4 w-4" />
         Contactanos

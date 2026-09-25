@@ -22,7 +22,7 @@ export default function TicketCatalogEditor({ catalog, onAdd, onRemove, onChange
         {catalog.map((tt, index) => (
           <div
             key={tt._key}
-            className="flex flex-col gap-3 rounded-lg border border-white/10 bg-[#0B1120] p-4"
+            className="flex flex-col gap-3 rounded-lg border border-white/10 bg-[#111713] p-4"
           >
             <div className="flex items-center justify-between">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
@@ -97,7 +97,7 @@ export default function TicketCatalogEditor({ catalog, onAdd, onRemove, onChange
                   onClick={() => onChange(index, "visible", true)}
                   className={`h-8 rounded-lg px-3 text-xs font-medium transition-colors duration-150 ${
                     tt.visible
-                      ? "bg-lime-600 text-slate-950"
+                      ? "bg-brand-hover text-slate-950"
                       : "bg-white/5 text-slate-400 hover:bg-white/10"
                   }`}
                 >
@@ -108,7 +108,7 @@ export default function TicketCatalogEditor({ catalog, onAdd, onRemove, onChange
                   onClick={() => onChange(index, "visible", false)}
                   className={`h-8 rounded-lg px-3 text-xs font-medium transition-colors duration-150 ${
                     !tt.visible
-                      ? "bg-lime-600 text-slate-950"
+                      ? "bg-brand-hover text-slate-950"
                       : "bg-white/5 text-slate-400 hover:bg-white/10"
                   }`}
                 >
@@ -123,7 +123,7 @@ export default function TicketCatalogEditor({ catalog, onAdd, onRemove, onChange
       <button
         type="button"
         onClick={onAdd}
-        className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 py-2.5 text-sm font-medium text-slate-400 hover:border-lime-500/60 hover:text-lime-300"
+        className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 py-2.5 text-sm font-medium text-slate-400 hover:border-brand/60 hover:text-brand-soft"
       >
         <Plus className="h-4 w-4" />
         Agregar entrada

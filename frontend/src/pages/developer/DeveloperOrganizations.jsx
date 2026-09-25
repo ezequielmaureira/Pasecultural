@@ -218,7 +218,7 @@ export default function DeveloperOrganizations() {
             onClick={() => setFilter(f.id)}
             className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors duration-150 ${
               filter === f.id
-                ? "bg-lime-500/10 text-lime-300"
+                ? "bg-brand/10 text-brand-soft"
                 : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
             }`}
           >
@@ -227,7 +227,7 @@ export default function DeveloperOrganizations() {
         ))}
       </div>
 
-      <div className="rounded-xl border border-white/10 bg-[#0B1120]">
+      <div className="rounded-xl border border-white/10 bg-[#111713]">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
@@ -269,7 +269,7 @@ export default function DeveloperOrganizations() {
                         src={org.logo}
                         name={org.name}
                         size="sm"
-                        className="bg-gradient-to-br from-lime-500 to-blue-500 text-slate-950"
+                        className="bg-brand text-slate-950"
                       />
                     </td>
                     <td className="px-6 py-4">

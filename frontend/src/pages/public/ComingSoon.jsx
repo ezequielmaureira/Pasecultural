@@ -8,18 +8,18 @@ import { Ticket } from "lucide-react";
 // layout público, nunca dentro de él.
 export default function ComingSoon() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-[#05070B] px-6 text-center">
+    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-[#090D0A] px-6 text-center">
       <div className="flex items-center gap-2">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-lime-500 to-blue-500 text-slate-950">
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand text-slate-950">
           <Ticket className="h-6 w-6" />
         </div>
         <span className="text-2xl font-bold text-white">
-          Smar<span className="smarticket-holo-t">T</span><span className="text-lime-400">icket</span>
+          Smar<span className="smarticket-holo-t">T</span><span className="text-brand">icket</span>
         </span>
       </div>
 
       <div className="flex flex-col gap-2">
-        <h1 className="text-lg font-semibold uppercase tracking-[0.3em] text-lime-300">Próximamente</h1>
+        <h1 className="text-lg font-semibold uppercase tracking-[0.3em] text-brand-soft">Próximamente</h1>
         <p className="max-w-md text-sm text-slate-400">
           Estamos preparando una nueva forma de descubrir y vivir la cultura.
         </p>

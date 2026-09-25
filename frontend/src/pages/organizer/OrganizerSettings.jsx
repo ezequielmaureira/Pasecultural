@@ -125,7 +125,7 @@ export default function OrganizerSettings() {
           {/* Premium — Fase 1: sólo informativo, nunca editable desde acá. */}
           {plan && (
             <p className="mt-1 text-xs text-slate-500">
-              Plan <span className={plan === "PREMIUM" ? "font-medium text-lime-300" : "font-medium text-slate-400"}>{plan === "PREMIUM" ? "Premium" : "Free"}</span>
+              Plan <span className={plan === "PREMIUM" ? "font-medium text-brand-soft" : "font-medium text-slate-400"}>{plan === "PREMIUM" ? "Premium" : "Free"}</span>
             </p>
           )}
         </div>

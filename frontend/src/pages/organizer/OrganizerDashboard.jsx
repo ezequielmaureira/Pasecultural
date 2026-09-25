@@ -75,7 +75,7 @@ function OrganizationStatusBanner({ organization }) {
 // importante de la pantalla.
 function EventHeroSkeleton() {
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0B1120]">
+    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#111713]">
       <div className="flex flex-col md:flex-row">
         <SkeletonBlock className="h-36 w-full shrink-0 sm:h-44 md:h-auto md:w-64" />
         <div className="flex flex-1 flex-col gap-4 p-6 sm:p-8">
@@ -230,7 +230,7 @@ export default function OrganizerDashboard() {
                 Para FREE, deliberadamente no se muestra nada (ver el
                 informe de auditoría). */}
             {organization?.plan === "PREMIUM" && (
-              <span className="rounded-full bg-lime-500/10 px-2.5 py-1 text-xs font-medium text-lime-300">
+              <span className="rounded-full bg-brand/10 px-2.5 py-1 text-xs font-medium text-brand-soft">
                 Premium
               </span>
             )}

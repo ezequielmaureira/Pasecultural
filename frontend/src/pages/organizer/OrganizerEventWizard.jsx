@@ -881,7 +881,7 @@ export default function OrganizerEventWizard() {
   if (loading) {
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-slate-400">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/10 border-t-lime-500" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/10 border-t-brand" />
         <p className="text-sm">Cargando evento...</p>
       </div>
     );
@@ -962,7 +962,7 @@ export default function OrganizerEventWizard() {
                 onChange={(e) => setGeneralField("category", e.target.value)}
               >
                 {EVENT_CATEGORIES.map((cat) => (
-                  <option key={cat.id} value={cat.id} className="bg-[#0B1120]">
+                  <option key={cat.id} value={cat.id} className="bg-[#111713]">
                     {cat.label}
                   </option>
                 ))}
@@ -1083,7 +1083,7 @@ export default function OrganizerEventWizard() {
             <button
               type="button"
               onClick={addFunction}
-              className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 py-2.5 text-sm font-medium text-slate-400 hover:border-lime-500/60 hover:text-lime-300"
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 py-2.5 text-sm font-medium text-slate-400 hover:border-brand/60 hover:text-brand-soft"
             >
               <Plus className="h-4 w-4" />
               Agregar otra función
@@ -1098,7 +1098,7 @@ export default function OrganizerEventWizard() {
               Así es como va a ver el evento el público una vez publicado.
             </p>
 
-            <div className="overflow-hidden rounded-xl border border-white/10 bg-[#05070B]">
+            <div className="overflow-hidden rounded-xl border border-white/10 bg-[#090D0A]">
               <div className="mx-auto w-full max-w-xs sm:max-w-sm">
                 <div className="aspect-[4/5] w-full bg-black/30">
                   {general.coverImage ? (
@@ -1116,15 +1116,15 @@ export default function OrganizerEventWizard() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 rounded-xl border border-lime-500/20 bg-white/5 p-4">
+            <div className="flex flex-col gap-3 rounded-xl border border-brand/20 bg-white/5 p-4">
               <div className="flex items-center justify-between gap-3">
                 <span className="flex items-center gap-2 text-sm font-semibold text-white">
-                  <Zap className="h-4 w-4 text-lime-400" />
+                  <Zap className="h-4 w-4 text-brand" />
                   Quick Pass
                 </span>
                 <input
                   type="checkbox"
-                  className="h-5 w-5 accent-lime-500"
+                  className="h-5 w-5 accent-brand"
                   checked={general.quickPassEnabled}
                   onChange={(e) => setGeneralField("quickPassEnabled", e.target.checked)}
                 />
@@ -1170,7 +1170,7 @@ export default function OrganizerEventWizard() {
                     </p>
                     {eventSlug ? (
                       <>
-                        <p className="truncate text-sm text-lime-300">
+                        <p className="truncate text-sm text-brand-soft">
                           {window.location.host}/quick-pass/{eventSlug}
                         </p>
                         <div className="flex flex-wrap items-center gap-2">
@@ -1202,8 +1202,8 @@ export default function OrganizerEventWizard() {
               )}
             </div>
 
-            <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-[#05070B] p-5">
-              <span className="w-fit rounded-full bg-lime-500/10 px-2.5 py-1 text-xs font-medium text-lime-300">
+            <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-[#090D0A] p-5">
+              <span className="w-fit rounded-full bg-brand/10 px-2.5 py-1 text-xs font-medium text-brand-soft">
                 {getEventCategoryLabel(general)}
               </span>
 
@@ -1268,7 +1268,7 @@ export default function OrganizerEventWizard() {
 
                   <div className="mt-2 flex flex-col gap-1.5">
                     {isFreeEntry && (
-                      <p className="text-xs font-medium text-lime-300">
+                      <p className="text-xs font-medium text-brand-soft">
                         Entrada gratuita · Ingreso por orden de llegada
                       </p>
                     )}
@@ -1282,7 +1282,7 @@ export default function OrganizerEventWizard() {
                       return (
                         <div
                           key={tt._key}
-                          className="flex items-center justify-between gap-2 rounded-lg bg-[#0B1120] px-3 py-2 text-sm"
+                          className="flex items-center justify-between gap-2 rounded-lg bg-[#111713] px-3 py-2 text-sm"
                         >
                           <span className="flex items-center gap-2 text-slate-300">
                             <TicketIcon className="h-3.5 w-3.5 text-slate-500" />
@@ -1291,7 +1291,7 @@ export default function OrganizerEventWizard() {
                               ({quantity} disponibles{!visible ? " · oculta" : ""})
                             </span>
                           </span>
-                          <span className="font-semibold text-lime-400">
+                          <span className="font-semibold text-brand">
                             {price === 0 ? "Gratis" : currency(price)}
                           </span>
                         </div>
