@@ -85,11 +85,18 @@ function ReturnScreen({ isFestPass, imageUrl, className = "", children }) {
   return (
     <div className="relative flex min-h-[100dvh] w-full flex-col overflow-hidden bg-black text-white">
       {imageUrl && (
-        <img src={optimizedImageUrl(imageUrl, 900)} alt="" className="absolute inset-0 h-full w-full object-cover" />
+        <img
+          src={optimizedImageUrl(imageUrl, 900)}
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover brightness-105 contrast-110 saturate-110"
+        />
       )}
-      <div className="absolute inset-0 bg-black/50" />
-      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
-      <div className="absolute inset-0 bg-brand/10" />
+      {/* Overlay liviano (ver el informe de la ronda "nitidez del video de
+         fondo") — contenido centrado acá (no anclado abajo como
+         QuickPass.jsx), por eso un velo parejo y suave en vez de un
+         degradado. */}
+      <div className="absolute inset-0 bg-black/30" />
+      <div className="absolute inset-0 bg-brand/5" />
       <div className={`relative z-10 mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-3 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] ${className}`}>
         {children}
       </div>

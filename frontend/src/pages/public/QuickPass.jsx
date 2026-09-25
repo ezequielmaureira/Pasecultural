@@ -355,14 +355,18 @@ export default function QuickPass() {
           placeholder) — el video, si existe, se dibuja ENCIMA. Este <img>
           nunca se desmonta por cambio de `phase`: vive en la raíz, igual
           que el <video> de abajo. */}
-      <img src={backgroundImage} alt="" className="absolute inset-0 h-full w-full object-cover" />
+      <img
+        src={backgroundImage}
+        alt=""
+        className="absolute inset-0 h-full w-full object-cover brightness-105 contrast-110 saturate-110"
+      />
       {backgroundVideo && (
         <video
           ref={videoRef}
           key={backgroundVideo}
           src={backgroundVideo}
           poster={backgroundImage}
-          className="absolute inset-0 h-full w-full object-cover"
+          className="absolute inset-0 h-full w-full object-cover brightness-105 contrast-110 saturate-110"
           autoPlay
           loop
           muted
@@ -372,20 +376,20 @@ export default function QuickPass() {
           onError={() => setVideoFailed(true)}
         />
       )}
-      {/* Overlay oscuro + degradado — nunca branding configurable por
-          organización (brandPrimaryColor), un único velo de marca (lima)
-          a propósito (ver el informe de la ronda "simplificación de
-          identidad"). */}
-      <div className="absolute inset-0 bg-black/50" />
-      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
-      <div className="absolute inset-0 bg-brand/10" />
+      {/* Overlay — un único degradado (nunca un velo plano tapando TODO el
+         video, ver el informe de la ronda "nitidez del video de fondo"):
+         oscuro sólo donde se ancla el contenido (abajo), casi transparente
+         arriba para que el video se vea nítido. Branding: velo de marca
+         (lima) muy sutil, nunca configurable por organización. */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-black/5" />
+      <div className="absolute inset-0 bg-brand/5" />
 
       {backgroundVideo && (
         <button
           type="button"
           onClick={toggleSound}
           aria-label={soundOn ? "Silenciar video" : "Activar sonido"}
-          className="absolute right-4 top-[max(1rem,env(safe-area-inset-top))] z-20 flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white backdrop-blur-md transition-colors duration-150 hover:bg-black/60"
+          className="absolute right-4 top-[max(1rem,env(safe-area-inset-top))] z-20 flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white backdrop-blur-sm transition-colors duration-150 hover:bg-black/60"
         >
           {soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
         </button>
@@ -395,7 +399,7 @@ export default function QuickPass() {
         <div className="relative z-10 mx-auto flex w-full max-w-md flex-1 flex-col justify-end gap-5 px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))]">
           <FestPassBadge />
 
-          <div className="rounded-3xl border border-white/15 bg-white/10 p-5 shadow-2xl backdrop-blur-xl">
+          <div className="rounded-3xl border border-white/15 bg-white/14 p-5 shadow-2xl backdrop-blur-sm">
             <h1 className="text-2xl font-extrabold leading-tight text-white">{event.title}</h1>
             {firstFunction && (
               <p className="mt-2 text-sm text-white/80">{formatEventDateTime(firstFunction.date)}</p>
@@ -432,7 +436,7 @@ export default function QuickPass() {
               // Evento finalizado — sin CTA activo, mantiene la estética
               // neón/glass (ver informe de la ronda EVENT_FINISHED_GUARD):
               // nunca alert(), nunca oculta la pantalla completa.
-              <p className="rounded-full border border-white/15 bg-white/5 px-6 py-3.5 text-center text-sm font-semibold text-white/70 backdrop-blur-md">
+              <p className="rounded-full border border-white/15 bg-white/8 px-6 py-3.5 text-center text-sm font-semibold text-white/70 backdrop-blur-sm">
                 Este evento finalizó
               </p>
             ) : (
@@ -455,7 +459,7 @@ export default function QuickPass() {
             <button
               type="button"
               onClick={handleViewDetail}
-              className="flex items-center justify-center rounded-full border border-white/25 bg-white/5 px-6 py-3.5 text-sm font-semibold text-white backdrop-blur-md transition-colors duration-150 active:bg-white/15"
+              className="flex items-center justify-center rounded-full border border-white/25 bg-white/8 px-6 py-3.5 text-sm font-semibold text-white backdrop-blur-sm transition-colors duration-150 active:bg-white/15"
             >
               VER DETALLE DEL EVENTO
             </button>
@@ -491,7 +495,7 @@ export default function QuickPass() {
             Volver
           </button>
 
-          <div className="rounded-3xl border border-white/15 bg-white/10 p-5 shadow-2xl backdrop-blur-xl">
+          <div className="rounded-3xl border border-white/15 bg-white/14 p-5 shadow-2xl backdrop-blur-sm">
             <h1 className="text-2xl font-extrabold leading-tight text-white">{event.title}</h1>
             <div className="mt-3 flex items-start gap-2.5 text-sm text-white/80">
               <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
@@ -504,7 +508,7 @@ export default function QuickPass() {
           </div>
 
           {fullEventState.status === "loading" && (
-            <div className="rounded-3xl border border-white/15 bg-white/10 p-5 backdrop-blur-xl">
+            <div className="rounded-3xl border border-white/15 bg-white/14 p-5 backdrop-blur-sm">
               <div className="h-4 w-2/3 animate-pulse rounded bg-white/10" />
               <div className="mt-2 h-4 w-1/2 animate-pulse rounded bg-white/10" />
             </div>
@@ -515,14 +519,14 @@ export default function QuickPass() {
           )}
 
           {fullEvent?.description && (
-            <div className="rounded-3xl border border-white/15 bg-white/10 p-5 shadow-2xl backdrop-blur-xl">
+            <div className="rounded-3xl border border-white/15 bg-white/14 p-5 shadow-2xl backdrop-blur-sm">
               <p className="text-xs font-semibold uppercase tracking-wide text-brand">Sobre el evento</p>
               <p className="mt-2 whitespace-pre-line text-sm text-white/80">{fullEvent.description}</p>
             </div>
           )}
 
           {fullEvent && (fullEvent.venueName || fullEvent.formattedAddress || fullEvent.addressLine || fullEvent.address) && (
-            <div className="rounded-3xl border border-white/15 bg-white/10 p-5 shadow-2xl backdrop-blur-xl">
+            <div className="rounded-3xl border border-white/15 bg-white/14 p-5 shadow-2xl backdrop-blur-sm">
               <p className="text-xs font-semibold uppercase tracking-wide text-brand">Ubicación</p>
               {fullEvent.venueName && <p className="mt-2 text-sm font-semibold text-white">{fullEvent.venueName}</p>}
               {(fullEvent.formattedAddress || fullEvent.addressLine || fullEvent.address) && (
@@ -538,7 +542,7 @@ export default function QuickPass() {
 
           <div className="flex flex-col gap-2.5 pt-1">
             {fullEvent && isEventFinished(fullEvent) ? (
-              <p className="rounded-full border border-white/15 bg-white/5 px-6 py-3.5 text-center text-sm font-semibold text-white/70 backdrop-blur-md">
+              <p className="rounded-full border border-white/15 bg-white/8 px-6 py-3.5 text-center text-sm font-semibold text-white/70 backdrop-blur-sm">
                 Este evento finalizó
               </p>
             ) : (

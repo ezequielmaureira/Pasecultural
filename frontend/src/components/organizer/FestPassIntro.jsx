@@ -41,12 +41,12 @@ export default function FestPassIntro() {
           escalado a tamaño de preview — nunca los datos reales del
           organizador, sólo para que se entienda de un vistazo qué es. */}
       <div className="relative mx-auto aspect-[9/19] w-full max-w-[150px] shrink-0 overflow-hidden rounded-[22px] border border-white/10 bg-slate-950 shadow-[0_0_24px_rgba(190,242,100,0.25)] sm:max-w-[170px] lg:max-w-[220px]">
-        {/* "Foto" simulada (sin imagen real acá) + los 3 overlays EXACTOS
-            que ya usa QuickPass.jsx sobre la imagen real. */}
+        {/* "Foto" simulada (sin imagen real acá) + los overlays EXACTOS
+            que ya usa QuickPass.jsx sobre la imagen/video real (ver el
+            informe de la ronda "nitidez del video de fondo"). */}
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_22%,rgba(132,204,22,0.35),transparent_60%),linear-gradient(180deg,#1e1b4b,#020617)]" />
-        <div className="absolute inset-0 bg-black/50" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
-        <div className="absolute inset-0 bg-brand/10" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-black/5" />
+        <div className="absolute inset-0 bg-brand/5" />
 
         <div className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white lg:right-2 lg:top-2 lg:h-5 lg:w-5">
           <VolumeX className="h-2 w-2 lg:h-2.5 lg:w-2.5" />
@@ -63,7 +63,7 @@ export default function FestPassIntro() {
             </span>
           </div>
 
-          <div className="rounded-xl border border-white/15 bg-white/10 p-2 backdrop-blur-xl lg:rounded-2xl lg:p-2.5">
+          <div className="rounded-xl border border-white/15 bg-white/14 p-2 backdrop-blur-sm lg:rounded-2xl lg:p-2.5">
             <p className="text-xs font-extrabold leading-tight text-white lg:text-sm">Fest</p>
             <p className="mt-0.5 text-[8px] leading-tight text-white/80 lg:text-[9px]">29 de sept de 2026, 08:00 p.m.</p>
             <p className="text-[8px] leading-tight text-white/70 lg:text-[9px]">San Martín 850 · General Roca</p>
