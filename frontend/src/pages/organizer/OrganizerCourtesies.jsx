@@ -35,16 +35,16 @@ export default function OrganizerCourtesies() {
                     <Link
                         key={to}
                         to={to}
-                        className="group flex items-start gap-4 rounded-xl border border-white/10 bg-[#0B1120] p-6 transition-colors duration-150 hover:border-violet-500/40"
+                        className="group flex items-start gap-4 rounded-xl border border-white/10 bg-[#0B1120] p-6 transition-colors duration-150 hover:border-lime-500/40"
                     >
-                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-400">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-lime-500/10 text-lime-400">
                             <Icon className="h-5 w-5" />
                         </div>
                         <div className="min-w-0 flex-1">
                             <p className="font-semibold text-white">{title}</p>
                             <p className="mt-1 text-sm text-slate-400">{description}</p>
                         </div>
-                        <ChevronRight className="mt-2 h-4 w-4 shrink-0 text-slate-600 transition-colors duration-150 group-hover:text-violet-400" />
+                        <ChevronRight className="mt-2 h-4 w-4 shrink-0 text-slate-600 transition-colors duration-150 group-hover:text-lime-400" />
                     </Link>
                 ))}
             </div>

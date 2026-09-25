@@ -881,7 +881,7 @@ export default function OrganizerEventWizard() {
   if (loading) {
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-slate-400">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/10 border-t-violet-500" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/10 border-t-lime-500" />
         <p className="text-sm">Cargando evento...</p>
       </div>
     );
@@ -1083,7 +1083,7 @@ export default function OrganizerEventWizard() {
             <button
               type="button"
               onClick={addFunction}
-              className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 py-2.5 text-sm font-medium text-slate-400 hover:border-violet-500/60 hover:text-violet-300"
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 py-2.5 text-sm font-medium text-slate-400 hover:border-lime-500/60 hover:text-lime-300"
             >
               <Plus className="h-4 w-4" />
               Agregar otra función
@@ -1116,15 +1116,15 @@ export default function OrganizerEventWizard() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 rounded-xl border border-violet-500/20 bg-white/5 p-4">
+            <div className="flex flex-col gap-3 rounded-xl border border-lime-500/20 bg-white/5 p-4">
               <div className="flex items-center justify-between gap-3">
                 <span className="flex items-center gap-2 text-sm font-semibold text-white">
-                  <Zap className="h-4 w-4 text-violet-400" />
+                  <Zap className="h-4 w-4 text-lime-400" />
                   Quick Pass
                 </span>
                 <input
                   type="checkbox"
-                  className="h-5 w-5 accent-violet-500"
+                  className="h-5 w-5 accent-lime-500"
                   checked={general.quickPassEnabled}
                   onChange={(e) => setGeneralField("quickPassEnabled", e.target.checked)}
                 />
@@ -1170,7 +1170,7 @@ export default function OrganizerEventWizard() {
                     </p>
                     {eventSlug ? (
                       <>
-                        <p className="truncate text-sm text-violet-300">
+                        <p className="truncate text-sm text-lime-300">
                           {window.location.host}/quick-pass/{eventSlug}
                         </p>
                         <div className="flex flex-wrap items-center gap-2">
@@ -1203,7 +1203,7 @@ export default function OrganizerEventWizard() {
             </div>
 
             <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-[#05070B] p-5">
-              <span className="w-fit rounded-full bg-violet-500/10 px-2.5 py-1 text-xs font-medium text-violet-300">
+              <span className="w-fit rounded-full bg-lime-500/10 px-2.5 py-1 text-xs font-medium text-lime-300">
                 {getEventCategoryLabel(general)}
               </span>
 
@@ -1268,7 +1268,7 @@ export default function OrganizerEventWizard() {
 
                   <div className="mt-2 flex flex-col gap-1.5">
                     {isFreeEntry && (
-                      <p className="text-xs font-medium text-violet-300">
+                      <p className="text-xs font-medium text-lime-300">
                         Entrada gratuita · Ingreso por orden de llegada
                       </p>
                     )}
@@ -1291,7 +1291,7 @@ export default function OrganizerEventWizard() {
                               ({quantity} disponibles{!visible ? " · oculta" : ""})
                             </span>
                           </span>
-                          <span className="font-semibold text-violet-400">
+                          <span className="font-semibold text-lime-400">
                             {price === 0 ? "Gratis" : currency(price)}
                           </span>
                         </div>

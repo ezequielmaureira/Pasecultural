@@ -19,15 +19,15 @@ export default function SelectFunctionStep({ functions, selectedFunctionId, onSe
               type="button"
               onClick={() => onSelect(fn.id)}
               className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-colors duration-150 ${
-                selected ? "border-violet-500 bg-violet-500/10" : "border-white/10 bg-white/5 hover:border-white/20"
+                selected ? "border-lime-500 bg-lime-500/10" : "border-white/10 bg-white/5 hover:border-white/20"
               }`}
             >
               <span
                 className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${
-                  selected ? "border-violet-400" : "border-white/20"
+                  selected ? "border-lime-400" : "border-white/20"
                 }`}
               >
-                {selected && <span className="h-2.5 w-2.5 rounded-full bg-violet-400" />}
+                {selected && <span className="h-2.5 w-2.5 rounded-full bg-lime-400" />}
               </span>
               <span className="text-sm font-medium text-white">{formatEventDateTime(fn.date)}</span>
             </button>

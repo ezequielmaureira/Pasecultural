@@ -3,7 +3,7 @@ import { Clock } from "lucide-react";
 import { PERIODS, buildSlots, HOURS, MINUTES } from "../../lib/timeSlots.js";
 
 const exactSelectClass =
-  "h-7 rounded-md border border-white/10 bg-white/5 px-1.5 text-xs text-gray-100 outline-none focus:border-violet-500";
+  "h-7 rounded-md border border-white/10 bg-white/5 px-1.5 text-xs text-gray-100 outline-none focus:border-lime-500";
 
 // Selector de horario en dropdown: mismos chips de horarios (cada 30 min,
 // agrupados por franja) que el TimeAnswer del chat, pero compacto para
@@ -36,7 +36,7 @@ export default function TimePicker({ value, onChange, placeholder = "Elegir hora
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className={`flex h-10 w-full items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 text-sm outline-none transition-colors duration-150 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 ${
+        className={`flex h-10 w-full items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 text-sm outline-none transition-colors duration-150 focus:border-lime-500 focus:ring-2 focus:ring-lime-500/20 ${
           value ? "text-gray-100" : "text-slate-500"
         }`}
       >
@@ -57,8 +57,8 @@ export default function TimePicker({ value, onChange, placeholder = "Elegir hora
                     onClick={() => select(slot)}
                     className={`rounded-md px-2 py-1 text-xs font-medium transition-colors duration-150 ${
                       slot === value
-                        ? "bg-violet-600 text-white"
-                        : "bg-white/5 text-slate-300 hover:bg-violet-500/20 hover:text-white"
+                        ? "bg-lime-600 text-slate-950"
+                        : "bg-white/5 text-slate-300 hover:bg-lime-500/20 hover:text-white"
                     }`}
                   >
                     {slot}

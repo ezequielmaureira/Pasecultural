@@ -77,7 +77,7 @@ export default function SummaryStep({
         </div>
         <div className="flex items-center justify-between pt-1">
           <span className="text-sm font-semibold text-slate-300">Total</span>
-          <span className="text-xl font-bold text-violet-400">{currency(total)}</span>
+          <span className="text-xl font-bold text-lime-400">{currency(total)}</span>
         </div>
       </div>
 

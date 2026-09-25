@@ -143,8 +143,8 @@ export default function VideoUploader({
     toast.success("Video eliminado.");
   }
 
-  let boxToneClass = "border-white/15 bg-white/5 hover:border-violet-500/60 hover:bg-white/10";
-  if (dragActive) boxToneClass = "border-violet-500 bg-violet-500/10";
+  let boxToneClass = "border-white/15 bg-white/5 hover:border-lime-500/60 hover:bg-white/10";
+  if (dragActive) boxToneClass = "border-lime-500 bg-lime-500/10";
   else if (preview) boxToneClass = "border-white/10 bg-black/30";
 
   return (
@@ -200,7 +200,7 @@ export default function VideoUploader({
           <div className="flex flex-col items-center gap-2 text-slate-400">
             <FileVideo className="h-6 w-6" />
             <p className="text-xs">
-              <span className="font-medium text-violet-400">Subí un video</span> o arrastralo acá
+              <span className="font-medium text-lime-400">Subí un video</span> o arrastralo acá
             </p>
           </div>
         )}

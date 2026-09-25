@@ -97,7 +97,7 @@ export default function TicketCatalogEditor({ catalog, onAdd, onRemove, onChange
                   onClick={() => onChange(index, "visible", true)}
                   className={`h-8 rounded-lg px-3 text-xs font-medium transition-colors duration-150 ${
                     tt.visible
-                      ? "bg-violet-600 text-white"
+                      ? "bg-lime-600 text-slate-950"
                       : "bg-white/5 text-slate-400 hover:bg-white/10"
                   }`}
                 >
@@ -108,7 +108,7 @@ export default function TicketCatalogEditor({ catalog, onAdd, onRemove, onChange
                   onClick={() => onChange(index, "visible", false)}
                   className={`h-8 rounded-lg px-3 text-xs font-medium transition-colors duration-150 ${
                     !tt.visible
-                      ? "bg-violet-600 text-white"
+                      ? "bg-lime-600 text-slate-950"
                       : "bg-white/5 text-slate-400 hover:bg-white/10"
                   }`}
                 >
@@ -123,7 +123,7 @@ export default function TicketCatalogEditor({ catalog, onAdd, onRemove, onChange
       <button
         type="button"
         onClick={onAdd}
-        className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 py-2.5 text-sm font-medium text-slate-400 hover:border-violet-500/60 hover:text-violet-300"
+        className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 py-2.5 text-sm font-medium text-slate-400 hover:border-lime-500/60 hover:text-lime-300"
       >
         <Plus className="h-4 w-4" />
         Agregar entrada

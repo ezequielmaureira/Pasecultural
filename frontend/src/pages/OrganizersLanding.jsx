@@ -49,7 +49,7 @@ function Hero() {
           Organizá tus eventos.
           <br />
           Nosotros nos ocupamos de{" "}
-          <span className="bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">
+          <span className="bg-gradient-to-r from-lime-400 to-blue-400 bg-clip-text text-transparent">
             las entradas.
           </span>
         </h1>
@@ -106,10 +106,10 @@ function HowItWorks() {
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
         {ORGANIZER_STEPS.map(({ icon: Icon, title, description }, index) => (
           <div key={title} className="relative flex flex-col items-center gap-3 text-center">
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-600 text-sm font-bold text-white">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-lime-600 text-sm font-bold text-slate-950">
               {index + 1}
             </span>
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-[#0B1120] text-violet-400">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-[#0B1120] text-lime-400">
               <Icon className="h-6 w-6" />
             </div>
             <p className="text-sm font-semibold text-white">{title}</p>
@@ -135,7 +135,7 @@ function CtaBanner() {
           <div>
             <h3 className="text-2xl font-bold text-white sm:text-3xl">
               ¿Listo para llevar tus eventos al{" "}
-              <span className="bg-gradient-to-r from-violet-400 to-blue-400 bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-lime-400 to-blue-400 bg-clip-text text-transparent">
                 siguiente nivel
               </span>
               ?
@@ -159,7 +159,7 @@ function TrustBar() {
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {ORGANIZER_TRUST_FEATURES.map(({ icon: Icon, title, subtitle }) => (
           <div key={title} className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-violet-400">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-lime-500/15 text-lime-400">
               <Icon className="h-5 w-5" />
             </div>
             <div>

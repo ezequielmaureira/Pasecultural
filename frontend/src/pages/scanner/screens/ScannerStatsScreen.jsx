@@ -63,7 +63,7 @@ export default function ScannerStatsScreen({ event, fn, gate, onBack }) {
 
             {!loading && !error && stats && (
                 <div className="w-full rounded-xl border border-white/10 bg-white/5 p-4 text-left">
-                    <p className="text-sm text-violet-400">
+                    <p className="text-sm text-lime-400">
                         {stats.checkedIn} ingresados / {stats.capacity} · {stats.remaining} restantes
                     </p>
                     {stats.byTicketType.length > 0 && (

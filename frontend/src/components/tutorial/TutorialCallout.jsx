@@ -24,7 +24,7 @@ export default function TutorialCallout({
       role="dialog"
       aria-label={title}
       style={style}
-      className="fixed z-[60] flex w-[300px] flex-col gap-3 rounded-2xl border border-violet-400/40 bg-[#0B1120] p-4 shadow-[0_0_0_1px_rgba(139,92,246,0.15),0_20px_50px_-15px_rgba(0,0,0,0.7),0_0_30px_-8px_rgba(139,92,246,0.45)] sm:w-[340px]"
+      className="fixed z-[60] flex w-[300px] flex-col gap-3 rounded-2xl border border-lime-400/40 bg-[#0B1120] p-4 shadow-[0_0_0_1px_rgba(132,204,22,0.15),0_20px_50px_-15px_rgba(0,0,0,0.7),0_0_30px_-8px_rgba(132,204,22,0.45)] sm:w-[340px]"
     >
       {/* Flechita apuntando al target — sólo para top/bottom, que son los
           únicos placements que este componente recibe hoy (ver
@@ -32,7 +32,7 @@ export default function TutorialCallout({
       {(placement === "bottom" || placement === "top") && (
         <span
           aria-hidden="true"
-          className={`absolute left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border border-violet-400/40 bg-[#0B1120] ${
+          className={`absolute left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border border-lime-400/40 bg-[#0B1120] ${
             placement === "bottom" ? "-top-1.5 border-b-0 border-r-0" : "-bottom-1.5 border-l-0 border-t-0"
           }`}
         />

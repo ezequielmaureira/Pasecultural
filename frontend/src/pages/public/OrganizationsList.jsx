@@ -104,7 +104,7 @@ export default function OrganizationsList() {
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Buscar por nombre"
-            className="h-10 w-full rounded-lg border border-white/10 bg-white/5 pl-9 pr-3 text-sm text-gray-100 outline-none placeholder:text-slate-500 focus:border-violet-500 focus:bg-white/10 focus:ring-2 focus:ring-violet-500/20"
+            className="h-10 w-full rounded-lg border border-white/10 bg-white/5 pl-9 pr-3 text-sm text-gray-100 outline-none placeholder:text-slate-500 focus:border-lime-500 focus:bg-white/10 focus:ring-2 focus:ring-lime-500/20"
           />
         </div>
 
@@ -117,7 +117,7 @@ export default function OrganizationsList() {
             next.delete("page");
             setSearchParams(next);
           }}
-          className="h-10 shrink-0 rounded-lg border border-white/10 bg-white/5 px-3 text-sm font-medium text-gray-100 outline-none transition-colors duration-150 hover:bg-white/10 focus:border-violet-500"
+          className="h-10 shrink-0 rounded-lg border border-white/10 bg-white/5 px-3 text-sm font-medium text-gray-100 outline-none transition-colors duration-150 hover:bg-white/10 focus:border-lime-500"
         >
           {CATEGORY_OPTIONS.map((opt) => (
             <option key={opt.id} value={opt.id} className="bg-[#0B1120]">

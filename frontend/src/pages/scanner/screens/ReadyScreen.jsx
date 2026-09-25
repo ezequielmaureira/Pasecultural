@@ -10,14 +10,14 @@ export default function ReadyScreen({ event, fn, onChangeFunction, canChangeFunc
             <p className="text-sm text-slate-400">
                 {formatFunctionDate(fn.date)} · {formatFunctionTime(fn.date)} hs
             </p>
-            <p className="text-sm text-violet-400">
+            <p className="text-sm text-lime-400">
                 {fn.checkedIn} ingresados / {fn.capacity} · {fn.remaining} restantes
             </p>
 
             <button
                 type="button"
                 onClick={onStartScanning}
-                className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-violet-500 bg-violet-500/10 px-4 py-4 text-sm font-bold uppercase tracking-wide text-violet-300 transition-colors duration-150 hover:bg-violet-500/20"
+                className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-lime-500 bg-lime-500/10 px-4 py-4 text-sm font-bold uppercase tracking-wide text-lime-300 transition-colors duration-150 hover:bg-lime-500/20"
             >
                 <Play className="h-4 w-4" />
                 Iniciar escaneo

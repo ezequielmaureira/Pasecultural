@@ -27,7 +27,7 @@ export default function UserMenu() {
         <Avatar
           name={fullName || undefined}
           size="sm"
-          className="bg-gradient-to-br from-violet-500 to-blue-500 text-white"
+          className="bg-gradient-to-br from-lime-500 to-blue-500 text-slate-950"
         />
         <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0B1120] bg-emerald-400" />
       </div>

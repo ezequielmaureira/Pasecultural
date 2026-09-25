@@ -10,7 +10,7 @@ const VARIANT_CLASSES = {
   // de este variant, vía FestPassIntro.jsx) vive exclusivamente en
   // /organizador/*, que ThemeContext nunca marca `.light`, así que en dark
   // este variant queda exactamente igual que antes.
-  glass: "border-white/15 bg-white/10 backdrop-blur-xl shadow-[0_0_40px_rgba(168,85,247,0.15)] light:border-slate-200/80 light:bg-white/90 light:shadow-[0_10px_30px_-10px_rgba(15,23,42,0.15)]",
+  glass: "border-white/15 bg-white/10 backdrop-blur-xl shadow-[0_0_40px_rgba(190,242,100,0.15)] light:border-slate-200/80 light:bg-white/90 light:shadow-[0_10px_30px_-10px_rgba(15,23,42,0.15)]",
 };
 
 export default function Card({ title, children, className = "", variant = "solid", ...props }) {

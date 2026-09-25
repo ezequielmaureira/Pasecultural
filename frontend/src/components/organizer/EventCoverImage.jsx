@@ -9,7 +9,7 @@ export default function EventCoverImage({ src, icon: Icon, className = "", iconC
       style={src ? { backgroundImage: `url(${src})` } : undefined}
     >
       {!src && (
-        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-violet-600/25 to-slate-900">
+        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-lime-600/25 to-slate-900">
           <Icon className={`text-white/30 ${iconClassName}`} />
         </div>
       )}

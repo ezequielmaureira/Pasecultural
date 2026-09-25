@@ -267,7 +267,7 @@ export default function DeveloperQaChecklist() {
                   onClick={() => setFilter(f.id)}
                   className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors duration-150 ${
                     filter === f.id
-                      ? "bg-violet-500/10 text-violet-300"
+                      ? "bg-lime-500/10 text-lime-300"
                       : "text-slate-400 hover:bg-white/5 hover:text-white light:text-slate-500 light:hover:bg-slate-900/5"
                   }`}
                 >

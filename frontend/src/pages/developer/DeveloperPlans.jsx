@@ -59,7 +59,7 @@ function ToggleField({ label, checked, onChange }) {
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={`relative h-6 w-11 shrink-0 overflow-hidden rounded-full transition-colors duration-150 ${
-          checked ? "bg-violet-500" : "bg-white/15 light:bg-slate-300"
+          checked ? "bg-lime-500" : "bg-white/15 light:bg-slate-300"
         }`}
       >
         <span

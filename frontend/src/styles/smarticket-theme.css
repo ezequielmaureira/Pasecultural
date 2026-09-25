@@ -8,8 +8,8 @@
       (frontend/src/pages/public/QuickPass.jsx, NO modificado en esta
       ronda): paneles `rounded-3xl border-white/15 bg-white/10 shadow-2xl
       backdrop-blur-xl`, CTA `bg-gradient-to-r from-fuchsia-500
-      via-violet-500 to-blue-500` con `shadow-[0_0_25px_rgba(168,85,247,.5)]`,
-      velo `bg-gradient-to-br from-violet-600/20 via-transparent
+      via-lime-500 to-blue-500` con `shadow-[0_0_25px_rgba(190,242,100,.5)]`,
+      velo `bg-gradient-to-br from-lime-600/20 via-transparent
       to-blue-600/20`.
    2) El sistema `.smarticket-neon-*` ya aprobado y publicado en Home
       (styles/index.css), que ya había traducido esa receta a valores
@@ -38,17 +38,17 @@
   --smarticket-border-strong: rgba(255, 255, 255, 0.18);
 
   /* Paleta — mismos tonos Tailwind que ya usa QuickPass.jsx (fuchsia-500,
-     violet-500, blue-500), como valores hex reutilizables en CSS plano. */
-  --smarticket-violet: #8b5cf6;
+     lime-500, blue-500), como valores hex reutilizables en CSS plano. */
+  --smarticket-lime: #84cc16;
   --smarticket-fuchsia: #d946ef;
   --smarticket-blue: #3b82f6;
 
   /* Glow — el mismo par de tonos usado en los hovers ya aprobados
      (violeta principal, fucsia de acento) y el glow explícito del CTA de
-     QuickPass (rgba(168,85,247,.5) — el violeta/fucsia intermedio real
+     QuickPass (rgba(190,242,100,.5) — el violeta/fucsia intermedio real
      que usa su `shadow-[...]`). */
-  --smarticket-glow: rgba(139, 92, 246, 0.45);
-  --smarticket-glow-strong: rgba(168, 85, 247, 0.55);
+  --smarticket-glow: rgba(132, 204, 22, 0.45);
+  --smarticket-glow-strong: rgba(190, 242, 100, 0.55);
 
   /* Radios — rounded-2xl (cards), rounded-3xl (paneles, igual que los
      `rounded-3xl` de los paneles glass en QuickPass.jsx), pill (CTA). */
@@ -63,9 +63,9 @@
   --smarticket-blur-strong: 24px;
 
   /* Sombras — ambiental genérica, y el glow explícito calcado del CTA
-     real de QuickPass: shadow-[0_0_25px_rgba(168,85,247,0.5)]. */
+     real de QuickPass: shadow-[0_0_25px_rgba(190,242,100,0.5)]. */
   --smarticket-shadow: 0 16px 40px -16px rgba(0, 0, 0, 0.6);
-  --smarticket-shadow-glow: 0 0 25px rgba(168, 85, 247, 0.5);
+  --smarticket-shadow-glow: 0 0 25px rgba(190, 242, 100, 0.5);
 }
 
 /* Light mode — mismo mecanismo que el resto del proyecto (clase `.light`
@@ -78,11 +78,11 @@
   --smarticket-card-bg: rgba(255, 255, 255, 0.92);
 
   --smarticket-border: rgb(226 232 240);
-  --smarticket-border-strong: rgba(139, 92, 246, 0.3);
+  --smarticket-border-strong: rgba(132, 204, 22, 0.3);
 
-  --smarticket-glow: rgba(139, 92, 246, 0.22);
-  --smarticket-glow-strong: rgba(168, 85, 247, 0.28);
+  --smarticket-glow: rgba(132, 204, 22, 0.22);
+  --smarticket-glow-strong: rgba(190, 242, 100, 0.28);
 
   --smarticket-shadow: 0 12px 30px -20px rgba(15, 23, 42, 0.18);
-  --smarticket-shadow-glow: 0 0 16px rgba(168, 85, 247, 0.22);
+  --smarticket-shadow-glow: 0 0 16px rgba(190, 242, 100, 0.22);
 }

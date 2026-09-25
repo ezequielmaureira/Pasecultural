@@ -47,7 +47,7 @@ export default function DataDeletion() {
       <Section title="Cómo solicitarlo">
         <p>
           Enviá un email a{" "}
-          <a href="mailto:hola@pasecultural.com" className="text-violet-400 underline underline-offset-2 hover:text-violet-300">
+          <a href="mailto:hola@pasecultural.com" className="text-lime-400 underline underline-offset-2 hover:text-lime-300">
             hola@pasecultural.com
           </a>{" "}
           pidiendo la eliminación de tus datos.
@@ -83,7 +83,7 @@ export default function DataDeletion() {
       <Section title="Más información">
         <p>
           Podés ver el detalle de cómo tratamos tus datos en general en nuestra{" "}
-          <Link to="/privacidad" className="text-violet-400 underline underline-offset-2 hover:text-violet-300">
+          <Link to="/privacidad" className="text-lime-400 underline underline-offset-2 hover:text-lime-300">
             Política de Privacidad
           </Link>
           .

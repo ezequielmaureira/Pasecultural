@@ -20,9 +20,9 @@ export default function SocialLinks({ links, title = "Conocé más" }) {
               href={link.url}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 p-3 transition-colors duration-150 hover:border-violet-500/40 hover:bg-white/10"
+              className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 p-3 transition-colors duration-150 hover:border-lime-500/40 hover:bg-white/10"
             >
-              <Icon className="h-4 w-4 shrink-0 text-violet-400" />
+              <Icon className="h-4 w-4 shrink-0 text-lime-400" />
               <span className="truncate text-sm text-slate-200">
                 {link.title?.trim() || getEventLinkLabel(link.type)}
               </span>

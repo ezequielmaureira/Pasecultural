@@ -89,7 +89,7 @@ function ReturnScreen({ isFestPass, imageUrl, className = "", children }) {
       )}
       <div className="absolute inset-0 bg-black/50" />
       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-br from-violet-600/20 via-transparent to-blue-600/20" />
+      <div className="absolute inset-0 bg-gradient-to-br from-lime-600/20 via-transparent to-blue-600/20" />
       <div className={`relative z-10 mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-3 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] ${className}`}>
         {children}
       </div>

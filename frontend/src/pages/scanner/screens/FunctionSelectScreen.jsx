@@ -14,7 +14,7 @@ export default function FunctionSelectScreen({ event, onSelect, onBack }) {
                         key={fn.id}
                         type="button"
                         onClick={() => onSelect(fn)}
-                        className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#0B1120] p-3 text-left transition-colors duration-150 hover:border-violet-500/40"
+                        className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#0B1120] p-3 text-left transition-colors duration-150 hover:border-lime-500/40"
                     >
                         <div className="min-w-0 flex-1">
                             <p className="text-sm font-semibold text-white">

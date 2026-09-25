@@ -57,7 +57,7 @@ export default function TicketDetailModal({ ticket, buyerName, onClose, onShowQr
                 {countdown && (
                     <p
                         className={`-mt-3 flex items-center gap-1.5 text-sm font-medium ${
-                            countdown.phase === "upcoming" ? "text-violet-400" : "text-slate-500"
+                            countdown.phase === "upcoming" ? "text-lime-400" : "text-slate-500"
                         }`}
                     >
                         <Timer className="h-4 w-4 shrink-0" />

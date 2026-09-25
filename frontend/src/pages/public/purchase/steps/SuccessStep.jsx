@@ -186,7 +186,7 @@ export default function SuccessStep({ tickets, buyerEmail, emailDeliveryStatus, 
             También te vamos a mandar tus entradas al correo{" "}
             <span className="text-slate-300">{buyerEmail}</span>. Si no las recibís en unos minutos, podés
             recuperarlas más tarde desde{" "}
-            <Link to="/recuperar-compra" className="text-violet-400 hover:text-violet-300">
+            <Link to="/recuperar-compra" className="text-lime-400 hover:text-lime-300">
               "Recuperar mis entradas"
             </Link>
             .

@@ -11,7 +11,7 @@ const SIZE_CLASSES = {
 // unico para reutilizar en botones y overlays. El color va separado del
 // resto de las clases (`toneClassName`) para poder pisarlo sin pelearse
 // con el orden de las utilities de Tailwind.
-export default function Spinner({ size = "md", toneClassName = "border-white/10 border-t-violet-500", className = "" }) {
+export default function Spinner({ size = "md", toneClassName = "border-white/10 border-t-lime-500", className = "" }) {
   return (
     <span
       role="status"

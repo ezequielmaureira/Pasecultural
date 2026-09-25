@@ -377,7 +377,7 @@ export default function QuickPass() {
           eléctrico a propósito (ver el informe de la ronda). */}
       <div className="absolute inset-0 bg-black/50" />
       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-br from-violet-600/20 via-transparent to-blue-600/20" />
+      <div className="absolute inset-0 bg-gradient-to-br from-lime-600/20 via-transparent to-blue-600/20" />
 
       {backgroundVideo && (
         <button
@@ -439,7 +439,7 @@ export default function QuickPass() {
                 type="button"
                 onClick={handleStartPurchase}
                 disabled={fullEventState.status === "loading"}
-                className="flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-blue-500 px-6 py-4 text-base font-bold text-white shadow-[0_0_25px_rgba(168,85,247,0.5)] transition-transform duration-150 active:scale-95 disabled:opacity-70"
+                className="flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-fuchsia-500 via-lime-500 to-blue-500 px-6 py-4 text-base font-bold text-slate-950 shadow-[0_0_25px_rgba(190,242,100,0.5)] transition-transform duration-150 active:scale-95 disabled:opacity-70"
               >
                 <Ticket className="h-5 w-5" />
                 {fullEventState.status === "loading" ? "CARGANDO..." : "COMPRAR ENTRADAS"}
@@ -545,7 +545,7 @@ export default function QuickPass() {
                 type="button"
                 onClick={handleStartPurchase}
                 disabled={fullEventState.status !== "ready"}
-                className="flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-blue-500 px-6 py-4 text-base font-bold text-white shadow-[0_0_25px_rgba(168,85,247,0.5)] transition-transform duration-150 active:scale-95 disabled:opacity-70"
+                className="flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-fuchsia-500 via-lime-500 to-blue-500 px-6 py-4 text-base font-bold text-slate-950 shadow-[0_0_25px_rgba(190,242,100,0.5)] transition-transform duration-150 active:scale-95 disabled:opacity-70"
               >
                 <Ticket className="h-5 w-5" />
                 COMPRAR ENTRADAS

@@ -115,7 +115,7 @@ export default function PrivacyPolicy() {
         <p>
           Podés pedirnos acceder, corregir o eliminar tus datos personales. Para solicitar la eliminación de tus
           datos, visitá{" "}
-          <Link to="/eliminacion-de-datos" className="text-violet-400 underline underline-offset-2 hover:text-violet-300">
+          <Link to="/eliminacion-de-datos" className="text-lime-400 underline underline-offset-2 hover:text-lime-300">
             esta página
           </Link>
           .
@@ -125,7 +125,7 @@ export default function PrivacyPolicy() {
       <Section title="Contacto">
         <p>
           Si tenés preguntas sobre esta política o sobre tus datos, escribinos a{" "}
-          <a href="mailto:hola@pasecultural.com" className="text-violet-400 underline underline-offset-2 hover:text-violet-300">
+          <a href="mailto:hola@pasecultural.com" className="text-lime-400 underline underline-offset-2 hover:text-lime-300">
             hola@pasecultural.com
           </a>
           .

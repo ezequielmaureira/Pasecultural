@@ -23,7 +23,7 @@ function SectionHeader({ title, viewAllHref }) {
       {viewAllHref && (
         <Link
           to={viewAllHref}
-          className="flex shrink-0 items-center gap-1 text-sm font-medium text-violet-400 transition-colors duration-150 hover:text-violet-300"
+          className="flex shrink-0 items-center gap-1 text-sm font-medium text-lime-400 transition-colors duration-150 hover:text-lime-300"
         >
           Ver todos <ChevronRight className="h-4 w-4" />
         </Link>
@@ -88,7 +88,7 @@ function TrustBar() {
           const Icon = TRUST_ICONS[icon];
           return (
             <div key={title} className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-violet-400 shadow-[0_0_14px_-4px_rgba(139,92,246,0.55)] light:shadow-[0_0_10px_-6px_rgba(139,92,246,0.3)]">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-lime-500/15 text-lime-400 shadow-[0_0_14px_-4px_rgba(132,204,22,0.55)] light:shadow-[0_0_10px_-6px_rgba(132,204,22,0.3)]">
                 <Icon className="h-5 w-5" />
               </div>
               <div>

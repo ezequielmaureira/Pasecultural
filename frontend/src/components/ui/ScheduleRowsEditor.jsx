@@ -68,7 +68,7 @@ export default function ScheduleRowsEditor({
         row.editing ? (
           <div
             key={row._key}
-            className="flex flex-col gap-2 rounded-xl border border-violet-500/30 bg-violet-500/5 p-3 sm:flex-row sm:items-end"
+            className="flex flex-col gap-2 rounded-xl border border-lime-500/30 bg-lime-500/5 p-3 sm:flex-row sm:items-end"
           >
             <div className={`grid flex-1 grid-cols-1 gap-2 ${withDate ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
               {withDate && (
@@ -93,7 +93,7 @@ export default function ScheduleRowsEditor({
               type="button"
               disabled={!isRowComplete(row)}
               onClick={() => toggleEdit(row._key)}
-              className="flex h-10 items-center justify-center gap-1.5 rounded-lg bg-violet-600 px-3 text-sm font-medium text-white transition-colors duration-150 hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex h-10 items-center justify-center gap-1.5 rounded-lg bg-lime-600 px-3 text-sm font-medium text-slate-950 transition-colors duration-150 hover:bg-lime-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Check className="h-4 w-4" />
               Guardar
@@ -138,7 +138,7 @@ export default function ScheduleRowsEditor({
         type="button"
         disabled={disabled}
         onClick={addRow}
-        className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 py-2.5 text-sm font-medium text-slate-400 transition-colors duration-150 hover:border-violet-500/60 hover:text-violet-300 disabled:cursor-not-allowed"
+        className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 py-2.5 text-sm font-medium text-slate-400 transition-colors duration-150 hover:border-lime-500/60 hover:text-lime-300 disabled:cursor-not-allowed"
       >
         <Plus className="h-4 w-4" />
         {addLabel}

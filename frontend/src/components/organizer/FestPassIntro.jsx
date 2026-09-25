@@ -40,13 +40,13 @@ export default function FestPassIntro() {
           datos+entradas, CTA degradé, botón "ver detalle" y "Compartir"),
           escalado a tamaño de preview — nunca los datos reales del
           organizador, sólo para que se entienda de un vistazo qué es. */}
-      <div className="relative mx-auto aspect-[9/19] w-full max-w-[150px] shrink-0 overflow-hidden rounded-[22px] border border-white/10 bg-slate-950 shadow-[0_0_24px_rgba(168,85,247,0.25)] sm:max-w-[170px] lg:max-w-[220px]">
+      <div className="relative mx-auto aspect-[9/19] w-full max-w-[150px] shrink-0 overflow-hidden rounded-[22px] border border-white/10 bg-slate-950 shadow-[0_0_24px_rgba(190,242,100,0.25)] sm:max-w-[170px] lg:max-w-[220px]">
         {/* "Foto" simulada (sin imagen real acá) + los 3 overlays EXACTOS
             que ya usa QuickPass.jsx sobre la imagen real. */}
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_22%,rgba(139,92,246,0.35),transparent_60%),linear-gradient(180deg,#1e1b4b,#020617)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_22%,rgba(132,204,22,0.35),transparent_60%),linear-gradient(180deg,#1e1b4b,#020617)]" />
         <div className="absolute inset-0 bg-black/50" />
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
-        <div className="absolute inset-0 bg-gradient-to-br from-violet-600/20 via-transparent to-blue-600/20" />
+        <div className="absolute inset-0 bg-gradient-to-br from-lime-600/20 via-transparent to-blue-600/20" />
 
         <div className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white lg:right-2 lg:top-2 lg:h-5 lg:w-5">
           <VolumeX className="h-2 w-2 lg:h-2.5 lg:w-2.5" />
@@ -83,7 +83,7 @@ export default function FestPassIntro() {
             type="button"
             tabIndex={-1}
             aria-hidden="true"
-            className="flex items-center justify-center gap-1 rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-blue-500 py-1.5 text-[8px] font-bold text-white shadow-[0_0_14px_rgba(168,85,247,0.5)] lg:text-[9px]"
+            className="flex items-center justify-center gap-1 rounded-full bg-gradient-to-r from-fuchsia-500 via-lime-500 to-blue-500 py-1.5 text-[8px] font-bold text-slate-950 shadow-[0_0_14px_rgba(190,242,100,0.5)] lg:text-[9px]"
           >
             <TicketIcon className="h-2.5 w-2.5" />
             Comprar entradas
@@ -106,7 +106,7 @@ export default function FestPassIntro() {
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-1">
           <h2 className="flex items-center gap-1.5 text-base font-bold text-white lg:text-lg">
-            <Zap className="h-4 w-4 text-violet-400" />
+            <Zap className="h-4 w-4 text-lime-400" />
             ¿Qué es Fest Pass?
           </h2>
           <p className="text-xs text-slate-300 lg:text-sm">
@@ -120,7 +120,7 @@ export default function FestPassIntro() {
               key={title}
               className="flex items-start gap-2.5 rounded-xl border border-white/10 bg-white/[0.03] p-2.5 lg:p-3"
             >
-              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-500/15 text-violet-300">
+              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-lime-500/15 text-lime-300">
                 <Icon className="h-3.5 w-3.5" />
               </span>
               <div className="min-w-0">

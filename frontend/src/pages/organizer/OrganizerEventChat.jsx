@@ -33,7 +33,7 @@ function SuccessScreen({ result }) {
   const isPublished = result.status === "PUBLISHED";
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 py-16 text-center">
-      <PartyPopper className="h-10 w-10 text-violet-400" />
+      <PartyPopper className="h-10 w-10 text-lime-400" />
       <h1 className="text-2xl font-bold text-white">
         {isPublished ? "¡Tu evento ya está publicado!" : "Guardamos tu evento como borrador"}
       </h1>
@@ -159,8 +159,8 @@ export default function OrganizerEventChat() {
             aria-pressed={tutorialEnabled}
             className={`flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-all duration-200 ${
               tutorialEnabled
-                ? "bg-gradient-to-r from-violet-600 to-blue-600 text-white shadow-[0_0_16px_-4px_rgba(139,92,246,0.65)]"
-                : "border border-violet-400/30 bg-transparent text-slate-300 hover:border-violet-400/50 hover:text-violet-200"
+                ? "bg-gradient-to-r from-lime-600 to-blue-600 text-slate-950 shadow-[0_0_16px_-4px_rgba(132,204,22,0.65)]"
+                : "border border-lime-400/30 bg-transparent text-slate-300 hover:border-lime-400/50 hover:text-lime-200"
             }`}
           >
             <Sparkles className="h-4 w-4" />

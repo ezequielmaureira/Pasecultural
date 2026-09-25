@@ -342,7 +342,7 @@ export default function LocationPicker({ value, onChange, required = false, erro
                   onClick={() => handlePlaceSelect(suggestion)}
                   className={`block w-full truncate px-3 py-2 text-left text-sm transition-colors duration-100 ${
                     index === activeIndex
-                      ? "bg-violet-600/20 text-white"
+                      ? "bg-lime-600/20 text-white"
                       : "text-slate-300 hover:bg-white/5"
                   }`}
                 >

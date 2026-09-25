@@ -15,7 +15,7 @@ import {
 export const ORGANIZER_FEATURES = [
   {
     icon: Ticket,
-    iconClass: "bg-violet-500/15 text-violet-400",
+    iconClass: "bg-lime-500/15 text-lime-400",
     title: "Vendé entradas en minutos",
     description:
       "Creá tu evento, definí el precio y empezá a vender en pocos pasos. Publicación inmediata.",

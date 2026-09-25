@@ -52,7 +52,7 @@ export default function HowItWorksAudienceCard() {
             onClick={() => setActiveTab(tab.key)}
             className={`rounded-full px-1.5 py-1.5 text-center text-[11px] font-medium leading-tight transition-all duration-150 sm:px-3 sm:text-sm ${
               activeTab === tab.key
-                ? "bg-gradient-to-r from-violet-600 to-blue-500 text-white shadow-md shadow-violet-500/30"
+                ? "bg-gradient-to-r from-lime-600 to-blue-500 text-slate-950 shadow-md shadow-lime-500/30"
                 : "text-slate-400 hover:text-white"
             }`}
           >
@@ -61,7 +61,7 @@ export default function HowItWorksAudienceCard() {
         ))}
       </div>
 
-      <div className="mt-4 rounded-2xl border border-violet-500/20 bg-[#0B1120]/90 p-1.5 sm:p-2">
+      <div className="mt-4 rounded-2xl border border-lime-500/20 bg-[#0B1120]/90 p-1.5 sm:p-2">
         {loading ? (
           <div className="flex h-40 w-full animate-pulse items-center justify-center rounded-xl bg-black/20 text-sm text-slate-500">
             Cargando...

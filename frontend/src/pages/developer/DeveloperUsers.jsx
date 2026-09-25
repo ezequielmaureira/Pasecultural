@@ -168,7 +168,7 @@ export default function DeveloperUsers() {
               onClick={() => setRoleFilter(f.id)}
               className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors duration-150 ${
                 roleFilter === f.id
-                  ? "bg-violet-500/10 text-violet-300"
+                  ? "bg-lime-500/10 text-lime-300"
                   : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
               }`}
             >
@@ -180,7 +180,7 @@ export default function DeveloperUsers() {
         <div className="relative w-full sm:w-64">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
           <input
-            className="h-10 w-full rounded-lg border border-white/10 bg-white/5 pl-9 pr-3 text-sm text-gray-100 outline-none placeholder:text-slate-500 focus:border-violet-500 focus:bg-white/10 focus:ring-2 focus:ring-violet-500/20"
+            className="h-10 w-full rounded-lg border border-white/10 bg-white/5 pl-9 pr-3 text-sm text-gray-100 outline-none placeholder:text-slate-500 focus:border-lime-500 focus:bg-white/10 focus:ring-2 focus:ring-lime-500/20"
             placeholder="Buscar por nombre o email"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -222,13 +222,13 @@ export default function DeveloperUsers() {
                         src={u.imageUrl}
                         name={name || u.email}
                         size="sm"
-                        className="bg-gradient-to-br from-violet-500 to-blue-500 text-white"
+                        className="bg-gradient-to-br from-lime-500 to-blue-500 text-slate-950"
                       />
                     </td>
                     <td className="px-6 py-4">
                       <p className="font-medium text-white">{name || "—"}</p>
                       {isSelf && (
-                        <p className="text-xs text-violet-400">Vos</p>
+                        <p className="text-xs text-lime-400">Vos</p>
                       )}
                     </td>
                     <td className="px-6 py-4 text-slate-300">{u.email}</td>

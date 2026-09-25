@@ -104,7 +104,7 @@ export default function OrganizerTicketTypes() {
                     </td>
                     <td className="px-6 py-4">
                       <span className="flex items-center gap-2 font-medium text-white">
-                        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-violet-500" />
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-lime-500" />
                         {row.name}
                       </span>
                     </td>

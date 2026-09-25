@@ -8,7 +8,7 @@ import Button from "../ui/Button.jsx";
 export default function HeroSection({ title, subtitle, ctaLabel, ctaTo }) {
   return (
     <section className="relative overflow-hidden border-b border-white/5">
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-violet-500/10 via-transparent to-transparent" />
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-lime-500/10 via-transparent to-transparent" />
       <div className="relative mx-auto flex max-w-4xl flex-col items-center gap-6 px-6 py-24 text-center">
         <h1 className="text-4xl font-extrabold leading-tight text-white sm:text-5xl">
           {title}

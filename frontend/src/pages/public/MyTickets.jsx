@@ -85,8 +85,8 @@ export default function MyTickets() {
 
             {!loading && !error && tickets.length === 0 && (
                 <div className="flex flex-col items-center gap-3 rounded-xl border border-white/10 bg-[#0B1120] px-6 py-16 text-center">
-                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-violet-500/10">
-                        <Ticket className="h-7 w-7 text-violet-400" />
+                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-lime-500/10">
+                        <Ticket className="h-7 w-7 text-lime-400" />
                     </div>
                     <h2 className="text-base font-semibold text-white">Todavía no tenés entradas</h2>
                     <p className="max-w-sm text-sm text-slate-400">

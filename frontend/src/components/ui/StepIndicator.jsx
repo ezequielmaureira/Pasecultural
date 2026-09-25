@@ -20,9 +20,9 @@ export default function StepIndicator({ steps, step, onStepClick, clickable }) {
             <div
               className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold transition-colors duration-150 ${
                 s.id === step
-                  ? "bg-violet-600 text-white"
+                  ? "bg-lime-600 text-slate-950"
                   : s.id < step
-                  ? "bg-violet-500/20 text-violet-300"
+                  ? "bg-lime-500/20 text-lime-300"
                   : "bg-white/5 text-slate-500"
               }`}
             >
@@ -30,7 +30,7 @@ export default function StepIndicator({ steps, step, onStepClick, clickable }) {
             </div>
             <span
               className={`hidden text-[11px] sm:block ${
-                s.id === step ? "text-violet-300" : "text-slate-500"
+                s.id === step ? "text-lime-300" : "text-slate-500"
               }`}
             >
               {s.label}

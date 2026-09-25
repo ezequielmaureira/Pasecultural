@@ -11,7 +11,7 @@ export default function TicketCard({ ticket, onOpen }) {
         <button
             type="button"
             onClick={() => onOpen(ticket)}
-            className="group flex w-full items-stretch gap-4 overflow-hidden rounded-xl border border-white/10 bg-[#0B1120] p-3 text-left transition-colors duration-150 hover:border-violet-500/40"
+            className="group flex w-full items-stretch gap-4 overflow-hidden rounded-xl border border-white/10 bg-[#0B1120] p-3 text-left transition-colors duration-150 hover:border-lime-500/40"
         >
             <div className="relative aspect-square w-20 shrink-0 overflow-hidden rounded-lg bg-white/5 sm:w-24">
                 {ticket.event?.coverImage ? (
@@ -56,7 +56,7 @@ export default function TicketCard({ ticket, onOpen }) {
                 {countdown && (
                     <p
                         className={`flex items-center gap-1.5 truncate text-xs font-medium ${
-                            countdown.phase === "upcoming" ? "text-violet-400" : "text-slate-500"
+                            countdown.phase === "upcoming" ? "text-lime-400" : "text-slate-500"
                         }`}
                     >
                         <Timer className="h-3.5 w-3.5 shrink-0" />
@@ -65,7 +65,7 @@ export default function TicketCard({ ticket, onOpen }) {
                 )}
 
                 <div className="mt-auto flex items-center justify-between gap-2 pt-1">
-                    <span className="flex items-center gap-1.5 truncate text-xs font-medium text-violet-400">
+                    <span className="flex items-center gap-1.5 truncate text-xs font-medium text-lime-400">
                         <Ticket className="h-3.5 w-3.5 shrink-0" />
                         {ticket.ticketType?.name}
                     </span>

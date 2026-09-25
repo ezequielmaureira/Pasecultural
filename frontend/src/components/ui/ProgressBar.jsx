@@ -14,7 +14,7 @@
 // contra la misma capacidad. Sin `secondaryValue` se comporta exactamente
 // igual que antes (EventHeroCard/EventStatusCard no lo usan y no cambian).
 const TONE_BAR_CLASSES = {
-  brand: "bg-violet-500",
+  brand: "bg-lime-500",
   success: "bg-emerald-500",
   warning: "bg-amber-500",
   danger: "bg-rose-500",

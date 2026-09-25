@@ -86,7 +86,7 @@ export default function Drawer({ title, onClose, children, maxWidth = "max-w-md"
                 aria-modal="true"
                 aria-labelledby={titleId}
                 tabIndex={-1}
-                className={`flex h-full w-full ${maxWidth} flex-col overflow-y-auto border-l border-white/10 bg-[#0B1120] outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50`}
+                className={`flex h-full w-full ${maxWidth} flex-col overflow-y-auto border-l border-white/10 bg-[#0B1120] outline-none focus-visible:ring-2 focus-visible:ring-lime-500/50`}
             >
                 <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
                     <h3 id={titleId} className="text-sm font-semibold text-white">{title}</h3>

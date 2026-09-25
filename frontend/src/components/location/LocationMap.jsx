@@ -112,7 +112,7 @@ export default function LocationMap({
         href={buildGoogleMapsDirectionsUrl(latitude, longitude)}
         target="_blank"
         rel="noopener noreferrer"
-        className="flex w-fit items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-2 text-xs font-medium text-white transition-colors duration-150 hover:bg-violet-500"
+        className="flex w-fit items-center gap-1.5 rounded-lg bg-lime-600 px-3 py-2 text-xs font-medium text-slate-950 transition-colors duration-150 hover:bg-lime-500"
       >
         <Navigation className="h-3.5 w-3.5" />
         Cómo llegar

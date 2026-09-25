@@ -169,7 +169,7 @@ export default function OrganizerEvents() {
           <Link to="/organizador/eventos/nuevo" state={{ fresh: true, tutorial: true }}>
             <Button
               variant="secondary"
-              className="w-full border border-violet-400/30 bg-violet-500/5 text-violet-300 hover:border-violet-400/50 hover:bg-violet-500/10 hover:text-violet-200 sm:w-auto"
+              className="w-full border border-lime-400/30 bg-lime-500/5 text-lime-300 hover:border-lime-400/50 hover:bg-lime-500/10 hover:text-lime-200 sm:w-auto"
             >
               <Sparkles className="h-4 w-4" />
               Crear con tutorial

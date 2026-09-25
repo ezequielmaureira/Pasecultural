@@ -307,7 +307,7 @@ export default function WithdrawalRequest() {
               {REASON_OPTIONS.map((option) => (
                 <label
                   key={option.value}
-                  className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-slate-200 has-[:checked]:border-violet-500/60 has-[:checked]:bg-violet-500/10"
+                  className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-slate-200 has-[:checked]:border-lime-500/60 has-[:checked]:bg-lime-500/10"
                 >
                   <input
                     type="radio"
@@ -315,7 +315,7 @@ export default function WithdrawalRequest() {
                     value={option.value}
                     checked={reason === option.value}
                     onChange={() => setReason(option.value)}
-                    className="accent-violet-500"
+                    className="accent-lime-500"
                   />
                   {option.label}
                 </label>
@@ -441,7 +441,7 @@ export default function WithdrawalRequest() {
       <div className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
         <Card>
           <div className="flex flex-col items-center gap-3 py-2 text-center">
-            <Search className="h-9 w-9 text-violet-400" />
+            <Search className="h-9 w-9 text-lime-400" />
             <h1 className="text-lg font-bold text-white">Si encontramos compras asociadas a esos datos, te enviamos un código.</h1>
             <p className="text-sm text-slate-400">
               Revisá el correo: <span className="font-medium text-slate-200">{maskedEmail}</span>.
@@ -474,7 +474,7 @@ export default function WithdrawalRequest() {
               type="button"
               onClick={handleResend}
               disabled={resending || cooldownRemaining > 0}
-              className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-violet-400 transition-colors duration-150 hover:text-violet-300 disabled:cursor-not-allowed disabled:text-slate-600"
+              className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-lime-400 transition-colors duration-150 hover:text-lime-300 disabled:cursor-not-allowed disabled:text-slate-600"
             >
               <RefreshCw className={`h-3 w-3 ${resending ? "animate-spin" : ""}`} />
               {cooldownRemaining > 0 ? `Reenviar código (${cooldownRemaining}s)` : "Reenviar código"}

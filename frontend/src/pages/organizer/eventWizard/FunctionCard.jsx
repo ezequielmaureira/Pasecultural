@@ -12,7 +12,7 @@ function OverrideRow({ label, useCatalog, catalogValue, overrideValue, onToggle,
           type="checkbox"
           checked={useCatalog}
           onChange={(e) => onToggle(e.target.checked)}
-          className="accent-violet-600"
+          className="accent-lime-600"
         />
         Usar {label} del catálogo ({catalogValue})
       </label>
@@ -65,7 +65,7 @@ export default function FunctionCard({
       }
     >
       {fn.copiedFromPrevious && (
-        <div className="flex items-start gap-2 rounded-lg border border-violet-500/20 bg-violet-500/10 p-3 text-violet-300">
+        <div className="flex items-start gap-2 rounded-lg border border-lime-500/20 bg-lime-500/10 p-3 text-lime-300">
           <Info className="mt-0.5 h-4 w-4 shrink-0" />
           <p className="text-xs">
             La nueva función fue creada copiando la anterior. Modificá solamente los datos que
@@ -157,7 +157,7 @@ export default function FunctionCard({
                   type="checkbox"
                   checked={assignment.enabled}
                   onChange={(e) => onAssignmentChange(ticketIndex, { enabled: e.target.checked })}
-                  className="accent-violet-600"
+                  className="accent-lime-600"
                 />
                 <span className="text-sm font-medium text-white">{tt.name || "Entrada"}</span>
               </label>
@@ -195,7 +195,7 @@ export default function FunctionCard({
                         onChange={(e) =>
                           onAssignmentChange(ticketIndex, { useCatalogVisible: e.target.checked })
                         }
-                        className="accent-violet-600"
+                        className="accent-lime-600"
                       />
                       Usar visibilidad del catálogo ({tt.visible ? "Visible" : "Oculta"})
                     </label>
@@ -207,7 +207,7 @@ export default function FunctionCard({
                           onClick={() => onAssignmentChange(ticketIndex, { visibleOverride: true })}
                           className={`h-8 rounded-lg px-3 text-xs font-medium transition-colors duration-150 ${
                             assignment.visibleOverride
-                              ? "bg-violet-600 text-white"
+                              ? "bg-lime-600 text-slate-950"
                               : "bg-white/5 text-slate-400 hover:bg-white/10"
                           }`}
                         >
@@ -218,7 +218,7 @@ export default function FunctionCard({
                           onClick={() => onAssignmentChange(ticketIndex, { visibleOverride: false })}
                           className={`h-8 rounded-lg px-3 text-xs font-medium transition-colors duration-150 ${
                             !assignment.visibleOverride
-                              ? "bg-violet-600 text-white"
+                              ? "bg-lime-600 text-slate-950"
                               : "bg-white/5 text-slate-400 hover:bg-white/10"
                           }`}
                         >

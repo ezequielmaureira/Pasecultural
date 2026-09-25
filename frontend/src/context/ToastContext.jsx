@@ -12,7 +12,7 @@ const ICON_BY_TYPE = {
 const TONE_BY_TYPE = {
   success: "border-emerald-500/20 bg-emerald-500/10 text-emerald-300",
   error: "border-rose-500/20 bg-rose-500/10 text-rose-300",
-  info: "border-violet-500/20 bg-violet-500/10 text-violet-300",
+  info: "border-lime-500/20 bg-lime-500/10 text-lime-300",
 };
 
 const DEFAULT_DURATION = 4000;

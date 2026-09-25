@@ -128,7 +128,7 @@ export default function OrganizerSales() {
           <div className="relative w-full sm:w-72">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
             <input
-              className="h-10 w-full rounded-lg border border-white/10 bg-white/5 pl-9 pr-3 text-sm text-gray-100 outline-none placeholder:text-slate-500 focus:border-violet-500 focus:bg-white/10 focus:ring-2 focus:ring-violet-500/20"
+              className="h-10 w-full rounded-lg border border-white/10 bg-white/5 pl-9 pr-3 text-sm text-gray-100 outline-none placeholder:text-slate-500 focus:border-lime-500 focus:bg-white/10 focus:ring-2 focus:ring-lime-500/20"
               placeholder="Buscar por comprador, email o DNI"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -148,9 +148,9 @@ export default function OrganizerSales() {
                 type="button"
                 aria-pressed={isActive}
                 onClick={() => setStatusFilter(filter.id)}
-                className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${
+                className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime-400 ${
                   isActive
-                    ? "bg-violet-600 text-white"
+                    ? "bg-lime-600 text-slate-950"
                     : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
                 }`}
               >

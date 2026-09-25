@@ -27,7 +27,7 @@ export default function SearchBar({ className = "", scope = SEARCH_SCOPES[0].id 
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Buscar eventos, artistas o lugares..."
-        className="h-9 w-full rounded-lg border border-white/10 bg-white/5 pl-9 pr-3 text-sm text-gray-100 outline-none placeholder:text-slate-500 transition-colors duration-150 focus:border-violet-500 focus:bg-white/10 focus:ring-2 focus:ring-violet-500/20"
+        className="h-9 w-full rounded-lg border border-white/10 bg-white/5 pl-9 pr-3 text-sm text-gray-100 outline-none placeholder:text-slate-500 transition-colors duration-150 focus:border-lime-500 focus:bg-white/10 focus:ring-2 focus:ring-lime-500/20"
       />
     </form>
   );

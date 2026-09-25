@@ -73,9 +73,9 @@ function StepIndicator({ step }) {
           <div
             className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold transition-colors duration-150 ${
               n === step
-                ? "bg-violet-600 text-white"
+                ? "bg-lime-600 text-slate-950"
                 : n < step
-                ? "bg-violet-500/20 text-violet-300"
+                ? "bg-lime-500/20 text-lime-300"
                 : "bg-white/5 text-slate-500"
             }`}
           >
@@ -182,7 +182,7 @@ export default function OrganizerOnboarding() {
   if (checking) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[#05070B] text-slate-400">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/10 border-t-violet-500" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/10 border-t-lime-500" />
         <p className="text-sm">Verificando tu cuenta...</p>
       </div>
     );
@@ -192,7 +192,7 @@ export default function OrganizerOnboarding() {
     <div className="flex min-h-screen items-center justify-center bg-[#05070B] px-6 py-16">
       <div className="w-full max-w-xl">
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-blue-500 text-white">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-lime-500 to-blue-500 text-slate-950">
             <Building2 className="h-6 w-6" />
           </div>
           <h1 className="text-2xl font-bold text-white">Creá tu organización</h1>

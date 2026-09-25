@@ -141,7 +141,7 @@ export default function TutorialSpotlight({
           nunca intercepta clicks, ni siquiera sobre sí mismo. */}
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed z-50 rounded-2xl border-2 border-violet-400/80 shadow-[0_0_0_9999px_rgba(2,4,10,0.72),0_0_26px_rgba(168,85,247,0.55)] transition-all duration-200 ease-out"
+        className="pointer-events-none fixed z-50 rounded-2xl border-2 border-lime-400/80 shadow-[0_0_0_9999px_rgba(2,4,10,0.72),0_0_26px_rgba(190,242,100,0.55)] transition-all duration-200 ease-out"
         style={{
           top: rect.top - RING_PADDING,
           left: rect.left - RING_PADDING,

@@ -25,7 +25,7 @@ function StepsSection() {
         {HOW_IT_WORKS_STEPS.map(({ step, icon, title, description }) => (
           <StepCard key={step} step={step} icon={icon} title={title} description={description}>
             {step === 3 && (
-              <div className="mt-1 flex h-24 w-24 items-center justify-center rounded-xl border border-dashed border-violet-500/40 bg-violet-500/5 text-violet-400">
+              <div className="mt-1 flex h-24 w-24 items-center justify-center rounded-xl border border-dashed border-lime-500/40 bg-lime-500/5 text-lime-400">
                 <QrCode className="h-12 w-12" />
               </div>
             )}
@@ -81,7 +81,7 @@ function ContactSection() {
       </p>
       <a
         href="mailto:hola@pasecultural.com"
-        className="mt-6 inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-violet-600 px-6 text-base font-medium text-white transition-colors duration-150 hover:bg-violet-500"
+        className="mt-6 inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-lime-600 px-6 text-base font-medium text-slate-950 transition-colors duration-150 hover:bg-lime-500"
       >
         <Mail className="h-4 w-4" />
         Contactanos

@@ -85,7 +85,7 @@ export default function ScanConfirmationScreen({ data, onConfirm, onCancel, conf
 
             <div className="flex-1 overflow-y-auto px-5 py-6">
                 <div className="mx-auto flex max-w-sm flex-col items-center">
-                    <div className="flex h-20 w-20 items-center justify-center rounded-full bg-white/10 ring-2 ring-violet-500/30">
+                    <div className="flex h-20 w-20 items-center justify-center rounded-full bg-white/10 ring-2 ring-lime-500/30">
                         <User className="h-9 w-9 text-slate-400" strokeWidth={1.5} />
                     </div>
 
@@ -94,7 +94,7 @@ export default function ScanConfirmationScreen({ data, onConfirm, onCancel, conf
                     </h1>
 
                     {data.ticketType && (
-                        <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-violet-500/15 px-4 py-1.5 text-sm font-bold text-violet-300">
+                        <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-lime-500/15 px-4 py-1.5 text-sm font-bold text-lime-300">
                             {/* Emoji del canal de emisión (venta/cortesía/futuro) en vez
                                 del ícono genérico — mismo dato que ya trae `data.origin`
                                 (ticket.origin, Scanner.service.js), sólo se aprovecha acá.

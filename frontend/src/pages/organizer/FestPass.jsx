@@ -501,17 +501,17 @@ export default function FestPass() {
     return (
       <ScreenShell>
         <div className="flex flex-col items-center gap-2 py-6 text-center">
-          <PartyPopper className="h-10 w-10 text-violet-400" />
+          <PartyPopper className="h-10 w-10 text-lime-400" />
           <h1 className="text-2xl font-bold text-white">Tu Fest Pass está publicado</h1>
           <p className="text-sm text-slate-400">Ya está visible en el marketplace de Smarticket.</p>
         </div>
 
-        <Card className="flex flex-col gap-3 border-violet-500/20">
-          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-violet-300">
+        <Card className="flex flex-col gap-3 border-lime-500/20">
+          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-lime-300">
             <Zap className="h-3.5 w-3.5" />
             Tu enlace Fest Pass
           </p>
-          <p className="truncate text-sm text-violet-300">{window.location.host}/fest-pass/{published.slug}</p>
+          <p className="truncate text-sm text-lime-300">{window.location.host}/fest-pass/{published.slug}</p>
           <div className="flex flex-wrap gap-2">
             <LinkButton to={`/fest-pass/${published.slug}`} target="_blank" rel="noreferrer" variant="secondary" size="sm" className="gap-1.5">
               <ExternalLink className="h-3.5 w-3.5" />
@@ -537,7 +537,7 @@ export default function FestPass() {
       <ScreenShell>
         <div className="flex flex-col items-center gap-1 text-center">
           <span className="flex items-center gap-2 text-2xl font-extrabold text-white">
-            <Zap className="h-6 w-6 text-violet-400" />
+            <Zap className="h-6 w-6 text-lime-400" />
             Fest Pass
           </span>
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{STAGE_LABEL.preview}</p>
@@ -555,7 +555,7 @@ export default function FestPass() {
             )}
             <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
             <div className="absolute inset-x-0 bottom-0 flex flex-col gap-2 p-4">
-              <span className="w-fit rounded-full bg-violet-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-200">
+              <span className="w-fit rounded-full bg-lime-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-lime-200">
                 {getEventCategoryLabel(general)}
               </span>
               <h2 className="text-lg font-bold leading-tight text-white">{general.title || "Nombre del evento"}</h2>
@@ -568,7 +568,7 @@ export default function FestPass() {
               <button
                 type="button"
                 onClick={(e) => e.preventDefault()}
-                className="mt-1 flex items-center justify-center gap-1.5 rounded-full bg-gradient-to-r from-fuchsia-500 via-violet-500 to-blue-500 py-2.5 text-sm font-bold text-white"
+                className="mt-1 flex items-center justify-center gap-1.5 rounded-full bg-gradient-to-r from-fuchsia-500 via-lime-500 to-blue-500 py-2.5 text-sm font-bold text-slate-950"
               >
                 <TicketIcon className="h-4 w-4" />
                 Comprar entradas
@@ -661,7 +661,7 @@ export default function FestPass() {
     <ScreenShell wide={screen === "info"}>
       <div className="flex flex-col items-center gap-1 text-center">
         <span className="flex items-center gap-2 text-2xl font-extrabold text-white">
-          <Zap className="h-6 w-6 text-violet-400" />
+          <Zap className="h-6 w-6 text-lime-400" />
           Fest Pass
         </span>
         <p className="text-sm text-slate-400">Creá tu evento en minutos.</p>
@@ -699,7 +699,7 @@ export default function FestPass() {
               helperText="Se muestra completa, sin recortar. PNG, JPG, JPEG o WEBP. Máximo 5 MB."
             />
             {general.coverImage && (
-              <p className="text-center text-xs font-medium text-violet-400">Tocá la imagen para cambiar la foto</p>
+              <p className="text-center text-xs font-medium text-lime-400">Tocá la imagen para cambiar la foto</p>
             )}
             <ErrorText message={errors.coverImage} />
           </div>
@@ -876,7 +876,7 @@ export default function FestPass() {
             <button
               type="button"
               onClick={addTicketType}
-              className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 py-2.5 text-sm font-medium text-slate-400 hover:border-violet-500/60 hover:text-violet-300"
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/15 py-2.5 text-sm font-medium text-slate-400 hover:border-lime-500/60 hover:text-lime-300"
             >
               <Plus className="h-4 w-4" />
               Agregar entrada

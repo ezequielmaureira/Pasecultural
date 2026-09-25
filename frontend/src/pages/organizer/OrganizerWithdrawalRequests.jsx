@@ -252,12 +252,12 @@ export default function OrganizerWithdrawalRequests() {
                     <label
                       key={t.id}
                       className={`flex items-center gap-2.5 rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-slate-200 ${
-                        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer has-[:checked]:border-violet-500/60 has-[:checked]:bg-violet-500/10"
+                        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer has-[:checked]:border-lime-500/60 has-[:checked]:bg-lime-500/10"
                       }`}
                     >
                       <input
                         type="checkbox"
-                        className="accent-violet-500"
+                        className="accent-lime-500"
                         checked={selectedTicketIds.has(t.id)}
                         disabled={disabled}
                         onChange={() => toggleTicketSelected(t.id)}

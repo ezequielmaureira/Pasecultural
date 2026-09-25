@@ -54,7 +54,7 @@ export default function DatePicker({ value, onChange, placeholder = "Elegir fech
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className={`flex h-10 w-full items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 text-sm outline-none transition-colors duration-150 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 ${
+        className={`flex h-10 w-full items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 text-sm outline-none transition-colors duration-150 focus:border-lime-500 focus:ring-2 focus:ring-lime-500/20 ${
           value ? "text-gray-100" : "text-slate-500"
         }`}
       >
@@ -106,8 +106,8 @@ export default function DatePicker({ value, onChange, placeholder = "Elegir fech
                   disabled={isPast}
                   onClick={() => select(date)}
                   className={`aspect-square rounded-md text-xs transition-colors duration-150 disabled:cursor-not-allowed ${textClass} ${
-                    isSelected ? "bg-violet-600 text-white" : isToday ? "border border-violet-500/60" : ""
-                  } ${!isPast && !isSelected ? "hover:bg-violet-500/20 hover:text-white" : ""}`}
+                    isSelected ? "bg-lime-600 text-slate-950" : isToday ? "border border-lime-500/60" : ""
+                  } ${!isPast && !isSelected ? "hover:bg-lime-500/20 hover:text-white" : ""}`}
                 >
                   {date.getDate()}
                 </button>

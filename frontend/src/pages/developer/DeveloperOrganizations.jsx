@@ -218,7 +218,7 @@ export default function DeveloperOrganizations() {
             onClick={() => setFilter(f.id)}
             className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors duration-150 ${
               filter === f.id
-                ? "bg-violet-500/10 text-violet-300"
+                ? "bg-lime-500/10 text-lime-300"
                 : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
             }`}
           >
@@ -269,7 +269,7 @@ export default function DeveloperOrganizations() {
                         src={org.logo}
                         name={org.name}
                         size="sm"
-                        className="bg-gradient-to-br from-violet-500 to-blue-500 text-white"
+                        className="bg-gradient-to-br from-lime-500 to-blue-500 text-slate-950"
                       />
                     </td>
                     <td className="px-6 py-4">

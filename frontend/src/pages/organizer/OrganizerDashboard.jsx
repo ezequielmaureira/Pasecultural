@@ -230,7 +230,7 @@ export default function OrganizerDashboard() {
                 Para FREE, deliberadamente no se muestra nada (ver el
                 informe de auditoría). */}
             {organization?.plan === "PREMIUM" && (
-              <span className="rounded-full bg-violet-500/10 px-2.5 py-1 text-xs font-medium text-violet-300">
+              <span className="rounded-full bg-lime-500/10 px-2.5 py-1 text-xs font-medium text-lime-300">
                 Premium
               </span>
             )}

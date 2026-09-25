@@ -47,11 +47,11 @@ export default function UserMenu() {
       align="right"
       items={items}
       trigger={
-        <span className="relative block shrink-0 rounded-full ring-0 ring-violet-500/40 transition-shadow duration-150 hover:ring-4">
+        <span className="relative block shrink-0 rounded-full ring-0 ring-lime-500/40 transition-shadow duration-150 hover:ring-4">
           <Avatar
             name={fullName || undefined}
             size="sm"
-            className="bg-gradient-to-br from-violet-500 to-blue-500 text-white"
+            className="bg-gradient-to-br from-lime-500 to-blue-500 text-slate-950"
           />
         </span>
       }

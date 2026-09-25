@@ -18,7 +18,7 @@ const CATEGORY_ITEMS = NAVBAR_CATEGORIES.map((c) => ({
 const navLinkClassName = ({ isActive }) =>
   `relative py-1 text-sm font-medium transition-colors duration-150 ${
     isActive
-      ? "text-violet-400 after:absolute after:-bottom-[21px] after:left-0 after:h-0.5 after:w-full after:bg-violet-500"
+      ? "text-lime-400 after:absolute after:-bottom-[21px] after:left-0 after:h-0.5 after:w-full after:bg-lime-500"
       : "text-slate-300 hover:text-white light:text-slate-600 light:hover:text-slate-900"
   }`;
 
@@ -64,8 +64,8 @@ export default function Navbar({ brandOverride = null }) {
     <header
       className={`sticky top-0 z-20 border-b transition-all duration-300 light:border-slate-200 light:bg-white/95 ${
         scrolled
-          ? "border-violet-500/15 bg-[#05070B]/90 shadow-lg shadow-black/40 backdrop-blur-xl light:shadow-slate-200/60"
-          : "border-violet-500/10 bg-[#05070B]/95 backdrop-blur"
+          ? "border-lime-500/15 bg-[#05070B]/90 shadow-lg shadow-black/40 backdrop-blur-xl light:shadow-slate-200/60"
+          : "border-lime-500/10 bg-[#05070B]/95 backdrop-blur"
       }`}
     >
       <div
@@ -101,7 +101,7 @@ export default function Navbar({ brandOverride = null }) {
                   arriba: cuadrado con gradiente violeta→azul + Ticket) a
                   escala de firma — nunca el wordmark completo acá. */}
               <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-400 light:text-slate-500">
-                <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-violet-500 to-blue-500">
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-lime-500 to-blue-500">
                   <Ticket className="h-2.5 w-2.5 text-white" />
                 </span>
                 <span>by Smarticket</span>
@@ -118,12 +118,12 @@ export default function Navbar({ brandOverride = null }) {
           </div>
         ) : (
           <Link to="/" className="flex shrink-0 items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 text-white">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-lime-500 to-blue-500 text-slate-950">
               <Ticket className="h-5 w-5" />
             </div>
             <div className="leading-tight">
               <span className="block text-lg font-bold text-white light:text-slate-900">
-                Smar<span className="smarticket-holo-t">T</span><span className="text-violet-400">icket</span>
+                Smar<span className="smarticket-holo-t">T</span><span className="text-lime-400">icket</span>
               </span>
               <span className="hidden text-[11px] italic text-slate-500 sm:block light:text-slate-400">
                 Descubrí, organizá y viví eventos.
@@ -135,9 +135,9 @@ export default function Navbar({ brandOverride = null }) {
         {!brandOverride && (
           <Link
             to="/como-funciona"
-            className="flex shrink-0 items-center gap-1 rounded-full border border-violet-400/60 bg-gradient-to-r from-violet-600/30 via-fuchsia-500/20 to-blue-500/30 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-[0_0_14px_rgba(139,92,246,0.5)] transition-all duration-150 hover:border-blue-400/70 hover:shadow-[0_0_20px_rgba(59,130,246,0.6)] sm:px-3 sm:text-xs"
+            className="flex shrink-0 items-center gap-1 rounded-full border border-lime-400/60 bg-gradient-to-r from-lime-600/30 via-fuchsia-500/20 to-blue-500/30 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-[0_0_14px_rgba(132,204,22,0.5)] transition-all duration-150 hover:border-blue-400/70 hover:shadow-[0_0_20px_rgba(59,130,246,0.6)] sm:px-3 sm:text-xs"
           >
-            <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-300" />
+            <Sparkles className="h-3.5 w-3.5 shrink-0 text-lime-300" />
             <span className="whitespace-nowrap">¿Cómo funciona?</span>
           </Link>
         )}
@@ -287,7 +287,7 @@ export default function Navbar({ brandOverride = null }) {
               <Link
                 to="/developer"
                 onClick={() => setMobileOpen(false)}
-                className="flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-sm font-medium text-violet-400 transition-colors duration-150 hover:bg-white/5"
+                className="flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-sm font-medium text-lime-400 transition-colors duration-150 hover:bg-white/5"
               >
                 <LayoutDashboard className="h-4 w-4" />
                 Panel developer

@@ -39,7 +39,7 @@ export default function DateAnswer({ onSubmit, disabled }) {
           type="button"
           disabled={disabled}
           onClick={() => selectDate(today)}
-          className="rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs font-medium text-slate-200 transition-colors duration-150 hover:border-violet-500/60 hover:bg-violet-500/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs font-medium text-slate-200 transition-colors duration-150 hover:border-lime-500/60 hover:bg-lime-500/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
           Hoy
         </button>
@@ -47,7 +47,7 @@ export default function DateAnswer({ onSubmit, disabled }) {
           type="button"
           disabled={disabled}
           onClick={() => selectDate(tomorrow)}
-          className="rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs font-medium text-slate-200 transition-colors duration-150 hover:border-violet-500/60 hover:bg-violet-500/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs font-medium text-slate-200 transition-colors duration-150 hover:border-lime-500/60 hover:bg-lime-500/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
           Mañana
         </button>
@@ -96,8 +96,8 @@ export default function DateAnswer({ onSubmit, disabled }) {
                 disabled={disabled || isPast}
                 onClick={() => selectDate(date)}
                 className={`aspect-square rounded-lg text-sm transition-colors duration-150 disabled:cursor-not-allowed ${textClass} ${
-                  isToday ? "border border-violet-500/60" : ""
-                } ${!isPast ? "hover:bg-violet-500/20 hover:text-white" : ""}`}
+                  isToday ? "border border-lime-500/60" : ""
+                } ${!isPast ? "hover:bg-lime-500/20 hover:text-white" : ""}`}
               >
                 {date.getDate()}
               </button>
