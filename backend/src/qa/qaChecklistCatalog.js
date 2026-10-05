@@ -161,10 +161,6 @@ const RAW_CATALOG = [
         ["organizer.festPass.share", "Compartir enlace de Fest Pass"],
     ]),
 
-    ...catalog("ORGANIZER", "Tipos de entrada", [
-        ["organizer.ticketTypes.viewCatalog", "Ver catálogo de tipos de entrada (precio, stock y visibilidad)"],
-    ]),
-
     ...catalog("ORGANIZER", "Entradas", [
         ["organizer.tickets.list", "Ver listado de entradas por evento/función"],
         ["organizer.tickets.viewStats", "Ver estadísticas de evento/función"],
