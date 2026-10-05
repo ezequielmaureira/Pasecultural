@@ -4,7 +4,7 @@ import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { isPublicLaunchEnabledOrDefault } from "./publicLaunchSettings.service.js";
 import { getUserByClerkId } from "../utils/getUserByClerkId.js";
-import { runArchiveSelfHeal, assertFunctionActive } from "./eventArchive.service.js";
+import { runArchiveSelfHeal, assertFunctionActive, isFunctionFinished } from "./eventArchive.service.js";
 import { isValidEmail } from "../utils/validateEmail.js";
 import { normalizeBuyerDocument, isValidBuyerDocument } from "../utils/validateBuyerDocument.js";
 import { buildTicketNumber } from "../utils/ticketNumber.js";
@@ -1195,6 +1195,12 @@ export const getSaleStatusService = async (recoveryToken) => {
 // para que saleRecoveryVerification.service.js pueda reusarla con valores ya
 // normalizados (antes de mandar el código, y de nuevo recién después de
 // verificarlo) sin duplicar el where/select ni revalidar formato dos veces.
+// Sólo función VIGENTE O FUTURA (isFunctionFinished, misma regla temporal
+// canónica que eventArchive.service.js) — esta pantalla es para recuperar
+// entradas utilizables AHORA, no un historial eterno de eventos ya
+// terminados. Deliberadamente NUNCA se filtra por Event.archivedAt: un
+// mismo Event puede tener varias funciones, y lo que importa es la función
+// de ESTA compra puntual, no si el Event como un todo ya pasó al Historial.
 async function findConfirmedRecoverableSales(normalizedEmail, normalizedDocument) {
     const sales = await prisma.sale.findMany({
         where: {
@@ -1214,14 +1220,21 @@ async function findConfirmedRecoverableSales(normalizedEmail, normalizedDocument
             createdAt: true,
             buyer: { select: { firstName: true } },
             event: { select: { title: true } },
-            function: { select: { date: true, venue: true } },
+            // doorsOpenAt/endAt: lo que necesita isFunctionFinished (misma
+            // regla temporal canónica que el archivado automático, ver
+            // eventArchive.service.js) para excluir funciones ya
+            // terminadas — "Recuperar mis entradas" es para entradas
+            // utilizables AHORA, no un historial eterno.
+            function: { select: { date: true, venue: true, doorsOpenAt: true, endAt: true } },
             tickets: { where: { deletedAt: null }, select: { id: true } },
         },
         orderBy: { createdAt: "desc" },
     });
 
+    const now = new Date();
     return sales
         .filter((sale) => sale.tickets.length > 0)
+        .filter((sale) => !isFunctionFinished(sale.function, now))
         .map((sale) => ({
             recoveryToken: sale.publicRecoveryToken,
             eventTitle: sale.event.title,

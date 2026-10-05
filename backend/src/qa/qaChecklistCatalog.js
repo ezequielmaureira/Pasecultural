@@ -342,7 +342,10 @@ const RAW_CATALOG = [
         ["asistente.recovery.requestOtp", "Solicitar código OTP de recuperación"],
         ["asistente.recovery.resendOtp", "Reenviar código OTP de recuperación"],
         ["asistente.recovery.verifyOtp", "Verificar código OTP de recuperación"],
-        ["asistente.recovery.viewFoundPurchases", "Ver compra(s) encontrada(s)"],
+        [
+            "asistente.recovery.viewFoundPurchases",
+            "Ver compra(s) vigente(s) encontrada(s) (recupera por email+DNI+código, nunca una función ya finalizada)",
+        ],
         ["asistente.recovery.resendConfirmation", "Reenviar confirmación de compra (desde recuperación)"],
         ["asistente.recovery.downloadPdf", "Descargar PDF completo de la compra"],
         ["asistente.recovery.recoverPayment", "Recuperar pago no acreditado (Mercado Pago)"],
