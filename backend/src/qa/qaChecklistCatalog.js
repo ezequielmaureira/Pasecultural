@@ -136,7 +136,6 @@ const RAW_CATALOG = [
         ["organizer.events.cancel", "Cancelar evento"],
         ["organizer.events.delete", "Eliminar evento"],
         ["organizer.events.duplicate", "Duplicar evento archivado"],
-        ["organizer.events.restore", "Restaurar evento archivado"],
         ["organizer.events.configureQuickPass", "Configurar Quick Pass del evento"],
         ["organizer.events.configureLinks", "Configurar enlaces del evento"],
         ["organizer.events.configureTicketCatalog", "Configurar catálogo de tipos de entrada"],

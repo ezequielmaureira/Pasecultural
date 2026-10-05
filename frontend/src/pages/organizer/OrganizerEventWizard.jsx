@@ -23,7 +23,7 @@ import { Field, inputClass, textareaClass } from "../../components/ui/FormField.
 import ImageUploader from "../../components/ui/ImageUploader.jsx";
 import VideoUploader from "../../components/ui/VideoUploader.jsx";
 import { apiFetch } from "../../lib/api.js";
-import { restoreEvent, duplicateEvent } from "../../lib/eventArchiveApi.js";
+import { duplicateEvent } from "../../lib/eventArchiveApi.js";
 import ArchivedEventBanner from "../../components/organizer/ArchivedEventBanner.jsx";
 import { useToast } from "../../context/ToastContext.jsx";
 import { useActiveEvent } from "../../context/ActiveEventContext.jsx";
@@ -112,9 +112,10 @@ export default function OrganizerEventWizard() {
   // "No quiero editar directamente un evento archivado" — si el evento
   // cargado ya pasó al Historial, el render de abajo muestra
   // ArchivedEventBanner en vez del formulario (ver el `if` antes del
-  // `return` principal). El resto del estado del formulario se sigue
-  // poblando igual (no hace daño, sólo no se usa) para que, si se restaura,
-  // el formulario ya esté listo sin re-fetchear nada.
+  // `return` principal), que ya sólo ofrece Duplicar: un evento archivado
+  // nunca vuelve a Eventos vigentes (ver el informe de la ronda "Retiro de
+  // Restaurar Evento"). El resto del estado del formulario se sigue
+  // poblando igual (no hace daño, simplemente no se usa en ese caso).
   const [archivedAt, setArchivedAt] = useState(null);
   // Sólo se conoce con certeza al EDITAR un evento ya persistido (hidratado
   // más abajo desde event.slug) — en creación permanece null hasta que el
@@ -123,7 +124,6 @@ export default function OrganizerEventWizard() {
   // Nunca se inventa/adivina un slug: la URL de Quick Pass sólo se muestra
   // cuando este valor es real.
   const [eventSlug, setEventSlug] = useState(null);
-  const [restoring, setRestoring] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
 
   const [step, setStep] = useState(1);
@@ -846,24 +846,6 @@ export default function OrganizerEventWizard() {
 
   const publishButtonLabel = isEditing ? "Guardar y publicar" : "Publicar";
 
-  // El evento ya está completo en memoria (el efecto de carga pobló todo el
-  // formulario igual, archivado o no) — restaurar sólo necesita sacar la
-  // bandera local, sin volver a pedir nada al backend.
-  async function handleRestore() {
-    setRestoring(true);
-    try {
-      const token = await getToken();
-      await restoreEvent(token, id);
-      toast.success("Evento restaurado — ya podés volver a operarlo.");
-      setArchivedAt(null);
-      setActiveEventId(id);
-    } catch (err) {
-      toast.error(err.message || "No se pudo restaurar el evento.");
-    } finally {
-      setRestoring(false);
-    }
-  }
-
   async function handleDuplicate() {
     setDuplicating(true);
     try {
@@ -902,12 +884,7 @@ export default function OrganizerEventWizard() {
           </Link>
         </div>
 
-        <ArchivedEventBanner
-          onRestore={handleRestore}
-          onDuplicate={handleDuplicate}
-          restoring={restoring}
-          duplicating={duplicating}
-        />
+        <ArchivedEventBanner onDuplicate={handleDuplicate} duplicating={duplicating} />
       </div>
     );
   }

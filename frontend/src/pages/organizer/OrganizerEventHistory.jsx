@@ -16,7 +16,7 @@ import { formatCurrencyARS } from "../../lib/format.js";
 // card ya trae un resumen liviano (vendidas/ingresaron/recaudación, ver
 // event.service.js#listArchivedEventsService) y "Ver resumen" navega al
 // informe histórico completo (OrganizerEventHistoryDetail.jsx) — ya NO al
-// wizard de edición. Restaurar/duplicar se disparan desde ESA pantalla, no
+// wizard de edición. Duplicar se dispara desde ESA pantalla, no
 // desde esta lista (ver el informe de la ronda "Historial de Eventos
 // completo"). Este listado tiene que sentirse como archivo, no como
 // gestor de eventos activos.

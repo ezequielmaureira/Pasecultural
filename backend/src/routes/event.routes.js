@@ -12,7 +12,6 @@ import {
     saveEventLinks,
     getEventCategories,
     listArchivedEvents,
-    restoreEvent,
     duplicateEvent,
 } from "../controllers/event.controller.js";
 import {
@@ -90,7 +89,6 @@ router.get("/:id", requireAuth, getMyEventById);
 router.patch("/:id", requireAuth, updateMyEvent);
 router.put("/:id/schedule", requireAuth, saveEventSchedule);
 router.put("/:id/links", requireAuth, saveEventLinks);
-router.post("/:id/restore", requireAuth, restoreEvent);
 router.post("/:id/duplicate", requireAuth, duplicateEvent);
 
 // Estado de ocupación/ventas por función, con auth de organizador — wrapper

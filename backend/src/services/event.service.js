@@ -279,7 +279,7 @@ async function getUserByClerkId(clerkId) {
 // vuelva a pagar esta misma consulta por su cuenta. Ningún otro caller
 // existente cambia: sigue siendo exactamente la misma función, con el mismo
 // comportamiento, para cualquiera que la llame directo (deleteMyEventService,
-// listArchivedEventsService, restoreEventService, o las 4 de arriba cuando
+// listArchivedEventsService, duplicateEventService, o las 4 de arriba cuando
 // no reciben un contexto ya resuelto — ver resolveContext).
 export async function getMyOrganization(clerkId, organizationId = null) {
     const user = await getUserByClerkId(clerkId);
@@ -669,8 +669,10 @@ export const updateMyEventService = async (clerkId, id, input, organizationId = 
     const event = await prisma.event.findUnique({ where: { id }, include: EVENT_DETAIL_INCLUDE });
     if (!event || event.organizationId !== context.organization.id) return null;
 
-    // "No quiero editar directamente un evento archivado" — restaurarlo
-    // primero (restoreEventService) es el único camino. Se chequea antes de
+    // "No quiero editar directamente un evento archivado" — y ya no hay
+    // forma de volver: un evento archivado nunca se reactiva (ver el
+    // informe de la ronda "Retiro de Restaurar Evento"), Duplicar es el
+    // único camino para reutilizar su configuración. Se chequea antes de
     // cualquier otra validación: no tiene sentido explicarle por qué falló
     // publicar/categorizar algo que ni siquiera se puede tocar.
     if (event.archivedAt) {
@@ -1519,39 +1521,6 @@ export const listArchivedEventsService = async (clerkId, { search } = {}) => {
     return attachArchivedEventsSummary(events);
 };
 
-// Restaurar: vuelve a aparecer en el espacio operativo. Idempotente (si ya
-// no estaba archivado, no rompe nada). No toca status/cancelledAt — un
-// evento CANCELLED restaurado sigue CANCELLED, el organizador decide qué
-// hacer con eso desde ahí; sólo dejó de estar en el Historial.
-export const restoreEventService = async (clerkId, id) => {
-    const context = await getMyOrganization(clerkId);
-    if (!context) return null;
-
-    const event = await prisma.event.findUnique({ where: { id } });
-    if (!event || event.organizationId !== context.organization.id) return null;
-
-    // Premium — Fase 2B. Restaurar limpia archivedAt: para un evento
-    // PUBLISHED archivado, eso es una segunda puerta hacia "activo" además
-    // de publish (ver updateMyEventService) — sin este guard, un evento
-    // podría reactivarse sin pasar nunca por el chequeo de maxActiveEvents.
-    // Sólo aplica si de verdad estaba archivado (idempotente: restaurar algo
-    // que ya no estaba archivado no incrementa nada, no hace falta chequeo)
-    // y si su status es PUBLISHED (un DRAFT/CANCELLED archivado, si alguna
-    // vez existiera, no vuelve a contar como activo al restaurarse).
-    const isReactivation = event.archivedAt !== null && event.status === "PUBLISHED";
-    if (isReactivation) {
-        const quotaCheck = await resolveActiveEventsQuotaCheck(context.organization, event.organizationId);
-        if (quotaCheck) {
-            return prisma.$transaction(async (tx) => {
-                await quotaCheck(tx);
-                return tx.event.update({ where: { id }, data: { archivedAt: null }, include: EVENT_DETAIL_INCLUDE });
-            });
-        }
-    }
-
-    return prisma.event.update({ where: { id }, data: { archivedAt: null }, include: EVENT_DETAIL_INCLUDE });
-};
-
 // Duplicar — copia catálogo/descripción/ubicación/imagen (EventLink[],
 // TicketType[]), NUNCA funciones (las fechas viejas no tienen sentido en
 // una copia — el organizador arma la agenda nueva con syncEventScheduleService,
@@ -1559,7 +1528,8 @@ export const restoreEventService = async (clerkId, id) => {
 // TicketAuditLog/EventScanner — copiarlos sería peligroso, ej. duplicaría
 // códigos QR "válidos"). Funciona igual sobre un evento archivado (sólo
 // EDITARLO directo está bloqueado, ver updateMyEventService) — es
-// justamente una de las dos acciones que ofrece el Historial. El nuevo
+// justamente la única acción que ofrece el Historial además de consultar
+// (ver el informe de la ronda "Retiro de Restaurar Evento"). El nuevo
 // evento nace siempre DRAFT.
 export const duplicateEventService = async (clerkId, id) => {
     const context = await getMyOrganization(clerkId);

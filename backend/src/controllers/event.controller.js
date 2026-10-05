@@ -14,7 +14,6 @@ import {
     syncEventScheduleService,
     syncEventLinksService,
     listArchivedEventsService,
-    restoreEventService,
     duplicateEventService,
 } from "../services/event.service.js";
 
@@ -359,9 +358,12 @@ export const deleteMyEvent = async (req, res) => {
     }
 };
 
-// Historial de Eventos — sólo lectura/búsqueda + 2 acciones (restaurar,
-// duplicar). Nunca edición directa (updateMyEvent ya rechaza eventos
-// archivados con EVENT_ARCHIVED, ver arriba).
+// Historial de Eventos — sólo lectura/búsqueda + 1 acción (duplicar).
+// Nunca edición directa (updateMyEvent ya rechaza eventos archivados con
+// EVENT_ARCHIVED, ver arriba) y nunca "restaurar": un evento archivado no
+// vuelve a Eventos vigentes (ver el informe de la ronda "Retiro de
+// Restaurar Evento" — el self-heal de GET /api/events/mine lo volvía a
+// archivar en el acto, porque sus funciones ya habían terminado).
 export const listArchivedEvents = async (req, res) => {
     try {
         const { userId } = getAuth(req);
@@ -374,32 +376,6 @@ export const listArchivedEvents = async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: "Error al obtener el historial de eventos" });
-    }
-};
-
-export const restoreEvent = async (req, res) => {
-    try {
-        const { userId } = getAuth(req);
-        if (!userId) {
-            return res.status(401).json({ message: "No autenticado" });
-        }
-
-        const event = await restoreEventService(userId, req.params.id);
-        if (!event) {
-            return res.status(404).json({ message: "Evento no encontrado" });
-        }
-
-        res.status(200).json({ event });
-    } catch (error) {
-        console.error(error);
-
-        // Premium — Fase 2B. Antes de este branch, cualquier error acá caía
-        // en el 500 genérico de abajo (restoreEvent nunca tuvo mapeo propio).
-        if (error.message === "PLAN_ACTIVE_EVENT_LIMIT_REACHED") {
-            return res.status(409).json({ message: ErrorCatalog.PLAN_ACTIVE_EVENT_LIMIT_REACHED.userMessage });
-        }
-
-        res.status(500).json({ message: "Error al restaurar el evento" });
     }
 };
 

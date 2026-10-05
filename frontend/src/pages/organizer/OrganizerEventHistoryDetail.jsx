@@ -11,7 +11,6 @@ import {
   Percent,
   Settings,
   Copy,
-  RotateCcw,
 } from "lucide-react";
 import Button from "../../components/ui/Button.jsx";
 import LinkButton from "../../components/ui/LinkButton.jsx";
@@ -28,7 +27,7 @@ import SalesTable from "../../components/organizer/SalesTable.jsx";
 import ActivityTimeline from "../../components/organizer/ActivityTimeline.jsx";
 import { buildEventStatsKpis } from "../../components/organizer/functionStatsSelectors.js";
 import { buildActivityFeed } from "./dashboard/dashboardMetrics.js";
-import { getArchivedEventSummary, restoreEvent, duplicateEvent } from "../../lib/eventArchiveApi.js";
+import { getArchivedEventSummary, duplicateEvent } from "../../lib/eventArchiveApi.js";
 import { eventEditPath } from "../../lib/organizerRoutes.js";
 import { getEventCategoryLabel } from "../../lib/eventCategories.js";
 import { EVENT_STATUS_LABEL } from "../../lib/eventStatus.js";
@@ -76,7 +75,6 @@ export default function OrganizerEventHistoryDetail() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [restoring, setRestoring] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
 
   const load = useCallback(async () => {
@@ -109,21 +107,6 @@ export default function OrganizerEventHistoryDetail() {
     if (!data) return [];
     return buildActivityFeed({ sales: data.sales, tickets: data.tickets, scanners: data.scanners, now: new Date(), limit: 30 });
   }, [data]);
-
-  async function handleRestore() {
-    setRestoring(true);
-    try {
-      const token = await getToken();
-      await restoreEvent(token, eventId);
-      toast.success("Evento restaurado — ya lo encontrás en Eventos vigentes.");
-      navigate("/organizador/eventos");
-    } catch (err) {
-      console.error("No se pudo restaurar el evento", err);
-      toast.error(err.message || "No se pudo restaurar el evento.");
-    } finally {
-      setRestoring(false);
-    }
-  }
 
   async function handleDuplicate() {
     setDuplicating(true);
@@ -183,9 +166,13 @@ export default function OrganizerEventHistoryDetail() {
               </div>
 
               {/* Acciones secundarias — nunca compiten con el informe en sí.
-                  "Restaurar" deliberadamente NO es el CTA principal de esta
-                  pantalla (ver el informe de la ronda): un evento que
-                  terminó naturalmente no suele necesitarlo. */}
+                  No hay "Restaurar": un evento archivado nunca vuelve a
+                  Eventos vigentes (ver el informe de la ronda "Retiro de
+                  Restaurar Evento") — self-heal lo volvería a archivar en el
+                  siguiente listado igual, porque sus funciones ya
+                  terminaron. Si el organizador necesita algo parecido,
+                  Duplicar crea una edición nueva en DRAFT sin tocar este
+                  histórico. */}
               <div className="flex flex-wrap gap-2 border-t border-white/5 pt-3">
                 <LinkButton to={eventEditPath(data.event.id)} variant="ghost" size="sm">
                   <Settings className="h-4 w-4" />
@@ -194,10 +181,6 @@ export default function OrganizerEventHistoryDetail() {
                 <Button variant="ghost" size="sm" onClick={handleDuplicate} loading={duplicating} loadingText="Duplicando...">
                   <Copy className="h-4 w-4" />
                   Duplicar evento
-                </Button>
-                <Button variant="ghost" size="sm" onClick={handleRestore} loading={restoring} loadingText="Restaurando...">
-                  <RotateCcw className="h-4 w-4" />
-                  Restaurar evento
                 </Button>
               </div>
             </div>

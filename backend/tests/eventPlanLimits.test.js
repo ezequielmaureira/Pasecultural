@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import prisma from "../src/config/prisma.js";
-import { createEventService, syncEventScheduleService, updateMyEventService, restoreEventService } from "../src/services/event.service.js";
+import { createEventService, syncEventScheduleService, updateMyEventService } from "../src/services/event.service.js";
 import { updatePlanLimitsService } from "../src/services/organizationPlanPolicy.js";
-import { updateMyEvent, restoreEvent } from "../src/controllers/event.controller.js";
+import { updateMyEvent } from "../src/controllers/event.controller.js";
 import { ErrorCatalog } from "../src/errors/ErrorCatalog.js";
 
 // Premium — Fase 2B. Enforcement real de maxActiveEvents (evento activo =
@@ -345,44 +345,6 @@ testWithDb("EV-H: downgrade por encima del límite bloquea la siguiente activaci
     }
 });
 
-testWithDb("EV-I: restaurar un PUBLISHED archivado respeta maxActiveEvents", async () => {
-    const owner = await createUser();
-    const org = await createOrganization(owner.id);
-    const developer = await createUser({ role: "DEVELOPER" });
-    const snapshot = await snapshotPlanLimits();
-    const events = [];
-    try {
-        await updatePlanLimitsService("FREE", developer.id, { maxActiveEvents: 1 });
-
-        const eventA = await createDraftEvent(owner, org, "I-A");
-        events.push(eventA);
-        await publishEvent(owner, eventA, org);
-        await prisma.event.update({ where: { id: eventA.id }, data: { archivedAt: new Date() } }); // 0/1 activo
-
-        const eventB = await createDraftEvent(owner, org, "I-B");
-        events.push(eventB);
-        await publishEvent(owner, eventB, org); // 1/1, ocupa el único cupo
-
-        await assert.rejects(
-            () => restoreEventService(owner.clerkId, eventA.id),
-            (error) => {
-                assert.equal(error.message, "PLAN_ACTIVE_EVENT_LIMIT_REACHED");
-                return true;
-            }
-        );
-        let freshA = await prisma.event.findUnique({ where: { id: eventA.id } });
-        assert.notEqual(freshA.archivedAt, null, "no debe haberse restaurado mientras no hay cupo");
-
-        // Libera el único cupo (archiva B) — ahora restaurar A debe funcionar.
-        await prisma.event.update({ where: { id: eventB.id }, data: { archivedAt: new Date() } });
-        const restored = await restoreEventService(owner.clerkId, eventA.id);
-        assert.equal(restored.archivedAt, null);
-    } finally {
-        await restorePlanLimits(snapshot);
-        await cleanup({ eventIds: events.map((e) => e.id), organizationIds: [org.id], userIds: [owner.id, developer.id] });
-    }
-});
-
 testWithDb("EV-J: la Organization A no cuenta eventos activos de la Organization B", async () => {
     const ownerA = await createUser();
     const orgA = await createOrganization(ownerA.id);
@@ -508,39 +470,6 @@ testWithDb("HTTP-EV-A: publish bloqueado por el límite devuelve HTTP 409 con el
 
         const fresh = await prisma.event.findUnique({ where: { id: eventB.id } });
         assert.equal(fresh.status, "DRAFT", "no debe haber quedado publicado");
-    } finally {
-        await restorePlanLimits(snapshot);
-        await cleanup({ eventIds: events.map((e) => e.id), organizationIds: [org.id], userIds: [owner.id, developer.id] });
-    }
-});
-
-testWithDb("HTTP-EV-B: restore bloqueado por el límite devuelve HTTP 409 con el código/mensaje real", async () => {
-    const owner = await createUser();
-    const org = await createOrganization(owner.id);
-    const developer = await createUser({ role: "DEVELOPER" });
-    const snapshot = await snapshotPlanLimits();
-    const events = [];
-    try {
-        await updatePlanLimitsService("FREE", developer.id, { maxActiveEvents: 1 });
-
-        const eventA = await createDraftEvent(owner, org, "HTTP-EV-B-A");
-        events.push(eventA);
-        await publishEvent(owner, eventA, org);
-        await prisma.event.update({ where: { id: eventA.id }, data: { archivedAt: new Date() } }); // 0/1 activo
-
-        const eventB = await createDraftEvent(owner, org, "HTTP-EV-B-B");
-        events.push(eventB);
-        await publishEvent(owner, eventB, org); // 1/1, ocupa el único cupo
-
-        const req = fakeReqWithAuth(owner.clerkId, { params: { id: eventA.id } });
-        const { res, state } = fakeRes();
-        await restoreEvent(req, res);
-
-        assert.equal(state.statusCode, 409);
-        assert.equal(state.jsonBody.message, ErrorCatalog.PLAN_ACTIVE_EVENT_LIMIT_REACHED.userMessage);
-
-        const fresh = await prisma.event.findUnique({ where: { id: eventA.id } });
-        assert.notEqual(fresh.archivedAt, null, "no debe haberse restaurado");
     } finally {
         await restorePlanLimits(snapshot);
         await cleanup({ eventIds: events.map((e) => e.id), organizationIds: [org.id], userIds: [owner.id, developer.id] });
