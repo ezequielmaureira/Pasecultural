@@ -163,7 +163,7 @@ const RAW_CATALOG = [
 
     ...catalog("ORGANIZER", "Entradas", [
         ["organizer.tickets.list", "Ver listado de entradas por evento/función"],
-        ["organizer.tickets.viewStats", "Ver estadísticas de evento/función"],
+        ["organizer.tickets.viewStats", "Ver resumen de entradas: cupo, vendidas, emitidas y usadas"],
         ["organizer.tickets.bulkCancel", "Cancelar entradas seleccionadas (acción masiva)"],
         ["organizer.tickets.bulkRehabilitate", "Rehabilitar entradas seleccionadas (acción masiva)"],
         ["organizer.tickets.bulkDelete", "Eliminar entradas seleccionadas (acción masiva)"],

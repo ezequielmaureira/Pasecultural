@@ -7,10 +7,7 @@ import {
   DollarSign,
   ScanLine,
   Gauge,
-  CheckCircle2,
   XCircle,
-  RotateCcw,
-  Clock3,
   Layers,
 } from "lucide-react";
 import Spinner from "../../components/ui/Spinner.jsx";
@@ -20,7 +17,6 @@ import KpiRow from "../../components/organizer/KpiRow.jsx";
 import KpiCard from "../../components/organizer/KpiCard.jsx";
 import SectionHeader from "../../components/organizer/SectionHeader.jsx";
 import { buildEventStatsKpis, buildIssuedByOriginBreakdown } from "../../components/organizer/functionStatsSelectors.js";
-import OriginBreakdownList from "../../components/organizer/OriginBreakdownList.jsx";
 import { useToast } from "../../context/ToastContext.jsx";
 import { useOrganizerData } from "../../context/OrganizerDataContext.jsx";
 import { useActiveEvent } from "../../context/ActiveEventContext.jsx";
@@ -98,6 +94,14 @@ export default function OrganizerTickets() {
     () => buildIssuedByOriginBreakdown(eventKpis.issuedByOrigin),
     [eventKpis.issuedByOrigin]
   );
+  // Desglose compacto bajo la card "Emitidas" (ej. "4 ventas · 1 cortesía")
+  // — mismos nombres amigables que ya usa OriginBreakdownList/getOriginMeta,
+  // nunca códigos internos (SALE/COURTESY). Sin desglose si no hay nada
+  // emitido todavía.
+  const issuedHint = useMemo(() => {
+    if (eventKpis.issued === 0 || issuedByOriginBreakdown.length === 0) return null;
+    return issuedByOriginBreakdown.map((row) => `${row.count} ${row.pluralLabel.toLowerCase()}`).join(" · ");
+  }, [eventKpis.issued, issuedByOriginBreakdown]);
 
   const functionOptions = useMemo(() => {
     const functions = selectedEvent?.functions ?? [];
@@ -159,15 +163,6 @@ export default function OrganizerTickets() {
   }, [loadTickets]);
 
   const selectedTicket = tickets.find((t) => t.id === selectedId) ?? null;
-
-  const summary = useMemo(() => {
-    const total = tickets.length;
-    const disponibles = tickets.filter((ticket) => !ticket.deletedAt && ticket.status === "ACTIVE").length;
-    const usadas = tickets.filter((ticket) => !ticket.deletedAt && ticket.status === "USED").length;
-    const canceladas = tickets.filter((ticket) => !ticket.deletedAt && ticket.status === "CANCELLED").length;
-    const reintegradas = tickets.filter((ticket) => !ticket.deletedAt && ticket.status === "REFUNDED").length;
-    return { total, disponibles, usadas, canceladas, reintegradas };
-  }, [tickets]);
 
   const allVisibleSelected = tickets.length > 0 && selectedIds.length === tickets.length;
 
@@ -338,7 +333,7 @@ export default function OrganizerTickets() {
 
       {selectedEventId && (
         <div className="flex flex-col gap-5">
-          <SectionHeader title="Estadísticas del evento" />
+          <SectionHeader title="Resumen de entradas" />
           {eventStats.error && (
             <InlineErrorNotice
               message="No pudimos cargar las estadísticas del evento."
@@ -346,19 +341,48 @@ export default function OrganizerTickets() {
             />
           )}
 
-          {/* Comercial: sólo origin=SALE — recaudación, Mercado Pago y
-              cualquier reporte financiero se siguen basando únicamente en
-              esto. Las cortesías nunca entran acá. */}
+          {/* Cupo/Vendidas/Emitidas/Usadas — las 4 preguntas que el
+              organizador necesita responder en pocos segundos (ver el
+              informe de la ronda "UX simple de Entradas"). "Cupo" es la
+              capacidad configurada, nunca lo mismo que "Emitidas": un
+              evento puede tener cupo 10 y cero tickets reales todavía. El
+              desglose de orígenes bajo "Emitidas" usa nombres amigables
+              (nunca SALE/COURTESY) y desaparece si issued === 0. */}
+          <KpiRow>
+            <KpiCard label="Cupo" value={eventKpis.capacity} icon={Gauge} loading={eventStats.loading} />
+            <KpiCard label="Vendidas" value={eventKpis.sold} icon={Ticket} loading={eventStats.loading} />
+            <KpiCard
+              label="Emitidas"
+              value={eventKpis.issued}
+              hint={issuedHint}
+              icon={Layers}
+              loading={eventStats.loading}
+            />
+            <KpiCard label="Usadas" value={eventKpis.checkedIn} icon={ScanLine} loading={eventStats.loading} />
+          </KpiRow>
+
+          {/* Leyenda discreta, nunca una card permanente — sólo aparece si
+              de verdad hay algo cancelado/reintegrado. */}
+          {!eventStats.loading && eventKpis.cancelled > 0 && (
+            <p className="flex items-center gap-1.5 text-xs text-slate-500">
+              <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
+              {eventKpis.cancelled} {eventKpis.cancelled === 1
+                ? "entrada cancelada o reintegrada"
+                : "entradas canceladas o reintegradas"}
+            </p>
+          )}
+
+          {/* Ventas: sólo lo financiero, sin repetir "Entradas vendidas"
+              (ya está arriba). Sólo origin=SALE, nunca cortesías. */}
           <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Comercial</p>
-            <KpiRow columns={3}>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Ventas</p>
+            <KpiRow columns={2}>
               <KpiCard
                 label="Recaudación"
                 value={formatCurrencyARS(eventKpis.revenue)}
                 icon={DollarSign}
                 loading={eventStats.loading}
               />
-              <KpiCard label="Entradas vendidas" value={eventKpis.sold} icon={Ticket} loading={eventStats.loading} />
               <KpiCard
                 label="Ticket promedio"
                 value={formatCurrencyARS(eventKpis.averageTicket)}
@@ -367,65 +391,6 @@ export default function OrganizerTickets() {
               />
             </KpiRow>
           </div>
-
-          {/* Emisión: todos los orígenes que dan derecho a ingresar (venta +
-              cortesía + los que se agreguen a futuro), nunca una métrica
-              financiera. */}
-          <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Emisión</p>
-            <div className="max-w-xs">
-              <KpiCard label="Entradas emitidas" value={eventKpis.issued} icon={Layers} loading={eventStats.loading} />
-              {!eventStats.loading && <OriginBreakdownList breakdown={issuedByOriginBreakdown} />}
-            </div>
-          </div>
-
-          {/* Accesos: ingresos reales al evento, sin importar el origen de
-              la entrada. "Canceladas" sólo se muestra si aplica (si hay al
-              menos una) — nunca un 0 sin sentido para eventos sin cancelaciones. */}
-          <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Accesos</p>
-            <KpiRow columns={3}>
-              <KpiCard label="Ingresadas" value={eventKpis.checkedIn} icon={ScanLine} loading={eventStats.loading} />
-              <KpiCard label="Pendientes de ingreso" value={eventKpis.pending} icon={Clock3} loading={eventStats.loading} />
-              {!eventStats.loading && eventKpis.cancelled > 0 && (
-                <KpiCard label="Canceladas" value={eventKpis.cancelled} icon={XCircle} />
-              )}
-            </KpiRow>
-          </div>
-
-          {/* Ocupación: capacidad física del evento vs. lo emitido — la
-              barra/porcentaje se calcula sobre TODO lo emitido, no sólo lo
-              vendido, porque una cortesía también ocupa un lugar. */}
-          <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Ocupación</p>
-            <KpiRow>
-              <KpiCard label="Capacidad total" value={eventKpis.capacity} icon={Gauge} loading={eventStats.loading} />
-              <KpiCard label="Entradas emitidas" value={eventKpis.issued} icon={Layers} loading={eventStats.loading} />
-              <KpiCard label="Disponibles" value={eventKpis.remaining} icon={CheckCircle2} loading={eventStats.loading} />
-              <KpiCard
-                label="% de ocupación"
-                value={eventKpis.occupancyPct !== null ? `${eventKpis.occupancyPct}%` : "—"}
-                icon={Gauge}
-                loading={eventStats.loading}
-              />
-            </KpiRow>
-          </div>
-        </div>
-      )}
-
-      {selectedEventId && (
-        <div>
-          <SectionHeader
-            title="Resultados visibles"
-            subtitle="Depende de los filtros y la búsqueda aplicados arriba."
-          />
-          <KpiRow columns={5}>
-            <KpiCard label="Resultados" value={summary.total} icon={Ticket} />
-            <KpiCard label="Disponibles" value={summary.disponibles} icon={CheckCircle2} />
-            <KpiCard label="Usadas" value={summary.usadas} icon={ScanLine} />
-            <KpiCard label="Canceladas" value={summary.canceladas} icon={XCircle} />
-            <KpiCard label="Reintegradas" value={summary.reintegradas} icon={RotateCcw} />
-          </KpiRow>
         </div>
       )}
 
