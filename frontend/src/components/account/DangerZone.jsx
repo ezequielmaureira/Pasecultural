@@ -73,7 +73,7 @@ export function TypedConfirmModal({ title, paragraphs, confirmLabel, onConfirm, 
         ))}
 
         <label className="flex flex-col gap-1.5 text-sm text-slate-300 light:text-slate-700">
-          Escribí {DELETE_CONFIRMATION_WORD} para confirmar
+          Escribí {DELETE_CONFIRMATION_WORD} para confirmar.
           <input
             type="text"
             value={typed}

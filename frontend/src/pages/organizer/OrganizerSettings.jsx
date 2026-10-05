@@ -270,7 +270,7 @@ export default function OrganizerSettings() {
       {!loading && orgId && (
         <DangerZoneCard
           actionTitle="Eliminar organización"
-          description="Tu organización dejará de estar operativa y de aparecer públicamente. Los datos históricos de ventas, entradas e ingresos se conservarán."
+          description="Tu organización dejará de estar operativa y de aparecer públicamente. Conservaremos el historial necesario de eventos, ventas, entradas e ingresos."
           buttonLabel="Eliminar organización"
           onRequest={() => setConfirmingDelete(true)}
         />
@@ -280,7 +280,7 @@ export default function OrganizerSettings() {
         <TypedConfirmModal
           title="Eliminar organización"
           paragraphs={[
-            "Esta acción cerrará tu organización y no podrás seguir administrando eventos desde ella.",
+            "Esta acción cerrará tu organización. No vas a poder seguir administrando eventos desde ella.",
             "Las ventas, entradas e historial ya generados no se eliminarán.",
           ]}
           confirmLabel="Eliminar definitivamente"

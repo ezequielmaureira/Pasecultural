@@ -58,7 +58,7 @@ export default function Profile() {
 
       <DangerZoneCard
         actionTitle="Eliminar mi cuenta"
-        description="Vas a perder el acceso con esta cuenta. Tus compras y entradas no se borran."
+        description="Eliminarás tu acceso a Smarticket. Las compras y entradas ya generadas no se eliminarán."
         buttonLabel="Eliminar mi cuenta"
         onRequest={() => setConfirmingDelete(true)}
       />
@@ -67,8 +67,8 @@ export default function Profile() {
         <TypedConfirmModal
           title="Eliminar mi cuenta"
           paragraphs={[
-            "Vas a eliminar tu acceso a Smarticket.",
-            "Tus compras y entradas históricas no se borrarán y podrán seguir recuperándose mediante los mecanismos públicos correspondientes.",
+            "Esta acción elimina tu cuenta de acceso.",
+            "Tus compras y entradas históricas se conservarán y podrán seguir recuperándose mediante los mecanismos públicos de Smarticket.",
           ]}
           confirmLabel="Eliminar mi cuenta"
           onConfirm={handleDeleteAccount}
