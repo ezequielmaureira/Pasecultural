@@ -43,7 +43,16 @@ export default function EventStatusCard({
 
       <div className="flex flex-1 flex-col gap-3 p-4">
         <div className="flex items-start justify-between gap-2">
-          <h3 className="line-clamp-2 text-sm font-semibold text-white">{event.title}</h3>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <h3 className="line-clamp-2 text-sm font-semibold text-white">{event.title}</h3>
+            {/* Mismo criterio que OrganizerEvents.jsx: marca discreta con el
+                acento de marca, nunca un color nuevo. */}
+            {event.quickPassEnabled && (
+              <span className="shrink-0 rounded-full border border-brand/20 bg-brand/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-soft">
+                Fest Pass
+              </span>
+            )}
+          </div>
           <Badge tone={EVENT_STATUS_TONE[event.status] ?? "neutral"}>
             {EVENT_STATUS_LABEL[event.status] ?? event.status}
           </Badge>

@@ -128,6 +128,8 @@ const RAW_CATALOG = [
 
     ...catalog("ORGANIZER", "Eventos", [
         ["organizer.events.list", "Ver listado de eventos propios"],
+        ["organizer.events.identifyFestPass", "Identificar eventos Fest Pass en la lista de Eventos vigentes"],
+        ["organizer.events.share", "Compartir evento publicado desde Eventos vigentes"],
         ["organizer.events.create", "Crear evento (wizard)"],
         ["organizer.events.createByChat", "Crear evento por chat conversacional"],
         ["organizer.events.edit", "Editar evento"],

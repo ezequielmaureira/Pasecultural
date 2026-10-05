@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@clerk/clerk-react";
-import { Pencil, Rocket, Archive, Ban, Trash2, Plus, ShieldAlert, Sparkles } from "lucide-react";
+import { Pencil, Rocket, Archive, Ban, Trash2, Plus, ShieldAlert, Sparkles, Share2 } from "lucide-react";
 import Button from "../../components/ui/Button.jsx";
 import ConfirmDialog from "../../components/ui/ConfirmDialog.jsx";
 import Spinner from "../../components/ui/Spinner.jsx";
@@ -21,6 +21,31 @@ function Pill({ status }) {
       {EVENT_STATUS_LABEL[status] ?? status}
     </span>
   );
+}
+
+// Marca discreta junto al título — sólo para Fest Pass (ver
+// event.quickPassEnabled, ya viene en GET /api/events/mine sin tocar
+// backend). Usa el acento de marca (brand/brand-soft), nunca un color
+// nuevo: la app ya pasó por una ronda de simplificación que retiró todo
+// multicolor decorativo (fuchsia/violeta/etc.) — esto no reabre esa puerta.
+function FestPassBadge() {
+  return (
+    <span className="shrink-0 rounded-full border border-brand/20 bg-brand/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-soft">
+      Fest Pass
+    </span>
+  );
+}
+
+// Compartir sólo tiene sentido para un evento con experiencia pública real
+// (PUBLISHED + slug ya generado) — un DRAFT no tiene nada que compartir
+// todavía.
+function canShareEvent(event) {
+  return event.status === "PUBLISHED" && Boolean(event.slug);
+}
+
+function buildPublicEventUrl(event) {
+  const path = event.quickPassEnabled ? `/fest-pass/${event.slug}` : `/evento/${event.slug}`;
+  return `${window.location.origin}${path}`;
 }
 
 function IconButton({ title, onClick, disabled, loading, children }) {
@@ -120,6 +145,26 @@ export default function OrganizerEvents() {
     } finally {
       setUpdatingId(null);
       setUpdatingAction(null);
+    }
+  }
+
+  async function handleShareEvent(event) {
+    const publicUrl = buildPublicEventUrl(event);
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: event.title,
+          text: event.quickPassEnabled ? `Mirá ${event.title} en Fest Pass` : `Mirá ${event.title} en Smarticket`,
+          url: publicUrl,
+        });
+        return;
+      }
+      await navigator.clipboard.writeText(publicUrl);
+      toast.success("Enlace del evento copiado.");
+    } catch (err) {
+      if (err?.name === "AbortError") return;
+      console.error("No se pudo compartir el evento", err);
+      toast.error("No pudimos compartir el evento.");
     }
   }
 
@@ -247,7 +292,10 @@ export default function OrganizerEvents() {
               {events.map((event) => (
                 <tr key={event.id}>
                   <td className="px-6 py-4">
-                    <p className="font-medium text-white">{event.title}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium text-white">{event.title}</p>
+                      {event.quickPassEnabled && <FestPassBadge />}
+                    </div>
                     <p className="text-xs text-slate-500">
                       {event.venue || "Lugar a confirmar"}
                     </p>
@@ -263,6 +311,17 @@ export default function OrganizerEvents() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-end gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleShareEvent(event)}
+                        disabled={!canShareEvent(event)}
+                        title={!canShareEvent(event) ? "Publicá el evento para poder compartirlo" : undefined}
+                      >
+                        <Share2 className="h-4 w-4" />
+                        Compartir
+                      </Button>
                       <Link to={`/organizador/eventos/${event.id}/editar`}>
                         <IconButton title="Editar">
                           <Pencil className="h-4 w-4" />
