@@ -85,9 +85,9 @@ function TicketCard({ ticket }) {
 }
 
 // Pantalla pública de éxito: se arma exclusivamente con lo que ya devolvió
-// confirm-by-buyer (ver PurchaseWizard). Nunca navega a "Mis entradas" ni a
-// nada protegido por Clerk — el comprador invitado no tiene, ni va a tener,
-// sesión.
+// confirm-by-buyer (ver PurchaseWizard). Nunca navega a nada protegido por
+// Clerk — el comprador no tiene cuenta ni panel: recibe sus entradas por
+// email/PDF y las recupera desde "Recuperar mis entradas".
 //
 // El aviso de "también te lo mandamos por correo" se muestra con sólo que
 // `buyerEmail` exista — YA NO depende de `emailDeliveryStatus === "SENT"`.

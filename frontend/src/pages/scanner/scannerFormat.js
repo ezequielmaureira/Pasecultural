@@ -1,7 +1,6 @@
 // Formato compacto ("Sáb 24 ago", "18:00") — el mismo estilo que ya se
-// aprobó en los mockups de la Fase 0. Deliberadamente más corto que el
-// formato de Mis Entradas: acá se lee de reojo en una lista, no en el
-// detalle de una entrada.
+// aprobó en los mockups de la Fase 0. Deliberadamente corto: acá se lee
+// de reojo en una lista, no en el detalle de una entrada.
 export function formatFunctionDate(dateValue) {
     if (!dateValue) return "";
     return new Date(dateValue).toLocaleDateString("es-AR", { weekday: "short", day: "2-digit", month: "short" });

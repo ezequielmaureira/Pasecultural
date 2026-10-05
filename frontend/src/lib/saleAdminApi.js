@@ -6,7 +6,7 @@ import { apiFetch } from "./api.js";
 // siempre primero, nada nuevo del lado servidor, sólo el wrapper que faltaba.
 // Separado de saleApi.js a propósito: ese módulo es exclusivamente el
 // checkout público/invitado (sin token) — mismo criterio de separación que
-// ya existe entre ticketApi.js (comprador) y ticketAdminApi.js (organizador).
+// ticketAdminApi.js (organizador) respecto del flujo público.
 export async function listOrganizerSales(token, { status, eventId, dateFrom, dateTo, buyer } = {}) {
     const params = new URLSearchParams();
     if (status) params.set("status", status);

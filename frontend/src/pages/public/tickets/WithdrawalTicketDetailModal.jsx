@@ -12,11 +12,7 @@ import { TICKET_STATUS_LABEL, TICKET_STATUS_TONE } from "./ticketStatus.js";
 // contactar": conocer el saleToken (publicRecoveryToken) alcanza, nunca
 // sesión. Reutiliza getSaleStatus (ya público, ya autorizado por token, ya
 // arma qrToken con decryptSecret) — nunca un endpoint nuevo ni un
-// generador de QR paralelo; el QR en sí se renderiza con QRCodeSVG, la
-// misma librería que ya usa TicketQrModal.jsx (flujo logueado). No se
-// reutiliza ESE componente literal porque pide el QR vía un endpoint
-// autenticado con Clerk (getTicketQr) — auth model distinto al de este
-// flujo sin sesión.
+// generador de QR paralelo; el QR en sí se renderiza con QRCodeSVG.
 function hoursRemaining(expiresAt) {
     if (!expiresAt) return null;
     const ms = new Date(expiresAt).getTime() - Date.now();

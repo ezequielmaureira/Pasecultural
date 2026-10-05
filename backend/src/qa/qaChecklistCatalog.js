@@ -330,13 +330,6 @@ const RAW_CATALOG = [
         ["asistente.purchase.error", "Ver pantalla de error de compra"],
     ]),
 
-    ...catalog("ASISTENTE", "Mis entradas", [
-        ["asistente.myTickets.list", "Ver listado de \"Mis entradas\""],
-        ["asistente.myTickets.viewDetail", "Ver detalle de entrada"],
-        ["asistente.myTickets.viewQr", "Ver código QR de entrada"],
-        ["asistente.myTickets.viewQrFullscreen", "Ver QR en pantalla completa"],
-    ]),
-
     ...catalog("ASISTENTE", "Recuperación de compra", [
         ["asistente.recovery.chooseMode", "Elegir modo de recuperación"],
         ["asistente.recovery.requestOtp", "Validar email+DNI antes de enviar OTP (sólo se envía si hay compra vigente)"],

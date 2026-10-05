@@ -102,8 +102,8 @@ export const markTicketUsedManuallyService = async (clerkId, eventId, ticketId, 
 };
 
 // Soft delete — mismo criterio que el resto de la app (Ticket.deletedAt ya
-// existía y varias lecturas ya lo respetan: listMyTicketsService,
-// getTicketService). No cambia Ticket.status (son dimensiones
+// existía y varias lecturas ya lo respetan, ej. findConfirmedRecoverableSales
+// y listTicketsOrganizerService). No cambia Ticket.status (son dimensiones
 // independientes): toStatus queda null en el log, fromStatus registra en
 // qué estado estaba al momento de borrarse.
 export const softDeleteTicketService = async (clerkId, eventId, ticketId, { reason } = {}) => {

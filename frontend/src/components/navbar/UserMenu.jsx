@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useAuth, useClerk } from "@clerk/clerk-react";
-import { User, Ticket, LayoutDashboard, LogOut } from "lucide-react";
+import { User, LayoutDashboard, LogOut } from "lucide-react";
 import Button from "../ui/Button.jsx";
 import Avatar from "../ui/Avatar.jsx";
 import NavbarDropdown from "./NavbarDropdown.jsx";
@@ -32,7 +32,6 @@ export default function UserMenu() {
 
   const items = [
     { label: "Perfil", to: "/perfil", icon: User },
-    { label: "Mis entradas", to: "/mis-entradas", icon: Ticket },
     ...(panelHome ? [{ label: "Panel", to: panelHome, icon: LayoutDashboard }] : []),
     {
       label: "Cerrar sesión",

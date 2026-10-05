@@ -5,7 +5,7 @@ const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 // Pila de modales montados (más de uno puede estar abierto a la vez, ej.
-// detalle de entrada + QR apilados en Mis Entradas): sólo el que está en la
+// un modal de confirmación sobre otro modal): sólo el que está en la
 // punta de la pila reacciona a Escape/Tab. Sin esto, Escape cerraría todos
 // los modales abiertos de una — no sólo el de arriba — y el trap de foco de
 // uno interferiría con el del otro. Alcanza con un array a nivel de módulo:

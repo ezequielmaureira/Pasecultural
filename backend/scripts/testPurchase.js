@@ -1,6 +1,6 @@
 import prisma from "../src/config/prisma.js";
 import { createSaleService, confirmSaleService } from "../src/services/sale.service.js";
-import { getQrPayloadService } from "../src/services/ticket.service.js";
+import { decryptSecret } from "../src/config/qrEncryption.js";
 
 (async function main() {
     try {
@@ -72,12 +72,14 @@ import { getQrPayloadService } from "../src/services/ticket.service.js";
         console.log("Tickets creados:", tickets.map(t => ({ id: t.id, ticketNumber: t.ticketNumber })));
         console.log("TicketQrs creados:", qrs.map(q => ({ id: q.id, ticketId: q.ticketId })));
 
-        // Obtener payload QR vía el service público (lo que usaría la UI)
+        // Verificar que el secreto del QR se pueda descifrar (mismo token
+        // ticketId.secret que va en el email/PDF y que valida el Scanner).
         try {
-            const qrPayload = await getQrPayloadService(buyer.clerkId, tickets[0].id);
-            console.log("QR token (payload):", qrPayload.qrToken);
+            const firstQr = qrs.find((q) => q.ticketId === tickets[0].id);
+            const secret = decryptSecret(firstQr.secretEncrypted);
+            console.log("QR token (payload):", `${tickets[0].id}.${secret}`);
         } catch (err) {
-            console.error("No se pudo obtener QR payload:", err.message || err);
+            console.error("No se pudo descifrar el QR:", err.message || err);
         }
 
         // Verificar no duplicados (ticketNumber uniqueness enforced by DB but check)

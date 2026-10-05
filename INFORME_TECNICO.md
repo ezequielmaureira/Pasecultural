@@ -83,7 +83,7 @@ Enum `Role` en la base: `DEVELOPER`, `ORGANIZER`, `SCANNER`, `CUSTOMER`. Autoriz
 | **Developer** | Lista de emails hardcodeada en `auth.service.js`, asignada al sincronizar la cuenta (`POST /api/auth/sync`) | Aprobar/rechazar/suspender organizaciones; gestionar rol/estado de cualquier usuario; ver plataforma completa sin acotarse a una organización (eventos, ventas, entradas, scanners de **todos** los organizadores, sólo lectura); Dashboard con KPIs globales; panel de Herramientas de Desarrollo (reset/seed de base, envío de WhatsApp de prueba) | No puede cancelar una cortesía de una organización ajena (limitación heredada, no ampliada a propósito) |
 | **Organizer** | Automático al crear una organización (`POST /api/organizations`, promueve de `CUSTOMER`) | CRUD completo de sus propios eventos, funciones, tipos de entrada, links; emitir cortesías; administrar entradas vendidas (cancelar/rehabilitar/reactivar/marcar usada/eliminar); gestionar scanners de sus eventos; ver ventas y dashboard de su organización; vincular un número de WhatsApp a su organización | Siempre acotado a los eventos/recursos de **su propia** organización; sólo puede **publicar** eventos si la organización está `APPROVED` por un Developer |
 | **Scanner** | Registro único por invitación del organizador (`EventScanner`, no requiere Clerk ni cuenta `User`) | Login recurrente por email + código de 6 dígitos; validar entradas en dos pasos (ver preview de la entrada, luego confirmar el ingreso); ver estadísticas de la función que tiene asignada | Sesión propia por JWT (`SCANNER_SESSION_SECRET`, 24 hs), revalidada `ACTIVE` en cada request — una desactivación del organizador corta el acceso al instante. El rol `SCANNER` del enum `Role`/`User` existe pero está en desuso: los scanners reales son filas `EventScanner`, independientes de Clerk |
-| **Customer** | Rol por defecto de cualquier `User` sin organización propia | Comprar entradas (con o sin cuenta), ver "Mis entradas" si tiene cuenta, recuperar una compra sin cuenta por email+DNI+código | Sin acceso a ningún panel administrativo |
+| **Customer / comprador** | Rol por defecto de cualquier `User` sin organización propia; en la práctica el comprador es un invitado sin cuenta | Comprar sin cuenta; recibir sus entradas por email + PDF + QR; recuperar entradas vigentes por email + DNI + código de 6 dígitos | No tiene panel autenticado ni historial de entradas por sesión; sin acceso a ningún panel administrativo |
 
 ---
 
@@ -113,7 +113,7 @@ Pantalla dedicada (`/organizador/ventas`) con listado filtrable por evento/estad
 
 ### QR y control de acceso
 **Propósito:** emitir entradas verificables y validarlas en la puerta sin ambigüedad. **Estado: completo.**
-Al confirmarse una venta, cada `Ticket` recibe un `TicketQr` cuyo secreto se genera con un generador criptográfico seguro y se cifra (AES-256-GCM) antes de guardarse — nunca en texto plano ni como imagen persistida; se arma al vuelo cada vez que hace falta mostrarlo (email, "Mis entradas", PDF). La validación en el Scanner es en **dos pasos**: `scan` (lee el QR, devuelve el estado de la entrada — válida/ya usada/cancelada/no corresponde a este evento — y datos para mostrar al operador: nombre del comprador, función, lugar — sin mutar nada) y `confirm` (recién ahí marca la entrada como usada, con un `UPDATE` condicional atómico dentro de una transacción). Esa separación deja ver quién está entrando antes de confirmar el ingreso. La atomicidad del segundo paso está verificada con pruebas de concurrencia real (hasta 20 escaneos simultáneos sobre la misma entrada, nunca un doble ingreso válido).
+Al confirmarse una venta, cada `Ticket` recibe un `TicketQr` cuyo secreto se genera con un generador criptográfico seguro y se cifra (AES-256-GCM) antes de guardarse — nunca en texto plano ni como imagen persistida; se arma al vuelo cada vez que hace falta mostrarlo (email, PDF, pantalla de compra/recuperación por `publicRecoveryToken`). La validación en el Scanner es en **dos pasos**: `scan` (lee el QR, devuelve el estado de la entrada — válida/ya usada/cancelada/no corresponde a este evento — y datos para mostrar al operador: nombre del comprador, función, lugar — sin mutar nada) y `confirm` (recién ahí marca la entrada como usada, con un `UPDATE` condicional atómico dentro de una transacción). Esa separación deja ver quién está entrando antes de confirmar el ingreso. La atomicidad del segundo paso está verificada con pruebas de concurrencia real (hasta 20 escaneos simultáneos sobre la misma entrada, nunca un doble ingreso válido).
 
 ### Scanners
 **Propósito:** operar el control de acceso en la puerta, sin cuenta de usuario tradicional. **Estado: completo.**
@@ -125,7 +125,7 @@ Asistente de 6 pasos (evento → función → tipo de entrada del catálogo exis
 
 ### Recuperación de compra
 **Propósito:** que alguien que compró sin cuenta pueda volver a ver/descargar sus entradas. **Estado: completo.**
-Búsqueda por email+DNI (respuesta siempre genérica, nunca revela si existe o no una coincidencia), código de verificación de 6 dígitos por email como segundo factor, pantalla intermedia "Compra encontrada" antes de exponer cualquier dato, reenvío del email completo, descarga de PDF, reutilización total del flujo de compra (`saleToken`) para "Ver mis entradas".
+Búsqueda por email+DNI (responde sólo si la combinación tiene una compra vigente — `matched` — sin revelar cuál de los dos datos falló ni ningún dato de la compra; sin match no se envía código), código de verificación de 6 dígitos por email como segundo factor, pantalla intermedia "Compra encontrada" antes de exponer cualquier dato, reenvío del email completo, descarga de PDF, reutilización total del flujo de compra (`saleToken`) para "Ver mis entradas".
 
 ### Emails
 **Propósito:** notificaciones transaccionales. **Estado: completo para lo que existe, acotado en alcance.** Tres emails reales, los tres vía Resend: confirmación de compra (QR embebidos + PDF adjunto, protegido contra duplicados con un reclamo atómico), código de verificación de Scanner (6 dígitos, 10 minutos), código de verificación de recuperación de compra (6 dígitos, 10 minutos, sin mencionar ningún dato de la compra). **Limitaciones:** no hay email de bienvenida, no hay notificación de aprobación/rechazo de organización, no hay notificación de venta nueva al organizador.
@@ -234,7 +234,7 @@ Ver §2 (Arquitectura) para la lista completa; cada integración vive detrás de
 
 **Cortesías** (Organizer/Developer): `POST /api/courtesies` · `GET /api/courtesies`, `/stats` · `POST /:saleId/resend-email` · `GET /:saleId/pdf` · `POST /:saleId/cancel`.
 
-**Entradas (comprador):** `GET /api/tickets/mine`, `/number/:ticketNumber`, `/:id/qr`, `/:id`. **Entradas (organizador):** `GET /api/tickets/organizer`.
+**Entradas (organizador):** `GET /api/tickets/organizer`. El comprador no tiene endpoints autenticados de entradas: las obtiene por `publicRecoveryToken` (compra/recuperación).
 
 **Medios:** `POST /api/media/upload` · `DELETE /api/media/*publicId`.
 
@@ -395,7 +395,7 @@ Cualquier cambio a un paso del motor conversacional (`conversation/steps/`, `inp
 - [ ] ¿El cambio toca un paso del motor conversacional? → verificar el impacto en Web **y** WhatsApp antes de mergear.
 - [ ] ¿El cambio agrega un test que usa Prisma real? → importar `hasDatabase` de `dbGuard.js`, nunca un chequeo propio de `process.env.DATABASE_URL`.
 - [ ] ¿Vas a correr `npm run test:db`? → confirmar el project-ref de `backend/.env.test` **antes** de ejecutar, nunca asumir.
-- [ ] ¿El cambio toca la emisión o validación de un `TicketQr`? → nunca loguear ni devolver el secreto en texto plano fuera de los puntos ya existentes (email, "Mis entradas", PDF).
+- [ ] ¿El cambio toca la emisión o validación de un `TicketQr`? → nunca loguear ni devolver el secreto en texto plano fuera de los puntos ya existentes (email, PDF, pantalla de compra/recuperación).
 - [ ] ¿El cambio toca `Sale`/`Ticket.origin`? → confirmar que ninguna métrica comercial nueva deja de filtrar `origin=SALE`.
 
 ---

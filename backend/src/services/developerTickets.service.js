@@ -8,7 +8,7 @@ import { normalizeBuyerDocument } from "../utils/validateBuyerDocument.js";
 // resuelven "la organización del que llama"): éste es un service aparte,
 // mismo criterio que developerEvents.service.js.
 
-// ticket.service.js:91 define un array equivalente pero no lo exporta, y
+// ticket.service.js (TICKET_STATUS_VALUES) define un array equivalente pero no lo exporta, y
 // ese archivo está fuera de alcance para modificar — mismo motivo por el
 // que developerEvents.service.js define su propio EVENT_STATUS_VALUES en
 // vez de importar de event.service.js.
@@ -184,7 +184,7 @@ export const getDeveloperTicketService = async (ticketId) => {
     // relaciones Prisma formales — se resuelven acá, en memoria, con un solo
     // findMany cada uno sobre los ids que realmente aparecen en ESTE ticket,
     // nunca una consulta por check-in/log. Mismo patrón que
-    // listTicketsOrganizerService (ticket.service.js:164-188).
+    // listTicketsOrganizerService (ticket.service.js).
     const scannerIds = new Set(checkIns.filter((c) => c.scannerId).map((c) => c.scannerId));
     const organizerActorIds = new Set(
         auditLogs.filter((l) => l.actorType === "ORGANIZER" && l.actorId).map((l) => l.actorId)

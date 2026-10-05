@@ -42,7 +42,6 @@ import QuickPass from "./pages/public/QuickPass.jsx";
 import OrganizationProfile from "./pages/public/OrganizationProfile.jsx";
 import OrganizationsList from "./pages/public/OrganizationsList.jsx";
 import PurchaseWizard from "./pages/public/purchase/PurchaseWizard.jsx";
-import MyTickets from "./pages/public/MyTickets.jsx";
 import RecoverPurchase from "./pages/public/RecoverPurchase.jsx";
 import WithdrawalRequest from "./pages/public/WithdrawalRequest.jsx";
 import OrganizerDashboard from "./pages/organizer/OrganizerDashboard.jsx";
@@ -113,9 +112,6 @@ export default function App() {
               <Route path="/organizaciones" element={<OrganizationsList />} />
               {/* Sin RequireAuth a propósito: comprar nunca exige cuenta. */}
               <Route path="/comprar" element={<PurchaseWizard />} />
-              <Route element={<RequireAuth />}>
-                <Route path="/mis-entradas" element={<MyTickets />} />
-              </Route>
               <Route path="/recuperar-compra" element={<RecoverPurchase />} />
               <Route path="/arrepentimiento" element={<WithdrawalRequest />} />
             </Route>

@@ -4,8 +4,8 @@ import { getPublicLaunchStatus } from "../../lib/publicLaunchApi.js";
 import ComingSoon from "../../pages/public/ComingSoon.jsx";
 
 // Modo Prelanzamiento — envuelve EXCLUSIVAMENTE las rutas públicas
-// comerciales (Home, listado/detalle de eventos, compra, mis entradas,
-// recuperación, arrepentimiento — ver App.jsx). Nunca envuelve
+// comerciales (Home, listado/detalle de eventos, compra, recuperación,
+// arrepentimiento — ver App.jsx). Nunca envuelve
 // /iniciar-sesion, /registro, páginas legales, ni nada detrás de
 // RequireAuth: ese es justamente el camino que Developer/Organizer
 // necesitan conservar siempre disponible.
