@@ -167,11 +167,12 @@ export const resendSaleConfirmationEmail = async (req, res, next) => {
 };
 
 // Pantalla pública "Recuperar mis entradas", paso 1 — sin sesión. Email+DNI
-// sólo LOCALIZAN una compra, nunca la revelan: la respuesta es siempre
-// genérica (el email que la propia persona tipeó, enmascarado), exista o no
-// una compra real detrás — ver saleRecoveryVerification.service.js. Si hay
-// match, dispara el código de 6 dígitos por email; nunca devuelve tickets,
-// QR ni ningún otro dato de la compra.
+// sólo LOCALIZAN una compra, nunca la revelan: la respuesta es
+// { matched, maskedEmail } — matched dice si la COMBINACIÓN tiene una compra
+// vigente recuperable, nunca cuál campo falló — ver
+// saleRecoveryVerification.service.js. Si hay match, dispara el código de 6
+// dígitos por email; nunca devuelve tickets, QR ni ningún otro dato de la
+// compra.
 export const requestSaleRecoveryCode = async (req, res, next) => {
     try {
         const { email, buyerDocument } = req.body;

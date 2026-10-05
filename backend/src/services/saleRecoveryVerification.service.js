@@ -15,13 +15,16 @@ const RESEND_COOLDOWN_MS = 60 * 1000; // 1 minuto entre envíos de código
 
 // Segundo factor de "Recuperar mis entradas": email+DNI (recoverSalesService)
 // sólo LOCALIZAN una compra, nunca la autorizan a verse — acá vive el
-// código de 6 dígitos que sí autoriza. Deliberadamente, TODA respuesta
-// pública de este archivo es indistinguible entre "el par existe" y "el par
-// no existe" (mismo shape, mismo status, mismo mensaje genérico): cualquier
-// diferencia sería un canal lateral para confirmar si un email/DNI
-// pertenecen a una compra real. Ver ErrorCatalog.js — a propósito NO hay un
-// código de error "no pediste un código todavía": es indistinguible de
-// "código incorrecto".
+// código de 6 dígitos que sí autoriza.
+//
+// Decisión de producto (ronda "validar match antes del OTP"): el paso 1
+// (requestSaleRecoveryCodeService) SÍ informa `matched: true/false` para la
+// COMBINACIÓN email+DNI — nunca cuál de los dos campos falló, y nunca un
+// dato de la compra (evento, cantidad, comprador) antes del código. El
+// resend y la verificación siguen siendo indistinguibles entre "el par
+// existe" y "no existe". Ver ErrorCatalog.js — a propósito NO hay un código
+// de error "no pediste un código todavía": es indistinguible de "código
+// incorrecto".
 
 function normalizeAndValidateRecoveryIdentity(email, buyerDocument) {
     const normalizedEmail = email?.trim().toLowerCase();
@@ -91,38 +94,45 @@ async function releaseCooldownAfterFailedSend(normalizedEmail, normalizedDocumen
 }
 
 // Intenta reclamar+enviar un código para el par, sólo si de verdad hay al
-// menos una compra CONFIRMED detrás — nunca crea una fila ni gasta un envío
-// real de Resend para un par inventado. Nunca lanza: cualquier falla
-// (cooldown activo, Resend caído) queda sólo en el log, nunca en la
-// respuesta — ver comentario de arriba sobre canales laterales.
+// menos una compra CONFIRMED vigente detrás — nunca crea una fila ni gasta
+// un envío real de Resend para un par sin match. Nunca lanza: devuelve qué
+// pasó ("no_match" | "sent" | "cooldown" | "send_failed") y cada llamador
+// decide cuánto de eso expone.
 async function claimAndSendIfMatch(normalizedEmail, normalizedDocument, logLabel) {
     const sales = await findConfirmedRecoverableSales(normalizedEmail, normalizedDocument);
     if (sales.length === 0) {
         logger.info(`${logLabel}: sin compras coincidentes`, { matchCount: 0 });
-        return;
+        return "no_match";
     }
 
     const code = await claimSaleRecoveryVerificationCodeSend(normalizedEmail, normalizedDocument);
     if (!code) {
         logger.info(`${logLabel}: cooldown de reenvío activo`, { matchCount: sales.length });
-        return;
+        return "cooldown";
     }
     try {
         await sendSaleRecoveryVerificationCodeEmail({ to: normalizedEmail, code });
         logger.info(`${logLabel}: código enviado`, { matchCount: sales.length });
+        return "sent";
     } catch (err) {
         await releaseCooldownAfterFailedSend(normalizedEmail, normalizedDocument);
         logger.error(`${logLabel}: no se pudo enviar el código`, { errorName: err?.name || "Error" });
+        return "send_failed";
     }
 }
 
-// Paso 1: el comprador busca por email+DNI. Siempre responde lo mismo
-// (el email que él mismo tipeó, enmascarado) exista o no una compra real —
-// ver claimAndSendIfMatch.
+// Paso 1: el comprador busca por email+DNI. Responde SÓLO
+// { matched, maskedEmail } (el email que la persona tipeó, enmascarado) —
+// matched=false si la combinación no tiene ninguna compra vigente
+// recuperable (y entonces no se manda código ni se crea fila). Con match,
+// "sent" y "cooldown" (ya hay un código vigente enviado hace <60s) responden
+// matched=true; si Resend falla de verdad se informa como error para que la
+// UI nunca diga "te enviamos un código" cuando no salió.
 export const requestSaleRecoveryCodeService = async ({ email, buyerDocument }) => {
     const { normalizedEmail, normalizedDocument } = normalizeAndValidateRecoveryIdentity(email, buyerDocument);
-    await claimAndSendIfMatch(normalizedEmail, normalizedDocument, "requestSaleRecoveryCodeService");
-    return { maskedEmail: maskEmail(normalizedEmail) };
+    const outcome = await claimAndSendIfMatch(normalizedEmail, normalizedDocument, "requestSaleRecoveryCodeService");
+    if (outcome === "send_failed") throw new AppError(ErrorCodes.RECOVER_VERIFICATION_EMAIL_FAILED);
+    return { matched: outcome !== "no_match", maskedEmail: maskEmail(normalizedEmail) };
 };
 
 // Botón "Reenviar código" de la pantalla de verificación — mismo contrato

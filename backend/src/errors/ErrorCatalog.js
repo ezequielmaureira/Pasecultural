@@ -271,9 +271,14 @@ export const ErrorCatalog = Object.freeze({
 
     // --- Recuperación de compra (segundo factor por código) -------------
     // No hay un código "no pediste un código todavía" ni "reenvío
-    // demasiado pronto" ni "falló el envío": esos casos se absorben en una
-    // respuesta 200 genérica (ver saleRecoveryVerification.service.js) para
-    // no crear un canal lateral que revele si un email/DNI existen.
+    // demasiado pronto": esos casos se absorben en una respuesta genérica
+    // (ver saleRecoveryVerification.service.js). La falta de match del paso 1
+    // tampoco es un error: viaja como `matched: false` en un 200.
+    RECOVER_VERIFICATION_EMAIL_FAILED: {
+        httpStatus: 502,
+        logMessage: "Sale recovery step 1 matched a recoverable purchase but sending the verification code email via Resend failed.",
+        userMessage: "No pudimos enviar el código. Probá de nuevo en unos segundos.",
+    },
     RECOVER_VERIFICATION_CODE_REQUIRED: {
         httpStatus: 400,
         logMessage: "Sale recovery code verification attempted without a code.",

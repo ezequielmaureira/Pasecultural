@@ -122,11 +122,13 @@ export async function createMercadoPagoCheckout({
 // loguea completo, igual que en createSale.
 export async function requestSaleRecoveryCode({ email, buyerDocument }) {
     console.log("saleApi.requestSaleRecoveryCode request", { email, buyerDocument: buyerDocument ? "[present]" : undefined });
-    const { maskedEmail } = await apiFetch("/api/sales/recover", {
+    // matched: la combinación email+DNI tiene al menos una compra vigente
+    // recuperable (nunca dice cuál campo falló). Sin match no se envía código.
+    const { matched, maskedEmail } = await apiFetch("/api/sales/recover", {
         method: "POST",
         body: JSON.stringify({ email, buyerDocument }),
     });
-    return maskedEmail;
+    return { matched: matched === true, maskedEmail };
 }
 
 // Botón "Reenviar código" de la pantalla de verificación — mismo contrato

@@ -49,9 +49,10 @@ function BackLink({ onBack, label = "Elegir otra opción" }) {
   );
 }
 
-// Ayuda de la pantalla de código, compartida por ambos flujos. Nunca afirma
-// que el código se haya enviado: el backend responde igual haya o no una
-// compra coincidente (no-enumeration), así que la UI tampoco lo distingue.
+// Ayuda de la pantalla de código de "Pagué pero no recibí mis entradas".
+// Nunca afirma que el código se haya enviado: ese paso 1 responde igual haya
+// o no una compra coincidente (no-enumeration), así que la UI tampoco lo
+// distingue. "Reenviar mis entradas" sí valida el match antes (matched).
 function RecoveryCodeHint({ maskedEmail }) {
   return (
     <div className="w-full rounded-xl border border-white/10 bg-white/5 p-3 text-left text-sm text-slate-400">
@@ -128,7 +129,7 @@ function ResendTicketsFlow({ onBack }) {
   const [emailTouched, setEmailTouched] = useState(false);
   const [documentTouched, setDocumentTouched] = useState(false);
 
-  // "form" | "requesting" | "code" | "found" | "no-matches" | "multiple" | "error"
+  // "form" | "requesting" | "no-match-form" | "code" | "found" | "no-matches" | "multiple" | "error"
   const [status, setStatus] = useState("form");
   const [errorMessage, setErrorMessage] = useState("");
   const [matches, setMatches] = useState([]);
@@ -173,8 +174,17 @@ function ResendTicketsFlow({ onBack }) {
     setStatus("requesting");
     setErrorMessage("");
     try {
-      const result = await requestSaleRecoveryCode({ email: email.trim(), buyerDocument: normalizedDocument });
-      setMaskedEmail(result);
+      const { matched, maskedEmail: requestedMaskedEmail } = await requestSaleRecoveryCode({
+        email: email.trim(),
+        buyerDocument: normalizedDocument,
+      });
+      // Sin match: se queda en el formulario con los datos cargados. El
+      // mensaje habla de la combinación, nunca de cuál de los dos campos.
+      if (!matched) {
+        setStatus("no-match-form");
+        return;
+      }
+      setMaskedEmail(requestedMaskedEmail);
       setResendCooldownUntil(Date.now() + RESEND_COOLDOWN_MS);
       setCode("");
       setVerifyError("");
@@ -382,9 +392,10 @@ function ResendTicketsFlow({ onBack }) {
             <Mail className="h-9 w-9 text-brand" />
             <h1 className="text-lg font-bold text-white">Revisá tu correo</h1>
             <p className="text-sm text-slate-400">
-              Si el correo y el DNI coinciden con una compra vigente, vas a recibir un código de 6 dígitos.
+              Te enviamos un código de 6 dígitos a:{" "}
+              <span className="break-all font-medium text-slate-200">{maskedEmail}</span>
             </p>
-            <RecoveryCodeHint maskedEmail={maskedEmail} />
+            <p className="text-xs text-slate-500">Puede demorar unos minutos. Revisá también spam o correo no deseado.</p>
 
             <div className="mt-2 w-full">
               <Field label="Código de 6 dígitos">
@@ -508,6 +519,7 @@ function ResendTicketsFlow({ onBack }) {
               value={email}
               onChange={(e) => {
                 setEmail(e.target.value);
+                if (status === "no-match-form") setStatus("form");
                 if (e.target.value) setEmailTouched(true);
               }}
               onBlur={() => setEmailTouched(true)}
@@ -527,6 +539,7 @@ function ResendTicketsFlow({ onBack }) {
               value={buyerDocument}
               onChange={(e) => {
                 setBuyerDocument(e.target.value);
+                if (status === "no-match-form") setStatus("form");
                 if (e.target.value) setDocumentTouched(true);
               }}
               onBlur={() => setDocumentTouched(true)}
@@ -538,6 +551,12 @@ function ResendTicketsFlow({ onBack }) {
           </Field>
 
           {status === "error" && <p className="text-xs text-rose-400">{errorMessage}</p>}
+          {status === "no-match-form" && (
+            <div role="alert" className="rounded-xl border border-rose-400/30 bg-rose-500/10 p-3 text-sm">
+              <p className="font-medium text-rose-300">No encontramos una compra vigente asociada a ese correo y DNI.</p>
+              <p className="mt-1 text-xs text-slate-400">Revisá que sean los mismos datos que ingresaste al comprar.</p>
+            </div>
+          )}
 
           <Button disabled={!isValid} onClick={handleSearch} className="mt-1 w-full justify-center gap-1.5">
             <Search className="h-4 w-4" />

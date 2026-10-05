@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import prisma from "../src/config/prisma.js";
 import { findConfirmedRecoverableSales } from "../src/services/sale.service.js";
+import { requestSaleRecoveryCodeService, verifySaleRecoveryCodeService } from "../src/services/saleRecoveryVerification.service.js";
 
 // "Recuperar mis entradas" (ver el informe de la ronda "Recuperación de
 // entradas") — findConfirmedRecoverableSales() sólo debe devolver compras
@@ -276,5 +277,175 @@ testWithDb("G: la compra más reciente aparece primera (createdAt desc)", async 
             organizationIds: [organization.id],
             userIds: [owner.id, buyer.id],
         });
+    }
+});
+
+// ==================================================================
+// Paso 1 con validación previa (ronda "validar match antes del OTP"):
+// requestSaleRecoveryCodeService responde { matched, maskedEmail } para la
+// COMBINACIÓN email+DNI, sólo envía código (y crea fila de verificación) si
+// hay una compra vigente, y nunca devuelve datos de la compra antes del OTP.
+// ==================================================================
+
+// Intercepta Resend (mismo patrón que mercadoPagoBuyerRecovery.service.test.js)
+// y captura el código de 6 dígitos realmente enviado.
+function mockResendFetch() {
+    const original = globalThis.fetch;
+    const sent = [];
+    globalThis.fetch = async (url, opts) => {
+        const u = String(url);
+        if (u.includes("api.resend.com/emails")) {
+            const body = JSON.parse(opts.body);
+            const match = String(body.text ?? "").match(/(\d{6})/);
+            sent.push({ to: body.to, code: match ? match[1] : null });
+            return { ok: true, status: 200, headers: { entries: () => [] }, json: async () => ({ id: `resend-test-${uniqueSuffix()}` }) };
+        }
+        throw new Error(`unexpected fetch call to ${u}`);
+    };
+    return {
+        sent,
+        restore: () => {
+            globalThis.fetch = original;
+        },
+    };
+}
+
+async function countVerificationRows(normalizedEmail, normalizedDocument) {
+    return prisma.saleRecoveryVerification.count({ where: { normalizedEmail, normalizedDocument } });
+}
+
+async function cleanupVerificationRows(pairs) {
+    for (const [normalizedEmail, normalizedDocument] of pairs) {
+        await prisma.saleRecoveryVerification.deleteMany({ where: { normalizedEmail, normalizedDocument } }).catch(() => {});
+    }
+}
+
+// Arma comprador + compra vigente (y opcionalmente una vencida) para los
+// tests de paso 1.
+async function setupBuyerWithSales({ prefix, buyerDocument, withActive = true, withExpired = false }) {
+    const { owner, organization } = await createOrganizationWithOwner();
+    const buyer = await createBuyer(`${prefix}_${uniqueSuffix()}@example.com`);
+    const eventIds = [];
+    if (withActive) {
+        const event = await createEvent(organization.id, `${prefix} Vigente`);
+        eventIds.push(event.id);
+        const eventFunction = await createFunction(event.id, { date: hoursFromNow(48) });
+        const ticketType = await createTicketType(event.id);
+        await createConfirmedSale({ event, eventFunction, ticketType, buyer, buyerDocument });
+    }
+    if (withExpired) {
+        const event = await createEvent(organization.id, `${prefix} Vencida`);
+        eventIds.push(event.id);
+        const eventFunction = await createFunction(event.id, { date: hoursFromNow(-48) });
+        const ticketType = await createTicketType(event.id);
+        await createConfirmedSale({ event, eventFunction, ticketType, buyer, buyerDocument });
+    }
+    return { owner, organization, buyer, eventIds };
+}
+
+async function cleanupBuyerWithSales(ctx, verificationPairs) {
+    await cleanupVerificationRows(verificationPairs);
+    await cleanup({ eventIds: ctx.eventIds, organizationIds: [ctx.organization.id], userIds: [ctx.owner.id, ctx.buyer.id] });
+}
+
+testWithDb("OTP-A: email+DNI correctos con compra vigente => matched true y envía código", async () => {
+    const buyerDocument = "30111111";
+    const ctx = await setupBuyerWithSales({ prefix: "otp_a", buyerDocument });
+    const mock = mockResendFetch();
+    try {
+        const result = await requestSaleRecoveryCodeService({ email: ctx.buyer.email, buyerDocument });
+        assert.equal(result.matched, true);
+        assert.equal(mock.sent.length, 1);
+        assert.match(mock.sent[0].code, /^\d{6}$/);
+        assert.equal(await countVerificationRows(ctx.buyer.email, buyerDocument), 1);
+    } finally {
+        mock.restore();
+        await cleanupBuyerWithSales(ctx, [[ctx.buyer.email, buyerDocument]]);
+    }
+});
+
+testWithDb("OTP-B: email correcto + DNI incorrecto => matched false, sin código ni fila", async () => {
+    const buyerDocument = "30222222";
+    const wrongDocument = "30222299";
+    const ctx = await setupBuyerWithSales({ prefix: "otp_b", buyerDocument });
+    const mock = mockResendFetch();
+    try {
+        const result = await requestSaleRecoveryCodeService({ email: ctx.buyer.email, buyerDocument: wrongDocument });
+        assert.equal(result.matched, false);
+        assert.equal(mock.sent.length, 0);
+        assert.equal(await countVerificationRows(ctx.buyer.email, wrongDocument), 0);
+    } finally {
+        mock.restore();
+        await cleanupBuyerWithSales(ctx, [[ctx.buyer.email, wrongDocument]]);
+    }
+});
+
+testWithDb("OTP-C: email incorrecto + DNI correcto => matched false, sin código ni fila", async () => {
+    const buyerDocument = "30333333";
+    const ctx = await setupBuyerWithSales({ prefix: "otp_c", buyerDocument });
+    const wrongEmail = `otp_c_wrong_${uniqueSuffix()}@example.com`;
+    const mock = mockResendFetch();
+    try {
+        const result = await requestSaleRecoveryCodeService({ email: wrongEmail, buyerDocument });
+        assert.equal(result.matched, false);
+        assert.equal(mock.sent.length, 0);
+        assert.equal(await countVerificationRows(wrongEmail, buyerDocument), 0);
+    } finally {
+        mock.restore();
+        await cleanupBuyerWithSales(ctx, [[wrongEmail, buyerDocument]]);
+    }
+});
+
+testWithDb("OTP-D: email+DNI correctos pero sólo compras vencidas => matched false, sin código", async () => {
+    const buyerDocument = "30444444";
+    const ctx = await setupBuyerWithSales({ prefix: "otp_d", buyerDocument, withActive: false, withExpired: true });
+    const mock = mockResendFetch();
+    try {
+        const result = await requestSaleRecoveryCodeService({ email: ctx.buyer.email, buyerDocument });
+        assert.equal(result.matched, false);
+        assert.equal(mock.sent.length, 0);
+        assert.equal(await countVerificationRows(ctx.buyer.email, buyerDocument), 0);
+    } finally {
+        mock.restore();
+        await cleanupBuyerWithSales(ctx, [[ctx.buyer.email, buyerDocument]]);
+    }
+});
+
+testWithDb("OTP-E: vigente + vencida => matched true y, tras verificar, sólo devuelve la vigente", async () => {
+    const buyerDocument = "30555555";
+    const ctx = await setupBuyerWithSales({ prefix: "otp_e", buyerDocument, withActive: true, withExpired: true });
+    const mock = mockResendFetch();
+    try {
+        const result = await requestSaleRecoveryCodeService({ email: ctx.buyer.email, buyerDocument });
+        assert.equal(result.matched, true);
+        assert.equal(mock.sent.length, 1);
+
+        const verified = await verifySaleRecoveryCodeService({ email: ctx.buyer.email, buyerDocument, code: mock.sent[0].code });
+        assert.equal(verified.sales.length, 1);
+        assert.equal(verified.sales[0].eventTitle, "otp_e Vigente");
+    } finally {
+        mock.restore();
+        await cleanupBuyerWithSales(ctx, [[ctx.buyer.email, buyerDocument]]);
+    }
+});
+
+testWithDb("OTP-F: el paso 1 sólo devuelve matched + maskedEmail, nunca datos de la compra", async () => {
+    const buyerDocument = "30666666";
+    const wrongDocument = "30666699";
+    const ctx = await setupBuyerWithSales({ prefix: "otp_f", buyerDocument });
+    const mock = mockResendFetch();
+    try {
+        const matched = await requestSaleRecoveryCodeService({ email: ctx.buyer.email, buyerDocument });
+        const unmatched = await requestSaleRecoveryCodeService({ email: ctx.buyer.email, buyerDocument: wrongDocument });
+        for (const result of [matched, unmatched]) {
+            assert.deepEqual(Object.keys(result).sort(), ["maskedEmail", "matched"]);
+            assert.notEqual(result.maskedEmail, ctx.buyer.email);
+            assert.ok(!JSON.stringify(result).includes("otp_f Vigente"));
+        }
+        // Mismo maskedEmail con o sin match: depende sólo del email tipeado.
+        assert.equal(matched.maskedEmail, unmatched.maskedEmail);
+    } finally {
+        mock.restore();
+        await cleanupBuyerWithSales(ctx, [[ctx.buyer.email, buyerDocument], [ctx.buyer.email, wrongDocument]]);
     }
 });
