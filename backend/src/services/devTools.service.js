@@ -13,8 +13,8 @@ import { sendWhatsappTextMessage } from "./whatsapp.service.js";
 // una capa extra cuando el proyecto tenga clientes reales.
 
 // Mismas opciones que sale.service.js#confirmSaleService (maxWait/timeout
-// explícitos en vez del default de Prisma), con el timeout más alto porque
-// acá se puede estar borrando bastante más volumen que una venta puntual.
+// explícitos en vez del default de Prisma). Usada hoy por
+// createDemoEventService.
 const TRANSACTION_OPTIONS = { maxWait: 10000, timeout: 30000 };
 
 export const getDevDatabaseStatsService = async () => {
@@ -27,46 +27,6 @@ export const getDevDatabaseStatsService = async () => {
     ]);
 
     return { events, sales, tickets, scanners, checkIns };
-};
-
-// La UI pide doble confirmación (dos ConfirmDialog encadenados) — esto es
-// la segunda capa del lado servidor: sin la frase exacta, ni con sesión de
-// DEVELOPER se ejecuta nada.
-const RESET_CONFIRMATION_PHRASE = "REINICIAR";
-
-// Elimina TODAS las entidades transaccionales, en una única transacción y
-// en el único orden que respeta cada FK real (ver auditoría — RESTRICT
-// hacia Ticket/Sale/EventFunction/TicketType, CASCADE hacia Event). No usa
-// ON DELETE CASCADE de la base ni confía en que el cascade ya declarado en
-// el schema (EventFunction/TicketType/EventLink/EventScanner → Event) haga
-// el trabajo solo: cada tabla se vacía explícitamente para que el resultado
-// quede contado y sea auditable. Nunca toca User ni Organization.
-export const resetDevDatabaseService = async ({ confirm } = {}) => {
-    if (confirm !== RESET_CONFIRMATION_PHRASE) {
-        throw new AppError(ErrorCodes.DEV_TOOLS_CONFIRMATION_REQUIRED);
-    }
-
-    const counts = await prisma.$transaction(async (tx) => {
-        const result = {};
-        result.ticketAuditLogs = (await tx.ticketAuditLog.deleteMany()).count;
-        result.scanAttempts = (await tx.scanAttempt.deleteMany()).count;
-        result.checkIns = (await tx.checkIn.deleteMany()).count;
-        result.ticketQrs = (await tx.ticketQr.deleteMany()).count;
-        result.tickets = (await tx.ticket.deleteMany()).count;
-        result.saleItems = (await tx.saleItem.deleteMany()).count;
-        result.sales = (await tx.sale.deleteMany()).count;
-        result.saleRecoveryVerifications = (await tx.saleRecoveryVerification.deleteMany()).count;
-        result.eventScanners = (await tx.eventScanner.deleteMany()).count;
-        result.functionTicketTypes = (await tx.functionTicketType.deleteMany()).count;
-        result.eventFunctions = (await tx.eventFunction.deleteMany()).count;
-        result.ticketTypes = (await tx.ticketType.deleteMany()).count;
-        result.eventLinks = (await tx.eventLink.deleteMany()).count;
-        result.conversationStates = (await tx.conversationState.deleteMany()).count;
-        result.events = (await tx.event.deleteMany()).count;
-        return result;
-    }, TRANSACTION_OPTIONS);
-
-    return counts;
 };
 
 // "Crear evento demo" — un Event DRAFT con una función y dos tipos de

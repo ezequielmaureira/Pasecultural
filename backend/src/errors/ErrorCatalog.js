@@ -394,11 +394,6 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Developer database tool invoked outside a non-production environment.",
         userMessage: "Esta herramienta no está disponible en este entorno.",
     },
-    DEV_TOOLS_CONFIRMATION_REQUIRED: {
-        httpStatus: 400,
-        logMessage: "Dev database reset attempted without the exact confirmation phrase.",
-        userMessage: "Confirmación inválida. Esta acción requiere confirmarse explícitamente.",
-    },
     DEV_TOOLS_NO_ORGANIZATION: {
         httpStatus: 409,
         logMessage: "Demo event creation attempted with zero organizations in the database.",

@@ -105,7 +105,6 @@ const RAW_CATALOG = [
 
     ...catalog("DEVELOPER", "Base de Datos", [
         ["developer.database.viewStats", "Ver estadísticas de la base de datos"],
-        ["developer.database.reset", "Reiniciar base de datos de desarrollo"],
         ["developer.database.createDemoEvent", "Crear evento demo"],
     ]),
 

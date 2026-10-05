@@ -1,10 +1,5 @@
 import { Router } from "express";
-import {
-    getDevDatabaseStats,
-    resetDevDatabase,
-    createDemoEvent,
-    testSendWhatsapp,
-} from "../controllers/devTools.controller.js";
+import { getDevDatabaseStats, createDemoEvent, testSendWhatsapp } from "../controllers/devTools.controller.js";
 import { requireRole } from "../middlewares/requireRole.js";
 
 const router = Router();
@@ -19,7 +14,6 @@ const router = Router();
 // que reincorporar una capa extra el día que haya clientes reales, y no
 // hace falta reescribirla desde cero.
 router.get("/stats", requireRole("DEVELOPER"), getDevDatabaseStats);
-router.post("/reset", requireRole("DEVELOPER"), resetDevDatabase);
 router.post("/demo-event", requireRole("DEVELOPER"), createDemoEvent);
 // Fase 2C — envío manual de UN mensaje de WhatsApp de prueba. Mismo
 // mecanismo de protección que el resto de esta ruta (requireRole
