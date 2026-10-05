@@ -37,9 +37,8 @@ export function OrganizerDataProvider({ children }) {
   const [eventsStatsError, setEventsStatsError] = useState(false);
   // `organization` YA NO se pide acá: viene de OrganizerSessionContext
   // (montado globalmente en App.jsx, fuente única de Organization para
-  // todo Smarticket — ver el informe de entrega del botón flotante de
-  // WhatsApp). Este Provider sólo REUTILIZA ese valor, nunca vuelve a
-  // llamar GET /api/organizations/me.
+  // todo Smarticket). Este Provider sólo REUTILIZA ese valor, nunca vuelve
+  // a llamar GET /api/organizations/me.
   const { organization, loadingOrganization } = useOrganizerSession();
 
   const loadEvents = useCallback(async () => {

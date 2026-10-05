@@ -225,7 +225,7 @@ const RAW_CATALOG = [
     ]),
 
     ...catalog("ORGANIZER", "WhatsApp", [
-        ["organizer.whatsapp.createEventShortcut", "Acceso directo \"Cargá tu evento con WhatsApp\""],
+        ["organizer.whatsapp.createEventShortcut", "Crear evento con WhatsApp desde el menú Eventos"],
         ["organizer.whatsapp.createEventConversation", "Crear evento completo conversando por WhatsApp"],
     ]),
 

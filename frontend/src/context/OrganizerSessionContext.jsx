@@ -6,15 +6,17 @@ import { getWhatsappEventCreationLink } from "../lib/organizerWhatsappEventLinkA
 
 const OrganizerSessionContext = createContext(null);
 
-// Fuente GLOBAL y LIVIANA de Organization para el botón flotante "Cargá tu
-// evento con WhatsApp" (ver OrganizerWhatsAppShortcutButton.jsx) — montada
-// en App.jsx por ENCIMA de la separación entre rutas públicas/AppShell/panel
-// Organizer (junto a <Routes>, nunca dentro de una rama de rutas), para que
-// sobreviva a la navegación Home <-> panel Organizer.
+// Fuente GLOBAL y LIVIANA de Organization para "Crear con WhatsApp"
+// (Sidebar.jsx, bajo Eventos) — montada en App.jsx por ENCIMA de la
+// separación entre rutas públicas/AppShell/panel Organizer (junto a
+// <Routes>, nunca dentro de una rama de rutas). Antes sostenía un botón
+// flotante global con el mismo propósito (ver el informe de la ronda
+// "WhatsApp sin superposiciones" — se retiró por tapar contenido real en
+// mobile); este Provider en sí no cambió, sólo quién lo consume.
 //
 // Deliberadamente SEPARADA de OrganizerDataContext (events/sales/stats del
 // dashboard, sólo montado dentro de "/organizador"): cargar todo eso
-// globalmente sólo para sostener un botón sería absurdo. Acá sólo se pide
+// globalmente sólo para esto sería absurdo. Acá sólo se pide
 // `organization` (para `plan`) y, si es PREMIUM, el link de WhatsApp — nunca
 // eventos/ventas/stats.
 //

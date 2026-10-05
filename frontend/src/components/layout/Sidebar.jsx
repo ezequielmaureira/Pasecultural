@@ -21,8 +21,12 @@ import {
   Image,
   Zap,
   ClipboardCheck,
+  MessageCircle,
+  Lock,
 } from "lucide-react";
 import { useBackendUser } from "../../context/AuthContext.jsx";
+import { useOrganizerSession } from "../../context/OrganizerSessionContext.jsx";
+import { useToast } from "../../context/ToastContext.jsx";
 import { NEW_EVENT_REQUEST_EVENT } from "../../lib/eventChatEvents.js";
 import { apiFetch } from "../../lib/api.js";
 
@@ -82,6 +86,13 @@ const NAV_BY_ROLE = {
           end: true,
           state: { fresh: true },
         },
+        // Crear con WhatsApp — ACCIÓN, no una ruta: antes era un botón
+        // flotante global (ya retirado) que terminaba tapando contenido
+        // real en mobile (Entradas, checkout, el propio creador de eventos
+        // — ver el informe de la ronda "WhatsApp sin superposiciones").
+        // `kind: "whatsapp"` le avisa al renderer de children que esto no
+        // es un NavLink — ver más abajo dónde se detecta.
+        { label: "Crear con WhatsApp", kind: "whatsapp" },
         // Fest Pass — creador rápido alternativo (mismo Event real, ver
         // pages/organizer/FestPass.jsx), no un permiso ni un rol distinto.
         { label: "Fest Pass", path: "/organizador/fest-pass", end: true },
@@ -176,6 +187,12 @@ export default function Sidebar({ open = false, onClose }) {
   const location = useLocation();
   const role = backendUser?.role?.toLowerCase();
   const navItems = NAV_BY_ROLE[role] ?? [];
+  // "Crear con WhatsApp" (child.kind === "whatsapp", más abajo) — misma
+  // fuente global y liviana que ya usaba el botón flotante retirado, nunca
+  // un fetch nuevo (ver OrganizerSessionContext.jsx). Segura de llamar para
+  // cualquier rol: el Provider ya no dispara nada si no es Organizer.
+  const { organization, whatsappEventLink } = useOrganizerSession();
+  const toast = useToast();
 
   // Onboarding de "Crear evento" (mismo criterio que Organizer > Eventos >
   // Lista, ver OrganizerEvents.jsx) — pero Sidebar vive FUERA de
@@ -289,6 +306,61 @@ export default function Sidebar({ open = false, onClose }) {
                 {item.children && (
                   <div className="ml-6 mt-1 flex flex-col gap-1 border-l border-white/10 pl-4">
                     {item.children.map((child) => {
+                      // "Crear con WhatsApp" — no es un NavLink: PREMIUM
+                      // abre `whatsappEventLink` en una pestaña nueva
+                      // (mismo comportamiento exacto que tenía el botón
+                      // flotante retirado), FREE sólo muestra el aviso de
+                      // siempre. El plan real lo sigue validando el backend
+                      // (blockIfWhatsappEventCreationUnavailable en
+                      // whatsapp.controller.js) — acá sólo se decide la UX.
+                      // Mientras `organization` todavía no cargó, cae en la
+                      // rama FREE (candado) por defecto: nunca asume Premium
+                      // antes de confirmarlo.
+                      if (child.kind === "whatsapp") {
+                        const isWhatsappPremium = organization?.plan === "PREMIUM";
+                        const whatsappClass =
+                          "flex items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm text-slate-500 transition-colors duration-150 hover:text-white light:hover:text-slate-900";
+
+                        if (isWhatsappPremium) {
+                          return (
+                            <a
+                              key={child.label}
+                              href={whatsappEventLink || undefined}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              aria-disabled={!whatsappEventLink}
+                              onClick={(event) => {
+                                if (!whatsappEventLink) {
+                                  event.preventDefault();
+                                  toast.info("Estamos preparando el enlace de WhatsApp. Probá de nuevo en un segundo.");
+                                }
+                              }}
+                              className={`${whatsappClass} ${whatsappEventLink ? "" : "cursor-wait opacity-80"}`}
+                            >
+                              <MessageCircle className="h-4 w-4 shrink-0 text-emerald-400" aria-hidden="true" />
+                              {child.label}
+                            </a>
+                          );
+                        }
+
+                        return (
+                          <button
+                            key={child.label}
+                            type="button"
+                            onClick={() =>
+                              toast.info(
+                                "Esta función está disponible para organizaciones Premium. Pasate a Premium para cargar eventos directamente por WhatsApp.",
+                                { duration: 6000 }
+                              )
+                            }
+                            className={`${whatsappClass} w-full opacity-70`}
+                          >
+                            <MessageCircle className="h-4 w-4 shrink-0 text-emerald-400/70" aria-hidden="true" />
+                            {child.label}
+                            <Lock className="ml-auto h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                          </button>
+                        );
+                      }
                       // Fest Pass — único hijo destacado del menú: mismo
                       // <NavLink> y misma lista que el resto de los children,
                       // pero con tratamiento "premium/neon" (botón propio,

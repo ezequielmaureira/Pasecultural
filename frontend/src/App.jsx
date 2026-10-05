@@ -20,7 +20,6 @@ import { ToastProvider } from "./context/ToastContext.jsx";
 import { OrganizerSessionProvider } from "./context/OrganizerSessionContext.jsx";
 import { OrganizerDataProvider } from "./context/OrganizerDataContext.jsx";
 import { ActiveEventProvider } from "./context/ActiveEventContext.jsx";
-import OrganizerWhatsAppShortcutButton from "./components/organizer/OrganizerWhatsAppShortcutButton.jsx";
 import DashboardDeveloper from "./pages/DashboardDeveloper.jsx";
 import DeveloperOrganizations from "./pages/developer/DeveloperOrganizations.jsx";
 import DeveloperUsers from "./pages/developer/DeveloperUsers.jsx";
@@ -225,11 +224,6 @@ export default function App() {
             </Route>
           </Route>
         </Routes>
-        {/* Atajo global "Cargá tu evento con WhatsApp" — montado UNA sola
-            vez acá, junto a <Routes> (nunca dentro de una rama de rutas),
-            para que un Organizer autenticado lo siga viendo sin importar si
-            está en su panel o en cualquier pantalla pública de Smarticket. */}
-        <OrganizerWhatsAppShortcutButton />
       </OrganizerSessionProvider>
       </ThemeProvider>
       </AuthProvider>
