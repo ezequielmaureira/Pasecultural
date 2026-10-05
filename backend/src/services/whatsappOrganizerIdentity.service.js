@@ -19,10 +19,12 @@ export async function resolveWhatsappOrganizerIdentity(waId) {
         where: { waId },
         select: {
             organizationId: true,
-            organization: { select: { owner: { select: { clerkId: true } } } },
+            organization: { select: { closedAt: true, owner: { select: { clerkId: true } } } },
         },
     });
 
+    // Una organización cerrada por su propietario ya no opera por WhatsApp.
+    if (link?.organization?.closedAt) return null;
     const clerkId = link?.organization?.owner?.clerkId;
     if (!clerkId) return null;
 

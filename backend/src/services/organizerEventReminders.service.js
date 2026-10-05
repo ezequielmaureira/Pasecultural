@@ -31,7 +31,12 @@ export async function runOrganizerEventNotificationsSweep() {
     // siquiera tiene fila, así que este WHERE ya las excluye sin tener que
     // barrer EventFunction de toda la plataforma en cada corrida.
     const settingsRows = await prisma.organizerNotificationSettings.findMany({
-        where: { OR: [{ eventReminderEnabled: true }, { eventStartEnabled: true }, { eventEndEnabled: true }] },
+        // Una organización cerrada por su propietario (closedAt) ya no opera:
+        // no recibe recordatorios de sus eventos.
+        where: {
+            OR: [{ eventReminderEnabled: true }, { eventStartEnabled: true }, { eventEndEnabled: true }],
+            organization: { closedAt: null },
+        },
         select: {
             organizationId: true,
             eventReminderEnabled: true,

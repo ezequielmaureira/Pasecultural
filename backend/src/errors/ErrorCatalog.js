@@ -19,6 +19,35 @@ export const ErrorCatalog = Object.freeze({
         userMessage: "Ocurrió un error inesperado. Intentá nuevamente en unos minutos.",
     },
 
+    // --- Autoservicio: eliminar cuenta / eliminar organización -----------
+    // Ver auth.service.js#deleteMyAccountService y
+    // organization.service.js#deleteMyOrganizationService.
+    ORGANIZATION_DELETE_CONFIRMATION_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "Self-service organization close attempted without the exact typed confirmation.",
+        userMessage: "Escribí ELIMINAR para confirmar.",
+    },
+    ACCOUNT_DELETE_CONFIRMATION_REQUIRED: {
+        httpStatus: 400,
+        logMessage: "Self-service account deletion attempted without the exact typed confirmation.",
+        userMessage: "No confirmaste la eliminación de la cuenta.",
+    },
+    ACCOUNT_HAS_ACTIVE_ORGANIZATION: {
+        httpStatus: 409,
+        logMessage: "Self-service account deletion attempted while the user still owns an active (not closed) organization.",
+        userMessage: "Primero eliminá tu organización desde Configuración.",
+    },
+    ACCOUNT_DELETE_DEVELOPER_FORBIDDEN: {
+        httpStatus: 403,
+        logMessage: "Self-service account deletion attempted by a DEVELOPER user.",
+        userMessage: "Una cuenta Developer no puede eliminarse desde este flujo.",
+    },
+    ACCOUNT_DELETE_IDENTITY_FAILED: {
+        httpStatus: 502,
+        logMessage: "Self-service account deletion: deleting the Clerk identity failed; the internal User was restored to its previous state.",
+        userMessage: "No pudimos eliminar tu cuenta. Probá de nuevo en unos minutos.",
+    },
+
     // --- Sales / Tickets / Scanner --------------------------------------
     USER_NOT_FOUND: {
         httpStatus: 401,

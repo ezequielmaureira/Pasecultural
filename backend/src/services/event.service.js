@@ -287,14 +287,16 @@ export async function getMyOrganization(clerkId, organizationId = null) {
 
     if (organizationId) {
         const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
-        if (!organization || organization.ownerId !== user.id) {
+        // Una organización cerrada por su propietario (closedAt) nunca es
+        // operable, ni siquiera pidiéndola explícita (WhatsApp).
+        if (!organization || organization.ownerId !== user.id || organization.closedAt) {
             throw new Error("ORGANIZATION_FORBIDDEN");
         }
         return { user, organization };
     }
 
     const organization = await prisma.organization.findFirst({
-        where: { ownerId: user.id },
+        where: { ownerId: user.id, closedAt: null },
     });
 
     if (!organization) return null;
@@ -1298,6 +1300,10 @@ export const getPublicEventsService = async ({ category, search, sort, when, pri
         conditions.push({ isFree: true });
     }
 
+    // Nunca eventos de una organización cerrada (closedAt) o no aprobada,
+    // aunque sigan PUBLISHED.
+    conditions.push({ organization: PUBLIC_ORGANIZATION_WHERE });
+
     return prisma.event.findMany({
         where: { status: "PUBLISHED", visibility: "PUBLIC", AND: conditions },
         include: { organization: PUBLIC_ORGANIZATION_SELECT },
@@ -1359,9 +1365,14 @@ async function attachTicketAvailability(event) {
     };
 }
 
+// Regla única de "organización visible al público" para eventos: aprobada y
+// no cerrada por su propietario. getPublicEventBySlugService la aplica para
+// EventDetail/PurchaseWizard/Quick Pass/Fest Pass (todos derivan de acá).
+const PUBLIC_ORGANIZATION_WHERE = { status: "APPROVED", closedAt: null };
+
 export const getPublicEventBySlugService = async (slug) => {
-    const event = await prisma.event.findUnique({
-        where: { slug },
+    const event = await prisma.event.findFirst({
+        where: { slug, organization: PUBLIC_ORGANIZATION_WHERE },
         include: PUBLIC_EVENT_DETAIL_INCLUDE,
     });
 

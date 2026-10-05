@@ -19,7 +19,7 @@ export const listTicketsOrganizerService = async (clerkId, { search, status, eve
     const user = await getUserByClerkId(clerkId);
     if (!user) return [];
 
-    const organization = await prisma.organization.findFirst({ where: { ownerId: user.id } });
+    const organization = await prisma.organization.findFirst({ where: { ownerId: user.id, closedAt: null } });
     if (!organization) return [];
 
     if (!eventId) {

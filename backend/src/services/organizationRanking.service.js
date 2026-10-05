@@ -170,7 +170,7 @@ export async function getFeaturedOrganizationsService(limit = 10) {
     const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 50) : 10;
 
     const eligibleOrgs = await prisma.organization.findMany({
-        where: { plan: "PREMIUM", status: "APPROVED" },
+        where: { plan: "PREMIUM", status: "APPROVED", closedAt: null },
         select: {
             id: true,
             name: true,
@@ -218,6 +218,7 @@ export async function getPublicOrganizationsListService({ search = "", category 
     const where = {
         plan: "PREMIUM",
         status: "APPROVED",
+        closedAt: null,
         ...(term ? { name: { contains: term, mode: "insensitive" } } : {}),
         ...categoryWhere,
     };

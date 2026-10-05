@@ -98,9 +98,9 @@ async function resolveOrganizationForOwnerOrThrow(clerkId, organizationId) {
     if (!user) throw new AppError(ErrorCodes.USER_NOT_FOUND);
 
     const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
-    if (!organization || organization.ownerId !== user.id) {
+    if (!organization || organization.ownerId !== user.id || organization.closedAt) {
         // Mismo código tanto si la organización no existe como si existe
-        // pero no es del usuario autenticado.
+        // pero no es del usuario autenticado (o ya la cerró).
         throw new AppError(ErrorCodes.ORGANIZATION_PHONE_FORBIDDEN);
     }
     return { user, organization };

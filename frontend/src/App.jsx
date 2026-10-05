@@ -138,7 +138,11 @@ export default function App() {
                 /como-funciona. */}
             <Route path="/privacidad" element={<PrivacyPolicy />} />
             <Route path="/eliminacion-de-datos" element={<DataDeletion />} />
-            <Route path="/perfil" element={<Profile />} />
+            {/* Protegido: el perfil (y "Eliminar mi cuenta") es sólo para
+                quien tiene sesión — mismo layout público. */}
+            <Route element={<RequireAuth />}>
+              <Route path="/perfil" element={<Profile />} />
+            </Route>
             <Route path="/iniciar-sesion" element={<SignInPage />} />
             <Route path="/registro" element={<SignUpPage />} />
           </Route>

@@ -11,6 +11,7 @@ import MercadoPagoConnectionCard from "./MercadoPagoConnectionCard.jsx";
 import OrganizerNotificationSettingsCard from "./OrganizerNotificationSettingsCard.jsx";
 import OrganizationPhoneVerificationCard from "./OrganizationPhoneVerificationCard.jsx";
 import { ORG_CATEGORY_CHOICES } from "../../lib/organizationCategory.js";
+import { DangerZoneCard, TypedConfirmModal } from "../../components/account/DangerZone.jsx";
 
 function FieldSkeleton({ className = "" }) {
   return (
@@ -51,6 +52,7 @@ export default function OrganizerSettings() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [savedAt, setSavedAt] = useState(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -114,137 +116,178 @@ export default function OrganizerSettings() {
     }
   }
 
+  // Autoservicio "Eliminar organización" — en el backend es un cierre (soft
+  // delete): el historial se conserva y el usuario deja de ser ORGANIZER.
+  // Recarga completa al salir para que ningún estado cacheado (rol,
+  // organización) quede vivo en el frontend.
+  async function handleDeleteOrganization(confirmation) {
+    const token = await getToken();
+    await apiFetch("/api/organizations/me", {
+      token,
+      method: "DELETE",
+      body: JSON.stringify({ confirmation }),
+    });
+    toast.success("Organización eliminada.");
+    setTimeout(() => window.location.assign("/"), 900);
+  }
+
   return (
-    <form onSubmit={handleSave} className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-white">Configuración</h1>
-          <p className="text-sm text-slate-400">
-            Datos del organizador y de cobro
-          </p>
-          {/* Premium — Fase 1: sólo informativo, nunca editable desde acá. */}
-          {plan && (
-            <p className="mt-1 text-xs text-slate-500">
-              Plan <span className={plan === "PREMIUM" ? "font-medium text-brand-soft" : "font-medium text-slate-400"}>{plan === "PREMIUM" ? "Premium" : "Free"}</span>
+    <div className="flex flex-col gap-6">
+      <form onSubmit={handleSave} className="flex flex-col gap-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-white">Configuración</h1>
+            <p className="text-sm text-slate-400">
+              Datos del organizador y de cobro
             </p>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          {saveError && <span className="text-xs text-rose-400">{saveError}</span>}
-          {savedAt && !saveError && (
-            <span className="flex items-center gap-1.5 text-xs text-emerald-400">
-              <Check className="h-4 w-4" />
-              Cambios guardados
-            </span>
-          )}
-          <Button type="submit" loading={saving} loadingText="Guardando..." disabled={loading || saving}>
-            Guardar cambios
-          </Button>
-        </div>
-      </div>
-
-      <Card title="Datos del organizador">
-        {loading ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <FieldSkeleton className="sm:col-span-2 sm:max-w-xs" />
-            {Array.from({ length: 7 }).map((_, i) => (
-              <FieldSkeleton key={i} />
-            ))}
-            <FieldSkeleton className="sm:col-span-2" />
+            {/* Premium — Fase 1: sólo informativo, nunca editable desde acá. */}
+            {plan && (
+              <p className="mt-1 text-xs text-slate-500">
+                Plan <span className={plan === "PREMIUM" ? "font-medium text-brand-soft" : "font-medium text-slate-400"}>{plan === "PREMIUM" ? "Premium" : "Free"}</span>
+              </p>
+            )}
           </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2 sm:max-w-xs">
-              <ImageUploader
-                label="Logo"
-                value={org.logo}
-                onChange={(url) => setOrgField("logo", url || "")}
-              />
+          <div className="flex items-center gap-3">
+            {saveError && <span className="text-xs text-rose-400">{saveError}</span>}
+            {savedAt && !saveError && (
+              <span className="flex items-center gap-1.5 text-xs text-emerald-400">
+                <Check className="h-4 w-4" />
+                Cambios guardados
+              </span>
+            )}
+            <Button type="submit" loading={saving} loadingText="Guardando..." disabled={loading || saving}>
+              Guardar cambios
+            </Button>
+          </div>
+        </div>
+
+        <Card title="Datos del organizador">
+          {loading ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <FieldSkeleton className="sm:col-span-2 sm:max-w-xs" />
+              {Array.from({ length: 7 }).map((_, i) => (
+                <FieldSkeleton key={i} />
+              ))}
+              <FieldSkeleton className="sm:col-span-2" />
             </div>
-            <Field label="Nombre comercial" required>
-              <input
-                className={inputClass}
-                value={org.name}
-                onChange={(e) => setOrgField("name", e.target.value)}
-              />
-            </Field>
-            <Field label="CUIT" required>
-              <input
-                className={inputClass}
-                value={org.cuit}
-                onChange={(e) => setOrgField("cuit", e.target.value)}
-              />
-            </Field>
-            <Field label="Correo" required>
-              <input
-                type="email"
-                className={inputClass}
-                value={org.email}
-                onChange={(e) => setOrgField("email", e.target.value)}
-              />
-            </Field>
-            <Field label="Provincia" required>
-              <input
-                className={inputClass}
-                value={org.province}
-                onChange={(e) => setOrgField("province", e.target.value)}
-              />
-            </Field>
-            <Field label="Ciudad" required>
-              <input
-                className={inputClass}
-                value={org.city}
-                onChange={(e) => setOrgField("city", e.target.value)}
-              />
-            </Field>
-            <Field label="Sitio web">
-              <input
-                className={inputClass}
-                value={org.website}
-                onChange={(e) => setOrgField("website", e.target.value)}
-              />
-            </Field>
-            <Field label="Instagram">
-              <input
-                className={inputClass}
-                value={org.instagram}
-                onChange={(e) => setOrgField("instagram", e.target.value)}
-              />
-            </Field>
-            <Field label="Rubro">
-              <select
-                className={inputClass}
-                value={org.organizationCategory}
-                onChange={(e) => setOrgField("organizationCategory", e.target.value)}
-              >
-                <option value="">Sin rubro</option>
-                {ORG_CATEGORY_CHOICES.map((c) => (
-                  <option key={c.value} value={c.value}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Descripción" className="sm:col-span-2">
-              <textarea
-                className={textareaClass}
-                value={org.description}
-                onChange={(e) => setOrgField("description", e.target.value)}
-              />
-            </Field>
-          </div>
-        )}
-      </Card>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2 sm:max-w-xs">
+                <ImageUploader
+                  label="Logo"
+                  value={org.logo}
+                  onChange={(url) => setOrgField("logo", url || "")}
+                />
+              </div>
+              <Field label="Nombre comercial" required>
+                <input
+                  className={inputClass}
+                  value={org.name}
+                  onChange={(e) => setOrgField("name", e.target.value)}
+                />
+              </Field>
+              <Field label="CUIT" required>
+                <input
+                  className={inputClass}
+                  value={org.cuit}
+                  onChange={(e) => setOrgField("cuit", e.target.value)}
+                />
+              </Field>
+              <Field label="Correo" required>
+                <input
+                  type="email"
+                  className={inputClass}
+                  value={org.email}
+                  onChange={(e) => setOrgField("email", e.target.value)}
+                />
+              </Field>
+              <Field label="Provincia" required>
+                <input
+                  className={inputClass}
+                  value={org.province}
+                  onChange={(e) => setOrgField("province", e.target.value)}
+                />
+              </Field>
+              <Field label="Ciudad" required>
+                <input
+                  className={inputClass}
+                  value={org.city}
+                  onChange={(e) => setOrgField("city", e.target.value)}
+                />
+              </Field>
+              <Field label="Sitio web">
+                <input
+                  className={inputClass}
+                  value={org.website}
+                  onChange={(e) => setOrgField("website", e.target.value)}
+                />
+              </Field>
+              <Field label="Instagram">
+                <input
+                  className={inputClass}
+                  value={org.instagram}
+                  onChange={(e) => setOrgField("instagram", e.target.value)}
+                />
+              </Field>
+              <Field label="Rubro">
+                <select
+                  className={inputClass}
+                  value={org.organizationCategory}
+                  onChange={(e) => setOrgField("organizationCategory", e.target.value)}
+                >
+                  <option value="">Sin rubro</option>
+                  {ORG_CATEGORY_CHOICES.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Descripción" className="sm:col-span-2">
+                <textarea
+                  className={textareaClass}
+                  value={org.description}
+                  onChange={(e) => setOrgField("description", e.target.value)}
+                />
+              </Field>
+            </div>
+          )}
+        </Card>
 
-      {!loading && orgId && <OrganizationPhoneVerificationCard organizationId={orgId} />}
+        {!loading && orgId && <OrganizationPhoneVerificationCard organizationId={orgId} />}
 
-      {/* MP-1 — onboarding OAuth de Mercado Pago (reemplaza el placeholder
-          "Próximamente" que había acá). Sólo conecta la cuenta: todavía no
-          hay configuración de comisión, movimientos, saldos ni checkout —
-          eso es MP-2. */}
-      {!loading && orgId && <MercadoPagoConnectionCard organizationId={orgId} />}
+        {/* MP-1 — onboarding OAuth de Mercado Pago (reemplaza el placeholder
+            "Próximamente" que había acá). Sólo conecta la cuenta: todavía no
+            hay configuración de comisión, movimientos, saldos ni checkout —
+            eso es MP-2. */}
+        {!loading && orgId && <MercadoPagoConnectionCard organizationId={orgId} />}
 
-      {!loading && orgId && <OrganizerNotificationSettingsCard />}
-    </form>
+        {!loading && orgId && <OrganizerNotificationSettingsCard />}
+      </form>
+
+      {/* Fuera del <form> a propósito: el modal de confirmación tiene su
+          propio input y nunca debe poder disparar el "Guardar" de arriba. */}
+      {!loading && orgId && (
+        <DangerZoneCard
+          actionTitle="Eliminar organización"
+          description="Tu organización dejará de estar operativa y de aparecer públicamente. Los datos históricos de ventas, entradas e ingresos se conservarán."
+          buttonLabel="Eliminar organización"
+          onRequest={() => setConfirmingDelete(true)}
+        />
+      )}
+
+      {confirmingDelete && (
+        <TypedConfirmModal
+          title="Eliminar organización"
+          paragraphs={[
+            "Esta acción cerrará tu organización y no podrás seguir administrando eventos desde ella.",
+            "Las ventas, entradas e historial ya generados no se eliminarán.",
+          ]}
+          confirmLabel="Eliminar definitivamente"
+          onConfirm={handleDeleteOrganization}
+          onClose={() => setConfirmingDelete(false)}
+        />
+      )}
+    </div>
   );
 }

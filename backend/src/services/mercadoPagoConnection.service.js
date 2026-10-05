@@ -38,10 +38,10 @@ async function resolveOrganizationForOwnerOrThrow(clerkId, organizationId) {
     if (!user) throw new AppError(ErrorCodes.USER_NOT_FOUND);
 
     const organization = await prisma.organization.findUnique({ where: { id: organizationId } });
-    if (!organization || organization.ownerId !== user.id) {
+    if (!organization || organization.ownerId !== user.id || organization.closedAt) {
         // Mismo código tanto si la organización no existe como si existe
-        // pero no es del usuario autenticado — nunca se revela cuál de los
-        // dos casos ocurrió.
+        // pero no es del usuario autenticado (o ya la cerró) — nunca se
+        // revela cuál de los casos ocurrió.
         throw new AppError(ErrorCodes.MERCADOPAGO_FORBIDDEN);
     }
 

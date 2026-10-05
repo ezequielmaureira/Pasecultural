@@ -115,7 +115,7 @@ const RAW_CATALOG = [
     ...catalog("ORGANIZER", "Organización", [
         ["organizer.org.create", "Crear organización (onboarding)"],
         ["organizer.org.edit", "Editar datos de la organización"],
-        ["organizer.org.delete", "Eliminar organización propia"],
+        ["organizer.org.delete", "Eliminar/cerrar organización con confirmación (Configuración → Zona de peligro; conserva historial)"],
     ]),
 
     ...catalog("ORGANIZER", "Dashboard", [
@@ -360,6 +360,7 @@ const RAW_CATALOG = [
         ["asistente.account.signIn", "Iniciar sesión"],
         ["asistente.account.signUp", "Registrarse"],
         ["asistente.account.postAuthRedirect", "Redirección post-login según rol"],
+        ["profile.account.delete", "Eliminar mi cuenta con confirmación (/perfil → Zona de peligro)"],
     ]),
 
     ...catalog("ASISTENTE", "Informativas", [

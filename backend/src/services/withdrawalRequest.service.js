@@ -222,7 +222,7 @@ export async function listWithdrawalRequestsService(clerkId) {
 
     let organizationFilter = {};
     if (user.role !== "DEVELOPER") {
-        const organization = await prisma.organization.findFirst({ where: { ownerId: user.id } });
+        const organization = await prisma.organization.findFirst({ where: { ownerId: user.id, closedAt: null } });
         if (!organization) return [];
         organizationFilter = { organizationId: organization.id };
     }
@@ -285,7 +285,7 @@ async function resolveOwnedWithdrawalRequestOrThrow(clerkId, withdrawalRequestId
     if (!existing) throw new AppError(ErrorCodes.WITHDRAWAL_REQUEST_SALE_NOT_FOUND);
 
     if (user.role !== "DEVELOPER") {
-        const organization = await prisma.organization.findFirst({ where: { ownerId: user.id } });
+        const organization = await prisma.organization.findFirst({ where: { ownerId: user.id, closedAt: null } });
         if (!organization || organization.id !== existing.organizationId) {
             throw new AppError(ErrorCodes.WITHDRAWAL_REQUEST_SALE_NOT_FOUND);
         }

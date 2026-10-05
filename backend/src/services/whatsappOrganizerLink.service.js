@@ -105,7 +105,7 @@ async function resolveOwnOrganizationOrThrow(clerkId) {
     const user = await getUserByClerkId(clerkId);
     if (!user) throw new AppError(ErrorCodes.USER_NOT_FOUND);
 
-    const organization = await prisma.organization.findFirst({ where: { ownerId: user.id } });
+    const organization = await prisma.organization.findFirst({ where: { ownerId: user.id, closedAt: null } });
     if (!organization) throw new AppError(ErrorCodes.WHATSAPP_LINK_NO_ORGANIZATION);
 
     return organization;

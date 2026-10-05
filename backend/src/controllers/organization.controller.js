@@ -1,4 +1,5 @@
 import { getAuth } from "@clerk/express";
+import { AppError } from "../errors/AppError.js";
 import {
     createOrganizationService,
     getMyOrganizationService,
@@ -142,7 +143,7 @@ export const updateMyOrganization = async (req, res) => {
     }
 };
 
-export const deleteMyOrganization = async (req, res) => {
+export const deleteMyOrganization = async (req, res, next) => {
     try {
         const { userId } = getAuth(req);
 
@@ -150,27 +151,22 @@ export const deleteMyOrganization = async (req, res) => {
             return res.status(401).json({ message: "No autenticado" });
         }
 
-        const deleted = await deleteMyOrganizationService(userId);
+        // Identidad y organización SIEMPRE derivadas de la sesión — del body
+        // sólo se lee la confirmación escrita.
+        const result = await deleteMyOrganizationService(userId, { confirmation: req.body?.confirmation });
 
-        if (!deleted) {
+        if (!result) {
             return res.status(404).json({
-                message: "No tenés una organización creada",
+                message: "No tenés una organización activa",
             });
         }
 
-        res.status(204).send();
+        return res.status(200).json(result);
     } catch (error) {
-        console.error(error);
-
         if (error.message === "USER_NOT_SYNCED") {
-            return res.status(409).json({
-                message: "Usuario no sincronizado. Volvé a iniciar sesión.",
-            });
+            return res.status(409).json({ message: "Usuario no sincronizado. Volvé a iniciar sesión." });
         }
-
-        res.status(500).json({
-            message: "Error al eliminar la organización",
-        });
+        next(AppError.from(error));
     }
 };
 

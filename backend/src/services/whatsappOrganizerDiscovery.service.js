@@ -35,7 +35,7 @@ function toCandidate(link) {
 
 const CANDIDATE_LINK_SELECT = {
     organizationId: true,
-    organization: { select: { name: true, status: true, owner: { select: { clerkId: true, firstName: true } } } },
+    organization: { select: { name: true, status: true, closedAt: true, owner: { select: { clerkId: true, firstName: true } } } },
 };
 
 // Pura, exportada para poder probarla directamente sin tocar Prisma: unión
@@ -118,11 +118,11 @@ export async function discoverWhatsappOrganizationCandidates(waId) {
         // se re-audita acá — sólo se restringe qué Organizations pueden
         // crear un link NUEVO por esta vía.
         prisma.organization.findMany({
-            where: { status: "APPROVED", phone: { not: null }, phoneVerifiedAt: { not: null }, whatsappOrganizerLink: null },
+            where: { status: "APPROVED", closedAt: null, phone: { not: null }, phoneVerifiedAt: { not: null }, whatsappOrganizerLink: null },
             select: { id: true, name: true, phone: true, owner: { select: { clerkId: true, firstName: true } } },
         }),
     ]);
-    const byLink = existingLinks.filter((link) => link.organization.status === "APPROVED").map(toCandidate);
+    const byLink = existingLinks.filter((link) => link.organization.status === "APPROVED" && !link.organization.closedAt).map(toCandidate);
     const matches = unlinkedApproved.filter((org) => isSameArgentinePhone(org.phone, waId));
 
     const byPhone = [];
@@ -209,8 +209,8 @@ export async function clearPendingOrganizationSelection(waId) {
 export async function resolveOrganizationOwner(organizationId) {
     const organization = await prisma.organization.findUnique({
         where: { id: organizationId },
-        select: { name: true, status: true, owner: { select: { clerkId: true, firstName: true } } },
+        select: { name: true, status: true, closedAt: true, owner: { select: { clerkId: true, firstName: true } } },
     });
-    if (!organization || organization.status !== "APPROVED") return null;
+    if (!organization || organization.status !== "APPROVED" || organization.closedAt) return null;
     return { name: organization.name, clerkId: organization.owner.clerkId, ownerFirstName: organization.owner.firstName };
 }

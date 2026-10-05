@@ -321,13 +321,13 @@ export async function resendSaleConfirmationEmailService(clerkId, saleId) {
             id: true,
             status: true,
             deletedAt: true,
-            event: { select: { organization: { select: { ownerId: true } } } },
+            event: { select: { organization: { select: { ownerId: true, closedAt: true } } } },
         },
     });
     if (!sale || sale.deletedAt) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
 
     const isDeveloper = user.role === "DEVELOPER";
-    const isOwningOrganizer = user.role === "ORGANIZER" && sale.event.organization.ownerId === user.id;
+    const isOwningOrganizer = user.role === "ORGANIZER" && sale.event.organization.ownerId === user.id && !sale.event.organization.closedAt;
     if (!isDeveloper && !isOwningOrganizer) {
         // No se distingue de "no existe": no hace falta confirmarle a un
         // organizador ajeno que esa venta sí existe en otra organización.

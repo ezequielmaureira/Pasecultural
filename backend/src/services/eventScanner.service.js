@@ -25,7 +25,7 @@ async function getMyOrganization(clerkId) {
     const user = await getUserByClerkId(clerkId);
     if (!user) return null;
 
-    const organization = await prisma.organization.findFirst({ where: { ownerId: user.id } });
+    const organization = await prisma.organization.findFirst({ where: { ownerId: user.id, closedAt: null } });
     if (!organization) return null;
 
     return { user, organization };

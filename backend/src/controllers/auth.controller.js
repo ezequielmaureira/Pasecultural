@@ -1,5 +1,6 @@
 import { clerkClient, getAuth } from "@clerk/express";
-import { syncUserService } from "../services/auth.service.js";
+import { syncUserService, deleteMyAccountService } from "../services/auth.service.js";
+import { AppError } from "../errors/AppError.js";
 
 export const syncUser = async (req, res) => {
     try {
@@ -26,5 +27,18 @@ export const syncUser = async (req, res) => {
         res.status(500).json({
             message: "Error al sincronizar el usuario",
         });
+    }
+};
+
+// DELETE /api/auth/me — autoservicio "Eliminar mi cuenta". La identidad
+// sale SIEMPRE de la sesión Clerk (getAuth); del body sólo se lee la
+// confirmación escrita. Ver deleteMyAccountService.
+export const deleteMyAccount = async (req, res, next) => {
+    try {
+        const { userId } = getAuth(req);
+        const result = await deleteMyAccountService(userId, { confirmation: req.body?.confirmation });
+        res.status(200).json(result);
+    } catch (error) {
+        next(AppError.from(error));
     }
 };

@@ -65,7 +65,7 @@ const SALE_LIST_INCLUDE = {
 };
 
 async function getOrganizationByOwner(userId) {
-    return prisma.organization.findFirst({ where: { ownerId: userId } });
+    return prisma.organization.findFirst({ where: { ownerId: userId, closedAt: null } });
 }
 
 // Cuánto stock queda disponible para un tipo de entrada en una función
@@ -180,8 +180,13 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
         throw new AppError(ErrorCodes.PUBLIC_LAUNCH_DISABLED);
     }
 
-    const event = await prisma.event.findUnique({ where: { id: input?.eventId } });
-    if (!event) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
+    const event = await prisma.event.findUnique({
+        where: { id: input?.eventId },
+        include: { organization: { select: { closedAt: true } } },
+    });
+    // Una organización cerrada por su propietario ya no vende ni emite
+    // cortesías — mismo error que "no existe".
+    if (!event || event.organization.closedAt) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
 
     // Guard autoritativo de FREE_ENTRY — punto único de choque de los tres
     // caminos que pueden llegar acá (venta manual, Mercado Pago vía
@@ -557,7 +562,7 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
     // No cambia nada para el resto de los callers: un ORGANIZER sigue sin
     // poder confirmar ventas ajenas, exactamente como siempre.
     const isDeveloper = organizerUser.role === "DEVELOPER";
-    if (!isDeveloper && sale.event.organization.ownerId !== organizerUser.id) {
+    if (!isDeveloper && (sale.event.organization.ownerId !== organizerUser.id || sale.event.organization.closedAt)) {
         logger.info("confirmSaleService failed: organizer does not own event organization", {
             saleId,
             organizerUserId: organizerUser.id,
@@ -1009,7 +1014,7 @@ export const cancelSaleService = async (clerkId, saleId) => {
     if (!sale || sale.deletedAt) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
 
     const isBuyer = sale.buyerId === user.id;
-    const isOrganizer = sale.event.organization.ownerId === user.id;
+    const isOrganizer = sale.event.organization.ownerId === user.id && !sale.event.organization.closedAt;
     if (!isBuyer && !isOrganizer) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
 
     const updated = await prisma.sale.updateMany({

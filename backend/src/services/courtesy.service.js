@@ -36,7 +36,7 @@ async function resolveEventForCourtesy(clerkId, eventId) {
     if (!event) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
 
     const isDeveloper = user.role === "DEVELOPER";
-    const isOwningOrganizer = user.role === "ORGANIZER" && event.organization.ownerId === user.id;
+    const isOwningOrganizer = user.role === "ORGANIZER" && event.organization.ownerId === user.id && !event.organization.closedAt;
     if (!isDeveloper && !isOwningOrganizer) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
     if (event.archivedAt) throw new AppError(ErrorCodes.EVENT_ARCHIVED);
 
@@ -58,7 +58,7 @@ async function resolveOwnedCourtesySale(clerkId, saleId) {
     if (!sale || sale.deletedAt || sale.origin !== "COURTESY") throw new AppError(ErrorCodes.COURTESY_NOT_FOUND);
 
     const isDeveloper = user.role === "DEVELOPER";
-    const isOwningOrganizer = user.role === "ORGANIZER" && sale.event.organization.ownerId === user.id;
+    const isOwningOrganizer = user.role === "ORGANIZER" && sale.event.organization.ownerId === user.id && !sale.event.organization.closedAt;
     if (!isDeveloper && !isOwningOrganizer) throw new AppError(ErrorCodes.COURTESY_NOT_FOUND);
 
     return { user, sale };
@@ -189,7 +189,7 @@ export const listCourtesiesService = async (clerkId, filters = {}) => {
     const isDeveloper = user.role === "DEVELOPER";
 
     const where = { origin: "COURTESY", deletedAt: null };
-    if (!isDeveloper) where.event = { organization: { ownerId: user.id } };
+    if (!isDeveloper) where.event = { organization: { ownerId: user.id, closedAt: null } };
     if (filters.eventId) where.eventId = filters.eventId;
     if (filters.functionId) where.functionId = filters.functionId;
     if (filters.reason && REASONS.has(filters.reason)) where.courtesy = { reason: filters.reason };
@@ -250,7 +250,7 @@ export const getCourtesyStatsService = async (clerkId, eventId) => {
     const isDeveloper = user.role === "DEVELOPER";
 
     const where = { origin: "COURTESY", deletedAt: null, eventId };
-    if (!isDeveloper) where.event = { organization: { ownerId: user.id } };
+    if (!isDeveloper) where.event = { organization: { ownerId: user.id, closedAt: null } };
 
     const sales = await prisma.sale.findMany({
         where,

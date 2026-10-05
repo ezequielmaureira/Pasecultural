@@ -1,4 +1,6 @@
 import prisma from "../config/prisma.js";
+import { AppError } from "../errors/AppError.js";
+import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { logger } from "../logging/logger.js";
 import { sendDeveloperAlert, DeveloperAlertType } from "./email/sendDeveloperAlert.service.js";
 import { generateUniqueSlug } from "../utils/generateSlug.js";
@@ -19,6 +21,9 @@ async function getUserByClerkId(clerkId) {
     });
 }
 
+// "Organización operativa actual" del propietario: nunca una cerrada por
+// autoservicio (closedAt != null) — esa queda sólo como historial (Developer,
+// ventas/tickets ya emitidos). Ver deleteMyOrganizationService.
 export const getMyOrganizationService = async (clerkId) => {
     const user = await getUserByClerkId(clerkId);
 
@@ -27,6 +32,7 @@ export const getMyOrganizationService = async (clerkId) => {
     return prisma.organization.findFirst({
         where: {
             ownerId: user.id,
+            closedAt: null,
         },
     });
 };
@@ -59,9 +65,13 @@ export const createOrganizationService = async (
         throw new Error("USER_NOT_SYNCED");
     }
 
+    // Sólo una organización ACTIVA cuenta como "ya tenés una": quien cerró
+    // la suya (closedAt != null) puede crear una nueva; la vieja queda como
+    // historial.
     const existing = await prisma.organization.findFirst({
         where: {
             ownerId: user.id,
+            closedAt: null,
         },
     });
 
@@ -178,7 +188,7 @@ export const updateMyOrganizationService = async (clerkId, input) => {
     }
 
     const organization = await prisma.organization.findFirst({
-        where: { ownerId: user.id },
+        where: { ownerId: user.id, closedAt: null },
     });
 
     if (!organization) {
@@ -198,7 +208,22 @@ export const updateMyOrganizationService = async (clerkId, input) => {
     });
 };
 
-export const deleteMyOrganizationService = async (clerkId) => {
+export const SELF_SERVICE_DELETE_CONFIRMATION = "ELIMINAR";
+
+// Autoservicio "Eliminar organización" (Configuración → Zona de peligro).
+// Es un CIERRE (soft delete), nunca un organization.delete(): la
+// Organization y todo lo que cuelga de ella (eventos, ventas, entradas, QR,
+// check-ins, scanners, Mercado Pago, solicitudes, auditoría) se conserva
+// intacto. Sólo se marca closedAt + status SUSPENDED y el propietario deja
+// de ser ORGANIZER. A partir de ahí ningún resolver de "organización
+// operativa actual" (closedAt: null) la vuelve a encontrar, y deja de ser
+// pública. La eliminación HARD de Developer (deleteOrganizationService) es
+// otro camino y no cambia.
+export const deleteMyOrganizationService = async (clerkId, { confirmation } = {}) => {
+    if (confirmation !== SELF_SERVICE_DELETE_CONFIRMATION) {
+        throw new AppError(ErrorCodes.ORGANIZATION_DELETE_CONFIRMATION_REQUIRED);
+    }
+
     const user = await getUserByClerkId(clerkId);
 
     if (!user) {
@@ -206,15 +231,26 @@ export const deleteMyOrganizationService = async (clerkId) => {
     }
 
     const organization = await prisma.organization.findFirst({
-        where: { ownerId: user.id },
+        where: { ownerId: user.id, closedAt: null },
     });
 
     if (!organization) {
-        return false;
+        return null;
     }
 
-    await prisma.organization.delete({ where: { id: organization.id } });
-    return true;
+    const closedAt = new Date();
+    await prisma.$transaction(async (tx) => {
+        await tx.organization.update({
+            where: { id: organization.id },
+            data: { closedAt, status: "SUSPENDED" },
+        });
+        if (user.role === "ORGANIZER") {
+            await tx.user.update({ where: { id: user.id }, data: { role: "CUSTOMER" } });
+        }
+    });
+
+    logger.info("deleteMyOrganizationService: organización cerrada por su propietario", { organizationId: organization.id });
+    return { mode: "closed", closedAt };
 };
 
 // Usado exclusivamente por Developer → Organizaciones (organization.controller.js,
@@ -347,8 +383,10 @@ export const getPublicOrganizationBySlugService = async (slug, { includeEvents =
         throw new Error("ORGANIZATION_PUBLIC_PAGE_NOT_AVAILABLE");
     }
 
-    const organization = await prisma.organization.findUnique({
-        where: { slug },
+    // Sólo una organización APPROVED y no cerrada tiene página pública —
+    // mismo error que "no existe" (la respuesta nunca distingue el motivo).
+    const organization = await prisma.organization.findFirst({
+        where: { slug, status: "APPROVED", closedAt: null },
         select: {
             id: true,
             name: true,
