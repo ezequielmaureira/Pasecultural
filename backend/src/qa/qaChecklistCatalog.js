@@ -339,7 +339,7 @@ const RAW_CATALOG = [
 
     ...catalog("ASISTENTE", "Recuperación de compra", [
         ["asistente.recovery.chooseMode", "Elegir modo de recuperación"],
-        ["asistente.recovery.requestOtp", "Solicitar código OTP de recuperación"],
+        ["asistente.recovery.requestOtp", "Solicitar código OTP de recuperación (respuesta neutra antes de verificar OTP)"],
         ["asistente.recovery.resendOtp", "Reenviar código OTP de recuperación"],
         ["asistente.recovery.verifyOtp", "Verificar código OTP de recuperación"],
         [

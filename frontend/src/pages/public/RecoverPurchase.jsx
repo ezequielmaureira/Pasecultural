@@ -49,6 +49,22 @@ function BackLink({ onBack, label = "Elegir otra opción" }) {
   );
 }
 
+// Ayuda de la pantalla de código, compartida por ambos flujos. Nunca afirma
+// que el código se haya enviado: el backend responde igual haya o no una
+// compra coincidente (no-enumeration), así que la UI tampoco lo distingue.
+function RecoveryCodeHint({ maskedEmail }) {
+  return (
+    <div className="w-full rounded-xl border border-white/10 bg-white/5 p-3 text-left text-sm text-slate-400">
+      {maskedEmail && (
+        <p>
+          Correo ingresado: <span className="break-all font-medium text-slate-200">{maskedEmail}</span>
+        </p>
+      )}
+      <p className={maskedEmail ? "mt-1" : ""}>Puede demorar unos minutos. Revisá también spam o correo no deseado.</p>
+    </div>
+  );
+}
+
 // Pantalla pública "Recuperar mis entradas" — punto de entrada con dos
 // caminos claramente diferenciados (ronda "recuperación de pagos", parte
 // 2): "Reenviar mis entradas" (ResendTicketsFlow, EL MISMO flujo de
@@ -280,7 +296,7 @@ function ResendTicketsFlow({ onBack }) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-slate-400">
         <Spinner size="lg" />
-        <p className="text-sm">Buscando tu compra...</p>
+        <p className="text-sm">Procesando tu solicitud...</p>
       </div>
     );
   }
@@ -363,12 +379,12 @@ function ResendTicketsFlow({ onBack }) {
       <div className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
         <Card>
           <div className="flex flex-col items-center gap-3 py-2 text-center">
-            <Search className="h-9 w-9 text-brand" />
-            <h1 className="text-lg font-bold text-white">Encontramos una compra asociada a esos datos.</h1>
+            <Mail className="h-9 w-9 text-brand" />
+            <h1 className="text-lg font-bold text-white">Revisá tu correo</h1>
             <p className="text-sm text-slate-400">
-              Te enviamos un código de verificación al correo registrado:{" "}
-              <span className="font-medium text-slate-200">{maskedEmail}</span>.
+              Si el correo y el DNI coinciden con una compra vigente, vas a recibir un código de 6 dígitos.
             </p>
+            <RecoveryCodeHint maskedEmail={maskedEmail} />
 
             <div className="mt-2 w-full">
               <Field label="Código de 6 dígitos">
@@ -406,16 +422,13 @@ function ResendTicketsFlow({ onBack }) {
               className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-brand transition-colors duration-150 hover:text-brand-soft disabled:cursor-not-allowed disabled:text-slate-600"
             >
               <RefreshCw className={`h-3 w-3 ${resending ? "animate-spin" : ""}`} />
-              {cooldownRemaining > 0 ? `Reenviar código (${cooldownRemaining}s)` : "Reenviar código"}
+              {cooldownRemaining > 0 ? `Podés volver a intentarlo en ${cooldownRemaining}s` : "Reenviar código"}
             </button>
 
-            <button
-              type="button"
-              onClick={handleTryAgain}
-              className="mt-1 text-xs text-slate-500 transition-colors duration-150 hover:text-slate-300"
-            >
-              Usar otro correo o DNI
-            </button>
+            <Button variant="secondary" onClick={handleTryAgain} className="mt-1 w-full justify-center gap-1.5">
+              <ArrowLeft className="h-4 w-4" />
+              Revisar correo y DNI
+            </Button>
           </div>
         </Card>
       </div>
@@ -466,9 +479,9 @@ function ResendTicketsFlow({ onBack }) {
       <div className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
         <Card>
           <div className="flex flex-col items-center gap-3 py-4 text-center">
-            <h1 className="text-lg font-bold text-white">No encontramos ninguna compra con esos datos.</h1>
+            <h1 className="text-lg font-bold text-white">No tenés entradas vigentes para recuperar.</h1>
             <p className="text-sm text-slate-400">
-              Revisá que el email y el DNI sean exactamente los que usaste al comprar.
+              Las entradas de funciones que ya terminaron no se pueden recuperar.
             </p>
             <Button onClick={handleTryAgain} className="mt-2 w-full justify-center">
               Intentar de nuevo
@@ -484,7 +497,7 @@ function ResendTicketsFlow({ onBack }) {
       <Card>
         <div className="flex flex-col gap-1 pb-4 text-center">
           <h1 className="text-lg font-bold text-white">Reenviar mis entradas</h1>
-          <p className="text-sm text-slate-400">Ingresá el email y el DNI que usaste al comprar</p>
+          <p className="text-sm text-slate-400">Usá el mismo correo y DNI que ingresaste al comprar.</p>
         </div>
 
         <div className="flex flex-col gap-4">
@@ -729,12 +742,12 @@ function PaymentRecoveryFlow({ onBack }) {
       <div className="mx-auto max-w-md px-3 py-10 sm:px-4 sm:py-16">
         <Card>
           <div className="flex flex-col items-center gap-3 py-2 text-center">
-            <Search className="h-9 w-9 text-brand" />
-            <h1 className="text-lg font-bold text-white">Verificá tu identidad</h1>
+            <Mail className="h-9 w-9 text-brand" />
+            <h1 className="text-lg font-bold text-white">Revisá tu correo</h1>
             <p className="text-sm text-slate-400">
-              Te enviamos un código de verificación al correo registrado:{" "}
-              <span className="font-medium text-slate-200">{maskedEmail}</span>.
+              Si el correo y el DNI coinciden con una compra, vas a recibir un código de 6 dígitos.
             </p>
+            <RecoveryCodeHint maskedEmail={maskedEmail} />
 
             <div className="mt-2 w-full">
               <Field label="Código de 6 dígitos">
@@ -772,16 +785,13 @@ function PaymentRecoveryFlow({ onBack }) {
               className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-brand transition-colors duration-150 hover:text-brand-soft disabled:cursor-not-allowed disabled:text-slate-600"
             >
               <RefreshCw className={`h-3 w-3 ${resending ? "animate-spin" : ""}`} />
-              {cooldownRemaining > 0 ? `Reenviar código (${cooldownRemaining}s)` : "Reenviar código"}
+              {cooldownRemaining > 0 ? `Podés volver a intentarlo en ${cooldownRemaining}s` : "Reenviar código"}
             </button>
 
-            <button
-              type="button"
-              onClick={handleTryAgain}
-              className="mt-1 text-xs text-slate-500 transition-colors duration-150 hover:text-slate-300"
-            >
-              Usar otros datos
-            </button>
+            <Button variant="secondary" onClick={handleTryAgain} className="mt-1 w-full justify-center gap-1.5">
+              <ArrowLeft className="h-4 w-4" />
+              Revisar correo y DNI
+            </Button>
           </div>
         </Card>
       </div>
