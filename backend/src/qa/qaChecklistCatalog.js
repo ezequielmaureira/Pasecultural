@@ -162,7 +162,7 @@ const RAW_CATALOG = [
     ]),
 
     ...catalog("ORGANIZER", "Tipos de entrada", [
-        ["organizer.ticketTypes.viewCatalog", "Ver catálogo de tipos de entrada (con vendidas)"],
+        ["organizer.ticketTypes.viewCatalog", "Ver catálogo de tipos de entrada (precio, stock y visibilidad)"],
     ]),
 
     ...catalog("ORGANIZER", "Entradas", [
