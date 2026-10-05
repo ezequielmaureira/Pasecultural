@@ -39,6 +39,7 @@ import {
     getMyEventsStats,
     getMyTicketTypesSales,
 } from "../controllers/functionCapacity.controller.js";
+import { getArchivedEventSummary } from "../controllers/archivedEventSummary.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { requirePublicLaunch } from "../middlewares/requirePublicLaunch.js";
 
@@ -68,6 +69,13 @@ router.get("/scanner-events", requireAuth, listActiveEventsForScanner);
 // Historial de Eventos — antes de "/:id" por el mismo motivo que
 // "/scanner-events": si no, Express la confundiría con un id literal.
 router.get("/archived", requireAuth, listArchivedEvents);
+// "Informe final" de solo lectura de UN evento ya archivado (ver
+// archivedEventSummary.service.js — deliberadamente NO reusa getOwnedEvent,
+// que rechaza archivados a propósito). Antes de "/:id" por el mismo motivo
+// de siempre: "archived" es un segmento literal, nunca se confunde con un
+// id real, pero se mantiene el mismo criterio de orden que el resto del
+// archivo para que sea fácil de leer.
+router.get("/archived/:eventId/summary", requireAuth, getArchivedEventSummary);
 
 router.post("/", requireAuth, createEvent);
 router.get("/mine", requireAuth, getMyEvents);

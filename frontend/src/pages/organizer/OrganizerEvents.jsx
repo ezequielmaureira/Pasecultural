@@ -156,9 +156,9 @@ export default function OrganizerEvents() {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white">Eventos</h1>
+          <h1 className="text-xl font-bold text-white">Eventos vigentes</h1>
           <p className="text-sm text-slate-400">
-            Creá y administrá tus eventos
+            Borradores, próximos eventos y eventos en curso
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -237,7 +237,10 @@ export default function OrganizerEvents() {
               {!loading && events.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-6 py-10 text-center text-slate-500">
-                    Todavía no creaste ningún evento.
+                    <p>No tenés eventos vigentes.</p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Los eventos finalizados quedan disponibles en tu Historial de Eventos.
+                    </p>
                   </td>
                 </tr>
               )}

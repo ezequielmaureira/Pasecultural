@@ -8,12 +8,18 @@ import InlineErrorNotice from "../../components/ui/InlineErrorNotice.jsx";
 import SearchInput from "../../components/ui/SearchInput.jsx";
 import EventStatusCard from "../../components/organizer/EventStatusCard.jsx";
 import { listArchivedEvents } from "../../lib/eventArchiveApi.js";
+import { eventHistoryDetailPath } from "../../lib/organizerRoutes.js";
+import { formatCurrencyARS } from "../../lib/format.js";
 
 // "Historial de Eventos" — eventos que ya salieron del espacio operativo
-// (archivado automático, ver eventArchive.service.js). Sólo lectura/acción
-// limitada: buscar, ver detalle (reusa el mismo wizard de edición, que
-// muestra ArchivedEventBanner en vez del formulario), restaurar, duplicar
-// — las dos últimas se disparan desde ahí, no desde esta lista.
+// (archivado automático, ver eventArchive.service.js). Sólo lectura: cada
+// card ya trae un resumen liviano (vendidas/ingresaron/recaudación, ver
+// event.service.js#listArchivedEventsService) y "Ver resumen" navega al
+// informe histórico completo (OrganizerEventHistoryDetail.jsx) — ya NO al
+// wizard de edición. Restaurar/duplicar se disparan desde ESA pantalla, no
+// desde esta lista (ver el informe de la ronda "Historial de Eventos
+// completo"). Este listado tiene que sentirse como archivo, no como
+// gestor de eventos activos.
 export default function OrganizerEventHistory() {
   const { getToken } = useAuth();
 
@@ -80,7 +86,29 @@ export default function OrganizerEventHistory() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {events.map((event) => (
-            <EventStatusCard key={event.id} event={event} actionLabel="Ver detalle" hideOccupancy />
+            <EventStatusCard
+              key={event.id}
+              event={event}
+              actionLabel="Ver resumen"
+              hideOccupancy
+              to={eventHistoryDetailPath(event.id)}
+              extra={
+                <dl className="grid grid-cols-3 gap-1 text-[11px] text-slate-500">
+                  <div>
+                    <dt className="truncate">Vendidas</dt>
+                    <dd className="font-semibold text-slate-300">{event.sold ?? 0}</dd>
+                  </div>
+                  <div>
+                    <dt className="truncate">Ingresaron</dt>
+                    <dd className="font-semibold text-slate-300">{event.checkedIn ?? 0}</dd>
+                  </div>
+                  <div>
+                    <dt className="truncate">Recaudación</dt>
+                    <dd className="truncate font-semibold text-slate-300">{formatCurrencyARS(event.revenue ?? 0)}</dd>
+                  </div>
+                </dl>
+              }
+            />
           ))}
         </div>
       )}

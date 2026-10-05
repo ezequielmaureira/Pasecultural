@@ -120,7 +120,7 @@ const RAW_CATALOG = [
 
     ...catalog("ORGANIZER", "Dashboard", [
         ["organizer.dashboard.view", "Ver dashboard / centro de control"],
-        ["organizer.dashboard.selectEventCategory", "Seleccionar categoría de evento (en curso/próximos/finalizados)"],
+        ["organizer.dashboard.selectEventCategory", "Seleccionar evento en curso o próximo desde el Dashboard"],
         ["organizer.dashboard.viewKpis", "Ver KPIs comerciales, de emisión, accesos y ocupación"],
         ["organizer.dashboard.viewActivity", "Ver actividad reciente"],
         ["organizer.dashboard.viewRecentSales", "Ver últimas ventas"],
@@ -146,6 +146,11 @@ const RAW_CATALOG = [
             "organizer.events.autoArchiveFinished",
             "Evento finalizado desaparece de Eventos y pasa automáticamente al Historial",
         ],
+        ["organizer.events.viewArchivedSummary", "Ver resumen histórico completo de un evento finalizado"],
+        ["organizer.events.viewArchivedSales", "Consultar ventas de un evento desde el Historial"],
+        ["organizer.events.viewArchivedTickets", "Consultar entradas y accesos de un evento desde el Historial"],
+        ["organizer.events.viewArchivedFunctions", "Consultar resultados por función de un evento desde el Historial"],
+        ["organizer.events.viewArchivedScanners", "Consultar scanners e ingresos de un evento desde el Historial"],
     ]),
 
     ...catalog("ORGANIZER", "Fest Pass", [

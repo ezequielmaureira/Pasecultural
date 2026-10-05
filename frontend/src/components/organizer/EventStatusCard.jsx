@@ -23,6 +23,14 @@ export default function EventStatusCard({
   capacity,
   actionLabel = "Administrar",
   hideOccupancy = false,
+  // `to`/`extra` — agregados para el Historial de Eventos (ver el informe
+  // de la ronda "Historial de Eventos completo"): sin `to`, el destino
+  // sigue siendo exactamente el de siempre (eventEditPath), así que el uso
+  // en "Estado de mis eventos" (Dashboard) no cambia en nada. `extra` es un
+  // slot opcional debajo de la fecha para un resumen adicional (sólo lo usa
+  // el Historial, nunca el Dashboard).
+  to,
+  extra,
 }) {
   return (
     <div className="flex flex-col overflow-hidden rounded-xl border border-white/10 bg-[#111713] transition-colors duration-200 hover:border-white/20">
@@ -44,9 +52,10 @@ export default function EventStatusCard({
         <p className="text-xs text-slate-500">{formatShortDate(event.startDate)}</p>
 
         {!hideOccupancy && <ProgressBar value={sold} max={capacity} size="sm" />}
+        {extra}
 
         <LinkButton
-          to={eventEditPath(event.id)}
+          to={to ?? eventEditPath(event.id)}
           variant="secondary"
           size="sm"
           className="mt-auto"

@@ -48,19 +48,27 @@ function getFunctionTemporalState(fn, now) {
   return now > getFunctionEndBoundary(fn) ? "finished" : "upcoming";
 }
 
-// Agrupa los eventos del organizador en las 3 categorías del selector del
+// Agrupa los eventos del organizador en las 2 categorías del selector del
 // Dashboard. Un evento "cuenta" con el mismo criterio que ya usaba
 // CAPACITY_RELEVANT_EVENT_STATUSES (PUBLISHED o FINISHED — nunca
 // DRAFT/SCHEDULED/CANCELLED). Un mismo evento puede aparecer en más de una
 // categoría a la vez si tiene funciones en estados distintos (ej. un evento
 // recurrente con una función ya pasada y otra todavía programada) — es
 // correcto, no un bug: cada categoría muestra su propia función
-// representativa de ESE evento (la que está en curso, la próxima más
-// cercana, o la última que ya terminó).
+// representativa de ESE evento (la que está en curso, o la próxima más
+// cercana).
+//
+// "Finalizados" retirado (ver el informe de la ronda "Historial de Eventos
+// completo"): un evento con TODAS sus funciones finalizadas se archiva
+// inmediatamente (eventArchive.service.js) y deja de venir en `events` —
+// ese bucket ya no podía tener contenido real, vive en Organizer >
+// Historial de Eventos en su lugar. Una función YA terminada de un evento
+// que todavía tiene otra función futura simplemente no entra en ninguna de
+// las 2 categorías de abajo (no es "en curso" ni "próxima") — correcto,
+// esa función puntual ya no es la representativa del evento.
 export function groupEventsByCategory(events, now) {
   const byEventOngoing = new Map();
   const byEventUpcoming = new Map();
-  const byEventFinished = new Map();
 
   for (const event of events) {
     if (!CAPACITY_RELEVANT_EVENT_STATUSES.has(event.status)) continue;
@@ -81,35 +89,26 @@ export function groupEventsByCategory(events, now) {
         if (!current || new Date(fn.date) < new Date(current.eventFunction.date)) {
           byEventUpcoming.set(event.id, candidate); // la próxima más cercana
         }
-      } else {
-        const current = byEventFinished.get(event.id);
-        if (!current || new Date(fn.date) > new Date(current.eventFunction.date)) {
-          byEventFinished.set(event.id, candidate); // la última en terminar
-        }
       }
     }
   }
 
   const byDateAsc = (a, b) => new Date(a.eventFunction.date) - new Date(b.eventFunction.date);
-  const byDateDesc = (a, b) => new Date(b.eventFunction.date) - new Date(a.eventFunction.date);
 
   return {
     ongoing: [...byEventOngoing.values()].sort(byDateAsc),
     upcoming: [...byEventUpcoming.values()].sort(byDateAsc),
-    // Finalizados: el más reciente primero (lo más relevante de "lo que ya
-    // pasó" suele ser lo último que pasó, no lo más viejo).
-    finished: [...byEventFinished.values()].sort(byDateDesc),
   };
 }
 
 // Busca en qué categoría (y en qué posición) aparece un evento puntual —
 // usado para que el Dashboard respete el Evento Activo compartido (ver
 // ActiveEventContext) como punto de partida, en vez de siempre priorizar
-// ongoing > upcoming > finished. Devuelve null si el evento no aparece en
-// ninguna categoría (ej. está archivado, o no existe).
+// ongoing > upcoming. Devuelve null si el evento no aparece en ninguna
+// categoría (ej. está archivado, o no existe).
 export function findEventCategoryPosition(categorized, eventId) {
   if (!eventId) return null;
-  for (const category of ["ongoing", "upcoming", "finished"]) {
+  for (const category of ["ongoing", "upcoming"]) {
     const index = categorized[category].findIndex((candidate) => candidate.event.id === eventId);
     if (index !== -1) return { category, index };
   }

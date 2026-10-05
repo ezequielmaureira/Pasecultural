@@ -122,13 +122,12 @@ export default function OrganizerDashboard() {
   // el organizador vino de otra pantalla habiendo elegido un evento ahí, el
   // Dashboard lo respeta en vez de imponer su propia prioridad. Si no hay
   // Evento Activo (o no aparece en ninguna categoría, ej. se archivó),
-  // prioriza "en curso" > "próximos" > "finalizados", igual que antes.
+  // prioriza "en curso" > "próximos" — "finalizados" ya no es una categoría
+  // del Dashboard (ver dashboardMetrics.js).
   const [storedCategory, setStoredCategory] = useSessionStorageState("organizerDashboard.category", null);
   const activeEventPosition = storedCategory === null ? findEventCategoryPosition(categorized, activeEventId) : null;
   const selectedCategory =
-    storedCategory ??
-    activeEventPosition?.category ??
-    (categorized.ongoing.length > 0 ? "ongoing" : categorized.upcoming.length > 0 ? "upcoming" : "finished");
+    storedCategory ?? activeEventPosition?.category ?? (categorized.ongoing.length > 0 ? "ongoing" : "upcoming");
 
   // Índice dentro de la categoría — nunca se persiste entre sesiones (sólo
   // la categoría), y se reinicia a 0 cada vez que el organizador cambia de
@@ -247,24 +246,29 @@ export default function OrganizerDashboard() {
       )}
 
       {/* 0) Selector de categoría — decide qué evento alimenta todo lo de
-             abajo (Hero/KPIs/Funciones/Scanners/Timeline/Últimas ventas). */}
+             abajo (Hero/KPIs/Funciones/Scanners/Timeline/Últimas ventas).
+             "Ver historial" al lado: acceso discreto a los eventos que ya
+             terminaron (ver el informe de la ronda "Historial de Eventos
+             completo") — nunca compite en jerarquía con el selector. */}
       {loadingEvents ? (
         <SkeletonBlock className="h-11 w-72 rounded-xl" />
       ) : (
-        <EventCategorySelector
-          counts={{
-            ongoing: categorized.ongoing.length,
-            upcoming: categorized.upcoming.length,
-            finished: categorized.finished.length,
-          }}
-          selected={selectedCategory}
-          onSelect={handleSelectCategory}
-          currentLabel={featured?.event?.title}
-          currentIndex={clampedIndex}
-          total={activeList.length}
-          onPrevious={() => setSelectedIndex((i) => Math.max(0, i - 1))}
-          onNext={() => setSelectedIndex((i) => Math.min(activeList.length - 1, i + 1))}
-        />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <EventCategorySelector
+            counts={{
+              ongoing: categorized.ongoing.length,
+              upcoming: categorized.upcoming.length,
+            }}
+            selected={selectedCategory}
+            onSelect={handleSelectCategory}
+            currentLabel={featured?.event?.title}
+            currentIndex={clampedIndex}
+            total={activeList.length}
+            onPrevious={() => setSelectedIndex((i) => Math.max(0, i - 1))}
+            onNext={() => setSelectedIndex((i) => Math.min(activeList.length - 1, i + 1))}
+          />
+          <TextLink to="/organizador/historial">Ver historial →</TextLink>
+        </div>
       )}
 
       {/* 1) Evento seleccionado — siempre lo primero que se ve, y el

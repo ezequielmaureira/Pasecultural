@@ -19,3 +19,10 @@ export async function duplicateEvent(token, eventId) {
     const { event } = await apiFetch(`/api/events/${eventId}/duplicate`, { token, method: "POST" });
     return event;
 }
+
+// "Informe final" de solo lectura de un evento ya archivado — GET
+// /api/events/archived/:eventId/summary (archivedEventSummary.service.js).
+// Devuelve { event, functions, functionStats, sales, tickets, scanners }.
+export async function getArchivedEventSummary(token, eventId) {
+    return apiFetch(`/api/events/archived/${eventId}/summary`, { token });
+}

@@ -5,10 +5,14 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 // necesita los 3 contadores y el estado actual — no sabe nada de
 // eventos/funciones/organizador, así que sirve igual para cualquier otra
 // pantalla que necesite el mismo patrón de selección.
+// "Finalizados" retirado a propósito (ver el informe de la ronda
+// "Historial de Eventos completo"): un evento finalizado se archiva
+// inmediatamente (eventArchive.service.js) y sale de GET /api/events/mine
+// — esta categoría ya no podía tener contenido real. El historial vive
+// en Organizer > Historial de Eventos.
 const CATEGORIES = [
   { key: "upcoming", label: "Próximos", emoji: "📅" },
   { key: "ongoing", label: "En curso", emoji: "🎉" },
-  { key: "finished", label: "Finalizados", emoji: "📚" },
 ];
 
 function CategoryTab({ category, isActive, count, onSelect }) {

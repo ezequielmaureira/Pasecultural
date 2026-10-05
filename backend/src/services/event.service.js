@@ -1455,6 +1455,57 @@ export const deleteMyEventService = async (clerkId, id) => {
 // título. No corre self-heal: ya están archivados, no hay nada que
 // recalcular acá (el self-heal vive en los listados OPERATIVOS, que son
 // los que necesitan detectar transiciones nuevas hacia el Historial).
+// Resumen liviano por evento archivado — "Entradas vendidas"/"Ingresaron"/
+// "Recaudación" en cada card del Historial (ver el informe de la ronda
+// "Historial de Eventos completo"). Mismo criterio/mismas 2 consultas
+// batcheadas que getOrganizerEventsSummaryService (functionCapacity.service.js)
+// para vendidas/ingresadas — nunca una fórmula nueva — más una tercera
+// agregación de Sale.total (CONFIRMED + origin SALE, nunca cortesías) para
+// la recaudación. Cero N+1 sin importar cuántos eventos tenga el Historial.
+async function attachArchivedEventsSummary(events) {
+    if (events.length === 0) return [];
+    const eventIds = events.map((e) => e.id);
+
+    const [assignments, checkedInGroups, soldGroups, revenueGroups] = await Promise.all([
+        prisma.functionTicketType.findMany({
+            where: { enabled: true, function: { eventId: { in: eventIds }, status: { not: "CANCELLED" } } },
+            select: { quantityOverride: true, ticketType: { select: { quantity: true } }, function: { select: { eventId: true } } },
+        }),
+        prisma.ticket.groupBy({
+            by: ["eventId"],
+            where: { eventId: { in: eventIds }, status: "USED" },
+            _count: { _all: true },
+        }),
+        prisma.ticket.groupBy({
+            by: ["eventId"],
+            where: { eventId: { in: eventIds }, status: { in: SOLD_TICKET_STATUSES }, origin: "SALE" },
+            _count: { _all: true },
+        }),
+        prisma.sale.groupBy({
+            by: ["eventId"],
+            where: { eventId: { in: eventIds }, status: "CONFIRMED", origin: "SALE" },
+            _sum: { total: true },
+        }),
+    ]);
+
+    const capacityByEvent = new Map();
+    for (const assignment of assignments) {
+        const eventId = assignment.function.eventId;
+        capacityByEvent.set(eventId, (capacityByEvent.get(eventId) ?? 0) + effectiveCapacity(assignment));
+    }
+    const checkedInByEvent = new Map(checkedInGroups.map((g) => [g.eventId, g._count._all]));
+    const soldByEvent = new Map(soldGroups.map((g) => [g.eventId, g._count._all]));
+    const revenueByEvent = new Map(revenueGroups.map((g) => [g.eventId, Number(g._sum.total ?? 0)]));
+
+    return events.map((event) => ({
+        ...event,
+        sold: soldByEvent.get(event.id) ?? 0,
+        checkedIn: checkedInByEvent.get(event.id) ?? 0,
+        capacity: capacityByEvent.get(event.id) ?? 0,
+        revenue: revenueByEvent.get(event.id) ?? 0,
+    }));
+}
+
 export const listArchivedEventsService = async (clerkId, { search } = {}) => {
     const context = await getMyOrganization(clerkId);
     if (!context) return [];
@@ -1464,7 +1515,8 @@ export const listArchivedEventsService = async (clerkId, { search } = {}) => {
         where.title = { contains: search.trim(), mode: "insensitive" };
     }
 
-    return prisma.event.findMany({ where, orderBy: { archivedAt: "desc" } });
+    const events = await prisma.event.findMany({ where, orderBy: { archivedAt: "desc" } });
+    return attachArchivedEventsSummary(events);
 };
 
 // Restaurar: vuelve a aparecer en el espacio operativo. Idempotente (si ya

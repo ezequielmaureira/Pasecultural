@@ -62,6 +62,7 @@ import OrganizerScannerInvite from "./pages/organizer/OrganizerScannerInvite.jsx
 import OrganizerSettings from "./pages/organizer/OrganizerSettings.jsx";
 import OrganizerFunctionStatus from "./pages/organizer/OrganizerFunctionStatus.jsx";
 import OrganizerEventHistory from "./pages/organizer/OrganizerEventHistory.jsx";
+import OrganizerEventHistoryDetail from "./pages/organizer/OrganizerEventHistoryDetail.jsx";
 import OrganizerWithdrawalRequests from "./pages/organizer/OrganizerWithdrawalRequests.jsx";
 
 function NotFound() {
@@ -215,6 +216,7 @@ export default function App() {
                   <Route path="scanners/nuevo" element={<OrganizerScannerInvite />} />
                   <Route path="funciones" element={<OrganizerFunctionStatus />} />
                   <Route path="historial" element={<OrganizerEventHistory />} />
+                  <Route path="historial/:eventId" element={<OrganizerEventHistoryDetail />} />
                   <Route path="configuracion" element={<OrganizerSettings />} />
                 </Route>
               </Route>

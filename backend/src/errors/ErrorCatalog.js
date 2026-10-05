@@ -406,6 +406,14 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Operation attempted on an archived event through an operational (non-history) endpoint.",
         userMessage: "Este evento ya pasó al Historial de Eventos. Restauralo primero si necesitás operarlo, o duplicalo para crear uno nuevo.",
     },
+    // Lo inverso de EVENT_ARCHIVED — el endpoint de resumen histórico
+    // (archivedEventSummary.service.js) es sólo para eventos YA archivados;
+    // nunca sirve como atajo para leer el resumen de un evento vigente.
+    EVENT_NOT_ARCHIVED_YET: {
+        httpStatus: 409,
+        logMessage: "Archived event summary requested for an event that is not archived yet.",
+        userMessage: "Este evento todavía no pasó al Historial — todavía está vigente.",
+    },
 
     // --- Cortesías --------------------------------------------------------
     COURTESY_NOT_FOUND: {
