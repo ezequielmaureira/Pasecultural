@@ -23,10 +23,13 @@ import { ErrorCodes } from "../errors/ErrorCodes.js";
 // función ya pasada y otra futura sigue operativo para la función futura —
 // bloquear a nivel Event entero sería más estricto de lo que el modelo de
 // datos (Sale/Ticket atados a functionId) necesita. Ver isEventEligibleForArchive
-// más abajo para el criterio (más estricto, con grace period) que sí es a
-// nivel Event completo, usado sólo para archivar.
+// más abajo para el criterio (más estricto, TODAS las funciones) que sí es
+// a nivel Event completo, usado sólo para archivar.
 export { getFunctionEndBoundary, getFunctionTemporalState };
 
+// Sólo se usa para CANCELLED (ver isEventEligibleForArchive) — los eventos
+// finalizados (PUBLISHED/FINISHED/DRAFT con todas sus funciones terminadas)
+// ya NO esperan ningún grace period, se archivan inmediatamente.
 export const ARCHIVE_GRACE_PERIOD_DAYS = 7;
 const GRACE_PERIOD_MS = ARCHIVE_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000;
 
@@ -67,18 +70,30 @@ export function assertFunctionActive(fn, now = new Date()) {
     }
 }
 
-// Regla de archivado (aprobada):
-// - Evento CANCELLED: elegible 7 días después de `cancelledAt`. Un
-//   CANCELLED sin cancelledAt (no debería pasar nunca vía
-//   updateMyEventService, pero por las dudas) nunca se archiva solo —
-//   mejor no archivar de más que archivar con un dato inventado.
-// - Evento PUBLISHED/FINISHED: elegible cuando TODAS sus funciones no
-//   canceladas están en estado "finished" Y la última en terminar lo hizo
-//   hace más de 7 días. Distinto (más estricto) que "pertenece a
+// Regla de archivado (ronda "eventos finalizados a Historial" — ya NO
+// hay grace period para eventos finalizados, ver el informe de la ronda):
+// - Evento CANCELLED: sigue elegible 7 días después de `cancelledAt`, sin
+//   cambios — esta ronda es específicamente sobre eventos que YA
+//   TERMINARON, no sobre cancelados. Un CANCELLED sin cancelledAt (no
+//   debería pasar nunca vía updateMyEventService, pero por las dudas)
+//   nunca se archiva solo — mejor no archivar de más que archivar con un
+//   dato inventado.
+// - Evento PUBLISHED/FINISHED/DRAFT: elegible INMEDIATAMENTE apenas TODAS
+//   sus funciones no canceladas están en estado "finished" — sin esperar
+//   ninguna ventana adicional. DRAFT se incluyó a propósito (antes nunca
+//   se archivaba solo): un borrador con una función de hace un mes no
+//   tiene sentido operativo, el Organizer ya no puede hacer nada con él
+//   salvo consultarlo — pertenece al Historial igual que un evento
+//   publicado ya terminado. Un DRAFT sin funciones (relevantFunctions
+//   vacío) sigue sin archivarse: todavía es un borrador en preparación,
+//   nunca "ya terminó". Distinto (más estricto) que "pertenece a
 //   Finalizados" en el selector del Dashboard, que sólo pide que exista AL
 //   MENOS UNA función terminada — acá tienen que estar TODAS, si no un
-//   evento recurrente con una fecha futura se archivaría por error.
-// - DRAFT/SCHEDULED: nunca se archivan solos (nunca llegaron a operar).
+//   evento recurrente con una función pasada y otra futura se archivaría
+//   por error mientras todavía tiene una función operativa por delante.
+// - SCHEDULED: Event.status nunca llega a valer esto en la práctica (es
+//   EventFunction.status el que usa "SCHEDULED", un enum distinto) — se
+//   deja afuera de los estados elegibles por las dudas, sin cambios.
 export function isEventEligibleForArchive(event, now) {
     if (event.archivedAt) return false;
 
@@ -87,19 +102,12 @@ export function isEventEligibleForArchive(event, now) {
         return now - new Date(event.cancelledAt) >= GRACE_PERIOD_MS;
     }
 
-    if (event.status !== "PUBLISHED" && event.status !== "FINISHED") return false;
+    if (event.status !== "PUBLISHED" && event.status !== "FINISHED" && event.status !== "DRAFT") return false;
 
     const relevantFunctions = (event.functions ?? []).filter((fn) => fn.status !== "CANCELLED");
     if (relevantFunctions.length === 0) return false;
 
-    let latestEndBoundary = null;
-    for (const fn of relevantFunctions) {
-        if (getFunctionTemporalState(fn, now) !== "finished") return false;
-        const boundary = getFunctionEndBoundary(fn);
-        if (!latestEndBoundary || boundary > latestEndBoundary) latestEndBoundary = boundary;
-    }
-
-    return now - latestEndBoundary >= GRACE_PERIOD_MS;
+    return relevantFunctions.every((fn) => getFunctionTemporalState(fn, now) === "finished");
 }
 
 // Busca eventos de la organización (o uno puntual) que ya cumplen la regla
@@ -111,7 +119,7 @@ export function isEventEligibleForArchive(event, now) {
 export async function runArchiveSelfHeal(prisma, { organizationId, eventId } = {}, now = new Date()) {
     const where = {
         archivedAt: null,
-        status: { in: ["PUBLISHED", "FINISHED", "CANCELLED"] },
+        status: { in: ["PUBLISHED", "FINISHED", "CANCELLED", "DRAFT"] },
         ...(organizationId ? { organizationId } : {}),
         ...(eventId ? { id: eventId } : {}),
     };

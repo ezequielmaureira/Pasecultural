@@ -142,6 +142,10 @@ const RAW_CATALOG = [
         ["organizer.events.configureTicketCatalog", "Configurar catálogo de tipos de entrada"],
         ["organizer.events.configureSchedule", "Configurar programación/funciones del evento"],
         ["organizer.events.viewArchivedHistory", "Ver historial de eventos archivados"],
+        [
+            "organizer.events.autoArchiveFinished",
+            "Evento finalizado desaparece de Eventos y pasa automáticamente al Historial",
+        ],
     ]),
 
     ...catalog("ORGANIZER", "Fest Pass", [

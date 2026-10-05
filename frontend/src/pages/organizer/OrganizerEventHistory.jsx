@@ -74,7 +74,7 @@ export default function OrganizerEventHistory() {
           <EmptyState icon={History} title="Todavía no hay eventos en el historial">
             {search.trim()
               ? "No encontramos eventos con esa búsqueda."
-              : "Cuando un evento finalice (o se cancele) y pasen 7 días, va a aparecer acá automáticamente."}
+              : "Cuando un evento finalice va a aparecer acá automáticamente. Uno cancelado aparece 7 días después de la cancelación."}
           </EmptyState>
         </Card>
       ) : (
