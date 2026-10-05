@@ -769,7 +769,12 @@ export const ErrorCatalog = Object.freeze({
     },
     QA_CHECKLIST_INVALID_INPUT: {
         httpStatus: 400,
-        logMessage: "QA checklist update attempted with a `checked` value that is not a boolean.",
-        userMessage: "El estado debe ser tildado o destildado.",
+        logMessage: "QA checklist update attempted with an invalid body — `checked` must be boolean, `note` must be string/null, and at least one of the two must be present.",
+        userMessage: "El estado debe ser tildado o destildado, y la nota debe ser texto.",
+    },
+    QA_CHECKLIST_NOTE_TOO_LONG: {
+        httpStatus: 400,
+        logMessage: "QA checklist update attempted with a note longer than 500 characters.",
+        userMessage: "La nota no puede superar los 500 caracteres.",
     },
 });

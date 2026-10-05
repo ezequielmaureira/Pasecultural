@@ -12,12 +12,17 @@ export const getQaChecklist = async (req, res, next) => {
     }
 };
 
-// PATCH /api/developer/qa-checklist/:key — body { checked: true|false }.
+// PATCH /api/developer/qa-checklist/:key — body parcial:
+// { checked?: true|false, note?: string|null }, al menos uno de los dos.
 // req.dbUser ya viene resuelto por requireRole (ver middlewares/requireRole.js)
 // — nunca se vuelve a resolver acá.
 export const updateQaChecklistItem = async (req, res, next) => {
     try {
-        const item = await updateQaChecklistItemService(req.params.key, req.body?.checked, req.dbUser.id);
+        const item = await updateQaChecklistItemService(
+            req.params.key,
+            { checked: req.body?.checked, note: req.body?.note },
+            req.dbUser.id
+        );
         res.status(200).json({ item });
     } catch (error) {
         next(AppError.from(error));

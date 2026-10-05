@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
-import { Check } from "lucide-react";
+import { Check, StickyNote } from "lucide-react";
 import Badge from "../../components/ui/Badge.jsx";
+import Button from "../../components/ui/Button.jsx";
 import ProgressBar from "../../components/ui/ProgressBar.jsx";
 import SearchInput from "../../components/ui/SearchInput.jsx";
 import Accordion from "../../components/ui/Accordion.jsx";
@@ -16,7 +17,12 @@ import { useToast } from "../../context/ToastContext.jsx";
 // pasos, sin resultado esperado, sin severidad, sin historial. La
 // definición de cada funcionalidad vive en código (ver
 // backend/src/qa/qaChecklistCatalog.js); esta pantalla sólo lee/escribe su
-// estado (checked) contra GET/PATCH /api/developer/qa-checklist.
+// estado (checked + note) contra GET/PATCH /api/developer/qa-checklist.
+// `note` es una observación libre, independiente de `checked` — tildar/
+// destildar nunca la toca, y nunca cuenta para las estadísticas (ver
+// computeStats más abajo, que sólo mira `checked`).
+
+const NOTE_MAX_LENGTH = 500;
 
 const ROLE_ORDER = ["DEVELOPER", "ORGANIZER", "SCANNER", "ASISTENTE"];
 const ROLE_LABEL = {
@@ -69,35 +75,114 @@ function computeStats(items) {
   };
 }
 
-function ChecklistItemRow({ item, pending, onToggle }) {
+// Fila — un CONTENEDOR, no un <button> (antes lo era): ahora conviven un
+// botón de tilde, texto, y opcionalmente un <textarea> para la nota, que
+// nunca puede ir anidado dentro de otro <button> (HTML inválido). La
+// edición de nota es estado 100% local a la fila (nunca se levanta al
+// padre) — lo único que sube es el guardado final, vía onSaveNote.
+function ChecklistItemRow({ item, pending, onToggle, onSaveNote }) {
+  const [editingNote, setEditingNote] = useState(false);
+  const [draftNote, setDraftNote] = useState(item.note || "");
+  const [savingNote, setSavingNote] = useState(false);
+
+  function startEdit() {
+    setDraftNote(item.note || "");
+    setEditingNote(true);
+  }
+
+  function cancelEdit() {
+    setEditingNote(false);
+    setDraftNote(item.note || "");
+  }
+
+  async function saveNote() {
+    setSavingNote(true);
+    try {
+      await onSaveNote(item, draftNote.trim());
+      setEditingNote(false);
+    } catch {
+      // El error ya se mostró vía toast en el padre — el editor queda
+      // abierto con el draft intacto para reintentar sin perder lo escrito.
+    } finally {
+      setSavingNote(false);
+    }
+  }
+
   return (
-    <button
-      type="button"
-      onClick={() => onToggle(item)}
-      disabled={pending}
-      aria-pressed={item.checked}
-      className="flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-white/5 disabled:cursor-wait disabled:opacity-60"
-    >
-      <span
-        className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors duration-150 ${
-          item.checked
-            ? "border-emerald-500 bg-emerald-500/20 text-emerald-400"
-            : "border-white/20 bg-transparent text-transparent"
-        }`}
-      >
-        <Check className="h-3.5 w-3.5" strokeWidth={3} />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className={`block text-sm ${item.checked ? "text-slate-300" : "text-slate-200"}`}>{item.label}</span>
-        {item.checked && item.checkedAt && (
-          <span className="mt-0.5 block text-xs text-slate-500">Verificado {formatShortDate(item.checkedAt)}</span>
-        )}
-      </span>
-    </button>
+    <div className="flex flex-col gap-1.5 rounded-lg px-2 py-2 transition-colors duration-150 hover:bg-white/5">
+      <div className="flex items-start gap-3">
+        <button
+          type="button"
+          onClick={() => onToggle(item)}
+          disabled={pending}
+          aria-pressed={item.checked}
+          aria-label={item.checked ? `Destildar: ${item.label}` : `Tildar: ${item.label}`}
+          className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors duration-150 disabled:cursor-wait disabled:opacity-60 ${
+            item.checked
+              ? "border-emerald-500 bg-emerald-500/20 text-emerald-400"
+              : "border-white/20 bg-transparent text-transparent hover:border-white/40"
+          }`}
+        >
+          <Check className="h-3.5 w-3.5" strokeWidth={3} />
+        </button>
+
+        <div className="min-w-0 flex-1">
+          <span className={`block text-sm ${item.checked ? "text-slate-300" : "text-slate-200"}`}>{item.label}</span>
+          {item.checked && item.checkedAt && (
+            <span className="mt-0.5 block text-xs text-slate-500">Verificado {formatShortDate(item.checkedAt)}</span>
+          )}
+
+          {item.note && !editingNote && (
+            <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-300/80">
+              <StickyNote className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 break-words">{item.note}</span>
+            </p>
+          )}
+
+          {!editingNote && (
+            <button
+              type="button"
+              onClick={startEdit}
+              className="mt-1 text-xs font-medium text-slate-500 underline-offset-2 transition-colors duration-150 hover:text-brand hover:underline"
+            >
+              {item.note ? "Editar nota" : "Agregar nota"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {editingNote && (
+        <div className="ml-8 flex flex-col gap-1.5">
+          <textarea
+            autoFocus
+            rows={2}
+            value={draftNote}
+            onChange={(e) => setDraftNote(e.target.value.slice(0, NOTE_MAX_LENGTH))}
+            maxLength={NOTE_MAX_LENGTH}
+            disabled={savingNote}
+            placeholder="Escribí una observación o por qué no pudiste realizar esta prueba…"
+            className="w-full resize-none rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-gray-100 outline-none focus:border-brand focus:ring-2 focus:ring-brand/20"
+          />
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-slate-500">
+              {draftNote.length} / {NOTE_MAX_LENGTH}
+            </span>
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" onClick={cancelEdit} disabled={savingNote}>
+                Cancelar
+              </Button>
+              <Button size="sm" onClick={saveNote} loading={savingNote} loadingText="Guardando...">
+                Guardar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
-function EntityBlock({ role, entity, items, expanded, onToggleExpand, pendingKeys, onToggleItem }) {
+function EntityBlock({ role, entity, items, expanded, onToggleExpand, pendingKeys, onToggleItem, onSaveNote }) {
   const stats = useMemo(() => {
     const total = items.length;
     const checked = items.filter((i) => i.checked).length;
@@ -119,6 +204,7 @@ function EntityBlock({ role, entity, items, expanded, onToggleExpand, pendingKey
             item={item}
             pending={pendingKeys.has(item.key)}
             onToggle={onToggleItem}
+            onSaveNote={onSaveNote}
           />
         ))}
       </div>
@@ -166,7 +252,11 @@ export default function DeveloperQaChecklist() {
     return items.filter((item) => {
       if (filter === "PENDING" && item.checked) return false;
       if (filter === "CHECKED" && !item.checked) return false;
-      if (normalizedSearch && !item.label.toLowerCase().includes(normalizedSearch)) return false;
+      if (normalizedSearch) {
+        const matchesLabel = item.label.toLowerCase().includes(normalizedSearch);
+        const matchesNote = (item.note || "").toLowerCase().includes(normalizedSearch);
+        if (!matchesLabel && !matchesNote) return false;
+      }
       return true;
     });
   }, [items, filter, normalizedSearch]);
@@ -205,7 +295,7 @@ export default function DeveloperQaChecklist() {
 
     try {
       const token = await getToken();
-      const { item: updated } = await updateQaChecklistItem(token, key, nextChecked);
+      const { item: updated } = await updateQaChecklistItem(token, key, { checked: nextChecked });
       setItems((prev) => prev.map((i) => (i.key === key ? { ...i, ...updated } : i)));
     } catch (err) {
       console.error("No se pudo actualizar el checklist de QA", err);
@@ -220,12 +310,35 @@ export default function DeveloperQaChecklist() {
     }
   }
 
+  // Independiente de handleToggleItem a propósito: sólo toca `note`, nunca
+  // `checked`/`checkedAt` — ni acá ni en el backend (ver
+  // qaChecklist.service.js). Relanza el error para que la fila sepa que
+  // falló y mantenga el textarea abierto con el draft (ver ChecklistItemRow).
+  async function handleSaveNote(item, noteValue) {
+    const key = item.key;
+    const previousNote = item.note;
+
+    setItems((prev) => prev.map((i) => (i.key === key ? { ...i, note: noteValue } : i)));
+
+    try {
+      const token = await getToken();
+      const { item: updated } = await updateQaChecklistItem(token, key, { note: noteValue });
+      setItems((prev) => prev.map((i) => (i.key === key ? { ...i, ...updated } : i)));
+    } catch (err) {
+      console.error("No se pudo guardar la nota", err);
+      setItems((prev) => prev.map((i) => (i.key === key ? { ...i, note: previousNote } : i)));
+      toast.error(err.message || "No pudimos guardar la nota. Probá de nuevo.");
+      throw err;
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-xl font-bold text-white light:text-slate-900">QA / Checklist</h1>
         <p className="text-sm text-slate-400 light:text-slate-600">
-          Tablero personal: probá cada funcionalidad manualmente en la app y tildala si funciona.
+          Tablero personal: probá cada funcionalidad manualmente en la app, tildala si funciona y dejá una nota si
+          no pudiste probarla todavía.
         </p>
       </div>
 
@@ -276,7 +389,7 @@ export default function DeveloperQaChecklist() {
               ))}
             </div>
             <SearchInput
-              placeholder="Buscar funcionalidad..."
+              placeholder="Buscar funcionalidad o nota..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full sm:w-72"
@@ -311,6 +424,7 @@ export default function DeveloperQaChecklist() {
                         onToggleExpand={toggleEntityExpanded}
                         pendingKeys={pendingKeys}
                         onToggleItem={handleToggleItem}
+                        onSaveNote={handleSaveNote}
                       />
                     ))}
                   </div>

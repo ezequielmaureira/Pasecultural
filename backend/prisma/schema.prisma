@@ -2225,6 +2225,12 @@ model QaChecklistState {
   checkedByUserId String?
   checkedBy       User?     @relation(fields: [checkedByUserId], references: [id], onDelete: SetNull)
 
+  // Observación personal libre ("por qué no pude probar esto todavía",
+  // etc.) — independiente de `checked`: cambiar uno nunca toca el otro
+  // (ver qaChecklist.service.js). Nunca afecta las estadísticas. Vacío se
+  // persiste como null, nunca como "".
+  note String? @db.Text
+
   updatedAt DateTime @updatedAt
 
   @@map("qa_checklist_states")
