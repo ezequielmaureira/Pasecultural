@@ -25,6 +25,7 @@ import {
     cancelOrganizationPhoneChange,
     deleteOrganizationPhone,
 } from "../controllers/organizationPhoneVerification.controller.js";
+import { requireAuth } from "../middlewares/requireAuth.js";
 import { requireRole } from "../middlewares/requireRole.js";
 import { requirePublicLaunch } from "../middlewares/requirePublicLaunch.js";
 
@@ -44,10 +45,13 @@ router.get("/public/featured", getFeaturedOrganizations);
 router.get("/public", getPublicOrganizationsList);
 router.get("/public/:slug", getPublicOrganizationBySlug);
 
-router.get("/me", getMyOrganization);
-router.patch("/me", updateMyOrganization);
-router.delete("/me", deleteMyOrganization);
-router.post("/", createOrganization);
+// requireAuth: además de exigir sesión (los controllers ya lo chequeaban),
+// bloquea a un User SUSPENDED — sin él, estas rutas usaban getAuth directo
+// y saltaban la suspensión.
+router.get("/me", requireAuth, getMyOrganization);
+router.patch("/me", requireAuth, updateMyOrganization);
+router.delete("/me", requireAuth, deleteMyOrganization);
+router.post("/", requireAuth, createOrganization);
 
 // Fase 2F — vinculación WhatsApp, sub-recurso de "mi organización" (mismo
 // patrón /me que el resto de este router). requireRole exige una sesión

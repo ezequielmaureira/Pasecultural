@@ -40,4 +40,5 @@ export const DB_TEST_FILES = [
     "whatsappPremiumGate.test.js",
     "organizationPublicPage.test.js",
     "saleRecovery.service.test.js",
+    "userSuspension.test.js",
 ];

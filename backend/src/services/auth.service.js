@@ -17,6 +17,10 @@ function shapeUser(user) {
         lastName: user.lastName,
         imageUrl: user.imageUrl,
         role: user.role,
+        // /api/auth/sync NO bloquea a un suspendido (es el endpoint que
+        // resuelve el estado de sesión): devuelve el status para que el
+        // frontend muestre la pantalla de cuenta suspendida.
+        status: user.status,
     };
 }
 

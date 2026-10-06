@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { useAuth, useUser } from "@clerk/clerk-react";
-import { apiFetch } from "../lib/api.js";
+import { apiFetch, USER_SUSPENDED_EVENT } from "../lib/api.js";
 
 const AuthContext = createContext(null);
 
@@ -42,8 +42,22 @@ export function AuthProvider({ children }) {
     };
   }, [isLoaded, isSignedIn, user?.id, getToken]);
 
+  // Suspendido con la app ya abierta (el sync anterior decía ACTIVE): el
+  // primer 403 USER_SUSPENDED de cualquier request marca el estado acá.
+  useEffect(() => {
+    if (!isSignedIn) return;
+    const markSuspended = () =>
+      setBackendUser((prev) => ({ ...(prev ?? {}), status: "SUSPENDED" }));
+    window.addEventListener(USER_SUSPENDED_EVENT, markSuspended);
+    return () => window.removeEventListener(USER_SUSPENDED_EVENT, markSuspended);
+  }, [isSignedIn]);
+
+  // Clerk sólo prueba la identidad; User.status (POST /api/auth/sync) decide
+  // si puede entrar a las superficies internas — ver RequireAuth/RoleGuard.
+  const isSuspended = Boolean(isSignedIn) && backendUser?.status === "SUSPENDED";
+
   return (
-    <AuthContext.Provider value={{ backendUser, syncing }}>
+    <AuthContext.Provider value={{ backendUser, syncing, isSuspended }}>
       {children}
     </AuthContext.Provider>
   );

@@ -4,6 +4,18 @@ export const DEFAULT_TIMEOUT_MS = 20000;
 const TIMEOUT_MESSAGE = "La operación está tardando más de lo esperado. Probá de nuevo en unos segundos.";
 const NETWORK_ERROR_MESSAGE = "No pudimos conectarnos con el servidor. Revisá tu conexión e intentá de nuevo.";
 
+// Un User suspendido desde Developer recibe 403 USER_SUSPENDED en cualquier
+// endpoint autenticado (ver backend requireAuth/requireRole). Si eso pasa
+// con la app ya abierta, AuthContext escucha este evento y muestra la
+// pantalla de cuenta suspendida sin esperar a un nuevo /api/auth/sync.
+export const USER_SUSPENDED_EVENT = "smarticket:user-suspended";
+
+function signalIfSuspended(status, code) {
+  if (status === 403 && code === "USER_SUSPENDED" && typeof window !== "undefined") {
+    window.dispatchEvent(new Event(USER_SUSPENDED_EVENT));
+  }
+}
+
 // Cada fetch de la app pasa por acá: si el servidor no responde en
 // DEFAULT_TIMEOUT_MS se aborta solo, en vez de dejar un botón en
 // "Guardando..."/"Cargando..." colgado para siempre. Los errores de red
@@ -66,6 +78,7 @@ export async function apiFetch(path, { token, timeoutMs = DEFAULT_TIMEOUT_MS, ..
     // mostrar el mensaje — `undefined` si el backend no lo mandó.
     error.code = code;
     error.errors = errors;
+    signalIfSuspended(res.status, code);
     throw error;
   }
 
@@ -104,6 +117,7 @@ export async function apiFetchBlob(path, { token, timeoutMs = DEFAULT_TIMEOUT_MS
     const error = new Error(message);
     error.status = res.status;
     error.code = code;
+    signalIfSuspended(res.status, code);
     throw error;
   }
 
@@ -131,14 +145,18 @@ export async function apiUpload(path, { token, file, method = "POST", timeoutMs 
 
   if (!res.ok) {
     let message = `Error ${res.status} al subir el archivo`;
+    let code;
     try {
       const body = await res.json();
       if (body?.message) message = body.message;
+      code = body?.error?.code;
     } catch {
       // respuesta sin body JSON, se mantiene el mensaje genérico
     }
     const error = new Error(message);
     error.status = res.status;
+    error.code = code;
+    signalIfSuspended(res.status, code);
     throw error;
   }
 

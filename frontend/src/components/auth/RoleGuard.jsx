@@ -2,6 +2,7 @@ import { Navigate, Outlet } from "react-router-dom";
 import { SignedIn, SignedOut, RedirectToSignIn } from "@clerk/clerk-react";
 import { useBackendUser } from "../../context/AuthContext.jsx";
 import { ROLE_HOME } from "../../lib/roles.js";
+import SuspendedAccount from "./SuspendedAccount.jsx";
 
 function Loading() {
   return (
@@ -25,7 +26,10 @@ export default function RoleGuard({ allowedRoles, children }) {
 }
 
 function RoleGuardInner({ allowedRoles, children }) {
-  const { backendUser, syncing } = useBackendUser();
+  const { backendUser, syncing, isSuspended } = useBackendUser();
+
+  // Antes que el rol: un suspendido nunca entra, tenga el rol que tenga.
+  if (isSuspended) return <SuspendedAccount />;
 
   if (syncing || !backendUser) {
     return <Loading />;

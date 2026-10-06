@@ -48,6 +48,17 @@ export const ErrorCatalog = Object.freeze({
         userMessage: "No pudimos eliminar tu cuenta. Probá de nuevo en unos minutos.",
     },
 
+    // --- Autorización interna -------------------------------------------
+    // Clerk prueba la identidad; User.status decide si puede operar. Lo
+    // lanzan requireAuth/requireRole (middlewares/requireAuth.js). El
+    // frontend lo reconoce por `error.code` para mostrar la pantalla de
+    // cuenta suspendida — no renombrar.
+    USER_SUSPENDED: {
+        httpStatus: 403,
+        logMessage: "Authenticated Clerk user is linked to a User whose status is not ACTIVE.",
+        userMessage: "Tu acceso a Smarticket fue suspendido. Si creés que se trata de un error, contactanos.",
+    },
+
     // --- Sales / Tickets / Scanner --------------------------------------
     USER_NOT_FOUND: {
         httpStatus: 401,
