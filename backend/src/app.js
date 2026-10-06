@@ -1,6 +1,5 @@
 import express from "express";
 import cors from "cors";
-import { clerkMiddleware } from "@clerk/express";
 
 import userRoutes from "./routes/user.routes.js";
 import authRoutes from "./routes/auth.routes.js";
@@ -33,6 +32,7 @@ import contentPublicRoutes from "./routes/content.public.routes.js";
 import whatsappRoutes from "./routes/whatsapp.routes.js";
 import mercadoPagoRoutes from "./routes/mercadoPago.routes.js";
 import { errorHandler } from "./errors/index.js";
+import { clerkAuth } from "./middlewares/clerkAuth.js";
 
 const app = express();
 
@@ -57,7 +57,7 @@ app.use(
         },
     })
 );
-app.use(clerkMiddleware());
+app.use(clerkAuth());
 
 // Health Check
 app.get("/api/health", (req, res) => {
