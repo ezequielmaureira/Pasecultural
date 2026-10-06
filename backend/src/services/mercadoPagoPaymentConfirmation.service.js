@@ -221,6 +221,16 @@ export async function confirmMercadoPagoPaymentIfEligible({ paymentId, candidate
             });
             ticketsRefunded = updated.count;
         }
+        // Marca durable de "el pago de esta venta fue revertido" (antes se
+        // escribía best-effort más abajo). ticketAdmin.service.js la usa
+        // para que un ticket que en este momento estaba CANCELLED o USED
+        // (la línea de arriba sólo toca ACTIVE) nunca pueda rehabilitarse.
+        // Si falla, el error se propaga y Mercado Pago reintenta la
+        // notificación (el updateMany de arriba es idempotente).
+        const reversalType = payment.status === "refunded" ? "REFUNDED" : "CHARGED_BACK";
+        await prisma.developerAlertReversalEvent.create({
+            data: { organizationId: sale.event.organizationId, saleId: sale.id, type: reversalType },
+        });
         logger.error(new Error(`mercadopago confirmation: payment revertido (${payment.status}) recibido`), {
             saleId: sale.id,
             paymentId: normalizedPaymentId,
@@ -247,11 +257,7 @@ export async function confirmMercadoPagoPaymentIfEligible({ paymentId, candidate
         }
 
         try {
-            const reversalType = payment.status === "refunded" ? "REFUNDED" : "CHARGED_BACK";
             const organizationId = sale.event.organizationId;
-            await prisma.developerAlertReversalEvent.create({
-                data: { organizationId, saleId: sale.id, type: reversalType },
-            });
 
             const config = await getDeveloperAlertConfigOrDefaults();
             const windowStart = new Date(Date.now() - config.refundsVolumeWindowHours * 60 * 60 * 1000);

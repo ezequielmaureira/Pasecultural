@@ -202,6 +202,14 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Ticket status change attempted from a status that does not allow it.",
         userMessage: "No se puede completar esa acción en el estado actual de la entrada.",
     },
+    // ticketAdmin.service.js#findReactivationBlockedTicketIds: el dinero de
+    // esta entrada fue devuelto (reembolso/contracargo de Mercado Pago o
+    // devolución por arrepentimiento) — nunca vuelve a quedar utilizable.
+    TICKET_REFUNDED_CANNOT_REACTIVATE: {
+        httpStatus: 409,
+        logMessage: "Organizer tried to reactivate/rehabilitate or mark used a ticket whose payment was refunded, charged back or returned.",
+        userMessage: "Esta entrada fue reembolsada o devuelta y no puede volver a habilitarse.",
+    },
     SCANNER_NOT_AUTHORIZED: {
         httpStatus: 403,
         logMessage: "Scanner user is not assigned (or not active) for this event.",

@@ -470,11 +470,13 @@ export async function returnWithdrawalRequestTicketsService(clerkId, withdrawalR
 // esa nueva fila sería la más reciente y ganaría correctamente). Devuelve un
 // Map<ticketId, Date|null> — null cuando el ticket está CANCELLED pero NO
 // por este flujo (nunca se inventa un returnedAt ahí).
-export async function getWithdrawalReturnInfoForTickets(ticketIds) {
+// `client` opcional (default prisma): ticketAdmin.service.js lo pasa para
+// re-chequear dentro de su transacción.
+export async function getWithdrawalReturnInfoForTickets(ticketIds, client = prisma) {
     const result = new Map();
     if (!Array.isArray(ticketIds) || ticketIds.length === 0) return result;
 
-    const logs = await prisma.ticketAuditLog.findMany({
+    const logs = await client.ticketAuditLog.findMany({
         where: { ticketId: { in: ticketIds }, toStatus: "CANCELLED" },
         orderBy: { createdAt: "desc" },
         select: { ticketId: true, createdAt: true, metadata: true },

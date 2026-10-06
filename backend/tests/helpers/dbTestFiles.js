@@ -42,4 +42,5 @@ export const DB_TEST_FILES = [
     "saleRecovery.service.test.js",
     "userSuspension.test.js",
     "salePaymentGuard.test.js",
+    "ticketRefundGuard.test.js",
 ];

@@ -3,6 +3,7 @@ import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { getOwnedEvent } from "./eventScanner.service.js";
 import { assertFunctionActive } from "./eventArchive.service.js";
+import { getWithdrawalReturnInfoForTickets } from "./withdrawalRequest.service.js";
 
 // Administración de entradas por el organizador dueño del evento — 5
 // operaciones sobre Ticket.status, cada una con su transición permitida y
@@ -17,6 +18,58 @@ async function findOwnedTicket(eventId, ticketId) {
     return ticket;
 }
 
+// REGLA: una entrada cuyo dinero fue devuelto NUNCA vuelve a quedar
+// utilizable por una acción del organizador (rehabilitar, reactivar,
+// rehabilitar en lote, marcar usada). Sólo datos existentes, sin columnas
+// nuevas:
+//  - Ticket REFUNDED (reversión de Mercado Pago sobre un ticket ACTIVE).
+//  - Venta con reversión de pago (refund/chargeback de MP): la reversión
+//    sólo pasa ACTIVE -> REFUNDED, así que los tickets que en ese momento
+//    estaban CANCELLED o USED quedan así. Se detecta por un ticket hermano
+//    REFUNDED o por la fila DeveloperAlertReversalEvent de esa venta (que
+//    mercadoPagoPaymentConfirmation.service.js escribe de forma durable).
+//  - Devolución por arrepentimiento: el CANCELLED vigente vino de
+//    returnWithdrawalRequestTicketsService (TicketAuditLog con
+//    metadata.source de ese flujo, ver getWithdrawalReturnInfoForTickets).
+// Una cancelación manual (cancelTicketService / cancelación en lote) sigue
+// pudiendo rehabilitarse. `client` permite re-chequear dentro de la misma
+// transacción que escribe.
+export async function findReactivationBlockedTicketIds(tickets, client = prisma) {
+    const blocked = new Set();
+    if (!Array.isArray(tickets) || tickets.length === 0) return blocked;
+
+    for (const ticket of tickets) {
+        if (ticket.status === "REFUNDED") blocked.add(ticket.id);
+    }
+
+    const saleIds = [...new Set(tickets.map((t) => t.saleId).filter(Boolean))];
+    if (saleIds.length > 0) {
+        const [refundedSiblings, reversalEvents] = await Promise.all([
+            client.ticket.findMany({ where: { saleId: { in: saleIds }, status: "REFUNDED" }, select: { saleId: true } }),
+            client.developerAlertReversalEvent.findMany({ where: { saleId: { in: saleIds } }, select: { saleId: true } }),
+        ]);
+        const reversedSaleIds = new Set([...refundedSiblings, ...reversalEvents].map((row) => row.saleId));
+        for (const ticket of tickets) {
+            if (reversedSaleIds.has(ticket.saleId)) blocked.add(ticket.id);
+        }
+    }
+
+    const cancelledIds = tickets.filter((t) => t.status === "CANCELLED").map((t) => t.id);
+    if (cancelledIds.length > 0) {
+        const returnInfo = await getWithdrawalReturnInfoForTickets(cancelledIds, client);
+        for (const id of cancelledIds) {
+            if (returnInfo.get(id)) blocked.add(id);
+        }
+    }
+
+    return blocked;
+}
+
+async function assertTicketCanBecomeUsable(ticket, client = prisma) {
+    const blocked = await findReactivationBlockedTicketIds([ticket], client);
+    if (blocked.has(ticket.id)) throw new AppError(ErrorCodes.TICKET_REFUNDED_CANNOT_REACTIVATE);
+}
+
 // Transición genérica de status con su TicketAuditLog — cubre cancelar,
 // rehabilitar y reactivar (los tres son "status actual válido -> status
 // nuevo", sin tocar CheckIn). markTicketUsedManuallyService y
@@ -27,9 +80,15 @@ async function applyTransition(clerkId, eventId, ticketId, { allowedFrom, toStat
     if (!owned) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
     const ticket = await findOwnedTicket(eventId, ticketId);
     if (!allowedFrom.includes(ticket.status)) throw new AppError(ErrorCodes.TICKET_INVALID_TRANSITION);
+    const becomesUsable = toStatus === "ACTIVE";
+    if (becomesUsable) await assertTicketCanBecomeUsable(ticket);
 
     return prisma.$transaction(async (tx) => {
         const updated = await tx.ticket.update({ where: { id: ticket.id }, data: { status: toStatus } });
+        // Re-chequeo bajo el lock de fila recién tomado: si una reversión de
+        // Mercado Pago entró entre el chequeo de arriba y este update, se
+        // hace rollback y el ticket queda como estaba.
+        if (becomesUsable) await assertTicketCanBecomeUsable(ticket, tx);
         await tx.ticketAuditLog.create({
             data: {
                 ticketId: ticket.id,
@@ -74,6 +133,9 @@ export const markTicketUsedManuallyService = async (clerkId, eventId, ticketId, 
     if (!owned) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
     const ticket = await findOwnedTicket(eventId, ticketId);
     if (ticket.status !== "ACTIVE") throw new AppError(ErrorCodes.TICKET_INVALID_TRANSITION);
+    // Un check-in manual equivale a admitir la entrada: tampoco sobre una
+    // venta cuyo pago fue revertido.
+    await assertTicketCanBecomeUsable(ticket);
 
     // Regla "evento finalizado = evento finalizado" — check-in manual del
     // organizador (equivalente a un escaneo real, ver comentario de arriba)
@@ -83,6 +145,7 @@ export const markTicketUsedManuallyService = async (clerkId, eventId, ticketId, 
 
     return prisma.$transaction(async (tx) => {
         const updated = await tx.ticket.update({ where: { id: ticket.id }, data: { status: "USED" } });
+        await assertTicketCanBecomeUsable(ticket, tx);
         await tx.checkIn.create({
             data: { ticketId: ticket.id, source: "MANUAL", gate: gate || null, scannerId: null, device: null },
         });
@@ -186,10 +249,19 @@ export const bulkApplyTicketActionService = async (clerkId, eventId, { ticketIds
 
     const tickets = await prisma.ticket.findMany({
         where: { id: { in: ids }, eventId, deletedAt: null },
-        select: { id: true, status: true },
+        select: { id: true, status: true, saleId: true },
     });
 
-    const plan = buildBulkTicketActionPlan({ action, tickets, actorId: owned.user.id, reason });
+    // "Rehabilitar seleccionadas": los tickets bloqueados (reembolso,
+    // contracargo, arrepentimiento) se omiten igual que los que no están en
+    // un estado elegible — nunca se reactivan.
+    let eligibleTickets = tickets;
+    if (action === "rehabilitate") {
+        const blocked = await findReactivationBlockedTicketIds(tickets);
+        eligibleTickets = tickets.filter((t) => !blocked.has(t.id));
+    }
+
+    const plan = buildBulkTicketActionPlan({ action, tickets: eligibleTickets, actorId: owned.user.id, reason });
     if (plan.updateIds.length === 0) return [];
 
     let updateData;
@@ -205,6 +277,11 @@ export const bulkApplyTicketActionService = async (clerkId, eventId, { ticketIds
 
     await prisma.$transaction(async (tx) => {
         await tx.ticket.updateMany({ where: { id: { in: plan.updateIds } }, data: updateData });
+        if (action === "rehabilitate") {
+            const planned = eligibleTickets.filter((t) => plan.updateIds.includes(t.id));
+            const blocked = await findReactivationBlockedTicketIds(planned, tx);
+            if (blocked.size > 0) throw new AppError(ErrorCodes.TICKET_REFUNDED_CANNOT_REACTIVATE);
+        }
         if (plan.auditRows.length > 0) {
             await tx.ticketAuditLog.createMany({ data: plan.auditRows });
         }
