@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import prisma from "../src/config/prisma.js";
 import { createMercadoPagoCheckoutService } from "../src/services/mercadoPagoCheckout.service.js";
 import { createSaleForBuyer, confirmSaleService } from "../src/services/sale.service.js";
+import { verifiedPaymentEvidenceFor } from "./helpers/verifiedPayment.js";
 import { encryptMercadoPagoSecret } from "../src/config/mercadoPagoEncryption.js";
 import { disconnectMercadoPagoConnectionService } from "../src/services/mercadoPagoConnection.service.js";
 import { replaceServiceFeeTiers } from "../src/services/serviceFee.service.js";
@@ -1004,7 +1005,11 @@ testWithDb("the preference always excludes cash payment types (Rapipago/Pago Fá
     }
 });
 
-testWithDb("confirmSaleService still works correctly after the advisory-lock extraction — the manual flow can reserve and confirm end to end", async () => {
+// Antes: "the manual flow can reserve and confirm end to end". La venta
+// MANUAL paga sin pago verificado ya NO puede confirmarse (regla inviolable,
+// ver sale.service.js#assertSaleConfirmationAuthorized): sigue reservando
+// stock igual, pero confirmarla queda rechazado sin generar Tickets.
+testWithDb("the manual flow still reserves stock, but a paid MANUAL sale can no longer be confirmed without verified payment", async () => {
     const owner = await createUser();
     const org = await createOrganization(owner.id);
     const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id, { price: 3000, quantity: 5 });
@@ -1029,12 +1034,17 @@ testWithDb("confirmSaleService still works correctly after the advisory-lock ext
         assert.equal(sale.serviceFee, null);
         assert.equal(Number(sale.total), 3000);
 
-        const result = await confirmSaleService(owner.clerkId, sale.id);
-        assert.equal(result.sale.status, "CONFIRMED");
-        assert.equal(result.tickets.length, 1);
+        await assert.rejects(confirmSaleService(owner.clerkId, sale.id), (err) => err.code === "SALE_PAYMENT_NOT_VERIFIED");
+        await assert.rejects(
+            confirmSaleService(owner.clerkId, sale.id, { paymentEvidence: verifiedPaymentEvidenceFor(sale) }),
+            (err) => err.code === "SALE_PAYMENT_NOT_VERIFIED",
+            "evidencia de Mercado Pago tampoco confirma una venta MANUAL"
+        );
 
+        const reloaded = await prisma.sale.findUnique({ where: { id: sale.id } });
+        assert.equal(reloaded.status, "PENDING");
         const ticketCount = await prisma.ticket.count({ where: { saleId: sale.id } });
-        assert.equal(ticketCount, 1);
+        assert.equal(ticketCount, 0);
     } finally {
         await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id, buyerUser.id] });
     }

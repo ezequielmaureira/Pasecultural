@@ -224,7 +224,6 @@ const AUTHENTICATED_ROUTES = [
     ["POST", "/api/conversations/x/reply"],
     ["GET", "/api/sales/mine"],
     ["GET", "/api/sales"],
-    ["POST", "/api/sales/x/confirm"],
     ["POST", "/api/sales/x/cancel"],
     ["POST", "/api/sales/x/resend-confirmation-email"],
     ["GET", "/api/courtesies"],

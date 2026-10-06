@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import prisma from "../src/config/prisma.js";
 import { createSaleForBuyer, confirmSaleService } from "../src/services/sale.service.js";
+import { VERIFIED_SALE_OPTIONS, verifiedPaymentEvidenceFor } from "./helpers/verifiedPayment.js";
 import { issueCourtesyService } from "../src/services/courtesy.service.js";
 import { markTicketUsedManuallyService, cancelTicketService } from "../src/services/ticketAdmin.service.js";
 import { scanTicketService, confirmScanService } from "../src/services/scanner.service.js";
@@ -391,7 +392,7 @@ testWithDb("EF-08: confirmSaleService completa una Sale PENDING creada antes del
     const sale = await createSaleForBuyer(
         buyer,
         { eventId: event.id, functionId: eventFunction.id, items: [{ ticketTypeId: ticketType.id, quantity: 1 }], buyerDocument: "30111222" },
-        { origin: "SALE" }
+        { origin: "SALE", ...VERIFIED_SALE_OPTIONS }
     );
     assert.equal(sale.status, "PENDING");
 
@@ -400,7 +401,7 @@ testWithDb("EF-08: confirmSaleService completa una Sale PENDING creada antes del
     await prisma.eventFunction.update({ where: { id: eventFunction.id }, data: { date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) } });
 
     try {
-        const confirmed = await confirmSaleService(owner.clerkId, sale.id);
+        const confirmed = await confirmSaleService(owner.clerkId, sale.id, { paymentEvidence: verifiedPaymentEvidenceFor(sale) });
         assert.equal(confirmed.sale.status, "CONFIRMED", "la Sale ya iniciada debe poder completarse aunque la función haya terminado mientras tanto");
         const ticketCount = await prisma.ticket.count({ where: { saleId: sale.id } });
         assert.equal(ticketCount, 1, "el ticket correspondiente debe haberse emitido normalmente");

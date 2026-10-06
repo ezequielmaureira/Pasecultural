@@ -1,8 +1,5 @@
 import { Router } from "express";
 import {
-    createSale,
-    confirmSale,
-    confirmSaleByBuyer,
     cancelSale,
     listSalesOrganizer,
     listSalesBuyer,
@@ -49,15 +46,13 @@ const recoverPaymentVerifyRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max:
 // nunca tuvo este problema porque no habla con ningún tercero externo).
 const mercadoPagoCheckoutRateLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 10 });
 
-// Sin requireAuth a propósito: el comprador nunca necesita sesión de Clerk
-// para comprar (checkout invitado). El controller decide internamente si
-// hay una cuenta real logueada o si resuelve un comprador invitado por
-// email — ver sale.controller.js#createSale.
-router.post("/", createSale);
-
 // MP-2 — inicio real de una compra vía Mercado Pago (Checkout Pro + Split
-// Payment 1:1). Mismo criterio sin sesión que "/" — ver
-// mercadoPagoCheckout.controller.js.
+// Payment 1:1), sin sesión — ver mercadoPagoCheckout.controller.js. Es el
+// ÚNICO endpoint público que crea una venta: queda PENDING y sólo pasa a
+// CONFIRMED cuando el backend verifica el pago contra Mercado Pago
+// (webhook/reconciliación/recuperación). POST /api/sales, POST
+// /:token/confirm-by-buyer y POST /:id/confirm (venta "manual" sin pago)
+// fueron eliminados — ver sale.service.js#assertSaleConfirmationAuthorized.
 router.post("/mercadopago/checkout", mercadoPagoCheckoutRateLimit, createMercadoPagoCheckout);
 
 // MP-6 — público, sin sesión: reglas de comisión vigentes, para que el
@@ -66,15 +61,6 @@ router.post("/mercadopago/checkout", mercadoPagoCheckoutRateLimit, createMercado
 router.get("/service-fee-tiers", getPublicServiceFeeTiers);
 router.get("/mine", requireAuth, listSalesBuyer);
 router.get("/", requireRole("ORGANIZER"), listSalesOrganizer);
-// Confirm por parte del organizador (desde UI organizador / webhook)
-router.post("/:id/confirm", requireRole("ORGANIZER"), confirmSale);
-
-// Confirmación disparada por el propio flujo de compra (pago manual/
-// simulado hoy, webhook de Mercado Pago mañana) — sin sesión, autorizado
-// únicamente por conocer publicRecoveryToken (nunca el id interno). Ver
-// sale.controller.js#confirmSaleByBuyer.
-router.post("/:token/confirm-by-buyer", confirmSaleByBuyer);
-
 // Público, sin sesión: sólo status por publicRecoveryToken, para la
 // recuperación por timeout del Wizard invitado (no puede usar GET
 // /sales/mine sin cuenta).

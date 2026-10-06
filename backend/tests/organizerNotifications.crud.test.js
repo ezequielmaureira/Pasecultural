@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import prisma from "../src/config/prisma.js";
 import { createSaleForBuyer, confirmSaleService } from "../src/services/sale.service.js";
+import { VERIFIED_SALE_OPTIONS, verifiedPaymentEvidenceFor } from "./helpers/verifiedPayment.js";
 import {
     getOrganizerNotificationSettingsService,
     replaceOrganizerNotificationSettingsService,
@@ -109,8 +110,8 @@ async function buySale({ event, eventFunction, ticketType, organizerClerkId, qua
         functionId: eventFunction.id,
         items: [{ ticketTypeId: ticketType.id, quantity }],
         buyerDocument: "30111222",
-    });
-    await confirmSaleService(organizerClerkId, sale.id, { skipAutoEmail });
+    }, VERIFIED_SALE_OPTIONS);
+    await confirmSaleService(organizerClerkId, sale.id, { skipAutoEmail, paymentEvidence: verifiedPaymentEvidenceFor(sale) });
     return { sale: await prisma.sale.findUnique({ where: { id: sale.id } }), buyerUser };
 }
 
@@ -256,7 +257,7 @@ testWithDb("sale-confirmed ON: a real CONFIRMED sale sends exactly one notificat
         // frontend, doble click, StrictMode): entra por la rama "ya
         // estaba CONFIRMED" y nunca vuelve a llegar al bloque de
         // Notificaciones Organizer.
-        await confirmSaleService(owner.clerkId, sale.id, { skipAutoEmail: true });
+        await confirmSaleService(owner.clerkId, sale.id, { skipAutoEmail: true, paymentEvidence: verifiedPaymentEvidenceFor(sale) });
         assert.equal(sendCount, 1, "re-confirmar una venta ya CONFIRMED no debe duplicar la notificación");
     } finally {
         globalThis.fetch = original;
@@ -389,8 +390,8 @@ testWithDb("withdrawal request: creating a new request still sends the organizer
         const sale = await createSaleForBuyer(buyerUser, {
             eventId: event.id, functionId: eventFunction.id,
             items: [{ ticketTypeId: ticketType.id, quantity: 1 }], buyerDocument: "30111222",
-        });
-        await confirmSaleService(owner.clerkId, sale.id, { skipAutoEmail: true });
+        }, VERIFIED_SALE_OPTIONS);
+        await confirmSaleService(owner.clerkId, sale.id, { skipAutoEmail: true, paymentEvidence: verifiedPaymentEvidenceFor(sale) });
         const confirmedSale = await prisma.sale.findUnique({ where: { id: sale.id } });
 
         const result = await createWithdrawalRequestService(confirmedSale.publicRecoveryToken, { reason: "ARREPENTIMIENTO" });

@@ -3,6 +3,7 @@ import { logger } from "../logging/logger.js";
 import { getMercadoPagoPayment } from "./mercadoPago.service.js";
 import { getValidMercadoPagoAccessTokenForConnection } from "./mercadoPagoConnection.service.js";
 import { confirmSaleService } from "./sale.service.js";
+import { createVerifiedMercadoPagoPaymentEvidence } from "./paymentEvidence.js";
 import {
     sendMercadoPagoReconciliationAlert,
     sendMercadoPagoReversalAlert,
@@ -368,10 +369,17 @@ export async function confirmMercadoPagoPaymentIfEligible({ paymentId, candidate
     }
 
     try {
-        const result = await confirmSaleService(organizer.clerkId, sale.id, {
-            mercadoPagoPaymentId: normalizedPaymentId,
-            confirmationSource: source,
+        // Único emisor de evidencia de pago de todo el backend: sólo acá,
+        // después de consultar el payment en Mercado Pago y validar estado
+        // approved, collector, organización, monto y moneda (arriba).
+        const paymentEvidence = createVerifiedMercadoPagoPaymentEvidence({
+            paymentId: normalizedPaymentId,
+            status: payment.status,
+            transactionAmount: payment.transactionAmount,
+            currencyId: payment.currencyId,
+            source,
         });
+        const result = await confirmSaleService(organizer.clerkId, sale.id, { paymentEvidence });
         logger.info("mercadopago confirmation: Sale confirmada", {
             saleId: sale.id,
             paymentId: normalizedPaymentId,

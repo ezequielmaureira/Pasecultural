@@ -168,6 +168,15 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Concurrent confirmSale() call lost the race: sale was no longer PENDING.",
         userMessage: "Esta venta ya fue confirmada.",
     },
+    // Regla inviolable de confirmSaleService (sale.service.js#
+    // assertSaleConfirmationAuthorized): una venta paga sólo pasa a
+    // CONFIRMED con evidencia de pago aprobado verificada server-side; una
+    // cortesía, sólo por el mecanismo explícito de cortesías.
+    SALE_PAYMENT_NOT_VERIFIED: {
+        httpStatus: 409,
+        logMessage: "Refused to confirm a sale without trusted, server-side verified payment evidence (or explicit courtesy authorization).",
+        userMessage: "Esta venta no tiene un pago aprobado verificado.",
+    },
     SALE_NOT_CONFIRMED: {
         httpStatus: 409,
         logMessage: "Cannot (re)send the confirmation email for a sale that is not CONFIRMED.",

@@ -16,6 +16,7 @@ import { sendSaleConfirmationEmail, getSaleEmailData } from "./email/sendSaleCon
 import { buildTicketQrImages } from "./email/ticketQrImages.js";
 import { buildTicketsPdfBuffer } from "./email/ticketsPdf.js";
 import { round2 } from "../utils/money.js";
+import { isTrustedPaymentEvidence, MERCADO_PAGO_CONFIRMATION_SOURCES } from "./paymentEvidence.js";
 import { getValidatedServiceFeeTiersOrThrow, calculateServiceFeeForUnitPrice } from "./serviceFee.service.js";
 import { sendDeveloperAlert, DeveloperAlertType, tryClaimDeveloperAlertCooldown } from "./email/sendDeveloperAlert.service.js";
 import { getDeveloperAlertConfigOrDefaults } from "./developerAlertConfig.service.js";
@@ -434,6 +435,53 @@ async function acquireCourtesyQuotaLock(tx, eventId) {
     );
 }
 
+// REGLA INVIOLABLE — único punto de autorización para pasar una Sale a
+// CONFIRMED (y por lo tanto generar Tickets: tx.ticket.createMany sólo
+// existe dentro de confirmSaleService). Corre para TODO caller, presente o
+// futuro, antes de cualquier escritura:
+//  - origin SALE (venta paga): exige evidencia de pago aprobado verificada
+//    server-side (paymentEvidence.js, la emite sólo
+//    mercadoPagoPaymentConfirmation.service.js tras consultar la API de
+//    Mercado Pago) y que coincida con ESTA venta: paymentMethod
+//    MERCADO_PAGO, monto = Sale.total, ARS, mismo payment si ya había uno.
+//    No hay flujo de "venta gratuita": FREE_ENTRY nunca genera Sales
+//    (EVENT_FREE_ENTRY_NO_SALES) y paymentMethod MANUAL nunca es prueba de
+//    pago.
+//  - origin COURTESY: sólo por el mecanismo explícito de cortesías
+//    (courtesy.service.js pasa courtesyQuota: true, detrás de requireRole
+//    ORGANIZER/DEVELOPER y del chequeo de organización).
+// Nada que venga de un request (token, saleToken, body, query) alcanza.
+export function assertSaleConfirmationAuthorized(sale, { paymentEvidence = null, courtesyQuota = false } = {}) {
+    if (sale.origin === "COURTESY") {
+        if (courtesyQuota === true && sale.paymentMethod === "MANUAL") return;
+        throw new AppError(ErrorCodes.SALE_PAYMENT_NOT_VERIFIED);
+    }
+
+    if (sale.origin !== "SALE") throw new AppError(ErrorCodes.SALE_PAYMENT_NOT_VERIFIED);
+
+    const evidence = paymentEvidence;
+    const valid =
+        isTrustedPaymentEvidence(evidence) &&
+        evidence.provider === "MERCADO_PAGO" &&
+        evidence.status === "approved" &&
+        MERCADO_PAGO_CONFIRMATION_SOURCES.has(evidence.source) &&
+        sale.paymentMethod === "MERCADO_PAGO" &&
+        evidence.currencyId === "ARS" &&
+        round2(evidence.transactionAmount) === round2(sale.total) &&
+        (!sale.mercadoPagoPaymentId || sale.mercadoPagoPaymentId === evidence.paymentId);
+
+    if (!valid) {
+        logger.error(new Error("confirmSaleService: confirmación rechazada sin evidencia de pago verificada"), {
+            saleId: sale.id,
+            origin: sale.origin,
+            paymentMethod: sale.paymentMethod,
+            hadEvidence: Boolean(evidence),
+            trustedEvidence: isTrustedPaymentEvidence(evidence),
+        });
+        throw new AppError(ErrorCodes.SALE_PAYMENT_NOT_VERIFIED);
+    }
+}
+
 const finalizeConfirmSale = (saleId, organizerUserId) => {
     logger.info("confirmSaleService completed", { saleId, organizerUserId });
     return { saleId, status: "CONFIRMED" };
@@ -538,7 +586,10 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
     // (`sale.eventId`, `sale.event.organization`), ya cargada y ya
     // verificada más abajo — nunca confía en nada que un caller pudiera
     // pasar mal.
-    const { skipAutoEmail = false, mercadoPagoPaymentId = null, confirmationSource = null, courtesyQuota = false } = options;
+    // paymentEvidence reemplaza a los antiguos mercadoPagoPaymentId/
+    // confirmationSource sueltos: ahora se derivan SÓLO de la evidencia
+    // verificada (ver assertSaleConfirmationAuthorized).
+    const { skipAutoEmail = false, paymentEvidence = null, courtesyQuota = false } = options;
     logger.info("confirmSaleService entered", { clerkId, saleId });
     const organizerUser = await getUserByClerkId(clerkId);
     if (!organizerUser) {
@@ -572,6 +623,12 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
         // organizador ajeno que esa venta sí existe en otra organización.
         throw new AppError(ErrorCodes.SALE_NOT_FOUND);
     }
+
+    // Antes del replay y de la transacción: ni siquiera una venta ya
+    // CONFIRMED devuelve sus tickets a un caller sin autorización.
+    assertSaleConfirmationAuthorized(sale, { paymentEvidence, courtesyQuota });
+    const mercadoPagoPaymentId = sale.origin === "SALE" ? paymentEvidence.paymentId : null;
+    const confirmationSource = sale.origin === "SALE" ? paymentEvidence.source : null;
 
     // Idempotente para el caso de llamada repetida sobre una venta que YA
     // quedó CONFIRMED (reintentos del frontend, timeouts, polling, doble
@@ -610,8 +667,10 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
         // 2) Update condicional atómico PENDING -> CONFIRMED: si dos requests
         // llegan a confirmar la misma venta al mismo tiempo, sólo uno encuentra
         // status: PENDING todavía y gana la carrera.
+        // where incluye origin/paymentMethod ya validados arriba: la
+        // transición sólo ocurre sobre la misma venta autorizada.
         const updated = await tx.sale.updateMany({
-            where: { id: sale.id, status: "PENDING" },
+            where: { id: sale.id, status: "PENDING", origin: sale.origin, paymentMethod: sale.paymentMethod },
             data: {
                 status: "CONFIRMED",
                 confirmedAt: new Date(),

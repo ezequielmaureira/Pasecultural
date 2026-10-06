@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import prisma from "../src/config/prisma.js";
 import { createSaleForBuyer, confirmSaleService, getSaleStatusService, findWithdrawalEligibleSales } from "../src/services/sale.service.js";
+import { VERIFIED_SALE_OPTIONS, verifiedPaymentEvidenceFor } from "./helpers/verifiedPayment.js";
 import { createWithdrawalRequestService, returnWithdrawalRequestTicketsService } from "../src/services/withdrawalRequest.service.js";
 import { cancelTicketService } from "../src/services/ticketAdmin.service.js";
 import { scanTicketService } from "../src/services/scanner.service.js";
@@ -58,8 +59,8 @@ async function createConfirmedSale({ event, eventFunction, ticketType, organizer
         functionId: eventFunction.id,
         items: [{ ticketTypeId: ticketType.id, quantity }],
         buyerDocument,
-    });
-    await confirmSaleService(organizerClerkId, sale.id, { skipAutoEmail: true });
+    }, VERIFIED_SALE_OPTIONS);
+    await confirmSaleService(organizerClerkId, sale.id, { skipAutoEmail: true, paymentEvidence: verifiedPaymentEvidenceFor(sale) });
     return prisma.sale.findUnique({ where: { id: sale.id }, include: { tickets: { where: { deletedAt: null }, orderBy: { sequence: "asc" } } } });
 }
 
