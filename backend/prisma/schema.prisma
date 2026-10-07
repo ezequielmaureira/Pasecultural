@@ -245,6 +245,9 @@ model User {
   // por última vez cada funcionalidad (ver QaChecklistState más abajo).
   // Mismo criterio que organizationPlanLimitsUpdated.
   qaChecklistStatesChecked                       QaChecklistState[]
+  // Antecedentes históricos de organizaciones que este usuario eliminó
+  // (ver DeletedOrganization). Nunca cuenta como "tiene organización".
+  deletedOrganizations                           DeletedOrganization[]
 }
 
 model Organization {
@@ -294,14 +297,12 @@ model Organization {
   approvedAt DateTime?
   approvedBy String?
 
-  // Cierre por autoservicio ("Eliminar organización" desde Configuración).
-  // Soft delete: la Organization y todo su historial (eventos, ventas,
-  // entradas, check-ins, scanners, Mercado Pago) se conservan. Distinto de
-  // status=SUSPENDED (que también se setea al cerrar, pero puede venir de un
-  // Developer): closedAt != null es la fuente de verdad de "su propietario
-  // la cerró". Toda resolución de "organización operativa actual" exige
-  // closedAt null; las consultas históricas (Developer, webhooks,
-  // reconciliación) no la filtran.
+  // LEGACY — cierre por autoservicio del mecanismo anterior (soft delete:
+  // closedAt + status SUSPENDED). El flujo actual ya NO lo escribe: la
+  // eliminación por el propietario es un hard delete con antecedente en
+  // DeletedOrganization (ver organizationDeletion.service.js). Se conserva
+  // la columna y los filtros `closedAt: null` hasta convertir las filas
+  // viejas (scripts/convertClosedOrganizations.js).
   closedAt DateTime?
 
   // Premium — Fase 1. @default(FREE) a propósito: cero impacto en
@@ -416,6 +417,54 @@ model Organization {
   notificationSettings OrganizerNotificationSettings?
 
   @@index([ownerId, closedAt])
+}
+
+enum OrganizationDeletionReason {
+  DELETED_BY_USER
+}
+
+// Antecedente HISTÓRICO de una organización eliminada físicamente (hard
+// delete). NO es una Organization: no aparece en ninguna consulta de
+// organizaciones activas, no ocupa la organización del usuario, no recibe
+// eventos nuevos y ningún endpoint de estado/plan/rubro puede tocarlo
+// (todos operan sobre Organization y responden 404 para estos ids). Sólo
+// existe para que Developer > Organizaciones siga mostrando la fila como
+// "Eliminada por usuario" y para darle nombre a los eventos/solicitudes
+// históricos desacoplados (Event/WithdrawalRequest.deletedOrganizationId).
+// Snapshot mínimo a propósito: sin CUIT/DNI/teléfono/redes.
+model DeletedOrganization {
+  id                     String            @id @default(cuid())
+  originalOrganizationId String            @unique
+  name                   String
+  logo                   String?
+  email                  String
+  plan                   OrganizationPlan
+  type                   OrganizationType?
+  city                   String?
+  province               String?
+  responsibleFirstName   String?
+  responsibleLastName    String?
+
+  // Propietario original. SetNull: si algún día se borrara el User, el
+  // antecedente sobrevive con el snapshot de nombre/email de abajo.
+  ownerId        String?
+  owner          User?   @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  ownerFirstName String?
+  ownerLastName  String?
+  ownerEmail     String?
+
+  originalStatus    OrganizationStatus
+  originalCreatedAt DateTime
+  approvedAt        DateTime?
+  deletedAt         DateTime                   @default(now())
+  reason            OrganizationDeletionReason
+
+  events             Event[]
+  withdrawalRequests WithdrawalRequest[]
+
+  @@index([ownerId])
+  @@index([originalCreatedAt])
+  @@map("deleted_organizations")
 }
 
 // Premium — Fase 2A. Configuración GENERAL por plan (nunca por
@@ -919,8 +968,17 @@ model Event {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id])
+  // Nullable sólo para eventos HISTÓRICOS de una organización eliminada por
+  // su propietario: al hacer el hard delete de la Organization, los eventos
+  // con ventas/entradas/solicitudes se desacoplan (organizationId null,
+  // deletedOrganizationId = antecedente, archivedAt seteado) para conservar
+  // ventas y tickets de los compradores. Todo evento operativo tiene
+  // organizationId; un evento con organizationId null nunca es operable.
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  deletedOrganizationId String?
+  deletedOrganization   DeletedOrganization? @relation(fields: [deletedOrganizationId], references: [id], onDelete: Restrict)
 
   functions   EventFunction[]
   ticketTypes TicketType[]
@@ -1575,8 +1633,15 @@ model WithdrawalRequest {
   eventId String
   event   Event  @relation(fields: [eventId], references: [id])
 
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id])
+  // Nullable por el mismo motivo que Event.organizationId: una solicitud ya
+  // resuelta de una organización eliminada se conserva apuntando al
+  // antecedente (deletedOrganizationId). Nunca se elimina una organización
+  // con solicitudes abiertas (REQUESTED/CONTACTED).
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  deletedOrganizationId String?
+  deletedOrganization   DeletedOrganization? @relation(fields: [deletedOrganizationId], references: [id], onDelete: Restrict)
 
   status     WithdrawalRequestStatus  @default(REQUESTED)
   reason     WithdrawalRequestReason?

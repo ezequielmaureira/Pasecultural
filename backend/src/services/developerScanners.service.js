@@ -1,4 +1,5 @@
 import prisma from "../config/prisma.js";
+import { EVENT_ORGANIZATION_LABEL_SELECT, resolveEventOrganization } from "../utils/eventOrganization.js";
 import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 
@@ -99,7 +100,7 @@ export const listDeveloperScannersService = async (filters = {}) => {
                 createdAt: true,
                 activatedAt: true,
                 lastAccessAt: true,
-                event: { select: { id: true, title: true, organization: { select: { id: true, name: true } } } },
+                event: { select: { id: true, title: true, ...EVENT_ORGANIZATION_LABEL_SELECT } },
             },
         }),
     ]);
@@ -113,7 +114,7 @@ export const listDeveloperScannersService = async (filters = {}) => {
         gate: scanner.gate,
         status: scanner.status,
         event: { id: scanner.event.id, title: scanner.event.title },
-        organization: scanner.event.organization,
+        organization: resolveEventOrganization(scanner.event),
         createdAt: scanner.createdAt,
         activatedAt: scanner.activatedAt,
         lastAccessAt: scanner.lastAccessAt,
@@ -149,7 +150,7 @@ export const getDeveloperScannerService = async (scannerId) => {
             activatedAt: true,
             lastAccessAt: true,
             lastDevice: true,
-            event: { select: { id: true, title: true, organization: { select: { id: true, name: true } } } },
+            event: { select: { id: true, title: true, ...EVENT_ORGANIZATION_LABEL_SELECT } },
         },
     });
     if (!scanner) throw new AppError(ErrorCodes.EVENT_SCANNER_NOT_FOUND);
@@ -171,7 +172,7 @@ export const getDeveloperScannerService = async (scannerId) => {
         status: scanner.status,
         gate: scanner.gate,
         event: { id: scanner.event.id, title: scanner.event.title },
-        organization: scanner.event.organization,
+        organization: resolveEventOrganization(scanner.event),
         contact: { email: scanner.email, phone: scanner.phone, document: scanner.document },
         createdAt: scanner.createdAt,
         claimedAt: scanner.claimedAt,

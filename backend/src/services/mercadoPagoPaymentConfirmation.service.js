@@ -269,7 +269,7 @@ export async function confirmMercadoPagoPaymentIfEligible({ paymentId, candidate
                 if (claimed) {
                     const volumeAlertResult = await sendDeveloperAlert(DeveloperAlertType.REFUNDS_VOLUME_SPIKE, {
                         organizationId,
-                        organizationName: sale.event.organization.name,
+                        organizationName: sale.event.organization?.name ?? null,
                         count,
                         windowHours: config.refundsVolumeWindowHours,
                         threshold: config.refundsVolumeWindowCount,

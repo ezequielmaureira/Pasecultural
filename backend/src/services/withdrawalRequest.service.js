@@ -60,6 +60,8 @@ export function sanitizeReasonNote(reasonNote) {
 // (Organization.email, campo obligatorio del modelo), nunca se inventa un
 // contacto que no existe.
 export function buildOrganizationContact(organization, eventTitle) {
+    // Evento histórico de una organización eliminada: no hay contacto vivo.
+    if (!organization) return { whatsappUrl: null, email: null };
     const waId = organization.phoneVerifiedAt ? buildArgentineWhatsappId(organization.phone) : null;
     const message = `Hola, realicé una solicitud relacionada con mi compra del evento ${eventTitle}. Quisiera comunicarme por la solicitud registrada.`;
     return {
@@ -90,7 +92,9 @@ export async function createWithdrawalRequestService(token, { reason, reasonNote
     // Elegibilidad TÉCNICA reautorizada server-side — mismo criterio que
     // findWithdrawalEligibleSales (sale.service.js), nunca el resultado
     // que el frontend recibió en el paso anterior.
-    const isEligible = sale.status === "CONFIRMED" && sale.origin === "SALE" && sale.tickets.some((t) => t.status !== "REFUNDED");
+    // Nunca sobre un evento histórico de una organización eliminada: ya no
+    // hay organizador que pueda gestionar la solicitud.
+    const isEligible = Boolean(sale.event.organization) && sale.status === "CONFIRMED" && sale.origin === "SALE" && sale.tickets.some((t) => t.status !== "REFUNDED");
     if (!isEligible) throw new AppError(ErrorCodes.WITHDRAWAL_REQUEST_NOT_ELIGIBLE);
 
     const sanitizedReason = sanitizeReason(reason);

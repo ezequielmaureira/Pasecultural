@@ -36,7 +36,7 @@ async function resolveEventForCourtesy(clerkId, eventId) {
     if (!event) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
 
     const isDeveloper = user.role === "DEVELOPER";
-    const isOwningOrganizer = user.role === "ORGANIZER" && event.organization.ownerId === user.id && !event.organization.closedAt;
+    const isOwningOrganizer = user.role === "ORGANIZER" && event.organization?.ownerId === user.id && !event.organization.closedAt;
     if (!isDeveloper && !isOwningOrganizer) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
     if (event.archivedAt) throw new AppError(ErrorCodes.EVENT_ARCHIVED);
 
@@ -58,7 +58,7 @@ async function resolveOwnedCourtesySale(clerkId, saleId) {
     if (!sale || sale.deletedAt || sale.origin !== "COURTESY") throw new AppError(ErrorCodes.COURTESY_NOT_FOUND);
 
     const isDeveloper = user.role === "DEVELOPER";
-    const isOwningOrganizer = user.role === "ORGANIZER" && sale.event.organization.ownerId === user.id && !sale.event.organization.closedAt;
+    const isOwningOrganizer = user.role === "ORGANIZER" && sale.event.organization?.ownerId === user.id && !sale.event.organization.closedAt;
     if (!isDeveloper && !isOwningOrganizer) throw new AppError(ErrorCodes.COURTESY_NOT_FOUND);
 
     return { user, sale };

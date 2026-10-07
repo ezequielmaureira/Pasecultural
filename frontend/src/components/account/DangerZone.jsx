@@ -88,7 +88,7 @@ export function TypedConfirmModal({ title, paragraphs, confirmLabel, onConfirm, 
         </label>
 
         {error && (
-          <p role="alert" className="text-sm text-rose-400">
+          <p role="alert" className="whitespace-pre-line text-sm text-rose-400">
             {error}
           </p>
         )}

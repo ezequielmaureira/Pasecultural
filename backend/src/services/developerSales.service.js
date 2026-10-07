@@ -1,4 +1,5 @@
 import prisma from "../config/prisma.js";
+import { EVENT_ORGANIZATION_LABEL_SELECT, resolveEventOrganization } from "../utils/eventOrganization.js";
 import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { normalizeBuyerDocument } from "../utils/validateBuyerDocument.js";
@@ -95,7 +96,7 @@ export const listDeveloperSalesService = async (filters = {}) => {
                 serviceFee: true,
                 createdAt: true,
                 paymentRef: true,
-                event: { select: { id: true, title: true, organization: { select: { id: true, name: true } } } },
+                event: { select: { id: true, title: true, ...EVENT_ORGANIZATION_LABEL_SELECT } },
                 buyer: { select: { firstName: true, lastName: true } },
                 _count: { select: { tickets: true } },
             },
@@ -106,7 +107,7 @@ export const listDeveloperSalesService = async (filters = {}) => {
         id: sale.id,
         status: sale.status,
         event: { id: sale.event.id, title: sale.event.title },
-        organization: sale.event.organization,
+        organization: resolveEventOrganization(sale.event),
         buyer: { name: [sale.buyer.firstName, sale.buyer.lastName].filter(Boolean).join(" ").trim() || null },
         ticketsCount: sale._count.tickets,
         total: Number(sale.total),
@@ -147,7 +148,7 @@ export const getDeveloperSaleService = async (saleId) => {
             confirmedAt: true,
             buyerDocument: true,
             paymentRef: true,
-            event: { select: { id: true, title: true, organization: { select: { id: true, name: true } } } },
+            event: { select: { id: true, title: true, ...EVENT_ORGANIZATION_LABEL_SELECT } },
             function: { select: { id: true, date: true, venue: true } },
             buyer: { select: { firstName: true, lastName: true, email: true } },
             items: {
@@ -183,7 +184,7 @@ export const getDeveloperSaleService = async (saleId) => {
         // Misma derivación que listDeveloperSalesService — ver ese comentario.
         needsReconciliation: sale.status === "PENDING" && sale.paymentRef != null,
         event: { id: sale.event.id, title: sale.event.title },
-        organization: sale.event.organization,
+        organization: resolveEventOrganization(sale.event),
         function: sale.function,
         buyer: {
             name: [sale.buyer.firstName, sale.buyer.lastName].filter(Boolean).join(" ").trim() || null,
@@ -254,6 +255,11 @@ export const getMercadoPagoSaleDiagnosticsService = async (saleId) => {
     }
     if (!sale.mercadoPagoPreferenceId && !sale.mercadoPagoExternalReference) {
         return { sale: saleView, connection: { resolved: false, reason: "NO_MERCADOPAGO_IDENTIFIERS" }, merchantOrders: [], payments: [] };
+    }
+
+    // Evento histórico de una organización eliminada: sin conexión posible.
+    if (!sale.event.organizationId) {
+        return { sale: saleView, connection: { resolved: false, reason: "ORGANIZATION_DELETED" }, merchantOrders: [], payments: [] };
     }
 
     const connection = await prisma.mercadoPagoConnection.findFirst({

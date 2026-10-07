@@ -1,4 +1,5 @@
 import prisma from "../config/prisma.js";
+import { EVENT_ORGANIZATION_LABEL_SELECT, resolveEventOrganization } from "../utils/eventOrganization.js";
 import { SOLD_TICKET_STATUSES } from "./functionCapacity.service.js";
 import { runArchiveSelfHeal } from "./eventArchive.service.js";
 
@@ -91,7 +92,7 @@ async function getUpcomingEvents(now) {
             id: true,
             date: true,
             venue: true,
-            event: { select: { id: true, title: true, organization: { select: { name: true } } } },
+            event: { select: { id: true, title: true, ...EVENT_ORGANIZATION_LABEL_SELECT } },
         },
     });
 
@@ -108,11 +109,17 @@ async function getUpcomingEvents(now) {
         .map((detail) => ({
             eventId: detail.event.id,
             title: detail.event.title,
-            organizationName: detail.event.organization.name,
+            organizationName: eventOrganizationName(detail.event),
             nextFunctionId: detail.id,
             nextFunctionDate: detail.date,
             venue: detail.venue ?? null,
         }));
+}
+
+function eventOrganizationName(event) {
+    const organization = resolveEventOrganization(event);
+    if (!organization) return "sin organización";
+    return organization.deleted ? `${organization.name} (eliminada)` : organization.name;
 }
 
 // 5 fuentes en paralelo, cada una acotada con take/orderBy/select — nunca
@@ -135,13 +142,13 @@ async function getRecentActivity(now) {
         prisma.event.findMany({
             orderBy: { createdAt: "desc" },
             take: ACTIVITY_SOURCE_LIMIT,
-            select: { id: true, title: true, createdAt: true, organization: { select: { name: true } } },
+            select: { id: true, title: true, createdAt: true, ...EVENT_ORGANIZATION_LABEL_SELECT },
         }),
         prisma.event.findMany({
             where: { publishedAt: { not: null } },
             orderBy: { publishedAt: "desc" },
             take: ACTIVITY_SOURCE_LIMIT,
-            select: { id: true, title: true, publishedAt: true, organization: { select: { name: true } } },
+            select: { id: true, title: true, publishedAt: true, ...EVENT_ORGANIZATION_LABEL_SELECT },
         }),
         // Sólo lo mínimo para armar el texto — nunca comprador/email/DNI/
         // paymentRef/publicRecoveryToken (ver informe, sección Seguridad).
@@ -172,14 +179,14 @@ async function getRecentActivity(now) {
             type: "EVENT_CREATED",
             occurredAt: e.createdAt,
             title: "Nuevo evento",
-            description: `"${e.title}" (${e.organization.name})`,
+            description: `"${e.title}" (${eventOrganizationName(e)})`,
             entityId: e.id,
         })),
         ...eventsPublished.map((e) => ({
             type: "EVENT_PUBLISHED",
             occurredAt: e.publishedAt,
             title: "Evento publicado",
-            description: `"${e.title}" (${e.organization.name})`,
+            description: `"${e.title}" (${eventOrganizationName(e)})`,
             entityId: e.id,
         })),
         ...salesConfirmed.map((s) => ({

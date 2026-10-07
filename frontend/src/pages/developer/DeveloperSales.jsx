@@ -9,6 +9,7 @@ import { formatDateTime, formatCurrencyARS } from "../../lib/format.js";
 import { getDeveloperOrganizationOptions } from "../../lib/developerEventsApi.js";
 import { getDeveloperEventOptions } from "../../lib/developerTicketsApi.js";
 import { listDeveloperSales, getDeveloperSale } from "../../lib/developerSalesApi.js";
+import { organizationDisplayName } from "../../lib/organizationStatus.js";
 
 // SaleStatus — sin mapa reutilizable exportado (SALE_STATUS_LABEL/TONE de
 // SalesTable.jsx no están exportados); local acá, mismos labels/tonos que
@@ -135,7 +136,7 @@ function SaleDrawer({ sale, loading, error, onClose }) {
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Organización / Evento</p>
             <div className="grid grid-cols-2 gap-4 rounded-xl border border-white/10 bg-white/5 p-4">
-              <InfoRow label="Organización" value={sale.organization.name} />
+              <InfoRow label="Organización" value={organizationDisplayName(sale.organization)} />
               <InfoRow label="Evento" value={sale.event.title} />
               <InfoRow
                 label="Función"
@@ -492,7 +493,7 @@ export default function DeveloperSales() {
                 {items.map((sale) => (
                   <tr key={sale.id}>
                     <td className="px-6 py-4 font-mono text-xs text-slate-300">{saleShortId(sale)}</td>
-                    <td className="max-w-[160px] truncate px-6 py-4 text-slate-300">{sale.organization.name}</td>
+                    <td className="max-w-[160px] truncate px-6 py-4 text-slate-300">{organizationDisplayName(sale.organization)}</td>
                     <td className="max-w-[180px] truncate px-6 py-4 text-slate-300">{sale.event.title}</td>
                     <td className="max-w-[160px] truncate px-6 py-4 text-slate-300">{sale.buyer.name ?? "Sin nombre"}</td>
                     <td className="px-6 py-4">

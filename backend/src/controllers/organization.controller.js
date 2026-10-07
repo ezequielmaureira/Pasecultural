@@ -374,12 +374,14 @@ export const getPublicOrganizationsList = async (req, res) => {
     }
 };
 
-export const deleteOrganization = async (req, res) => {
+export const deleteOrganization = async (req, res, next) => {
     try {
         await deleteOrganizationService(req.params.id);
 
         res.status(204).send();
     } catch (error) {
+        if (error instanceof AppError) return next(error);
+
         console.error(error);
 
         if (error.code === "P2025") {

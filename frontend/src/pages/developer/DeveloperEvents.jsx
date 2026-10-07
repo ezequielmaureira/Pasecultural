@@ -8,6 +8,7 @@ import { EVENT_STATUS_LABEL } from "../../lib/eventStatus.js";
 import { EVENT_STATUS_TONE } from "../../components/organizer/eventStatusTone.js";
 import { formatDateTime } from "../../lib/format.js";
 import { listDeveloperEvents, getDeveloperOrganizationOptions } from "../../lib/developerEventsApi.js";
+import { organizationDisplayName } from "../../lib/organizationStatus.js";
 
 // EventVisibility (enum real, 2 valores) — sin pantalla previa que lo
 // mostrara, así que no había ningún mapa reutilizable (a diferencia de
@@ -244,7 +245,7 @@ export default function DeveloperEvents() {
                 {items.map((event) => (
                   <tr key={event.id}>
                     <td className="max-w-[220px] truncate px-6 py-4 text-white">{event.title}</td>
-                    <td className="max-w-[180px] truncate px-6 py-4 text-slate-300">{event.organization.name}</td>
+                    <td className="max-w-[180px] truncate px-6 py-4 text-slate-300">{organizationDisplayName(event.organization)}</td>
                     <td className="px-6 py-4">
                       <Badge tone={EVENT_STATUS_TONE[event.status] ?? "neutral"}>
                         {EVENT_STATUS_LABEL[event.status] ?? event.status}

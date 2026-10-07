@@ -69,6 +69,9 @@ function extractApprovedPaymentIds({ merchantOrderResult, paymentsSearchResult }
 // conexión de la organización probar un paymentId), sin duplicar el orden
 // ACTIVE→DISCONNECTED.
 export async function listCandidateConnectionsForOrganization(organizationId) {
+    // Evento histórico de una organización eliminada: sus conexiones ya no
+    // existen (y organizationId null no es un filtro válido acá).
+    if (!organizationId) return [];
     const [active, disconnected] = await Promise.all([
         prisma.mercadoPagoConnection.findMany({ where: { organizationId, status: "ACTIVE" } }),
         prisma.mercadoPagoConnection.findMany({ where: { organizationId, status: "DISCONNECTED" }, orderBy: { connectedAt: "desc" } }),

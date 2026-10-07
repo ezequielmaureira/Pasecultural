@@ -16,6 +16,7 @@ import {
 } from "../organizer/ticketAdminDisplay.js";
 import { getDeveloperOrganizationOptions } from "../../lib/developerEventsApi.js";
 import { listDeveloperTickets, getDeveloperTicket, getDeveloperEventOptions } from "../../lib/developerTicketsApi.js";
+import { organizationDisplayName } from "../../lib/organizationStatus.js";
 
 // EventVisibility/SaleOrigin (enum real, 2 valores) — sin ningún mapa
 // reutilizable existente para "origen de una entrada" en ningún lado del
@@ -125,7 +126,7 @@ function TicketDrawer({ ticketId, ticket, loading, error, onClose }) {
 
           <div className="grid grid-cols-2 gap-4 rounded-xl border border-white/10 bg-white/5 p-4">
             <InfoRow label="Evento" value={ticket.event.title} />
-            <InfoRow label="Organización" value={ticket.organization.name} />
+            <InfoRow label="Organización" value={organizationDisplayName(ticket.organization)} />
             <InfoRow
               label="Función"
               value={ticket.function ? `${formatDateTime(ticket.function.date)}${ticket.function.venue ? ` · ${ticket.function.venue}` : ""}` : null}
@@ -482,7 +483,7 @@ export default function DeveloperTickets() {
                   <tr key={ticket.id}>
                     <td className="px-6 py-4 font-mono text-xs text-slate-300">{ticket.ticketNumber}</td>
                     <td className="max-w-[180px] truncate px-6 py-4 text-slate-300">{ticket.event.title}</td>
-                    <td className="max-w-[160px] truncate px-6 py-4 text-slate-300">{ticket.organization.name}</td>
+                    <td className="max-w-[160px] truncate px-6 py-4 text-slate-300">{organizationDisplayName(ticket.organization)}</td>
                     <td className="px-6 py-4">
                       <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${ticketStatusBadgeTone(ticket)}`}>
                         {ticketStatusLabel(ticket)}

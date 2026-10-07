@@ -12,7 +12,8 @@ import { getPublicEventBySlugService, getPublicEventsService, getQuickPassBySlug
 import { deleteMyAccountService } from "../src/services/auth.service.js";
 import { requestSaleRecoveryCodeService } from "../src/services/saleRecoveryVerification.service.js";
 
-// Autoservicio "Eliminar organización" (cierre / soft delete con closedAt) y
+// Autoservicio "Eliminar organización" (hard delete con antecedente
+// DeletedOrganization, bloqueado si hay obligaciones vivas) y
 // "Eliminar mi cuenta" (desvincula Clerk, conserva el User y su historial).
 // Tests contra Postgres real (backend/.env.test), nunca mocks de Prisma —
 // ver tests/helpers/dbGuard.js. Clerk nunca se llama de verdad: la
@@ -64,9 +65,9 @@ async function createUser({ role = "CUSTOMER", withClerk = true } = {}) {
 }
 
 // Organización APPROVED + PREMIUM (página pública habilitada) con un evento
-// publicado y público, una función futura y una venta confirmada con un
-// ticket — el escenario más "visible" posible antes de cerrarla.
-async function createOrganizationWithHistory(owner) {
+// publicado y público y una función (futura por default) — el escenario más
+// "visible" posible antes de eliminarla.
+async function createOrganizationWithHistory(owner, { functionHoursFromNow = 48 } = {}) {
     const suffix = uniqueSuffix();
     const organization = await prisma.organization.create({
         data: {
@@ -82,6 +83,7 @@ async function createOrganizationWithHistory(owner) {
         data: {
             title: `Evento ${suffix}`,
             slug: `evento-${suffix}`,
+            createdBy: owner.id,
             organizationId: organization.id,
             status: "PUBLISHED",
             visibility: "PUBLIC",
@@ -91,7 +93,7 @@ async function createOrganizationWithHistory(owner) {
         },
     });
     const eventFunction = await prisma.eventFunction.create({
-        data: { eventId: event.id, date: hoursFromNow(48), venue: "Plaza Central" },
+        data: { eventId: event.id, date: hoursFromNow(functionHoursFromNow), venue: "Plaza Central" },
     });
     const ticketType = await prisma.ticketType.create({
         data: { eventId: event.id, name: `General ${suffix}`, price: 1000, quantity: 100 },
@@ -136,6 +138,7 @@ async function cleanup({ eventIds = [], organizationIds = [], userIds = [], reco
     await prisma.ticketType.deleteMany({ where: { eventId: { in: eventIds } } });
     await prisma.eventFunction.deleteMany({ where: { eventId: { in: eventIds } } });
     await prisma.event.deleteMany({ where: { id: { in: eventIds } } });
+    await prisma.deletedOrganization.deleteMany({ where: { originalOrganizationId: { in: organizationIds } } });
     await prisma.organization.deleteMany({ where: { id: { in: organizationIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
 }
@@ -144,28 +147,58 @@ async function cleanup({ eventIds = [], organizationIds = [], userIds = [], reco
 // Organización
 // ==================================================================
 
-testWithDb("ORG-A/B/C/D: cerrar organización => closedAt + SUSPENDED + CUSTOMER, sin borrar historial, ya no es 'mi organización'", async () => {
+testWithDb("ORG-A/B/C/D: eliminar con historial pasado => hard delete, antecedente, evento archivado y desacoplado, ventas intactas, CUSTOMER", async () => {
     const owner = await createUser({ role: "ORGANIZER" });
     const buyer = await createUser({ withClerk: false });
-    const ctx = await createOrganizationWithHistory(owner);
+    const ctx = await createOrganizationWithHistory(owner, { functionHoursFromNow: -72 });
     const { sale, ticket } = await createConfirmedSale({ ...ctx, buyer, buyerDocument: "40111111" });
     try {
         const result = await deleteMyOrganizationService(owner.clerkId, { confirmation: "ELIMINAR" });
-        assert.equal(result.mode, "closed");
-        assert.ok(result.closedAt instanceof Date);
+        assert.equal(result.mode, "deleted");
+        assert.ok(result.deletedAt instanceof Date);
 
-        const org = await prisma.organization.findUnique({ where: { id: ctx.organization.id } });
-        assert.ok(org, "la Organization no se borra");
-        assert.ok(org.closedAt);
-        assert.equal(org.status, "SUSPENDED");
+        assert.equal(await prisma.organization.findUnique({ where: { id: ctx.organization.id } }), null, "A: la Organization se borra");
+        const deleted = await prisma.deletedOrganization.findUnique({ where: { originalOrganizationId: ctx.organization.id } });
+        assert.ok(deleted);
+        assert.equal(deleted.reason, "DELETED_BY_USER");
+        assert.equal(deleted.name, ctx.organization.name);
+        assert.equal(deleted.plan, "PREMIUM");
+        assert.equal(deleted.ownerId, owner.id);
         assert.equal((await prisma.user.findUnique({ where: { id: owner.id } })).role, "CUSTOMER");
 
-        assert.ok(await prisma.event.findUnique({ where: { id: ctx.event.id } }), "B: el evento se conserva");
+        const event = await prisma.event.findUnique({ where: { id: ctx.event.id } });
+        assert.ok(event, "B: el evento con historial se conserva");
+        assert.equal(event.organizationId, null);
+        assert.equal(event.deletedOrganizationId, deleted.id);
+        assert.ok(event.archivedAt, "B: queda archivado");
+        assert.equal(event.status, "PUBLISHED", "B: nunca pasa a CANCELLED");
         assert.ok(await prisma.sale.findUnique({ where: { id: sale.id } }), "C: la venta se conserva");
         const keptTicket = await prisma.ticket.findUnique({ where: { id: ticket.id } });
-        assert.ok(keptTicket && !keptTicket.deletedAt, "C: el ticket se conserva");
+        assert.ok(keptTicket && !keptTicket.deletedAt && keptTicket.status === "ACTIVE", "C: el ticket se conserva intacto");
 
-        assert.equal(await getMyOrganizationService(owner.clerkId), null, "D: una cerrada no es 'mi organización'");
+        assert.equal(await getMyOrganizationService(owner.clerkId), null, "D: ya no tiene organización");
+    } finally {
+        await cleanup({ eventIds: [ctx.event.id], organizationIds: [ctx.organization.id], userIds: [owner.id, buyer.id] });
+    }
+});
+
+testWithDb("ORG-BLOCK: función futura con entradas activas => 409 ORGANIZATION_DELETE_BLOCKED y nada cambia", async () => {
+    const owner = await createUser({ role: "ORGANIZER" });
+    const buyer = await createUser({ withClerk: false });
+    const ctx = await createOrganizationWithHistory(owner);
+    await createConfirmedSale({ ...ctx, buyer, buyerDocument: "40333333" });
+    try {
+        await assert.rejects(
+            deleteMyOrganizationService(owner.clerkId, { confirmation: "ELIMINAR" }),
+            (err) =>
+                err.code === "ORGANIZATION_DELETE_BLOCKED" &&
+                err.httpStatus === 409 &&
+                err.details.some((b) => b.code === "UPCOMING_ACTIVE_TICKETS" && b.count === 1)
+        );
+        assert.ok(await prisma.organization.findUnique({ where: { id: ctx.organization.id } }));
+        assert.equal(await prisma.deletedOrganization.count({ where: { originalOrganizationId: ctx.organization.id } }), 0);
+        assert.equal((await prisma.event.findUnique({ where: { id: ctx.event.id } })).organizationId, ctx.organization.id);
+        assert.equal((await prisma.user.findUnique({ where: { id: owner.id } })).role, "ORGANIZER");
     } finally {
         await cleanup({ eventIds: [ctx.event.id], organizationIds: [ctx.organization.id], userIds: [owner.id, buyer.id] });
     }
@@ -180,14 +213,14 @@ testWithDb("ORG: confirmación incorrecta => error y nada cambia", async () => {
             (err) => err.code === "ORGANIZATION_DELETE_CONFIRMATION_REQUIRED" && err.httpStatus === 400
         );
         const org = await prisma.organization.findUnique({ where: { id: ctx.organization.id } });
-        assert.equal(org.closedAt, null);
+        assert.ok(org);
         assert.equal(org.status, "APPROVED");
     } finally {
         await cleanup({ eventIds: [ctx.event.id], organizationIds: [ctx.organization.id], userIds: [owner.id] });
     }
 });
 
-testWithDb("ORG-E/F/G/H: organización cerrada desaparece de lo público (página, evento directo, listado, Quick/Fest Pass)", async () => {
+testWithDb("ORG-E/F/G/H: organización eliminada desaparece de lo público (página, evento directo, listado, Quick/Fest Pass)", async () => {
     const owner = await createUser({ role: "ORGANIZER" });
     const ctx = await createOrganizationWithHistory(owner);
     try {
@@ -196,6 +229,8 @@ testWithDb("ORG-E/F/G/H: organización cerrada desaparece de lo público (págin
         assert.equal((await getQuickPassBySlugService(ctx.event.slug)).available, true);
 
         await deleteMyOrganizationService(owner.clerkId, { confirmation: "ELIMINAR" });
+        // Sin ventas/entradas: el evento se borra físicamente.
+        assert.equal(await prisma.event.findUnique({ where: { id: ctx.event.id } }), null);
 
         await assert.rejects(getPublicOrganizationBySlugService(ctx.organization.slug), /ORGANIZATION_PUBLIC_PAGE_NOT_AVAILABLE/);
         assert.equal(await getPublicEventBySlugService(ctx.event.slug), null);
@@ -209,7 +244,7 @@ testWithDb("ORG-E/F/G/H: organización cerrada desaparece de lo público (págin
     }
 });
 
-testWithDb("ORG-I: después de cerrar puede crear una organización nueva (la vieja queda histórica)", async () => {
+testWithDb("ORG-I: después de eliminar puede crear una organización nueva (la vieja queda sólo como antecedente)", async () => {
     const owner = await createUser({ role: "ORGANIZER" });
     const ctx = await createOrganizationWithHistory(owner);
     const mock = mockResendFetch();
@@ -226,7 +261,8 @@ testWithDb("ORG-I: después de cerrar puede crear una organización nueva (la vi
         assert.equal(organization.closedAt, null);
         assert.equal(user.role, "ORGANIZER");
         assert.equal((await getMyOrganizationService(owner.clerkId)).id, organization.id);
-        assert.ok((await prisma.organization.findUnique({ where: { id: ctx.organization.id } })).closedAt);
+        assert.equal(await prisma.organization.findUnique({ where: { id: ctx.organization.id } }), null);
+        assert.ok(await prisma.deletedOrganization.findUnique({ where: { originalOrganizationId: ctx.organization.id } }));
     } finally {
         mock.restore();
         await cleanup({
@@ -294,7 +330,7 @@ testWithDb("ACC-M: con organización activa => 409 y la cuenta NO se elimina", a
         const after = await prisma.user.findUnique({ where: { id: owner.id } });
         assert.equal(after.clerkId, owner.clerkId);
         assert.equal(after.role, "ORGANIZER");
-        assert.equal((await prisma.organization.findUnique({ where: { id: ctx.organization.id } })).closedAt, null);
+        assert.ok(await prisma.organization.findUnique({ where: { id: ctx.organization.id } }));
     } finally {
         await cleanup({ eventIds: [ctx.event.id], organizationIds: [ctx.organization.id], userIds: [owner.id] });
     }

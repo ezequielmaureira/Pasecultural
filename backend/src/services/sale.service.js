@@ -185,9 +185,10 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
         where: { id: input?.eventId },
         include: { organization: { select: { closedAt: true } } },
     });
-    // Una organización cerrada por su propietario ya no vende ni emite
-    // cortesías — mismo error que "no existe".
-    if (!event || event.organization.closedAt) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
+    // Una organización cerrada (legacy closedAt) o eliminada por su
+    // propietario (evento histórico desacoplado, organization null) ya no
+    // vende ni emite cortesías — mismo error que "no existe".
+    if (!event || !event.organization || event.organization.closedAt) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
 
     // Guard autoritativo de FREE_ENTRY — punto único de choque de los tres
     // caminos que pueden llegar acá (venta manual, Mercado Pago vía
@@ -605,7 +606,10 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
             function: { select: { date: true, venue: true } },
         },
     });
-    if (!sale || sale.deletedAt) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
+    // Evento histórico de una organización eliminada: nada que confirmar
+    // (nunca se elimina una organización con ventas PENDING), ni siquiera
+    // para DEVELOPER — todo lo de abajo asume una organización viva.
+    if (!sale || sale.deletedAt || !sale.event.organization) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
     // Mismo bypass que ya usa resendSaleConfirmationEmailService para
     // DEVELOPER — agregado acá para que courtesy.service.js pueda confirmar
     // una cortesía emitida por un DEVELOPER en una organización que no es la
@@ -1073,7 +1077,7 @@ export const cancelSaleService = async (clerkId, saleId) => {
     if (!sale || sale.deletedAt) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
 
     const isBuyer = sale.buyerId === user.id;
-    const isOrganizer = sale.event.organization.ownerId === user.id && !sale.event.organization.closedAt;
+    const isOrganizer = sale.event.organization?.ownerId === user.id && !sale.event.organization.closedAt;
     if (!isBuyer && !isOrganizer) throw new AppError(ErrorCodes.SALE_NOT_FOUND);
 
     const updated = await prisma.sale.updateMany({
@@ -1449,6 +1453,9 @@ export async function findWithdrawalEligibleSales(normalizedEmail, normalizedDoc
             buyerDocument: normalizedDocument,
             buyer: { email: normalizedEmail },
             publicRecoveryToken: { not: null },
+            // Ventas de eventos históricos de una organización eliminada no
+            // ofrecen arrepentimiento (no hay organizador que lo gestione).
+            event: { organizationId: { not: null } },
         },
         select: {
             publicRecoveryToken: true,

@@ -1,4 +1,5 @@
 import prisma from "../config/prisma.js";
+import { EVENT_ORGANIZATION_LABEL_SELECT, resolveEventOrganization } from "../utils/eventOrganization.js";
 import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { normalizeBuyerDocument } from "../utils/validateBuyerDocument.js";
@@ -114,7 +115,7 @@ export const listDeveloperTicketsService = async (filters = {}) => {
                 createdAt: true,
                 saleId: true, // uso interno (join de precio) — nunca sale en la respuesta
                 ticketTypeId: true, // uso interno (join de precio) — ya expuesto vía ticketType.id
-                event: { select: { id: true, title: true, organization: { select: { id: true, name: true } } } },
+                event: { select: { id: true, title: true, ...EVENT_ORGANIZATION_LABEL_SELECT } },
                 function: { select: { id: true, date: true, venue: true } },
                 ticketType: { select: { id: true, name: true } },
                 buyer: { select: { firstName: true, lastName: true } },
@@ -131,7 +132,7 @@ export const listDeveloperTicketsService = async (filters = {}) => {
         origin: ticket.origin,
         deletedAt: ticket.deletedAt,
         event: { id: ticket.event.id, title: ticket.event.title },
-        organization: ticket.event.organization,
+        organization: resolveEventOrganization(ticket.event),
         function: ticket.function,
         ticketType: ticket.ticketType,
         buyer: { name: [ticket.buyer.firstName, ticket.buyer.lastName].filter(Boolean).join(" ").trim() },
@@ -157,7 +158,7 @@ export const getDeveloperTicketService = async (ticketId) => {
             createdAt: true,
             saleId: true,
             ticketTypeId: true,
-            event: { select: { id: true, title: true, organization: { select: { id: true, name: true } } } },
+            event: { select: { id: true, title: true, ...EVENT_ORGANIZATION_LABEL_SELECT } },
             function: { select: { id: true, date: true, venue: true } },
             ticketType: { select: { id: true, name: true } },
             buyer: { select: { firstName: true, lastName: true, email: true } },
@@ -212,7 +213,7 @@ export const getDeveloperTicketService = async (ticketId) => {
         deletedAt: ticket.deletedAt,
         createdAt: ticket.createdAt,
         event: { id: ticket.event.id, title: ticket.event.title },
-        organization: ticket.event.organization,
+        organization: resolveEventOrganization(ticket.event),
         function: ticket.function,
         ticketType: ticket.ticketType,
         buyer: {

@@ -262,8 +262,11 @@ export default function DeveloperOrganizations() {
                   .filter(Boolean)
                   .join(" ");
                 const busy = updatingId === org.id;
+                // Antecedente histórico (organización eliminada por su
+                // propietario): sólo se puede consultar, nunca operar.
+                const isDeleted = Boolean(org.deleted);
                 return (
-                  <tr key={org.id}>
+                  <tr key={isDeleted ? `deleted-${org.id}` : org.id}>
                     <td className="px-6 py-4">
                       <Avatar
                         src={org.logo}
@@ -293,41 +296,45 @@ export default function DeveloperOrganizations() {
                         <IconButton title="Ver" onClick={() => setSelected(org)}>
                           <Eye className="h-4 w-4" />
                         </IconButton>
-                        <IconButton
-                          title={
-                            org.status === "SUSPENDED" || org.status === "REJECTED"
-                              ? "Reactivar"
-                              : "Aprobar"
-                          }
-                          disabled={busy || org.status === "APPROVED"}
-                          loading={busy && updatingAction === "APPROVED"}
-                          onClick={() => changeStatus(org.id, "APPROVED")}
-                        >
-                          <Check className="h-4 w-4" />
-                        </IconButton>
-                        <IconButton
-                          title="Rechazar"
-                          disabled={busy || org.status === "REJECTED"}
-                          loading={busy && updatingAction === "REJECTED"}
-                          onClick={() => changeStatus(org.id, "REJECTED")}
-                        >
-                          <XIcon className="h-4 w-4" />
-                        </IconButton>
-                        <IconButton
-                          title="Suspender"
-                          disabled={busy || org.status === "SUSPENDED"}
-                          loading={busy && updatingAction === "SUSPENDED"}
-                          onClick={() => changeStatus(org.id, "SUSPENDED")}
-                        >
-                          <Ban className="h-4 w-4" />
-                        </IconButton>
-                        <IconButton
-                          title="Eliminar"
-                          disabled={busy}
-                          onClick={() => setPendingDelete(org)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </IconButton>
+                        {!isDeleted && (
+                          <>
+                            <IconButton
+                              title={
+                                org.status === "SUSPENDED" || org.status === "REJECTED"
+                                  ? "Reactivar"
+                                  : "Aprobar"
+                              }
+                              disabled={busy || org.status === "APPROVED"}
+                              loading={busy && updatingAction === "APPROVED"}
+                              onClick={() => changeStatus(org.id, "APPROVED")}
+                            >
+                              <Check className="h-4 w-4" />
+                            </IconButton>
+                            <IconButton
+                              title="Rechazar"
+                              disabled={busy || org.status === "REJECTED"}
+                              loading={busy && updatingAction === "REJECTED"}
+                              onClick={() => changeStatus(org.id, "REJECTED")}
+                            >
+                              <XIcon className="h-4 w-4" />
+                            </IconButton>
+                            <IconButton
+                              title="Suspender"
+                              disabled={busy || org.status === "SUSPENDED"}
+                              loading={busy && updatingAction === "SUSPENDED"}
+                              onClick={() => changeStatus(org.id, "SUSPENDED")}
+                            >
+                              <Ban className="h-4 w-4" />
+                            </IconButton>
+                            <IconButton
+                              title="Eliminar"
+                              disabled={busy}
+                              onClick={() => setPendingDelete(org)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </IconButton>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>

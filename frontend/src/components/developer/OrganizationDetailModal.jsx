@@ -72,6 +72,94 @@ function buildChecklist(organization) {
   ];
 }
 
+function formatDate(value) {
+  return value ? new Date(value).toLocaleDateString("es-AR") : null;
+}
+
+// Antecedente histórico (DeletedOrganization): sólo los datos que se
+// conservaron al eliminarla. Sin rubro, checklist ni acciones — una
+// organización eliminada por su propietario no admite ningún cambio.
+function DeletedOrganizationDetail({ organization, onClose }) {
+  const owner = organization.owner;
+  const responsibleName = [
+    organization.responsibleFirstName,
+    organization.responsibleLastName,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const ownerName = [owner?.firstName, owner?.lastName].filter(Boolean).join(" ");
+
+  return (
+    <Modal title="Detalle de la organización" onClose={onClose} maxWidth="max-w-2xl">
+      <div className="flex flex-col gap-6">
+        <div className="flex items-center gap-4">
+          <Avatar
+            src={organization.logo}
+            name={organization.name}
+            size="lg"
+            className="bg-brand text-slate-950"
+          />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-lg font-semibold text-white">
+              {organization.name}
+            </p>
+            <p className="truncate text-sm text-slate-400">
+              {ORGANIZATION_TYPE_LABEL[organization.type] ?? "Sin tipo"}
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <span
+              className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                ORG_STATUS_STYLES[organization.status] ?? "bg-white/10 text-slate-400"
+              }`}
+            >
+              {ORG_STATUS_LABEL[organization.status] ?? organization.status}
+            </span>
+            <span
+              className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                ORG_PLAN_STYLES[organization.plan] ?? "bg-white/10 text-slate-400"
+              }`}
+            >
+              {ORG_PLAN_LABEL[organization.plan] ?? organization.plan}
+            </span>
+          </div>
+        </div>
+
+        <p className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+          Registro histórico: su propietario eliminó esta organización de forma
+          permanente. No puede reactivarse ni modificarse.
+        </p>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <InfoRow icon={Mail} label="Email" value={organization.email} />
+          <InfoRow
+            icon={MapPin}
+            label="Ubicación"
+            value={
+              [organization.city, organization.province].filter(Boolean).join(", ") ||
+              null
+            }
+          />
+          <InfoRow icon={IdCard} label="Responsable" value={responsibleName || ownerName || null} />
+          <InfoRow icon={AtSign} label="Cuenta propietaria" value={owner?.email} />
+          <InfoRow icon={Building2} label="Fecha de registro" value={formatDate(organization.createdAt)} />
+          {organization.approvedAt && (
+            <InfoRow icon={Check} label="Fecha de aprobación" value={formatDate(organization.approvedAt)} />
+          )}
+          <InfoRow icon={XIcon} label="Fecha de eliminación" value={formatDate(organization.deletedAt)} />
+          <InfoRow icon={Link2} label="ID original" value={organization.originalOrganizationId} />
+        </div>
+
+        <div className="flex justify-end border-t border-white/10 pt-4">
+          <Button variant="ghost" onClick={onClose}>
+            Cerrar
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export default function OrganizationDetailModal({
   organization,
   onClose,
@@ -82,6 +170,9 @@ export default function OrganizationDetailModal({
   updating,
 }) {
   if (!organization) return null;
+  if (organization.deleted) {
+    return <DeletedOrganizationDetail organization={organization} onClose={onClose} />;
+  }
 
   const owner = organization.owner;
   const responsibleName = [

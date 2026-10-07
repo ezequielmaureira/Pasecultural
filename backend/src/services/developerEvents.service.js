@@ -1,4 +1,5 @@
 import prisma from "../config/prisma.js";
+import { EVENT_ORGANIZATION_LABEL_SELECT, resolveEventOrganization } from "../utils/eventOrganization.js";
 import { SOLD_TICKET_STATUSES } from "./functionCapacity.service.js";
 
 // Pantalla de supervisión Developer → Eventos — platform-wide a propósito,
@@ -34,6 +35,7 @@ function buildWhere({ search, organizationId, status, visibility, archived }) {
             OR: [
                 { title: { contains: term, mode: "insensitive" } },
                 { organization: { name: { contains: term, mode: "insensitive" } } },
+                { deletedOrganization: { name: { contains: term, mode: "insensitive" } } },
             ],
         });
     }
@@ -123,7 +125,7 @@ export const listDeveloperEventsService = async (filters = {}) => {
                 visibility: true,
                 createdAt: true,
                 archivedAt: true,
-                organization: { select: { id: true, name: true } },
+                ...EVENT_ORGANIZATION_LABEL_SELECT,
             },
         }),
     ]);
@@ -137,7 +139,7 @@ export const listDeveloperEventsService = async (filters = {}) => {
     const items = events.map((event) => ({
         id: event.id,
         title: event.title,
-        organization: event.organization,
+        organization: resolveEventOrganization(event),
         status: event.status,
         visibility: event.visibility,
         createdAt: event.createdAt,

@@ -10,6 +10,7 @@ import { CHECKIN_SOURCE_LABEL } from "../organizer/ticketAdminDisplay.js";
 import { getDeveloperOrganizationOptions } from "../../lib/developerEventsApi.js";
 import { getDeveloperEventOptions } from "../../lib/developerTicketsApi.js";
 import { listDeveloperScanners, getDeveloperScanner } from "../../lib/developerScannersApi.js";
+import { organizationDisplayName } from "../../lib/organizationStatus.js";
 
 // EventScannerStatus — sin mapa reutilizable exportado (STATUS_CONFIG de
 // OrganizerScanners.jsx no está exportado); local acá, mismos 4 valores
@@ -112,7 +113,7 @@ function ScannerDrawer({ scanner, loading, error, onClose }) {
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Asignación</p>
             <div className="grid grid-cols-2 gap-4 rounded-xl border border-white/10 bg-white/5 p-4">
-              <InfoRow label="Organización" value={scanner.organization.name} />
+              <InfoRow label="Organización" value={organizationDisplayName(scanner.organization)} />
               <InfoRow label="Evento" value={scanner.event.title} />
               <InfoRow label="Puerta" value={scanner.gate} />
             </div>
@@ -424,7 +425,7 @@ export default function DeveloperScanners() {
                 {items.map((scanner) => (
                   <tr key={scanner.id}>
                     <td className="max-w-[180px] truncate px-6 py-4 text-slate-300">{personNameLabel(scanner)}</td>
-                    <td className="max-w-[160px] truncate px-6 py-4 text-slate-300">{scanner.organization.name}</td>
+                    <td className="max-w-[160px] truncate px-6 py-4 text-slate-300">{organizationDisplayName(scanner.organization)}</td>
                     <td className="max-w-[180px] truncate px-6 py-4 text-slate-300">{scanner.event.title}</td>
                     <td className="max-w-[140px] truncate px-6 py-4 text-slate-300">{scanner.gate}</td>
                     <td className="px-6 py-4">

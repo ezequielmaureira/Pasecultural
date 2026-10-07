@@ -27,6 +27,20 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Self-service organization close attempted without the exact typed confirmation.",
         userMessage: "Escribí ELIMINAR para confirmar.",
     },
+    // `details` = lista de bloqueos { code, count, message } (ver
+    // organizationDeletion.service.js#findOrganizationDeletionBlockers).
+    ORGANIZATION_DELETE_BLOCKED: {
+        httpStatus: 409,
+        logMessage: "Self-service organization deletion blocked: the organization still has live obligations with buyers.",
+        userMessage: "Todavía no podés eliminar tu organización: hay operaciones pendientes con compradores.",
+    },
+    // Developer > Organizaciones → Eliminar sobre una organización que
+    // todavía tiene datos asociados (eventos, conexiones, etc.).
+    ORGANIZATION_HAS_RELATED_DATA: {
+        httpStatus: 409,
+        logMessage: "Developer hard delete of an Organization rejected by foreign keys (it still has related rows).",
+        userMessage: "No se puede eliminar físicamente: la organización tiene eventos u otros datos asociados. Suspendela en su lugar.",
+    },
     ACCOUNT_DELETE_CONFIRMATION_REQUIRED: {
         httpStatus: 400,
         logMessage: "Self-service account deletion attempted without the exact typed confirmation.",

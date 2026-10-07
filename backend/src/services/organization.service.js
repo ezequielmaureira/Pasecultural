@@ -5,6 +5,7 @@ import { logger } from "../logging/logger.js";
 import { sendDeveloperAlert, DeveloperAlertType } from "./email/sendDeveloperAlert.service.js";
 import { generateUniqueSlug } from "../utils/generateSlug.js";
 import { isFeatureAvailable, PremiumFeature } from "./organizationPlanPolicy.js";
+import { hardDeleteOrganization } from "./organizationDeletion.service.js";
 
 const ORGANIZATION_STATUSES = new Set([
     "PENDING",
@@ -211,15 +212,13 @@ export const updateMyOrganizationService = async (clerkId, input) => {
 export const SELF_SERVICE_DELETE_CONFIRMATION = "ELIMINAR";
 
 // Autoservicio "Eliminar organización" (Configuración → Zona de peligro).
-// Es un CIERRE (soft delete), nunca un organization.delete(): la
-// Organization y todo lo que cuelga de ella (eventos, ventas, entradas, QR,
-// check-ins, scanners, Mercado Pago, solicitudes, auditoría) se conserva
-// intacto. Sólo se marca closedAt + status SUSPENDED y el propietario deja
-// de ser ORGANIZER. A partir de ahí ningún resolver de "organización
-// operativa actual" (closedAt: null) la vuelve a encontrar, y deja de ser
-// pública. La eliminación HARD de Developer (deleteOrganizationService) es
-// otro camino y no cambia.
-export const deleteMyOrganizationService = async (clerkId, { confirmation } = {}) => {
+// Hard delete REAL con antecedente histórico (DeletedOrganization), todo en
+// una sola transacción — ver organizationDeletion.service.js para qué se
+// borra y qué se conserva. Se bloquea (ORGANIZATION_DELETE_BLOCKED) si
+// quedan obligaciones vivas con compradores. El User se conserva (Clerk no
+// se toca) y deja de ser ORGANIZER si ya no le queda ninguna organización:
+// puede crear una nueva después.
+export const deleteMyOrganizationService = async (clerkId, { confirmation } = {}, { now = new Date() } = {}) => {
     if (confirmation !== SELF_SERVICE_DELETE_CONFIRMATION) {
         throw new AppError(ErrorCodes.ORGANIZATION_DELETE_CONFIRMATION_REQUIRED);
     }
@@ -238,19 +237,25 @@ export const deleteMyOrganizationService = async (clerkId, { confirmation } = {}
         return null;
     }
 
-    const closedAt = new Date();
-    await prisma.$transaction(async (tx) => {
-        await tx.organization.update({
-            where: { id: organization.id },
-            data: { closedAt, status: "SUSPENDED" },
-        });
-        if (user.role === "ORGANIZER") {
-            await tx.user.update({ where: { id: user.id }, data: { role: "CUSTOMER" } });
-        }
-    });
+    const result = await prisma.$transaction(
+        async (tx) => {
+            const deletion = await hardDeleteOrganization(tx, organization, user, { reason: "DELETED_BY_USER", now });
+            const remaining = await tx.organization.count({ where: { ownerId: user.id } });
+            if (user.role === "ORGANIZER" && remaining === 0) {
+                await tx.user.update({ where: { id: user.id }, data: { role: "CUSTOMER" } });
+            }
+            return deletion;
+        },
+        { timeout: 30_000 }
+    );
 
-    logger.info("deleteMyOrganizationService: organización cerrada por su propietario", { organizationId: organization.id });
-    return { mode: "closed", closedAt };
+    logger.info("deleteMyOrganizationService: organización eliminada por su propietario", {
+        organizationId: organization.id,
+        deletedOrganizationId: result.deletedOrganization.id,
+        deletedEvents: result.deletedEventIds.length,
+        archivedEvents: result.archivedEventIds.length,
+    });
+    return { mode: "deleted", deletedAt: result.deletedOrganization.deletedAt };
 };
 
 // Usado exclusivamente por Developer → Organizaciones (organization.controller.js,
@@ -265,15 +270,67 @@ const DEVELOPER_ORGANIZATION_OWNER_SELECT = {
     owner: { select: { id: true, firstName: true, lastName: true, email: true } },
 };
 
-export const getOrganizationsService = async (status) => {
-    const where =
-        status && ORGANIZATION_STATUSES.has(status) ? { status } : {};
+// Estado sintético de las filas históricas (DeletedOrganization). NO es un
+// valor de OrganizationStatus: nunca se persiste ni se acepta en
+// PATCH /:id/status — sólo lo lee el panel Developer para la etiqueta.
+export const DELETED_BY_USER_STATUS = "DELETED_BY_USER";
 
-    return prisma.organization.findMany({
-        where,
-        include: DEVELOPER_ORGANIZATION_OWNER_SELECT,
-        orderBy: { createdAt: "desc" },
-    });
+// Misma forma que una Organization del listado (lo que leen
+// DeveloperOrganizations.jsx/OrganizationDetailModal.jsx) + `deleted: true`.
+// `id` es el del antecedente: cualquier PATCH/DELETE con ese id responde
+// 404 porque no existe en Organization.
+export function toDeletedOrganizationRow(deleted) {
+    return {
+        id: deleted.id,
+        deleted: true,
+        originalOrganizationId: deleted.originalOrganizationId,
+        status: DELETED_BY_USER_STATUS,
+        deletionReason: deleted.reason,
+        name: deleted.name,
+        logo: deleted.logo,
+        email: deleted.email,
+        plan: deleted.plan,
+        type: deleted.type,
+        city: deleted.city,
+        province: deleted.province,
+        responsibleFirstName: deleted.responsibleFirstName,
+        responsibleLastName: deleted.responsibleLastName,
+        createdAt: deleted.originalCreatedAt,
+        approvedAt: deleted.approvedAt,
+        deletedAt: deleted.deletedAt,
+        owner: {
+            id: deleted.ownerId,
+            firstName: deleted.ownerFirstName,
+            lastName: deleted.ownerLastName,
+            email: deleted.ownerEmail,
+        },
+    };
+}
+
+// Con un filtro de estado (Pendientes/Aprobadas/Rechazadas/Suspendidas)
+// sólo se listan Organizations reales. Sin filtro ("Todas") se suman los
+// antecedentes de organizaciones eliminadas por su propietario, ordenados
+// por fecha de registro original junto con el resto.
+export const getOrganizationsService = async (status) => {
+    if (status && ORGANIZATION_STATUSES.has(status)) {
+        return prisma.organization.findMany({
+            where: { status },
+            include: DEVELOPER_ORGANIZATION_OWNER_SELECT,
+            orderBy: { createdAt: "desc" },
+        });
+    }
+
+    const [organizations, deletedOrganizations] = await Promise.all([
+        prisma.organization.findMany({
+            include: DEVELOPER_ORGANIZATION_OWNER_SELECT,
+            orderBy: { createdAt: "desc" },
+        }),
+        prisma.deletedOrganization.findMany({ orderBy: { originalCreatedAt: "desc" } }),
+    ]);
+
+    return [...organizations, ...deletedOrganizations.map(toDeletedOrganizationRow)].sort(
+        (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+    );
 };
 
 export const getOrganizationByIdService = async (id) => {
@@ -292,7 +349,10 @@ export const updateOrganizationStatusService = async (
         where: { id },
     });
 
-    if (!organization) return null;
+    // Cerrada por su propietario con el mecanismo viejo (closedAt): ya no
+    // es una organización operable — mismo 404 que una inexistente, hasta
+    // que scripts/convertClosedOrganizations.js la convierta.
+    if (!organization || organization.closedAt) return null;
 
     const data = { status };
 
@@ -323,7 +383,10 @@ export const updateOrganizationPlanService = async (
         where: { id },
     });
 
-    if (!organization) return null;
+    // Cerrada por su propietario con el mecanismo viejo (closedAt): ya no
+    // es una organización operable — mismo 404 que una inexistente, hasta
+    // que scripts/convertClosedOrganizations.js la convierta.
+    if (!organization || organization.closedAt) return null;
 
     return prisma.organization.update({
         where: { id },
@@ -347,7 +410,10 @@ export const updateOrganizationCategoryService = async (id, category) => {
         where: { id },
     });
 
-    if (!organization) return null;
+    // Cerrada por su propietario con el mecanismo viejo (closedAt): ya no
+    // es una organización operable — mismo 404 que una inexistente, hasta
+    // que scripts/convertClosedOrganizations.js la convierta.
+    if (!organization || organization.closedAt) return null;
 
     return prisma.organization.update({
         where: { id },
@@ -355,8 +421,29 @@ export const updateOrganizationCategoryService = async (id, category) => {
     });
 };
 
+// Developer > Organizaciones → Eliminar. Borrado físico "a secas": sólo
+// prospera si la organización no tiene nada colgando (las FK hacia
+// Organization son RESTRICT). Si las tiene, error controlado 409 en vez de
+// un 500 — nunca desacopla ni borra eventos/ventas por su cuenta.
+// Con FK declaradas RESTRICT, Postgres responde 23001 (restrict_violation) y
+// Prisma lo entrega como PrismaClientUnknownRequestError SIN `code` — por
+// eso además de P2003/P2014 se reconoce el SQLSTATE en el mensaje.
+const FOREIGN_KEY_VIOLATION_CODES = new Set(["P2003", "P2014"]);
+const FOREIGN_KEY_VIOLATION_MESSAGE = /\b(23001|23503)\b|violates (RESTRICT setting of )?foreign key constraint/i;
+
+function isForeignKeyViolation(error) {
+    return FOREIGN_KEY_VIOLATION_CODES.has(error?.code) || FOREIGN_KEY_VIOLATION_MESSAGE.test(String(error?.message ?? ""));
+}
+
 export const deleteOrganizationService = async (id) => {
-    await prisma.organization.delete({ where: { id } });
+    try {
+        await prisma.organization.delete({ where: { id } });
+    } catch (error) {
+        if (isForeignKeyViolation(error)) {
+            throw new AppError(ErrorCodes.ORGANIZATION_HAS_RELATED_DATA, { cause: error });
+        }
+        throw error;
+    }
 };
 
 // Premium — Fase 2D. Selección SIEMPRE por slug (findUnique), nunca por

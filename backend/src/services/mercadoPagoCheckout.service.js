@@ -105,7 +105,8 @@ export async function createMercadoPagoCheckoutService(buyerInfo, saleInput, ide
     // Mercado Pago ANTES de crear ninguna Sale — si no está conectada, no
     // tiene sentido dejar una PENDING sin ningún camino posible a pagarse.
     const event = await prisma.event.findUnique({ where: { id: saleInput?.eventId } });
-    if (!event) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
+    // organizationId null = evento histórico de una organización eliminada.
+    if (!event || !event.organizationId) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
 
     // Guard temprano de FREE_ENTRY — sólo por UX (createSaleForBuyer, más
     // abajo en la cadena, ya bloquea esto de forma autoritativa). Se chequea

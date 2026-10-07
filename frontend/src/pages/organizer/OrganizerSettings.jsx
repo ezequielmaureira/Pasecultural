@@ -116,17 +116,26 @@ export default function OrganizerSettings() {
     }
   }
 
-  // Autoservicio "Eliminar organización" — en el backend es un cierre (soft
-  // delete): el historial se conserva y el usuario deja de ser ORGANIZER.
-  // Recarga completa al salir para que ningún estado cacheado (rol,
-  // organización) quede vivo en el frontend.
+  // Autoservicio "Eliminar organización" — en el backend es un hard delete
+  // definitivo (sólo queda un antecedente histórico para Developer) y el
+  // usuario deja de ser ORGANIZER. Si quedan operaciones pendientes con
+  // compradores, el backend lo bloquea (ORGANIZATION_DELETE_BLOCKED) y acá
+  // se lista qué hay que resolver. Recarga completa al salir para que
+  // ningún estado cacheado (rol, organización) quede vivo en el frontend.
   async function handleDeleteOrganization(confirmation) {
     const token = await getToken();
-    await apiFetch("/api/organizations/me", {
-      token,
-      method: "DELETE",
-      body: JSON.stringify({ confirmation }),
-    });
+    try {
+      await apiFetch("/api/organizations/me", {
+        token,
+        method: "DELETE",
+        body: JSON.stringify({ confirmation }),
+      });
+    } catch (err) {
+      if (err.code === "ORGANIZATION_DELETE_BLOCKED" && Array.isArray(err.errors) && err.errors.length > 0) {
+        throw new Error([err.message, ...err.errors.map((b) => `• ${b.message}`)].join("\n"));
+      }
+      throw err;
+    }
     toast.success("Organización eliminada.");
     setTimeout(() => window.location.assign("/"), 900);
   }
@@ -270,7 +279,7 @@ export default function OrganizerSettings() {
       {!loading && orgId && (
         <DangerZoneCard
           actionTitle="Eliminar organización"
-          description="Tu organización dejará de estar operativa y de aparecer públicamente. Conservaremos el historial necesario de eventos, ventas, entradas e ingresos."
+          description="Tu organización se eliminará de forma permanente y no podrá recuperarse. Tu cuenta de usuario se conserva."
           buttonLabel="Eliminar organización"
           onRequest={() => setConfirmingDelete(true)}
         />
@@ -280,8 +289,8 @@ export default function OrganizerSettings() {
         <TypedConfirmModal
           title="Eliminar organización"
           paragraphs={[
-            "Esta acción cerrará tu organización. No vas a poder seguir administrando eventos desde ella.",
-            "Las ventas, entradas e historial ya generados no se eliminarán.",
+            "Esta organización será eliminada permanentemente y no podrá recuperarse. Esta acción no se puede deshacer.",
+            "Tu cuenta de usuario se conserva y vas a poder crear una organización nueva más adelante.",
           ]}
           confirmLabel="Eliminar definitivamente"
           onConfirm={handleDeleteOrganization}
