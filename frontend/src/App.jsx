@@ -31,7 +31,6 @@ import DeveloperScanners from "./pages/developer/DeveloperScanners.jsx";
 import DeveloperSales from "./pages/developer/DeveloperSales.jsx";
 import DeveloperSettings from "./pages/developer/DeveloperSettings.jsx";
 import DeveloperPlans from "./pages/developer/DeveloperPlans.jsx";
-import DeveloperContent from "./pages/developer/DeveloperContent.jsx";
 import ScannerShell from "./pages/scanner/ScannerShell.jsx";
 import ScannerHome from "./pages/scanner/ScannerHome.jsx";
 import ScannerInvitationClaim from "./pages/scanner/ScannerInvitationClaim.jsx";
@@ -179,7 +178,6 @@ export default function App() {
                 <Route path="/developer/ventas" element={<DeveloperSales />} />
                 <Route path="/developer/planes" element={<DeveloperPlans />} />
                 <Route path="/developer/configuracion" element={<DeveloperSettings />} />
-                <Route path="/developer/contenido" element={<DeveloperContent />} />
                 <Route path="/developer/base-de-datos" element={<DeveloperDatabase />} />
                 <Route path="/developer/qa-checklist" element={<DeveloperQaChecklist />} />
               </Route>

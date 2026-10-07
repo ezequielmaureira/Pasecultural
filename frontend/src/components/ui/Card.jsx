@@ -1,15 +1,13 @@
-// `variant="glass"` — usado exclusivamente por la experiencia Fest Pass
-// (QuickPass.jsx) para que este mismo Card se vea integrado sobre la imagen
-// de fondo del evento (semitransparente, blur, borde con glow violeta) en
+// `variant="glass"` — usado por el detalle público del evento
+// (EventDetail.jsx) para que este mismo Card se vea integrado sobre la
+// imagen de fondo del evento (semitransparente, blur, glow lima suave) en
 // vez del fondo sólido de siempre. Default ("solid") no cambia ni un pixel
 // para ningún caller existente (PurchaseWizard, etc.).
 const VARIANT_CLASSES = {
   solid: "border-white/10 bg-[#111713] light:border-slate-200 light:bg-white",
   // `light:` acá sólo aplica cuando el ancestro <html> tiene la clase
-  // `.light` (ver ThemeContext.jsx) — Fest Pass/QuickPass (el otro caller
-  // de este variant, vía FestPassIntro.jsx) vive exclusivamente en
-  // /organizador/*, que ThemeContext nunca marca `.light`, así que en dark
-  // este variant queda exactamente igual que antes.
+  // `.light` (ver ThemeContext.jsx); en dark este variant queda exactamente
+  // igual que antes.
   glass: "border-white/15 bg-white/10 backdrop-blur-xl shadow-[0_0_40px_rgba(190,242,100,0.15)] light:border-slate-200/80 light:bg-white/90 light:shadow-[0_10px_30px_-10px_rgba(15,23,42,0.15)]",
 };
 

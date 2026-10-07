@@ -1,88 +1,71 @@
-import { useEffect, useState } from "react";
-import { ImageOff } from "lucide-react";
-import { getPublicHowItWorksContent } from "../../lib/contentApi.js";
+import { useRef, useState } from "react";
+import AttendeesExplainer from "../explainers/AttendeesExplainer.jsx";
+import OrganizersExplainer from "../explainers/OrganizersExplainer.jsx";
+import ScannerExplainer from "../explainers/ScannerExplainer.jsx";
 
 const TABS = [
-  { key: "attendees", label: "Para asistentes" },
-  { key: "organizers", label: "Para organizadores" },
-  { key: "scanners", label: "Para scanners" },
+  { key: "attendees", label: "Para asistentes", Panel: AttendeesExplainer },
+  { key: "organizers", label: "Para organizadores", Panel: OrganizersExplainer },
+  { key: "scanners", label: "Para scanners", Panel: ScannerExplainer },
 ];
 
-// Card administrable de la página pública /como-funciona: tres pestañas
-// (asistentes/organizadores/scanners), cada una mostrando UNA imagen
-// completa configurada desde Developer > Contenido (ver
-// DeveloperContent.jsx). El diseño y el contenido viven enteramente dentro
-// de la imagen — acá nunca se reconstruye texto ni se superpone nada sobre
-// ella.
+// Pestañas de la página pública /como-funciona (asistentes/organizadores/
+// scanners). Antes cada pestaña mostraba UNA imagen subida desde
+// Developer > Contenido (content_cards + Cloudinary, hoy legacy sin uso);
+// ahora cada una es una composición hecha en código
+// (components/explainers/*) con los textos de data/explainersData.js.
 export default function HowItWorksAudienceCard() {
-  const [activeTab, setActiveTab] = useState("attendees");
-  const [content, setContent] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const tabRefs = useRef([]);
+  const { Panel, key } = TABS[activeIndex];
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const data = await getPublicHowItWorksContent();
-        if (!cancelled) setContent(data);
-      } catch (err) {
-        console.error("No se pudo cargar el contenido de ¿Cómo funciona?", err);
-        if (!cancelled) setError(true);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const activeCard = content?.[activeTab];
-  const hasImage = Boolean(activeCard?.active && activeCard?.imageUrl);
+  function handleKeyDown(event) {
+    const moves = { ArrowRight: 1, ArrowLeft: -1 };
+    if (!(event.key in moves)) return;
+    event.preventDefault();
+    const next = (activeIndex + moves[event.key] + TABS.length) % TABS.length;
+    setActiveIndex(next);
+    tabRefs.current[next]?.focus();
+  }
 
   return (
-    <section className="mx-auto w-full max-w-[1600px] px-2 pt-4 pb-16 sm:px-4 lg:px-6">
-      <div className="mx-auto grid w-full max-w-xl grid-cols-3 gap-1 rounded-full border border-white/10 bg-black/30 p-1">
-        {TABS.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            onClick={() => setActiveTab(tab.key)}
-            className={`rounded-full px-1.5 py-1.5 text-center text-[11px] font-medium leading-tight transition-all duration-150 sm:px-3 sm:text-sm ${
-              activeTab === tab.key
-                ? "bg-brand text-slate-950 shadow-md shadow-brand/30"
-                : "text-slate-400 hover:text-white"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+    <section className="mx-auto w-full max-w-7xl px-4 pb-16 pt-6 sm:px-6">
+      <div
+        role="tablist"
+        aria-label="¿Para quién es?"
+        onKeyDown={handleKeyDown}
+        className="mx-auto grid w-full max-w-xl grid-cols-3 gap-1 rounded-full border border-white/10 bg-black/30 p-1"
+      >
+        {TABS.map((tab, index) => {
+          const selected = index === activeIndex;
+          return (
+            <button
+              key={tab.key}
+              ref={(node) => (tabRefs.current[index] = node)}
+              type="button"
+              role="tab"
+              id={`how-it-works-tab-${tab.key}`}
+              aria-selected={selected}
+              aria-controls={`how-it-works-panel-${tab.key}`}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => setActiveIndex(index)}
+              className={`rounded-full px-1.5 py-2 text-center text-xs font-semibold leading-tight transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand sm:px-3 sm:text-sm ${
+                selected ? "bg-brand text-slate-950" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
-      <div className="mt-4 rounded-2xl border border-brand/20 bg-[#111713]/90 p-1.5 sm:p-2">
-        {loading ? (
-          <div className="flex h-40 w-full animate-pulse items-center justify-center rounded-xl bg-black/20 text-sm text-slate-500">
-            Cargando...
-          </div>
-        ) : error ? (
-          <div className="flex h-40 w-full flex-col items-center justify-center gap-2 rounded-xl bg-black/20 text-slate-500">
-            <ImageOff className="h-6 w-6" />
-            <p className="text-sm">No pudimos cargar este contenido.</p>
-          </div>
-        ) : hasImage ? (
-          <img
-            src={activeCard.imageUrl}
-            alt={TABS.find((tab) => tab.key === activeTab)?.label ?? ""}
-            className="block w-full rounded-xl"
-            style={{ height: "auto", objectFit: "contain" }}
-          />
-        ) : (
-          <div className="flex h-40 w-full items-center justify-center rounded-xl bg-black/20 text-sm text-slate-500">
-            Contenido próximamente
-          </div>
-        )}
+      <div
+        role="tabpanel"
+        id={`how-it-works-panel-${key}`}
+        aria-labelledby={`how-it-works-tab-${key}`}
+        className="mt-10"
+      >
+        <Panel />
       </div>
     </section>
   );

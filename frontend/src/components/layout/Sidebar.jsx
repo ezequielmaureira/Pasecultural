@@ -18,7 +18,6 @@ import {
   Gift,
   Undo2,
   Sparkles,
-  Image,
   Zap,
   ClipboardCheck,
   MessageCircle,
@@ -57,10 +56,6 @@ const NAV_BY_ROLE = {
     // DisabledNavItem más abajo); activado con la primera sección real:
     // comisión de servicio (ver pages/developer/DeveloperSettings.jsx).
     { label: "Configuración", icon: Settings, path: "/developer/configuracion", end: true },
-    // Developer > Contenido (V1 mínima) — hoy administra sólo la imagen
-    // que reemplaza la introducción de Organizer > Fest Pass. Ver
-    // pages/developer/DeveloperContent.jsx.
-    { label: "Contenido", icon: Image, path: "/developer/contenido", end: true },
     {
       label: "Base de Datos",
       icon: Database,
