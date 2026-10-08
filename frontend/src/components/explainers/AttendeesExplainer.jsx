@@ -1,4 +1,4 @@
-import { CalendarDays, CheckCircle2, Download, Heart, LayoutGrid, Lock, Mail, MapPin, Music, Ticket, Drama } from "lucide-react";
+import { CalendarDays, CheckCircle2, Download, Heart, LayoutGrid, Lock, Mail, MapPin, Music, Ticket } from "lucide-react";
 import PhoneMockup from "./PhoneMockup.jsx";
 import StepCarousel from "./StepCarousel.jsx";
 import { ExplainerHeader, ExplainerStep } from "./ExplainerLayout.jsx";
@@ -31,7 +31,6 @@ const SCREENS = {
       <div className="flex gap-1">
         <MockChip icon={LayoutGrid} active>Todos</MockChip>
         <MockChip icon={Music}>Música</MockChip>
-        <MockChip icon={Drama}>Teatro</MockChip>
       </div>
       <MockLabel>Eventos destacados</MockLabel>
       <MockEventCard title="Concierto del Centro" date="12 de dic · 21:00" place="Teatro Municipal" />

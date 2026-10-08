@@ -69,7 +69,7 @@ export default function Navbar({ brandOverride = null }) {
       }`}
     >
       <div
-        className={`mx-auto flex max-w-7xl items-center gap-6 px-3 sm:px-6 lg:px-8 ${
+        className={`mx-auto flex max-w-7xl items-center gap-2 px-3 sm:gap-6 sm:px-6 lg:px-8 ${
           brandOverride ? "min-h-16 py-2" : "h-16"
         }`}
       >
@@ -133,12 +133,17 @@ export default function Navbar({ brandOverride = null }) {
         )}
 
         {!brandOverride && (
+          // Debajo de `sm` sólo el ícono: con el texto, logo + este link +
+          // "Ingresar" + hamburguesa no entran en un celular (~430px
+          // mínimos). El link con texto sigue en el menú hamburguesa.
           <Link
             to="/como-funciona"
-            className="flex shrink-0 items-center gap-1 rounded-full border border-brand/60 bg-black/30 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-[0_0_14px_rgba(182,255,46,0.35)] transition-all duration-150 hover:border-brand hover:shadow-[0_0_20px_rgba(182,255,46,0.5)] sm:px-3 sm:text-xs"
+            aria-label="¿Cómo funciona?"
+            title="¿Cómo funciona?"
+            className="flex h-8 w-8 shrink-0 items-center justify-center gap-1 rounded-full border border-brand/60 bg-black/30 text-[11px] font-semibold text-white shadow-[0_0_14px_rgba(182,255,46,0.35)] transition-all duration-150 hover:border-brand hover:shadow-[0_0_20px_rgba(182,255,46,0.5)] sm:h-auto sm:w-auto sm:px-3 sm:py-1.5 sm:text-xs"
           >
             <Sparkles className="h-3.5 w-3.5 shrink-0 text-brand" />
-            <span className="whitespace-nowrap">¿Cómo funciona?</span>
+            <span className="hidden whitespace-nowrap sm:inline">¿Cómo funciona?</span>
           </Link>
         )}
 

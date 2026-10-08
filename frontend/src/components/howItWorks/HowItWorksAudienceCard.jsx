@@ -34,7 +34,7 @@ export default function HowItWorksAudienceCard() {
         role="tablist"
         aria-label="¿Para quién es?"
         onKeyDown={handleKeyDown}
-        className="mx-auto grid w-full max-w-xl grid-cols-3 gap-1 rounded-full border border-white/10 bg-black/30 p-1"
+        className="mx-auto flex w-full max-w-xl gap-1 rounded-full border border-white/10 bg-black/30 p-1"
       >
         {TABS.map((tab, index) => {
           const selected = index === activeIndex;
@@ -49,7 +49,10 @@ export default function HowItWorksAudienceCard() {
               aria-controls={`how-it-works-panel-${tab.key}`}
               tabIndex={selected ? 0 : -1}
               onClick={() => setActiveIndex(index)}
-              className={`rounded-full px-1.5 py-2 text-center text-xs font-semibold leading-tight transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand sm:px-3 sm:text-sm ${
+              // flex-auto (no columnas iguales): cada pestaña toma el ancho
+              // de su texto y reparte el sobrante — así "Para organizadores"
+              // entra en una sola línea en 390px sin achicar la fuente.
+              className={`flex-auto whitespace-nowrap rounded-full px-2 py-2 text-center text-xs font-semibold leading-tight transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand max-[359px]:px-1.5 max-[359px]:text-[11px] sm:px-3 sm:text-sm ${
                 selected ? "bg-brand text-slate-950" : "text-slate-400 hover:text-white"
               }`}
             >
