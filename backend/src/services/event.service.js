@@ -1312,10 +1312,18 @@ export const getPublicEventsService = async ({ category, search, sort, when, pri
     // aunque sigan PUBLISHED.
     conditions.push({ organization: PUBLIC_ORGANIZATION_WHERE });
 
-    return prisma.event.findMany({
+    // serviceFeeWaivedUntil se lee SÓLO para derivar el booleano
+    // serviceFeeWaived (badge "SIN CARGO DE SERVICIO" de las cards) con la
+    // misma regla que el detalle y el checkout (isServiceFeeWaived). La
+    // fecha nunca sale en el listado.
+    const events = await prisma.event.findMany({
         where: { status: "PUBLISHED", visibility: "PUBLIC", AND: conditions },
-        include: { organization: PUBLIC_ORGANIZATION_SELECT },
+        include: { organization: { select: { ...PUBLIC_ORGANIZATION_SELECT.select, serviceFeeWaivedUntil: true } } },
         orderBy: SORTABLE_FIELDS[sort] ?? SORTABLE_FIELDS.recientes,
+    });
+    return events.map((event) => {
+        const { serviceFeeWaivedUntil, ...organization } = event.organization;
+        return { ...event, organization, serviceFeeWaived: isServiceFeeWaived({ serviceFeeWaivedUntil }) };
     });
 };
 
@@ -1440,6 +1448,9 @@ export const getQuickPassBySlugService = async (slug) => {
             city: event.city || "",
             startDate: event.startDate,
             organizationName: event.organization?.name ?? "",
+            // Mismo booleano que ya calculó getPublicEventBySlugService
+            // (withServiceFeeWaiver → isServiceFeeWaived). Sin fechas.
+            serviceFeeWaived: event.serviceFeeWaived === true,
             functions: event.functions.map((fn) => ({
                 id: fn.id,
                 date: fn.date,

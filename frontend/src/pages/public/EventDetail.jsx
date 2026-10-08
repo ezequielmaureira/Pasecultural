@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate, useLocation, Navigate } from "react-router-dom";
 import { CalendarDays, MapPin, Clock3, ImageOff, ArrowLeft } from "lucide-react";
 import Card from "../../components/ui/Card.jsx";
+import ServiceFeeWaivedBadge, { isServiceFeeWaivedEvent } from "../../components/ui/ServiceFeeWaivedBadge.jsx";
 import Button from "../../components/ui/Button.jsx";
 import SocialLinks from "../../components/events/SocialLinks.jsx";
 import MediaEmbed from "../../components/events/MediaEmbed.jsx";
@@ -244,6 +245,14 @@ export default function EventDetail() {
                       <p className="text-lg font-bold text-brand light:text-brand-hover">
                         {formatEventPrice(event)}
                       </p>
+                      {isServiceFeeWaivedEvent(event) && (
+                        <div className="mt-2 flex flex-col items-start gap-1">
+                          <ServiceFeeWaivedBadge />
+                          <p className="text-xs text-slate-400 light:text-slate-600">
+                            Este evento no tiene cargo de servicio Smarticket.
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     {/* CTA local — mismo `.smarticket-hero-cta` ya usado en

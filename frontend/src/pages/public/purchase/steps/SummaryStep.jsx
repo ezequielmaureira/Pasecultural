@@ -3,6 +3,7 @@ import Card from "../../../../components/ui/Card.jsx";
 import Button from "../../../../components/ui/Button.jsx";
 import { currency } from "../../../organizer/eventWizard/model.js";
 import { formatEventDateTime, formatEventLocation } from "../../../../lib/eventFormat.js";
+import ServiceFeeWaivedBadge, { isServiceFeeWaivedEvent } from "../../../../components/ui/ServiceFeeWaivedBadge.jsx";
 
 export default function SummaryStep({
   event,
@@ -72,16 +73,16 @@ export default function SummaryStep({
           <span className="text-slate-300">{currency(ticketsSubtotal)}</span>
         </div>
         <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-400">Comisión de servicio</span>
+          <span className="text-slate-400">Cargo Smarticket</span>
           <span className="text-slate-300">{currency(serviceFeeTotal)}</span>
         </div>
         {/* Beneficio para compradores: el backend informó serviceFeeWaived
             y también cobra $0 (createSaleForBuyer). Si el aviso de cambio
             de precio está activo, manda el desglose del backend. */}
-        {event.serviceFeeWaived && !priceChanged && serviceFeeTotal === 0 && (
-          <p className="text-xs font-semibold text-brand">
-            <span aria-hidden="true">🎉 </span>Sin cargo de servicio Smarticket
-          </p>
+        {isServiceFeeWaivedEvent(event) && !priceChanged && serviceFeeTotal === 0 && (
+          <div>
+            <ServiceFeeWaivedBadge />
+          </div>
         )}
         <div className="flex items-center justify-between pt-1">
           <span className="text-sm font-semibold text-slate-300">Total</span>

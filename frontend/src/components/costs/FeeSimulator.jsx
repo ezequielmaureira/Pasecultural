@@ -5,17 +5,19 @@ import { formatPriceInput, sanitizePriceInput, simulatePurchase } from "../../li
 
 // Textos por audiencia: la cuenta es la misma (lib/feeSimulation.js), sólo
 // cambia cómo se cuenta. "organizer" agrega la fila de comisión al
-// organizador, que siempre es $0.
+// organizador, que siempre es $0 y tiene el selector de beneficio.
+// "attendee" NO tiene selector: simula siempre con los rangos (el cargo
+// real de cada evento se informa antes de confirmar la compra).
 const COPY = {
   attendee: {
     title: "Simulá tu compra",
-    question: "¿El organizador tiene beneficio activo?",
-    options: ["Sí", "No"],
-    totalLabel: "Total a pagar",
+    question: null,
+    totalLabel: "Total estimado",
     priceLabel: "Entrada",
     feeLabel: "Cargo Smarticket",
-    promoNote: "Con el beneficio activo del organizador, no pagás cargo de servicio Smarticket.",
     afterNote: "Cargo fijo según el valor de la entrada. Sin porcentajes.",
+    footnote:
+      "El cargo final puede variar si existe una promoción aplicable al evento y siempre se informa antes de confirmar la compra.",
   },
   organizer: {
     title: "Simulá cómo lo verá tu comprador",
@@ -44,14 +46,16 @@ function Row({ label, value, strong = false, accent = false }) {
   );
 }
 
-// El selector "¿beneficio activo?" se muestra SIEMPRE, aunque la promoción
-// inicial esté en 0 en Developer > Configuración: una organización puede
-// tener un beneficio vigente anterior u otorgado a mano.
+// Organizadores: el selector "Beneficio para compradores" se muestra
+// SIEMPRE, aunque la promoción inicial esté en 0 en Developer >
+// Configuración (puede haber beneficios vigentes u otorgados a mano).
 export default function FeeSimulator({ audience = "attendee", tiers, tiersStatus }) {
   const copy = COPY[audience];
+  const hasSelector = Boolean(copy.question);
   const inputId = useId();
   const [digits, setDigits] = useState("");
-  const [benefitActive, setBenefitActive] = useState(true);
+  const [benefitSelected, setBenefitSelected] = useState(true);
+  const benefitActive = hasSelector && benefitSelected;
 
   const result = simulatePurchase({ digits, benefitActive, tiers: tiersStatus === "ready" ? tiers : null });
   const loadingFee = result && !benefitActive && result.price > 0 && tiersStatus === "loading";
@@ -94,33 +98,37 @@ export default function FeeSimulator({ audience = "attendee", tiers, tiersStatus
         )}
       </div>
 
-      <p id={`${inputId}-benefit`} className="mt-4 text-sm font-medium text-slate-300 light:text-slate-600">
-        {copy.question}
-      </p>
-      <div
-        role="radiogroup"
-        aria-labelledby={`${inputId}-benefit`}
-        className="mt-1.5 grid grid-cols-2 gap-1 rounded-xl border border-white/10 bg-black/30 p-1 light:border-slate-200 light:bg-slate-100"
-      >
-        {copy.options.map((label, index) => {
-          const value = index === 0;
-          const selected = benefitActive === value;
-          return (
-            <button
-              key={label}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              onClick={() => setBenefitActive(value)}
-              className={`min-h-11 rounded-lg px-2 py-2 text-sm font-semibold leading-tight transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
-                selected ? "bg-brand text-slate-950" : "text-slate-400 hover:text-white light:text-slate-500 light:hover:text-slate-900"
-              }`}
-            >
-              {label}
-            </button>
-          );
-        })}
-      </div>
+      {hasSelector && (
+        <>
+          <p id={`${inputId}-benefit`} className="mt-4 text-sm font-medium text-slate-300 light:text-slate-600">
+            {copy.question}
+          </p>
+          <div
+            role="radiogroup"
+            aria-labelledby={`${inputId}-benefit`}
+            className="mt-1.5 grid grid-cols-2 gap-1 rounded-xl border border-white/10 bg-black/30 p-1 light:border-slate-200 light:bg-slate-100"
+          >
+            {copy.options.map((label, index) => {
+              const value = index === 0;
+              const selected = benefitActive === value;
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => setBenefitSelected(value)}
+                  className={`min-h-11 rounded-lg px-2 py-2 text-sm font-semibold leading-tight transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+                    selected ? "bg-brand text-slate-950" : "text-slate-400 hover:text-white light:text-slate-500 light:hover:text-slate-900"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       <div aria-live="polite" className="mt-5 rounded-xl border border-white/10 bg-black/30 p-4 light:border-slate-200 light:bg-white sm:p-5">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 light:text-slate-500">{copy.totalLabel}</p>
@@ -165,6 +173,8 @@ export default function FeeSimulator({ audience = "attendee", tiers, tiersStatus
           <p className="mt-3 text-xs text-slate-400 light:text-slate-500">{benefitActive ? copy.promoNote : copy.afterNote}</p>
         )}
       </div>
+
+      {copy.footnote && <p className="mt-3 text-xs text-slate-400 light:text-slate-500">{copy.footnote}</p>}
     </section>
   );
 }

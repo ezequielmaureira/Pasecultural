@@ -611,6 +611,7 @@ export default function QuickPass() {
               feeBreakdown={{
                 ticketsSubtotalLabel: currency(ticketsSubtotal),
                 serviceFeeLabel: currency(serviceFeeTotal),
+                serviceFeeWaived: fullEvent.serviceFeeWaived === true && serviceFeeTotal === 0,
                 totalLabel: currency(total),
               }}
             />

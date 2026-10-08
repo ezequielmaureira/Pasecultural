@@ -132,6 +132,9 @@ export default function SelectTicketsStep({
               <span>Cargo de servicio</span>
               <span>{currency(serviceFeeTotal)}</span>
             </div>
+            {event?.serviceFeeWaived === true && serviceFeeTotal === 0 && (
+              <p className="text-xs font-semibold text-brand light:text-lime-700">Sin cargo de servicio</p>
+            )}
           </>
         )}
         <div className="flex items-center justify-between">

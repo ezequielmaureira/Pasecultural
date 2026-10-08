@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import prisma from "../src/config/prisma.js";
-import { updateMyEventService, getPublicEventBySlugService } from "../src/services/event.service.js";
+import { updateMyEventService, getPublicEventBySlugService, getPublicEventsService, getQuickPassBySlugService } from "../src/services/event.service.js";
 import { createSaleForBuyer } from "../src/services/sale.service.js";
 import { createMercadoPagoCheckoutService } from "../src/services/mercadoPagoCheckout.service.js";
 import { replaceServiceFeeTiers } from "../src/services/serviceFee.service.js";
@@ -544,5 +544,53 @@ testWithDb("sin fila de configuración (borrada a mano): duración 0, nunca un b
             });
         }
         await setDuration(1);
+    }
+});
+
+// ---------------------------------------------------------------- listado y Quick Pass (badge "SIN CARGO DE SERVICIO")
+
+testWithDb("listado público y Quick Pass: serviceFeeWaived = mismo booleano que el detalle; nunca fechas ni datos internos", async () => {
+    const cases = [];
+    // ACTIVO: primera publicación con la duración vigente (1 mes).
+    const active = await createOrg();
+    const activeEvent = await createDraftEvent(active.organization, active.owner);
+    await publish(active, activeEvent.event);
+    cases.push({ name: "ACTIVO", event: activeEvent.event, expected: true });
+    // VENCIDO.
+    const expired = await createOrg();
+    const expiredEvent = await createDraftEvent(expired.organization, expired.owner);
+    await publish(expired, expiredEvent.event);
+    await setWaiver(expired.organization.id, new Date(Date.now() - 1));
+    cases.push({ name: "VENCIDO", event: expiredEvent.event, expected: false });
+    // SIN INICIAR (publicado por fuera del hook: firstEventPublishedAt null).
+    const notStarted = await createOrg();
+    const notStartedEvent = await createDraftEvent(notStarted.organization, notStarted.owner, { status: "PUBLISHED", publishedAt: new Date() });
+    cases.push({ name: "SIN INICIAR", event: notStartedEvent.event, expected: false });
+    // SIN BENEFICIO (publicó con la duración en 0).
+    const none = await createOrg();
+    const noneEvent = await createDraftEvent(none.organization, none.owner);
+    await withDuration(0, () => publish(none, noneEvent.event));
+    cases.push({ name: "SIN BENEFICIO", event: noneEvent.event, expected: false });
+
+    for (const c of cases) {
+        await prisma.event.update({ where: { id: c.event.id }, data: { quickPassEnabled: true, quickPassImageUrl: "https://res.cloudinary.com/demo/image/upload/sample.jpg" } });
+
+        const listed = (await getPublicEventsService({ search: c.event.title })).find((e) => e.id === c.event.id);
+        assert.ok(listed, `${c.name}: aparece en el listado`);
+        assert.equal(listed.serviceFeeWaived, c.expected, `${c.name}: listado`);
+        assert.equal(Object.hasOwn(listed, "serviceFeeWaivedUntil"), false, `${c.name}: listado sin fecha`);
+        assert.deepEqual(Object.keys(listed.organization).sort(), ["id", "logo", "name"], `${c.name}: organization sin datos internos`);
+
+        const detail = await getPublicEventBySlugService(c.event.slug);
+        assert.equal(detail.serviceFeeWaived, c.expected, `${c.name}: detalle`);
+
+        const quickPass = await getQuickPassBySlugService(c.event.slug);
+        assert.equal(quickPass.available, true);
+        assert.equal(quickPass.event.serviceFeeWaived, c.expected, `${c.name}: Quick Pass`);
+        for (const key of ["serviceFeeWaivedUntil", "firstEventPublishedAt", "serviceFeeWaiverDurationMonths", "organization"]) {
+            assert.equal(Object.hasOwn(quickPass.event, key), false, `${c.name}: Quick Pass sin ${key}`);
+        }
+        const json = JSON.stringify([listed, quickPass]);
+        assert.equal(/serviceFeeWaivedUntil|firstEventPublishedAt|serviceFeeWaiverDurationMonths/.test(json), false, `${c.name}: nada interno serializado`);
     }
 });

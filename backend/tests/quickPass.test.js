@@ -248,6 +248,9 @@ testWithDb("QP-G: getQuickPassBySlugService devuelve exclusivamente los campos n
             "city",
             "startDate",
             "organizationName",
+            // Beneficio para compradores: sólo el booleano derivado, nunca
+            // serviceFeeWaivedUntil.
+            "serviceFeeWaived",
             "functions",
         ].sort();
         assert.deepEqual(actualKeys, expectedKeys);

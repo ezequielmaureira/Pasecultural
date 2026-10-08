@@ -64,6 +64,9 @@ export default function BuyerInfoStep({ buyer, onChange, onBack, onConfirm, card
             <span>Cargo de servicio</span>
             <span>{feeBreakdown.serviceFeeLabel}</span>
           </div>
+          {feeBreakdown.serviceFeeWaived === true && (
+            <p className="text-xs font-semibold text-brand light:text-lime-700">Sin cargo de servicio</p>
+          )}
           <div className="flex items-center justify-between border-t border-white/10 pt-1.5">
             <span className="text-sm font-semibold text-white">Total</span>
             <span className="text-base font-bold text-white">{feeBreakdown.totalLabel}</span>

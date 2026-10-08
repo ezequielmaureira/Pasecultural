@@ -17,7 +17,9 @@ import { formatMonthsInWords } from "../lib/serviceFeeWaiver.js";
 // GET /api/sales/service-fee-tiers — la misma configuración de Developer >
 // Configuración que aplica el checkout. Nunca hay montos ni duraciones
 // escritos acá. Con N = 0 (o si no se pudo leer) no se menciona ninguna
-// promoción inicial.
+// promoción inicial. La pestaña de asistentes NO habla del beneficio (ni
+// meses ni renovaciones): el comprador lo ve en cada evento que lo tiene
+// ("SIN CARGO DE SERVICIO", sólo con serviceFeeWaived === true).
 const TABS = [
   { key: "attendees", label: "Para asistentes" },
   { key: "organizers", label: "Para organizadores" },
@@ -46,8 +48,7 @@ function TiersBlock({ tiers, tiersStatus, intro }) {
   );
 }
 
-function AttendeesPanel({ tiers, tiersStatus, waiverMonths }) {
-  const hasInitialBenefit = waiverMonths > 0;
+function AttendeesPanel({ tiers, tiersStatus }) {
   return (
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:items-start lg:gap-10">
       <div className="min-w-0 space-y-6">
@@ -61,30 +62,10 @@ function AttendeesPanel({ tiers, tiersStatus, waiverMonths }) {
           </p>
         </div>
 
-        {hasInitialBenefit && (
-          <Highlight>
-            <p className="text-sm font-semibold text-white light:text-slate-900 sm:text-base">
-              <span aria-hidden="true">🎉 </span>¿El organizador tiene un beneficio activo?
-            </p>
-            <p className="mt-1 text-xl font-extrabold text-brand light:text-lime-700 sm:text-2xl">
-              Tu cargo de servicio Smarticket es $0.
-            </p>
-            <p className="mt-3 text-sm text-slate-300 light:text-slate-600">
-              Actualmente, las organizaciones que publican su primer evento reciben inicialmente{" "}
-              {formatMonthsInWords(waiverMonths)} sin cargo de servicio Smarticket para sus compradores. Los beneficios
-              promocionales pueden extenderse.
-            </p>
-          </Highlight>
-        )}
-
         <TiersBlock
           tiers={tiers}
           tiersStatus={tiersStatus}
-          intro={
-            hasInitialBenefit
-              ? "Si el organizador no tiene un beneficio activo, se aplica un cargo fijo según el valor de la entrada."
-              : "Cuando corresponde, el comprador paga un cargo fijo según el valor de la entrada."
-          }
+          intro="El cargo final siempre se muestra antes de confirmar la compra."
         />
       </div>
 

@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { CalendarDays, MapPin, ImageOff } from "lucide-react";
 import { getEventCategoryLabel } from "../../lib/eventCategories.js";
 import { formatEventDate, formatEventLocation, formatEventPrice } from "../../lib/eventFormat.js";
+import ServiceFeeWaivedBadge, { isServiceFeeWaivedEvent } from "../ui/ServiceFeeWaivedBadge.jsx";
 
 export default function EventCard({ event }) {
   // Fest Pass — un evento con quickPassEnabled tiene que llevar DIRECTO a
@@ -47,7 +48,14 @@ export default function EventCard({ event }) {
           <MapPin className="h-3.5 w-3.5 shrink-0" />
           <span className="truncate">{formatEventLocation(event)}</span>
         </p>
-        <div className="mt-auto flex items-center justify-between pt-1.5">
+        {/* Sólo si el backend mandó serviceFeeWaived === true. Va en el
+            cuerpo (no sobre la imagen) y justo arriba del precio. */}
+        {isServiceFeeWaivedEvent(event) && (
+          <div className="mt-auto pt-1.5">
+            <ServiceFeeWaivedBadge size="xs" />
+          </div>
+        )}
+        <div className={`${isServiceFeeWaivedEvent(event) ? "" : "mt-auto "}flex items-center justify-between pt-1.5`}>
           <span className="text-sm font-bold text-brand">
             {formatEventPrice(event)}
           </span>
