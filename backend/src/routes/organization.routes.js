@@ -9,6 +9,7 @@ import {
     updateOrganizationStatus,
     updateOrganizationPlan,
     updateOrganizationCategory,
+    renewOrganizationServiceFeeWaiver,
     deleteOrganization,
     getPublicOrganizationBySlug,
     getFeaturedOrganizations,
@@ -117,6 +118,10 @@ router.patch("/:id/plan", requireRole("DEVELOPER"), updateOrganizationPlan);
 // arriba: administración manual exclusiva de DEVELOPER, sin autoservicio
 // de ORGANIZER en esta ronda.
 router.patch("/:id/category", requireRole("DEVELOPER"), updateOrganizationCategory);
+// Beneficio para compradores (cargo de servicio $0) — renovación manual
+// por la duración configurada en Developer > Configuración, exclusiva de
+// DEVELOPER. Nunca automática.
+router.post("/:id/service-fee-waiver/renew", requireRole("DEVELOPER"), renewOrganizationServiceFeeWaiver);
 router.delete("/:id", requireRole("DEVELOPER"), deleteOrganization);
 
 export default router;

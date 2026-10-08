@@ -1,5 +1,10 @@
 import { Router } from "express";
-import { getServiceFeeConfig, updateServiceFeeConfig } from "../controllers/developerServiceFee.controller.js";
+import {
+    getServiceFeeConfig,
+    updateServiceFeeConfig,
+    getBuyerBenefitConfig,
+    updateBuyerBenefitConfig,
+} from "../controllers/developerServiceFee.controller.js";
 import { requireRole } from "../middlewares/requireRole.js";
 
 // Mismo prefijo "/api/developer" que developerDashboard/developerEvents/
@@ -13,5 +18,10 @@ const router = Router();
 
 router.get("/service-fee", requireRole("DEVELOPER"), getServiceFeeConfig);
 router.put("/service-fee", requireRole("DEVELOPER"), updateServiceFeeConfig);
+// Beneficio inicial para compradores — duración en meses (0 = desactivado).
+// Misma pantalla y mismo router que los rangos: las dos configuraciones
+// comerciales del cargo de servicio viven juntas.
+router.get("/service-fee/buyer-benefit", requireRole("DEVELOPER"), getBuyerBenefitConfig);
+router.put("/service-fee/buyer-benefit", requireRole("DEVELOPER"), updateBuyerBenefitConfig);
 
 export default router;

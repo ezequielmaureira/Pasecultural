@@ -13,6 +13,7 @@ import {
 import Modal from "../ui/Modal.jsx";
 import Button from "../ui/Button.jsx";
 import Avatar from "../ui/Avatar.jsx";
+import BuyerBenefitPanel from "./BuyerBenefitPanel.jsx";
 import {
   ORG_STATUS_LABEL,
   ORG_STATUS_STYLES,
@@ -166,6 +167,9 @@ export default function OrganizationDetailModal({
   onChangeStatus,
   onChangePlan,
   onChangeCategory,
+  onRenewBenefit,
+  renewedBenefitUntil,
+  benefitDurationMonths,
   onDelete,
   updating,
 }) {
@@ -286,6 +290,16 @@ export default function OrganizationDetailModal({
             />
           )}
         </div>
+
+        {onRenewBenefit && (
+          <BuyerBenefitPanel
+            organization={organization}
+            onRenew={onRenewBenefit}
+            updating={updating}
+            renewedUntil={renewedBenefitUntil}
+            durationMonths={benefitDurationMonths}
+          />
+        )}
 
         <div className="rounded-xl border border-white/10 bg-white/5 p-4">
           <div className="mb-3 flex items-center justify-between">

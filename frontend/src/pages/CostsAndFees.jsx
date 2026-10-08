@@ -1,41 +1,153 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Clock, Mail, Ticket, CalendarPlus } from "lucide-react";
+import { Mail } from "lucide-react";
+import FeeSimulator from "../components/costs/FeeSimulator.jsx";
+import ServiceFeeTiersList from "../components/costs/ServiceFeeTiersList.jsx";
+import { getPublicServiceFeeConfig } from "../lib/serviceFeeApi.js";
+import { formatMonthsInWords } from "../lib/serviceFeeWaiver.js";
 
-// Página pública "Costos y comisiones". Por ahora SÓLO estructura: los
-// porcentajes, tarifas y reglas de cobro todavía no están definidos, así que
-// cada pestaña muestra un aviso de "en preparación" en vez de inventar datos.
-// Cuando se definan, completar cada panel acá (no hay lógica de cobro en
-// este archivo: es solo texto informativo).
+// Página pública "Costos y comisiones". Esquema comercial:
+// - el organizador nunca paga comisión Smarticket ($0, sin porcentajes);
+// - el comprador paga un cargo de servicio FIJO por entrada según su
+//   precio, salvo mientras el organizador tenga el beneficio para
+//   compradores activo: N meses desde que publica su primer evento,
+//   extendible a mano desde Developer (nunca automático). Ver
+//   backend/src/services/serviceFeeWaiver.service.js.
+// La escala y N (serviceFeeWaiverDurationMonths) salen de
+// GET /api/sales/service-fee-tiers — la misma configuración de Developer >
+// Configuración que aplica el checkout. Nunca hay montos ni duraciones
+// escritos acá. Con N = 0 (o si no se pudo leer) no se menciona ninguna
+// promoción inicial.
 const TABS = [
-  {
-    key: "attendees",
-    label: "Para asistentes",
-    icon: Ticket,
-    title: "Costos para asistentes",
-    description: "Acá vas a encontrar qué se cobra al comprar una entrada en Smarticket.",
-  },
-  {
-    key: "organizers",
-    label: "Para organizadores",
-    icon: CalendarPlus,
-    title: "Comisiones para organizadores",
-    description: "Acá vas a encontrar qué se cobra al publicar y vender entradas de tu evento en Smarticket.",
-  },
+  { key: "attendees", label: "Para asistentes" },
+  { key: "organizers", label: "Para organizadores" },
 ];
 
-function PendingPanel({ icon: Icon, title, description }) {
+const PAYMENT_METHOD_NOTE =
+  "Los costos propios del medio de pago, cuando correspondan, son independientes de los cargos de servicio de Smarticket.";
+
+function Highlight({ children }) {
   return (
-    <div className="smarticket-neon-surface mx-auto flex max-w-2xl flex-col items-center gap-4 rounded-2xl px-5 py-10 text-center sm:px-10">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-brand/15 text-brand shadow-[0_0_14px_-4px_rgba(132,204,22,0.55)]">
-        <Icon className="h-6 w-6" />
+    <div className="rounded-2xl border border-brand/40 bg-brand/10 p-5 shadow-[0_0_30px_-12px_rgba(182,255,46,0.45)] sm:p-6">
+      {children}
+    </div>
+  );
+}
+
+function TiersBlock({ tiers, tiersStatus, intro }) {
+  return (
+    <div>
+      <p className="text-sm text-slate-300 light:text-slate-600">{intro}</p>
+      <h3 className="mb-3 mt-5 text-sm font-semibold uppercase tracking-wide text-slate-400 light:text-slate-500">
+        Cargo de servicio por entrada
+      </h3>
+      <ServiceFeeTiersList tiers={tiers} status={tiersStatus} />
+    </div>
+  );
+}
+
+function AttendeesPanel({ tiers, tiersStatus, waiverMonths }) {
+  const hasInitialBenefit = waiverMonths > 0;
+  return (
+    <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:items-start lg:gap-10">
+      <div className="min-w-0 space-y-6">
+        <div>
+          <h2 className="text-2xl font-bold text-white light:text-slate-900 sm:text-3xl">
+            Sabé cuánto vas a pagar antes de comprar
+          </h2>
+          <p className="mt-3 text-sm text-slate-300 light:text-slate-600 sm:text-base">
+            Smarticket no usa porcentajes sobre el valor de tu entrada. Cuando corresponde un cargo de servicio,
+            utilizamos importes fijos según el precio de la entrada.
+          </p>
+        </div>
+
+        {hasInitialBenefit && (
+          <Highlight>
+            <p className="text-sm font-semibold text-white light:text-slate-900 sm:text-base">
+              <span aria-hidden="true">🎉 </span>¿El organizador tiene un beneficio activo?
+            </p>
+            <p className="mt-1 text-xl font-extrabold text-brand light:text-lime-700 sm:text-2xl">
+              Tu cargo de servicio Smarticket es $0.
+            </p>
+            <p className="mt-3 text-sm text-slate-300 light:text-slate-600">
+              Actualmente, las organizaciones que publican su primer evento reciben inicialmente{" "}
+              {formatMonthsInWords(waiverMonths)} sin cargo de servicio Smarticket para sus compradores. Los beneficios
+              promocionales pueden extenderse.
+            </p>
+          </Highlight>
+        )}
+
+        <TiersBlock
+          tiers={tiers}
+          tiersStatus={tiersStatus}
+          intro={
+            hasInitialBenefit
+              ? "Si el organizador no tiene un beneficio activo, se aplica un cargo fijo según el valor de la entrada."
+              : "Cuando corresponde, el comprador paga un cargo fijo según el valor de la entrada."
+          }
+        />
       </div>
-      <h2 className="text-xl font-bold text-white light:text-slate-900 sm:text-2xl">{title}</h2>
-      <p className="max-w-md text-sm text-slate-400 light:text-slate-500">{description}</p>
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-brand/40 bg-brand/10 px-3 py-1 text-xs font-semibold text-brand light:text-lime-700">
-        <Clock className="h-3.5 w-3.5" />
-        Información en preparación
-      </span>
+
+      <div className="min-w-0 lg:sticky lg:top-24">
+        <FeeSimulator audience="attendee" tiers={tiers} tiersStatus={tiersStatus} />
+      </div>
+    </div>
+  );
+}
+
+function OrganizersPanel({ tiers, tiersStatus, waiverMonths }) {
+  const hasInitialBenefit = waiverMonths > 0;
+  return (
+    <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:items-start lg:gap-10">
+      <div className="min-w-0 space-y-6">
+        <div>
+          <h2 className="text-2xl font-bold text-white light:text-slate-900 sm:text-3xl">
+            Vos vendés. Smarticket no se queda con un porcentaje.
+          </h2>
+          <div className="mt-5 flex items-center gap-4">
+            <p className="shrink-0 text-5xl font-extrabold text-brand light:text-lime-700 sm:text-6xl">$0</p>
+            <p className="text-base font-semibold leading-snug text-white light:text-slate-900 sm:text-lg">
+              de comisión Smarticket para organizadores
+            </p>
+          </div>
+          <p className="mt-4 text-sm text-slate-300 light:text-slate-600 sm:text-base">
+            Smarticket no descuenta una comisión porcentual sobre el valor de tus entradas.
+          </p>
+        </div>
+
+        {hasInitialBenefit && (
+          <Highlight>
+            <h3 className="text-lg font-bold text-white light:text-slate-900 sm:text-xl">
+              <span aria-hidden="true">🎉 </span>
+              {waiverMonths === 1 ? "Tu primer mes" : `Tus primeros ${waiverMonths} meses`}
+            </h3>
+            <p className="mt-2 text-sm text-slate-300 light:text-slate-600 sm:text-base">
+              Actualmente, las organizaciones que publican su primer evento reciben inicialmente{" "}
+              {formatMonthsInWords(waiverMonths)} sin cargo de servicio Smarticket para sus compradores.
+            </p>
+            <p className="mt-4 text-base font-bold text-brand light:text-lime-700 sm:text-lg">Vos pagás $0.</p>
+            <p className="mt-3 text-xs text-slate-400 light:text-slate-500">Los beneficios promocionales pueden extenderse.</p>
+          </Highlight>
+        )}
+
+        <TiersBlock
+          tiers={tiers}
+          tiersStatus={tiersStatus}
+          intro={
+            hasInitialBenefit
+              ? "Cuando termina el beneficio, vos seguís pagando $0 de comisión Smarticket. El comprador comienza a pagar el cargo fijo correspondiente según el valor de la entrada."
+              : "Vos pagás $0 de comisión Smarticket. Cuando corresponde, el comprador paga un cargo fijo según el valor de la entrada."
+          }
+        />
+
+        <p className="text-base font-semibold text-white light:text-slate-900">
+          Sin porcentajes. Sin castigar las entradas de mayor valor.
+        </p>
+      </div>
+
+      <div className="min-w-0 lg:sticky lg:top-24">
+        <FeeSimulator audience="organizer" tiers={tiers} tiersStatus={tiersStatus} />
+      </div>
     </div>
   );
 }
@@ -44,6 +156,30 @@ export default function CostsAndFees() {
   const [activeIndex, setActiveIndex] = useState(0);
   const tabRefs = useRef([]);
   const active = TABS[activeIndex];
+  const [tiers, setTiers] = useState(null);
+  const [tiersStatus, setTiersStatus] = useState("loading"); // "loading" | "ready" | "error"
+  // Duración del beneficio inicial (Developer > Configuración). null
+  // mientras carga o si falló: no se promete ninguna promoción.
+  const [waiverMonths, setWaiverMonths] = useState(null);
+
+  // Una sola carga para las dos pestañas y sus simuladores.
+  useEffect(() => {
+    let cancelled = false;
+    getPublicServiceFeeConfig()
+      .then(({ tiers: list, serviceFeeWaiverDurationMonths }) => {
+        if (cancelled) return;
+        setTiers(list);
+        setTiersStatus(list?.length ? "ready" : "error");
+        setWaiverMonths(serviceFeeWaiverDurationMonths);
+      })
+      .catch((err) => {
+        console.error("No se pudo cargar la escala de cargos de servicio", err);
+        if (!cancelled) setTiersStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function handleKeyDown(event) {
     const moves = { ArrowRight: 1, ArrowLeft: -1 };
@@ -54,13 +190,15 @@ export default function CostsAndFees() {
     tabRefs.current[next]?.focus();
   }
 
+  const Panel = active.key === "attendees" ? AttendeesPanel : OrganizersPanel;
+
   return (
     <div className="flex flex-col">
-      <section className="mx-auto w-full max-w-7xl px-4 pb-16 pt-10 sm:px-6">
+      <section className="mx-auto w-full max-w-6xl px-4 pb-12 pt-10 sm:px-6">
         <div className="mx-auto mb-8 max-w-xl text-center">
           <h1 className="text-2xl font-bold text-white light:text-slate-900 sm:text-3xl">Costos y comisiones</h1>
           <p className="mt-2 text-sm text-slate-400 light:text-slate-500">
-            Todo lo que se cobra en Smarticket, explicado de forma clara.
+            Cuánto cuesta usar Smarticket, explicado en segundos.
           </p>
         </div>
 
@@ -100,13 +238,15 @@ export default function CostsAndFees() {
           aria-labelledby={`costs-tab-${active.key}`}
           className="mt-10"
         >
-          <PendingPanel icon={active.icon} title={active.title} description={active.description} />
+          <Panel tiers={tiers} tiersStatus={tiersStatus} waiverMonths={waiverMonths} />
         </div>
+
+        <p className="mx-auto mt-10 max-w-2xl text-center text-xs text-slate-500">{PAYMENT_METHOD_NOTE}</p>
       </section>
 
       <section className="mx-auto max-w-3xl px-6 pb-20 text-center">
         <p className="text-sm text-slate-400 light:text-slate-500">
-          ¿Tenés dudas mientras tanto? Mirá{" "}
+          ¿Tenés dudas? Mirá{" "}
           <Link to="/como-funciona" className="font-semibold text-brand hover:text-brand-soft">
             cómo funciona Smarticket
           </Link>{" "}

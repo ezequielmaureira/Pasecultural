@@ -13,6 +13,9 @@ import {
 } from "../../lib/organizationStatus.js";
 import { ORG_PLAN_LABEL, ORG_PLAN_STYLES } from "../../lib/organizationPlan.js";
 import { useToast } from "../../context/ToastContext.jsx";
+import { formatMonths, formatWaiverDate, getServiceFeeWaiverStatus } from "../../lib/serviceFeeWaiver.js";
+import { getBuyerBenefitConfig } from "../../lib/developerServiceFeeApi.js";
+import { renewBenefitLabel } from "../../components/developer/BuyerBenefitPanel.jsx";
 
 function Pill({ status }) {
   return (
@@ -63,6 +66,13 @@ export default function DeveloperOrganizations() {
   const [selected, setSelected] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [pendingPlanChange, setPendingPlanChange] = useState(null);
+  const [pendingBenefitRenewal, setPendingBenefitRenewal] = useState(null);
+  // { organizationId, until } — para "Beneficio renovado hasta ..." en el
+  // detalle de la organización recién renovada.
+  const [renewedBenefit, setRenewedBenefit] = useState(null);
+  // Duración vigente del beneficio (Developer > Configuración) para los
+  // textos de renovación. null = no se pudo leer → sin botón.
+  const [benefitDurationMonths, setBenefitDurationMonths] = useState(null);
   const [updatingId, setUpdatingId] = useState(null);
   const [updatingAction, setUpdatingAction] = useState(null);
 
@@ -88,6 +98,23 @@ export default function DeveloperOrganizations() {
   useEffect(() => {
     loadOrganizations();
   }, [loadOrganizations]);
+
+  const loadBenefitDuration = useCallback(async () => {
+    try {
+      const token = await getToken();
+      const config = await getBuyerBenefitConfig(token);
+      setBenefitDurationMonths(config.serviceFeeWaiverDurationMonths);
+    } catch (err) {
+      console.error("No se pudo leer la duración del beneficio para compradores", err);
+      setBenefitDurationMonths(null);
+    }
+  }, [getToken]);
+
+  // Se relee al abrir cada detalle: si cambió en Configuración, el botón
+  // muestra la duración que realmente va a aplicar el backend.
+  useEffect(() => {
+    if (selected) loadBenefitDuration();
+  }, [selected?.id, loadBenefitDuration]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function changeStatus(id, status) {
     setUpdatingId(id);
@@ -143,6 +170,39 @@ export default function DeveloperOrganizations() {
     } catch (err) {
       console.error("No se pudo actualizar el plan de la organización", err);
       setError(err.message || "No se pudo actualizar el plan de la organización.");
+    } finally {
+      setUpdatingId(null);
+      setUpdatingAction(null);
+    }
+  }
+
+  // Beneficio para compradores — renovación manual por la duración vigente
+  // en Developer > Configuración. El nuevo vencimiento lo decide el backend
+  // (activo: vencimiento + N meses; vencido: hoy + N meses); acá sólo se
+  // confirma y se muestra el resultado.
+  async function confirmBenefitRenewal() {
+    if (!pendingBenefitRenewal) return;
+    const org = pendingBenefitRenewal;
+    setUpdatingId(org.id);
+    setUpdatingAction("benefit");
+    setError("");
+    try {
+      const token = await getToken();
+      const { organization } = await apiFetch(`/api/organizations/${org.id}/service-fee-waiver/renew`, {
+        method: "POST",
+        token,
+      });
+      setOrganizations((prev) =>
+        prev.map((o) => (o.id === org.id ? { ...o, ...organization } : o))
+      );
+      setSelected((prev) => (prev && prev.id === org.id ? { ...prev, ...organization } : prev));
+      setRenewedBenefit({ organizationId: org.id, until: organization.serviceFeeWaivedUntil });
+      setPendingBenefitRenewal(null);
+      toast.success(`Beneficio renovado hasta ${formatWaiverDate(organization.serviceFeeWaivedUntil)}`);
+    } catch (err) {
+      console.error("No se pudo renovar el beneficio de la organización", err);
+      setPendingBenefitRenewal(null);
+      setError(err.message || "No se pudo renovar el beneficio de la organización.");
     } finally {
       setUpdatingId(null);
       setUpdatingAction(null);
@@ -361,6 +421,9 @@ export default function DeveloperOrganizations() {
           onChangeStatus={changeStatus}
           onChangePlan={(org, nextPlan) => setPendingPlanChange({ organization: org, nextPlan })}
           onChangeCategory={changeCategory}
+          onRenewBenefit={(org) => setPendingBenefitRenewal(org)}
+          renewedBenefitUntil={renewedBenefit?.organizationId === selected.id ? renewedBenefit.until : null}
+          benefitDurationMonths={benefitDurationMonths}
           onDelete={(org) => setPendingDelete(org)}
           updating={updatingId === selected.id}
         />
@@ -378,6 +441,21 @@ export default function DeveloperOrganizations() {
           loading={updatingId === pendingPlanChange.organization.id}
           onConfirm={confirmPlanChange}
           onClose={() => setPendingPlanChange(null)}
+        />
+      )}
+
+      {pendingBenefitRenewal && (
+        <ConfirmDialog
+          title={renewBenefitLabel(getServiceFeeWaiverStatus(pendingBenefitRenewal), benefitDurationMonths)}
+          description={
+            getServiceFeeWaiverStatus(pendingBenefitRenewal) === "ACTIVE"
+              ? `Los compradores de ${pendingBenefitRenewal.name} seguirán sin cargo Smarticket ${formatMonths(benefitDurationMonths)} más desde el vencimiento actual (${formatWaiverDate(pendingBenefitRenewal.serviceFeeWaivedUntil)}).`
+              : `Los compradores de ${pendingBenefitRenewal.name} no pagarán cargo Smarticket durante ${formatMonths(benefitDurationMonths)} desde hoy.`
+          }
+          confirmLabel={getServiceFeeWaiverStatus(pendingBenefitRenewal) === "ACTIVE" ? "Extender" : "Renovar"}
+          loading={updatingId === pendingBenefitRenewal.id}
+          onConfirm={confirmBenefitRenewal}
+          onClose={() => setPendingBenefitRenewal(null)}
         />
       )}
 

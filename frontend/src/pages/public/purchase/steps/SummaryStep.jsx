@@ -75,6 +75,14 @@ export default function SummaryStep({
           <span className="text-slate-400">Comisión de servicio</span>
           <span className="text-slate-300">{currency(serviceFeeTotal)}</span>
         </div>
+        {/* Beneficio para compradores: el backend informó serviceFeeWaived
+            y también cobra $0 (createSaleForBuyer). Si el aviso de cambio
+            de precio está activo, manda el desglose del backend. */}
+        {event.serviceFeeWaived && !priceChanged && serviceFeeTotal === 0 && (
+          <p className="text-xs font-semibold text-brand">
+            <span aria-hidden="true">🎉 </span>Sin cargo de servicio Smarticket
+          </p>
+        )}
         <div className="flex items-center justify-between pt-1">
           <span className="text-sm font-semibold text-slate-300">Total</span>
           <span className="text-xl font-bold text-brand">{currency(total)}</span>

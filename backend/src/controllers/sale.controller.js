@@ -9,6 +9,7 @@ import {
     getSalePdfByTokenService,
 } from "../services/sale.service.js";
 import { getActiveServiceFeeTiers, computeServiceFeeTiersVersion } from "../services/serviceFee.service.js";
+import { getServiceFeeWaiverDurationMonths } from "../services/serviceFeeWaiver.service.js";
 import { resendSaleConfirmationEmailService } from "../services/email/sendSaleConfirmationEmail.service.js";
 import {
     requestSaleRecoveryCodeService,
@@ -209,7 +210,10 @@ export const getSalePdfByToken = async (req, res, next) => {
 // updatedAt/updatedByUserId, eso es sólo para Developer > Configuración).
 export const getPublicServiceFeeTiers = async (req, res, next) => {
     try {
-        const tiers = await getActiveServiceFeeTiers();
+        const [tiers, serviceFeeWaiverDurationMonths] = await Promise.all([
+            getActiveServiceFeeTiers(),
+            getServiceFeeWaiverDurationMonths(),
+        ]);
         res.status(200).json({
             tiers: tiers.map((tier) => ({
                 minAmount: Number(tier.minAmount),
@@ -223,6 +227,11 @@ export const getPublicServiceFeeTiers = async (req, res, next) => {
             // NUNCA se expone acá: id/updatedAt/updatedByUserId de cada
             // rango (eso es sólo para Developer > Configuración).
             configVersion: computeServiceFeeTiersVersion(tiers),
+            // Beneficio inicial para compradores — sólo la duración en meses
+            // (0 = sin promoción inicial), para los textos de
+            // /costos-y-comisiones. Nunca decide nada del cobro: eso lo hace
+            // createSaleForBuyer con Organization.serviceFeeWaivedUntil.
+            serviceFeeWaiverDurationMonths,
         });
     } catch (error) {
         next(AppError.from(error));

@@ -15,3 +15,17 @@ export async function updateServiceFeeConfig(token, tiers) {
         body: JSON.stringify({ tiers }),
     });
 }
+
+// GET/PUT /api/developer/service-fee/buyer-benefit — duración del beneficio
+// inicial para compradores, en meses (0 = desactivado, máximo 12).
+export async function getBuyerBenefitConfig(token) {
+  return apiFetch("/api/developer/service-fee/buyer-benefit", { token });
+}
+
+export async function updateBuyerBenefitConfig(token, serviceFeeWaiverDurationMonths) {
+  return apiFetch("/api/developer/service-fee/buyer-benefit", {
+    token,
+    method: "PUT",
+    body: JSON.stringify({ serviceFeeWaiverDurationMonths }),
+  });
+}

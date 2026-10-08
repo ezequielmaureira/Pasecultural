@@ -19,3 +19,14 @@ export function estimateServiceFeeForUnitPrice(unitPrice, tiers) {
   // checkout si de verdad no hay configuración válida (SERVICE_FEE_CONFIG_MISSING).
   return tier ? Math.round(Number(tier.feeAmount) * 100) / 100 : 0;
 }
+
+// Beneficio para compradores — el evento público trae serviceFeeWaived
+// (GET /api/events/public/:slug, calculado por el backend con
+// isServiceFeeWaived). Si es true, el cargo estimado es $0; si no, el mismo
+// cálculo por rangos de siempre. El frontend nunca activa el beneficio por
+// su cuenta: sólo refleja lo que mandó el backend, que vuelve a decidirlo
+// al crear el checkout (createSaleForBuyer).
+export function estimateBuyerServiceFeeUnit(unitPrice, tiers, { serviceFeeWaived = false } = {}) {
+  if (serviceFeeWaived === true) return 0;
+  return estimateServiceFeeForUnitPrice(unitPrice, tiers);
+}

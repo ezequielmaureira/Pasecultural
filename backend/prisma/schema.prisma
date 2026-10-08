@@ -232,6 +232,7 @@ model User {
   // por última vez (ver PublicLaunchSettings más abajo). Mismo criterio que
   // developerAlertConfigsUpdated.
   publicLaunchSettingsUpdated                    PublicLaunchSettings[]
+  serviceFeeSettingsUpdated                      ServiceFeeSettings[]
   // Premium — trazabilidad de quién cambió el plan de cada Organization
   // por última vez (ver Organization.planUpdatedBy más abajo). Mismo
   // criterio que publicLaunchSettingsUpdated/developerAlertConfigsUpdated.
@@ -304,6 +305,18 @@ model Organization {
   // la columna y los filtros `closedAt: null` hasta convertir las filas
   // viejas (scripts/convertClosedOrganizations.js).
   closedAt DateTime?
+
+  // Beneficio para compradores — cargo de servicio Smarticket $0 (ver
+  // serviceFeeWaiver.service.js). firstEventPublishedAt es histórico: se
+  // escribe UNA vez, al publicar el primer evento, y nada lo vuelve a tocar
+  // (ni otro evento, ni republicar, ni borrar eventos, ni renovar).
+  // serviceFeeWaivedUntil nace como firstEventPublishedAt + la duración
+  // configurada en ServiceFeeSettings EN ESE MOMENTO (snapshot: cambiar la
+  // configuración después nunca lo recalcula) y sólo lo extiende Developer
+  // a mano. Con duración 0 queda null (sin promoción). Ambos null = nunca
+  // publicó.
+  firstEventPublishedAt DateTime?
+  serviceFeeWaivedUntil DateTime?
 
   // Premium — Fase 1. @default(FREE) a propósito: cero impacto en
   // organizaciones existentes, mismo criterio ya usado en este archivo
@@ -2311,4 +2324,27 @@ model QaChecklistState {
   updatedAt DateTime @updatedAt
 
   @@map("qa_checklist_states")
+}
+
+// Configuración comercial de fila única ("singleton", mismo criterio que
+// PublicLaunchSettings/DeveloperAlertConfig), editable sólo desde
+// Developer > Configuración. Complementa a ServiceFeeTier: los rangos
+// definen CUÁNTO paga el comprador sin beneficio; esto define CUÁNTO DURA
+// el beneficio inicial ($0 de cargo de servicio) desde la primera
+// publicación de cada organización. 0 = beneficio inicial desactivado.
+// Ver serviceFeeWaiver.service.js.
+model ServiceFeeSettings {
+  id String @id @default(cuid())
+
+  serviceFeeWaiverDurationMonths Int @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Nullable: la fila inicial la siembra la migración, no un DEVELOPER.
+  updatedByUserId String?
+  updatedBy       User?   @relation(fields: [updatedByUserId], references: [id])
+
+  @@index([updatedByUserId])
+  @@map("service_fee_settings")
 }

@@ -715,6 +715,40 @@ export const ErrorCatalog = Object.freeze({
     // este request). Se aborta ANTES de reservar stock o crear la Sale —
     // ver createSaleForBuyer, sale.service.js. `details` siempre lleva el
     // desglose autoritativo fresco: { ticketsSubtotal, serviceFee, total }.
+    // Beneficio para compradores (serviceFeeWaiver.service.js) — Developer
+    // intentó renovar el beneficio de una organización que todavía no
+    // publicó ningún evento (el mes empieza con la primera publicación).
+    SERVICE_FEE_WAIVER_NOT_STARTED: {
+        httpStatus: 400,
+        logMessage: "Tried to renew the buyer service fee waiver of an organization that never published an event (waiver not started yet).",
+        userMessage: "El beneficio todavía no empezó: comienza cuando la organización publique su primer evento.",
+    },
+    // Renovación optimista: el vencimiento cambió entre la lectura y el
+    // update (doble click o dos developers a la vez) — nunca suma 2 meses.
+    SERVICE_FEE_WAIVER_CONFLICT: {
+        httpStatus: 409,
+        logMessage: "serviceFeeWaivedUntil changed between read and update while renewing the buyer service fee waiver — renewal aborted to avoid a double extension.",
+        userMessage: "El beneficio cambió mientras lo renovabas. Recargá para ver el vencimiento actual.",
+    },
+    // La duración configurada del beneficio es 0 (promoción desactivada
+    // desde Developer > Configuración): no hay período que renovar.
+    SERVICE_FEE_WAIVER_DISABLED: {
+        httpStatus: 400,
+        logMessage: "Tried to renew the buyer service fee waiver while serviceFeeWaiverDurationMonths is 0 (promotion disabled in Developer settings).",
+        userMessage: "Beneficio promocional desactivado desde Configuración.",
+    },
+    // service_fee_settings — fila única sembrada por la migración. Sólo
+    // falta si alguien la borró a mano.
+    SERVICE_FEE_SETTINGS_MISSING: {
+        httpStatus: 500,
+        logMessage: "No service_fee_settings row exists (the migration seeds one) — the buyer benefit duration cannot be read.",
+        userMessage: "No pudimos leer la configuración del beneficio para compradores.",
+    },
+    SERVICE_FEE_SETTINGS_INVALID: {
+        httpStatus: 400,
+        logMessage: "serviceFeeWaiverDurationMonths must be an integer between 0 and MAX_SERVICE_FEE_WAIVER_DURATION_MONTHS.",
+        userMessage: "La duración del beneficio debe ser un número entero de meses entre 0 y 12.",
+    },
     SERVICE_FEE_CHANGED: {
         httpStatus: 409,
         logMessage: "The buyer-confirmed price breakdown from the summary screen no longer matches the authoritative server-side calculation — ticket price and/or service fee tiers changed between summary and checkout. Aborted before creating any Sale, stock reservation, or Mercado Pago preference.",

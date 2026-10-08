@@ -9,3 +9,12 @@ export async function getPublicServiceFeeTiers() {
     const { tiers } = await apiFetch("/api/sales/service-fee-tiers");
     return tiers;
 }
+
+// Mismo endpoint, para /costos-y-comisiones: los rangos y la duración del
+// beneficio inicial para compradores (serviceFeeWaiverDurationMonths, 0 =
+// sin promoción inicial). Las dos configuraciones comerciales salen de
+// Developer > Configuración; acá sólo se leen.
+export async function getPublicServiceFeeConfig() {
+  const { tiers, serviceFeeWaiverDurationMonths } = await apiFetch("/api/sales/service-fee-tiers");
+  return { tiers, serviceFeeWaiverDurationMonths: Number.isInteger(serviceFeeWaiverDurationMonths) ? serviceFeeWaiverDurationMonths : null };
+}

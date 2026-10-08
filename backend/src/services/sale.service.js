@@ -18,6 +18,7 @@ import { buildTicketsPdfBuffer } from "./email/ticketsPdf.js";
 import { round2 } from "../utils/money.js";
 import { isTrustedPaymentEvidence, MERCADO_PAGO_CONFIRMATION_SOURCES } from "./paymentEvidence.js";
 import { getValidatedServiceFeeTiersOrThrow, calculateServiceFeeForUnitPrice } from "./serviceFee.service.js";
+import { isServiceFeeWaived } from "./serviceFeeWaiver.service.js";
 import { sendDeveloperAlert, DeveloperAlertType, tryClaimDeveloperAlertCooldown } from "./email/sendDeveloperAlert.service.js";
 import { getDeveloperAlertConfigOrDefaults } from "./developerAlertConfig.service.js";
 import { sendOrganizerNotification, OrganizerNotificationType } from "./email/sendOrganizerNotification.service.js";
@@ -183,7 +184,7 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
 
     const event = await prisma.event.findUnique({
         where: { id: input?.eventId },
-        include: { organization: { select: { closedAt: true } } },
+        include: { organization: { select: { closedAt: true, serviceFeeWaivedUntil: true } } },
     });
     // Una organización cerrada (legacy closedAt) o eliminada por su
     // propietario (evento histórico desacoplado, organization null) ya no
@@ -258,7 +259,15 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
     // ninguna Sale ni tocado ningún lock. Ver serviceFee.service.js —
     // fallar fuerte acá es exactamente lo que evita un checkout con
     // comisión $0 por accidente.
-    const serviceFeeTiers = applyServiceFee ? await getValidatedServiceFeeTiersOrThrow() : null;
+    //
+    // Beneficio para compradores (serviceFeeWaiver.service.js): si la
+    // organización del evento está dentro de su beneficio
+    // (now < serviceFeeWaivedUntil), el cargo es $0 — misma estructura de
+    // siempre (ticketsSubtotal/serviceFee/serviceFeeUnit fotografiados,
+    // sólo que en 0), sin leer los rangos: no se usan. Al vencer, vuelve
+    // exactamente el cálculo por rangos de abajo.
+    const serviceFeeWaived = applyServiceFee && isServiceFeeWaived(event.organization);
+    const serviceFeeTiers = applyServiceFee && !serviceFeeWaived ? await getValidatedServiceFeeTiersOrThrow() : null;
 
     // Validaciones/precio que NO dependen de disponibilidad en vivo
     // (existe, está habilitado, respeta maxPerPurchase) — no hace falta
@@ -280,7 +289,10 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
         const subtotal = round2(unitPrice * item.quantity);
         const itemData = { ticketTypeId: item.ticketTypeId, quantity: item.quantity, unitPrice, subtotal, serviceFeeUnit: null, serviceFeeSubtotal: null };
 
-        if (serviceFeeTiers) {
+        if (serviceFeeWaived) {
+            itemData.serviceFeeUnit = 0;
+            itemData.serviceFeeSubtotal = 0;
+        } else if (serviceFeeTiers) {
             const serviceFeeUnit = calculateServiceFeeForUnitPrice(unitPrice, serviceFeeTiers);
             if (serviceFeeUnit === null) {
                 // Precio positivo que no cae en ningún rango configurado —
@@ -305,8 +317,8 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
     // entradas, nunca descontada de él (ver el comentario de Sale.total en
     // schema.prisma). Para MANUAL/Courtesy (applyServiceFee=false), total
     // sigue siendo exactamente ticketsSubtotal, sin cambios.
-    const serviceFeeTotal = serviceFeeTiers ? round2(saleItemsData.reduce((sum, item) => sum + (item.serviceFeeSubtotal ?? 0), 0)) : null;
-    const total = serviceFeeTiers ? round2(ticketsSubtotal + serviceFeeTotal) : ticketsSubtotal;
+    const serviceFeeTotal = applyServiceFee ? round2(saleItemsData.reduce((sum, item) => sum + (item.serviceFeeSubtotal ?? 0), 0)) : null;
+    const total = applyServiceFee ? round2(ticketsSubtotal + serviceFeeTotal) : ticketsSubtotal;
 
     // Ronda de endurecimiento — protección optimista: comparación exacta
     // contra lo que el comprador confirmó ver en el Wizard, ANTES de tocar
@@ -386,8 +398,8 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
                 eventId: event.id,
                 functionId: eventFunction.id,
                 total,
-                ticketsSubtotal: serviceFeeTiers ? ticketsSubtotal : null,
-                serviceFee: serviceFeeTiers ? serviceFeeTotal : null,
+                ticketsSubtotal: applyServiceFee ? ticketsSubtotal : null,
+                serviceFee: applyServiceFee ? serviceFeeTotal : null,
                 // Mismo generador que TicketQr.secretEncrypted usa para el secret
                 // del QR (crypto.randomBytes, no Math.random ni un cuid): esto va
                 // a viajar en la URL del comprador y funciona como bearer token

@@ -5,7 +5,13 @@ import { Field, inputClass } from "../../components/ui/FormField.jsx";
 import Button from "../../components/ui/Button.jsx";
 import InlineErrorNotice from "../../components/ui/InlineErrorNotice.jsx";
 import { formatCurrencyARS, formatDateTime } from "../../lib/format.js";
-import { getServiceFeeConfig, updateServiceFeeConfig } from "../../lib/developerServiceFeeApi.js";
+import {
+  getServiceFeeConfig,
+  updateServiceFeeConfig,
+  getBuyerBenefitConfig,
+  updateBuyerBenefitConfig,
+} from "../../lib/developerServiceFeeApi.js";
+import { formatMonths } from "../../lib/serviceFeeWaiver.js";
 import { getDeveloperAlertConfig, updateDeveloperAlertConfig } from "../../lib/developerAlertConfigApi.js";
 import { getDeveloperLaunchStatus, updateDeveloperLaunchStatus } from "../../lib/publicLaunchApi.js";
 
@@ -331,6 +337,126 @@ function DeveloperAlertConfigSection() {
   );
 }
 
+// Beneficio inicial para compradores — duración en meses del cargo de
+// servicio $0 desde la primera publicación de cada organización
+// (service_fee_settings, ver backend/src/services/serviceFeeWaiver.service.js).
+// Junto a los rangos: son las dos configuraciones comerciales del cargo.
+const MAX_BUYER_BENEFIT_MONTHS = 12;
+
+function BuyerBenefitConfigSection() {
+  const { getToken } = useAuth();
+  const [value, setValue] = useState("");
+  const [updatedAt, setUpdatedAt] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [savedMessage, setSavedMessage] = useState("");
+
+  async function load() {
+    setLoading(true);
+    setLoadError(false);
+    try {
+      const token = await getToken();
+      const config = await getBuyerBenefitConfig(token);
+      setValue(String(config.serviceFeeWaiverDurationMonths));
+      setUpdatedAt(config.updatedAt);
+    } catch (err) {
+      console.error("No se pudo cargar el beneficio para compradores", err);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const months = Number(value);
+  const valid = value !== "" && Number.isInteger(months) && months >= 0 && months <= MAX_BUYER_BENEFIT_MONTHS;
+
+  async function handleSave() {
+    setSaveError("");
+    setSavedMessage("");
+    if (!valid) {
+      setSaveError(`Ingresá un número entero de meses entre 0 y ${MAX_BUYER_BENEFIT_MONTHS}.`);
+      return;
+    }
+    setSaving(true);
+    try {
+      const token = await getToken();
+      const config = await updateBuyerBenefitConfig(token, months);
+      setValue(String(config.serviceFeeWaiverDurationMonths));
+      setUpdatedAt(config.updatedAt);
+      setSavedMessage(
+        config.serviceFeeWaiverDurationMonths === 0
+          ? "Beneficio inicial desactivado."
+          : `Beneficio inicial: ${formatMonths(config.serviceFeeWaiverDurationMonths)}.`
+      );
+    } catch (err) {
+      setSaveError(err.message || "No pudimos guardar el beneficio para compradores.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return <p className="text-sm text-slate-400">Cargando beneficio para compradores...</p>;
+  }
+
+  if (loadError) {
+    return <InlineErrorNotice message="No pudimos cargar el beneficio para compradores." onRetry={load} />;
+  }
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-[#111713]/90 p-5">
+      <div className="mb-4 flex flex-col gap-1">
+        <h2 className="text-sm font-semibold text-white">Beneficio para compradores</h2>
+        <p className="text-xs leading-relaxed text-slate-500">
+          Se aplica desde la primera publicación de una organización. El valor queda fijado al iniciar el beneficio.
+          Los cambios no modifican promociones ya iniciadas. 0 = sin beneficio inicial.
+        </p>
+        {updatedAt && <p className="text-xs text-slate-600">Última modificación: {formatDateTime(updatedAt)}</p>}
+      </div>
+
+      {saveError && (
+        <div className="mb-4 rounded-lg border border-rose-500/20 bg-rose-500/5 p-3">
+          <p className="text-sm text-rose-300">{saveError}</p>
+        </div>
+      )}
+      {savedMessage && (
+        <div className="mb-4 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+          <p className="text-sm text-emerald-300">{savedMessage}</p>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Duración inicial">
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={MAX_BUYER_BENEFIT_MONTHS}
+              step="1"
+              className={`${inputClass} w-24`}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+            />
+            <span className="text-sm text-slate-400">{months === 1 ? "mes" : "meses"}</span>
+          </div>
+        </Field>
+        <Button onClick={handleSave} loading={saving} loadingText="Guardando..." className="ml-auto">
+          <Save className="h-4 w-4" />
+          Guardar beneficio
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function DeveloperSettings() {
   const { getToken } = useAuth();
 
@@ -559,6 +685,8 @@ export default function DeveloperSettings() {
           </table>
         </div>
       </div>
+
+      <BuyerBenefitConfigSection />
 
       <PublicLaunchSection />
 

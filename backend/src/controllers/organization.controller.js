@@ -13,6 +13,7 @@ import {
     deleteOrganizationService,
     getPublicOrganizationBySlugService,
 } from "../services/organization.service.js";
+import { renewServiceFeeWaiverService } from "../services/serviceFeeWaiver.service.js";
 import {
     getFeaturedOrganizationsService,
     getPublicOrganizationsListService,
@@ -370,6 +371,31 @@ export const getPublicOrganizationsList = async (req, res) => {
         console.error(error);
         res.status(500).json({
             message: "Error al obtener las organizaciones",
+        });
+    }
+};
+
+// Developer → "Extender beneficio N meses" / "Renovar beneficio por N meses"
+// (beneficio para compradores, ver serviceFeeWaiver.service.js). Sin body:
+// el backend decide el nuevo vencimiento según el estado actual.
+export const renewOrganizationServiceFeeWaiver = async (req, res, next) => {
+    try {
+        const organization = await renewServiceFeeWaiverService(req.params.id, req.dbUser.id);
+
+        if (!organization) {
+            return res.status(404).json({
+                message: "Organización no encontrada",
+            });
+        }
+
+        res.status(200).json({ organization });
+    } catch (error) {
+        if (error instanceof AppError) return next(error);
+
+        console.error(error);
+
+        res.status(500).json({
+            message: "Error al renovar el beneficio de la organización",
         });
     }
 };

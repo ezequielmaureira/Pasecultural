@@ -7,7 +7,7 @@ import { usePublishFlow } from "../../../hooks/usePublishFlow.js";
 import { apiFetch } from "../../../lib/api.js";
 import { getSaleStatus } from "../../../lib/saleApi.js";
 import { getPublicServiceFeeTiers } from "../../../lib/serviceFeeApi.js";
-import { estimateServiceFeeForUnitPrice } from "../../../lib/serviceFee.js";
+import { estimateBuyerServiceFeeUnit } from "../../../lib/serviceFee.js";
 import { processPayment } from "../../../lib/payment/paymentGateway.js";
 import PurchaseOverlay from "./PurchaseOverlay.jsx";
 import SelectFunctionStep from "./steps/SelectFunctionStep.jsx";
@@ -560,8 +560,9 @@ export default function PurchaseWizard() {
     // MP-6 — estimación de comisión de servicio por tipo de entrada, sólo
     // para mostrarla acá antes de pagar (ver SummaryStep) — el importe
     // real que se cobra siempre lo calcula y fotografía el backend al
-    // crear el checkout (createSaleForBuyer, sale.service.js).
-    const serviceFeeUnit = estimateServiceFeeForUnitPrice(unitPrice, serviceFeeTiers);
+    // crear el checkout (createSaleForBuyer, sale.service.js). $0 si la
+    // organización tiene el beneficio para compradores activo.
+    const serviceFeeUnit = estimateBuyerServiceFeeUnit(unitPrice, serviceFeeTiers, event);
     return {
       ticketTypeId,
       name: option?.name ?? "",

@@ -6,7 +6,7 @@ import { formatEventDateTime } from "../../lib/eventFormat.js";
 import { usePublishFlow } from "../../hooks/usePublishFlow.js";
 import { processPayment } from "../../lib/payment/paymentGateway.js";
 import { getPublicServiceFeeTiers } from "../../lib/serviceFeeApi.js";
-import { estimateServiceFeeForUnitPrice } from "../../lib/serviceFee.js";
+import { estimateBuyerServiceFeeUnit } from "../../lib/serviceFee.js";
 import { isEventFinished } from "../../lib/eventFinished.js";
 import { currency } from "../organizer/eventWizard/model.js";
 import SelectTicketsStep from "./purchase/steps/SelectTicketsStep.jsx";
@@ -335,7 +335,7 @@ export default function QuickPass() {
   const lineItems = lineItemsRaw.map(([ticketTypeId, quantity]) => {
     const option = ticketOptions.find((o) => o.ticketTypeId === ticketTypeId);
     const unitPrice = option?.price ?? 0;
-    const serviceFeeUnit = estimateServiceFeeForUnitPrice(unitPrice, serviceFeeTiers);
+    const serviceFeeUnit = estimateBuyerServiceFeeUnit(unitPrice, serviceFeeTiers, fullEvent ?? {});
     return {
       ticketTypeId,
       quantity,

@@ -11,6 +11,7 @@ import { logger } from "../logging/logger.js";
 import { sendDeveloperAlert, DeveloperAlertType, tryClaimDeveloperAlertCooldown } from "./email/sendDeveloperAlert.service.js";
 import { getDeveloperAlertConfigOrDefaults } from "./developerAlertConfig.service.js";
 import { getLimitForOrganization, PlanLimitKey } from "./organizationPlanPolicy.js";
+import { isServiceFeeWaived, recordFirstEventPublication } from "./serviceFeeWaiver.service.js";
 
 // Premium — Fase 2B. "Evento activo" (lo único que consume cupo de
 // maxActiveEvents) = status PUBLISHED && archivedAt IS NULL. Advisory lock
@@ -738,15 +739,22 @@ export const updateMyEventService = async (clerkId, id, input, organizationId = 
     // tal cual lo devolvió el wizard) nunca pasa por acá — no debe
     // bloquearse sólo porque la Organization esté por encima del límite
     // por un downgrade previo (ver el informe de diseño).
-    const isNewActivation = Object.hasOwn(input, "status") && input.status === "PUBLISHED" && event.status !== "PUBLISHED";
-    if (isNewActivation) {
-        const quotaCheck = await resolveActiveEventsQuotaCheck(context.organization, event.organizationId);
-        if (quotaCheck) {
-            return prisma.$transaction(async (tx) => {
-                await quotaCheck(tx);
-                return tx.event.update({ where: { id }, data, include: EVENT_DETAIL_INCLUDE });
-            });
-        }
+    const isPublishing = Object.hasOwn(input, "status") && input.status === "PUBLISHED";
+    const isNewActivation = isPublishing && event.status !== "PUBLISHED";
+    const quotaCheck = isNewActivation ? await resolveActiveEventsQuotaCheck(context.organization, event.organizationId) : null;
+
+    // Beneficio para compradores — toda publicación pasa por acá (wizard
+    // web y bot de WhatsApp vía EventServicePort): en la MISMA transacción
+    // que deja el evento PUBLISHED se registra, una única vez, la primera
+    // publicación de la organización (firstEventPublishedAt +
+    // serviceFeeWaivedUntil). Ver serviceFeeWaiver.service.js.
+    if (isPublishing) {
+        return prisma.$transaction(async (tx) => {
+            if (quotaCheck) await quotaCheck(tx);
+            const updated = await tx.event.update({ where: { id }, data, include: EVENT_DETAIL_INCLUDE });
+            await recordFirstEventPublication(tx, event.organizationId);
+            return updated;
+        });
     }
 
     return prisma.event.update({ where: { id }, data, include: EVENT_DETAIL_INCLUDE });
@@ -1318,7 +1326,10 @@ export const getPublicEventsService = async ({ category, search, sort, when, pri
 // antes este endpoint no traía nada de esto y el botón "Comprar entradas"
 // de EventDetail.jsx quedaba armado con datos inexistentes.
 const PUBLIC_EVENT_DETAIL_INCLUDE = {
-    organization: PUBLIC_ORGANIZATION_SELECT,
+    // serviceFeeWaivedUntil sólo para derivar serviceFeeWaived (ver
+    // getPublicEventBySlugService) — nunca se devuelve dentro de
+    // `organization`.
+    organization: { select: { ...PUBLIC_ORGANIZATION_SELECT.select, serviceFeeWaivedUntil: true } },
     links: { orderBy: { order: "asc" } },
     ticketTypes: { orderBy: { createdAt: "asc" } },
     functions: {
@@ -1380,8 +1391,25 @@ export const getPublicEventBySlugService = async (slug) => {
         return null;
     }
 
-    return attachTicketAvailability(event);
+    return attachTicketAvailability(withServiceFeeWaiver(event));
 };
+
+// Beneficio para compradores — el Wizard de compra y Quick Pass estiman el
+// cargo con esto (serviceFeeWaived → $0), pero NO lo deciden: el cobro
+// real lo recalcula createSaleForBuyer con la misma regla
+// (isServiceFeeWaived) y, si el beneficio venció entre medio, la
+// verificación de expectedTotals devuelve SERVICE_FEE_CHANGED con el
+// desglose correcto.
+function withServiceFeeWaiver(event) {
+    const { serviceFeeWaivedUntil, ...organization } = event.organization;
+    const serviceFeeWaived = isServiceFeeWaived({ serviceFeeWaivedUntil });
+    return {
+        ...event,
+        organization,
+        serviceFeeWaived,
+        serviceFeeWaivedUntil: serviceFeeWaived ? serviceFeeWaivedUntil : null,
+    };
+}
 
 // Quick Pass V1 — pantalla pública /quick-pass/:slug. Reutiliza EXACTAMENTE
 // las mismas reglas de visibilidad/disponibilidad que EventDetail/
