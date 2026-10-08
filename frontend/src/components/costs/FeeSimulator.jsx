@@ -5,13 +5,13 @@ import { formatPriceInput, sanitizePriceInput, simulatePurchase } from "../../li
 
 // Textos por audiencia: la cuenta es la misma (lib/feeSimulation.js), sólo
 // cambia cómo se cuenta. "organizer" agrega la fila de comisión al
-// organizador, que siempre es $0 y tiene el selector de beneficio.
-// "attendee" NO tiene selector: simula siempre con los rangos (el cargo
-// real de cada evento se informa antes de confirmar la compra).
+// organizador, que siempre es $0. Ninguno tiene selector de beneficio:
+// simulan siempre el funcionamiento normal con los service_fee_tiers reales
+// (la promoción inicial se explica en el bloque informativo de la página y
+// el cargo real de cada evento se informa antes de confirmar la compra).
 const COPY = {
   attendee: {
     title: "Simulá tu compra",
-    question: null,
     totalLabel: "Total estimado",
     priceLabel: "Entrada",
     feeLabel: "Cargo Smarticket",
@@ -21,12 +21,9 @@ const COPY = {
   },
   organizer: {
     title: "Simulá cómo lo verá tu comprador",
-    question: "Beneficio para compradores",
-    options: ["Activo", "Sin beneficio"],
     totalLabel: "Tu comprador paga",
     priceLabel: "Precio entrada",
     feeLabel: "Cargo Smarticket al comprador",
-    promoNote: "Smarticket no descuenta comisión al organizador.",
     afterNote: "Smarticket no descuenta comisión al organizador. El comprador paga un cargo fijo según el valor de la entrada.",
   },
 };
@@ -46,19 +43,13 @@ function Row({ label, value, strong = false, accent = false }) {
   );
 }
 
-// Organizadores: el selector "Beneficio para compradores" se muestra
-// SIEMPRE, aunque la promoción inicial esté en 0 en Developer >
-// Configuración (puede haber beneficios vigentes u otorgados a mano).
 export default function FeeSimulator({ audience = "attendee", tiers, tiersStatus }) {
   const copy = COPY[audience];
-  const hasSelector = Boolean(copy.question);
   const inputId = useId();
   const [digits, setDigits] = useState("");
-  const [benefitSelected, setBenefitSelected] = useState(true);
-  const benefitActive = hasSelector && benefitSelected;
 
-  const result = simulatePurchase({ digits, benefitActive, tiers: tiersStatus === "ready" ? tiers : null });
-  const loadingFee = result && !benefitActive && result.price > 0 && tiersStatus === "loading";
+  const result = simulatePurchase({ digits, benefitActive: false, tiers: tiersStatus === "ready" ? tiers : null });
+  const loadingFee = result && result.price > 0 && tiersStatus === "loading";
   const money = (value) => (value == null ? "—" : formatCurrencyARS(value));
   const totalText = !result || loadingFee ? "—" : result.feeAvailable ? money(result.total) : "—";
 
@@ -98,38 +89,6 @@ export default function FeeSimulator({ audience = "attendee", tiers, tiersStatus
         )}
       </div>
 
-      {hasSelector && (
-        <>
-          <p id={`${inputId}-benefit`} className="mt-4 text-sm font-medium text-slate-300 light:text-slate-600">
-            {copy.question}
-          </p>
-          <div
-            role="radiogroup"
-            aria-labelledby={`${inputId}-benefit`}
-            className="mt-1.5 grid grid-cols-2 gap-1 rounded-xl border border-white/10 bg-black/30 p-1 light:border-slate-200 light:bg-slate-100"
-          >
-            {copy.options.map((label, index) => {
-              const value = index === 0;
-              const selected = benefitActive === value;
-              return (
-                <button
-                  key={label}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  onClick={() => setBenefitSelected(value)}
-                  className={`min-h-11 rounded-lg px-2 py-2 text-sm font-semibold leading-tight transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
-                    selected ? "bg-brand text-slate-950" : "text-slate-400 hover:text-white light:text-slate-500 light:hover:text-slate-900"
-                  }`}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-        </>
-      )}
-
       <div aria-live="polite" className="mt-5 rounded-xl border border-white/10 bg-black/30 p-4 light:border-slate-200 light:bg-white sm:p-5">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 light:text-slate-500">{copy.totalLabel}</p>
         <p
@@ -142,11 +101,6 @@ export default function FeeSimulator({ audience = "attendee", tiers, tiersStatus
 
         {!result && <p className="mt-2 text-sm text-slate-400 light:text-slate-500">Ingresá un precio para ver el resultado.</p>}
 
-        {result && benefitActive && result.price > 0 && (
-          <p className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-brand/40 bg-brand/10 px-3 py-1 text-xs font-semibold text-brand light:text-lime-700">
-            <span aria-hidden="true">🎉</span> Sin cargo de servicio Smarticket
-          </p>
-        )}
         {result?.isFree && (
           <p className="mt-3 text-sm text-slate-400 light:text-slate-500">Entrada gratuita: sin cargo de servicio.</p>
         )}
@@ -170,7 +124,7 @@ export default function FeeSimulator({ audience = "attendee", tiers, tiersStatus
         </dl>
 
         {result && result.price > 0 && (
-          <p className="mt-3 text-xs text-slate-400 light:text-slate-500">{benefitActive ? copy.promoNote : copy.afterNote}</p>
+          <p className="mt-3 text-xs text-slate-400 light:text-slate-500">{copy.afterNote}</p>
         )}
       </div>
 

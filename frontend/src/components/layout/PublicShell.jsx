@@ -14,8 +14,12 @@ import Footer from "./Footer.jsx";
 export default function PublicShell() {
   const [navbarBrandOverride, setNavbarBrandOverride] = useState(null);
 
+  // `overflow-clip` (no `overflow-x-hidden`): recorta el fondo ambiental de
+  // la Home (.smarticket-neon-page-ambient, que sangra por los bordes) sin
+  // convertir este div en un contenedor de scroll vertical propio — era la
+  // segunda barra de scroll de la Home. Ver styles/index.css (html/body).
   return (
-    <div className="flex min-h-screen flex-col overflow-x-hidden bg-[#090D0A] light:bg-slate-50">
+    <div className="flex min-h-screen flex-col overflow-clip bg-[#090D0A] light:bg-slate-50">
       <Navbar brandOverride={navbarBrandOverride} />
 
       <main className="flex-1">

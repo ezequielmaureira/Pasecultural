@@ -39,11 +39,24 @@
 /* Salvavidas contra desbordamiento horizontal accidental en pantallas
    chicas — no afecta a los carruseles/listas que hacen su propio scroll
    horizontal contenido (ver .no-scrollbar más abajo), sólo evita que la
-   PÁGINA completa scrollee de lado. */
+   PÁGINA completa scrollee de lado.
+   `clip` y no `hidden`: con `overflow-x: hidden` el navegador fuerza
+   `overflow-y: auto` y `body` pasaba a ser un SEGUNDO contenedor de scroll
+   (doble barra vertical + navbar sticky sin efecto). `clip` recorta sin
+   crear contenedor de scroll: el único scroll vertical es el del
+   documento. `hidden` queda sólo como fallback (vía @supports, para que
+   el minificador no lo descarte) en navegadores sin `clip`. */
 html,
 body {
   max-width: 100%;
   overflow-x: hidden;
+}
+
+@supports (overflow-x: clip) {
+  html,
+  body {
+    overflow-x: clip;
+  }
 }
 
 body {
