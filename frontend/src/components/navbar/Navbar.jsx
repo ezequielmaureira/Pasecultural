@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { Ticket, LayoutDashboard, Menu, X, ChevronDown, MapPin, Sparkles } from "lucide-react";
+import { Ticket, LayoutDashboard, Menu, X, ChevronDown, MapPin } from "lucide-react";
 import Button from "../ui/Button.jsx";
 import NavbarDropdown from "./NavbarDropdown.jsx";
 import SearchBar from "./SearchBar.jsx";
@@ -132,21 +132,6 @@ export default function Navbar({ brandOverride = null }) {
           </Link>
         )}
 
-        {!brandOverride && (
-          // Debajo de `sm` sólo el ícono: con el texto, logo + este link +
-          // "Ingresar" + hamburguesa no entran en un celular (~430px
-          // mínimos). El link con texto sigue en el menú hamburguesa.
-          <Link
-            to="/como-funciona"
-            aria-label="¿Cómo funciona?"
-            title="¿Cómo funciona?"
-            className="flex h-8 w-8 shrink-0 items-center justify-center gap-1 rounded-full border border-brand/60 bg-black/30 text-[11px] font-semibold text-white shadow-[0_0_14px_rgba(182,255,46,0.35)] transition-all duration-150 hover:border-brand hover:shadow-[0_0_20px_rgba(182,255,46,0.5)] sm:h-auto sm:w-auto sm:px-3 sm:py-1.5 sm:text-xs"
-          >
-            <Sparkles className="h-3.5 w-3.5 shrink-0 text-brand" />
-            <span className="hidden whitespace-nowrap sm:inline">¿Cómo funciona?</span>
-          </Link>
-        )}
-
         {/* Con brandOverride, el bloque de identidad (arriba) ya reserva un
             ancho mínimo fijo — el nav completo (5 links + 2 dropdowns) no
             entra cómodo compartiendo fila con eso hasta pantallas grandes,
@@ -160,9 +145,6 @@ export default function Navbar({ brandOverride = null }) {
         >
           <NavbarDropdown label="Explorar eventos" items={EXPLORE_EVENTS_OPTIONS} />
           <NavbarDropdown label="Categorías" items={CATEGORY_ITEMS} />
-          <NavLink to="/como-funciona" className={navLinkClassName}>
-            ¿Cómo funciona?
-          </NavLink>
           <NavLink
             to={isOrganizer ? "/organizador" : "/para-organizadores"}
             className={navLinkClassName}
@@ -260,13 +242,6 @@ export default function Navbar({ brandOverride = null }) {
               </div>
             </details>
 
-            <NavLink
-              to="/como-funciona"
-              onClick={() => setMobileOpen(false)}
-              className="rounded-lg px-3 py-2.5 text-sm font-medium text-slate-200 transition-colors duration-150 hover:bg-white/5 hover:text-white light:text-slate-700 light:hover:bg-slate-900/5 light:hover:text-slate-900"
-            >
-              ¿Cómo funciona?
-            </NavLink>
             <NavLink
               to={isOrganizer ? "/organizador" : "/para-organizadores"}
               onClick={() => setMobileOpen(false)}

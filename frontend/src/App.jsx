@@ -11,6 +11,7 @@ import SignUpPage from "./pages/SignUp.jsx";
 import PostAuth from "./pages/PostAuth.jsx";
 import OrganizerOnboarding from "./pages/organizer/OrganizerOnboarding.jsx";
 import HowItWorks from "./pages/HowItWorks.jsx";
+import CostsAndFees from "./pages/CostsAndFees.jsx";
 import PrivacyPolicy from "./pages/PrivacyPolicy.jsx";
 import DataDeletion from "./pages/DataDeletion.jsx";
 import Profile from "./pages/Profile.jsx";
@@ -132,6 +133,9 @@ export default function App() {
             <Route path="/scanner/portal" element={<ScannerPortal />} />
             <Route path="/para-organizadores" element={<OrganizersLanding />} />
             <Route path="/como-funciona" element={<HowItWorks />} />
+            {/* Pública, mismo patrón que /como-funciona. Por ahora sólo
+                estructura: los montos se definen más adelante. */}
+            <Route path="/costos-y-comisiones" element={<CostsAndFees />} />
             {/* Páginas legales públicas requeridas por Meta para publicar la
                 app de WhatsApp Business — sin auth, mismo patrón que
                 /como-funciona. */}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { ChevronRight, ShieldCheck, Ticket, UserCheck, Headset, Search, ScanLine } from "lucide-react";
+import { ChevronRight, ShieldCheck, Ticket, UserCheck, Headset, Search, ScanLine, CircleHelp, Wallet } from "lucide-react";
 import HeroCarousel from "../components/marketplace/HeroCarousel.jsx";
 import CategoryFilterBar from "../components/marketplace/CategoryFilterBar.jsx";
 import EventsCarousel from "../components/marketplace/EventsCarousel.jsx";
@@ -98,6 +98,50 @@ function TrustBar() {
             </div>
           );
         })}
+      </div>
+    </section>
+  );
+}
+
+// Accesos permanentes justo debajo de la TrustBar ("Soporte siempre
+// disponible"): fuera del Navbar a propósito, para no recargar el header.
+// "¿Cómo funciona?" reutiliza la página existente (/como-funciona); "Costos
+// y comisiones" lleva a su página informativa (pages/CostsAndFees.jsx).
+const INFO_LINKS = [
+  {
+    to: "/como-funciona",
+    icon: CircleHelp,
+    title: "¿Cómo funciona?",
+    subtitle: "Comprar, publicar y escanear entradas, paso a paso.",
+  },
+  {
+    to: "/costos-y-comisiones",
+    icon: Wallet,
+    title: "Costos y comisiones",
+    subtitle: "Qué se cobra a asistentes y a organizadores.",
+  },
+];
+
+function InfoLinksSection() {
+  return (
+    <section className={`${SECTION} ${SECTION_SPACING}`}>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {INFO_LINKS.map(({ to, icon: Icon, title, subtitle }) => (
+          <Link
+            key={to}
+            to={to}
+            className="smarticket-neon-surface group flex min-h-24 items-center gap-4 rounded-2xl p-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand max-[359px]:gap-3 max-[359px]:p-4 sm:p-6"
+          >
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand max-[359px]:h-10 max-[359px]:w-10 shadow-[0_0_14px_-4px_rgba(132,204,22,0.55)] light:shadow-[0_0_10px_-6px_rgba(132,204,22,0.3)]">
+              <Icon className="h-6 w-6" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-base font-bold text-white light:text-slate-900 sm:text-lg">{title}</p>
+              <p className="text-xs text-slate-400 light:text-slate-500 sm:text-sm">{subtitle}</p>
+            </div>
+            <ChevronRight className="h-5 w-5 shrink-0 text-brand transition-transform duration-150 group-hover:translate-x-1" />
+          </Link>
+        ))}
       </div>
     </section>
   );
@@ -255,6 +299,7 @@ export default function Home() {
         )}
 
         <TrustBar />
+        <InfoLinksSection />
         <RecoverPurchaseSection />
         <ScannerPortalSection />
       </div>
