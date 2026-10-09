@@ -3,31 +3,10 @@ import { X } from "lucide-react";
 import { formatCurrencyARS } from "../../lib/format.js";
 import { formatPriceInput, sanitizePriceInput, simulatePurchase } from "../../lib/feeSimulation.js";
 
-// Textos por audiencia: la cuenta es la misma (lib/feeSimulation.js), sólo
-// cambia cómo se cuenta. "organizer" agrega la fila de comisión al
-// organizador, que siempre es $0. Ninguno tiene selector de beneficio:
-// simulan siempre el funcionamiento normal con los service_fee_tiers reales
-// (la promoción inicial se explica en el bloque informativo de la página y
-// el cargo real de cada evento se informa antes de confirmar la compra).
-const COPY = {
-  attendee: {
-    title: "Simulá tu compra",
-    totalLabel: "Total estimado",
-    priceLabel: "Entrada",
-    feeLabel: "Cargo Smarticket",
-    afterNote: "Cargo fijo según el valor de la entrada. Sin porcentajes.",
-    footnote:
-      "El cargo final puede variar si existe una promoción aplicable al evento y siempre se informa antes de confirmar la compra.",
-  },
-  organizer: {
-    title: "Simulá cómo lo verá tu comprador",
-    totalLabel: "Tu comprador paga",
-    priceLabel: "Precio entrada",
-    feeLabel: "Cargo Smarticket al comprador",
-    afterNote: "Smarticket no descuenta comisión al organizador. El comprador paga un cargo fijo según el valor de la entrada.",
-  },
-};
-
+// Simulador para organizadores: siempre el funcionamiento normal con los
+// service_fee_tiers reales (la promoción inicial se explica en el bloque
+// informativo de la página, no se simula). La cuenta es lib/feeSimulation.js;
+// la comisión al organizador es siempre $0.
 function Row({ label, value, strong = false, accent = false }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-2">
@@ -43,8 +22,7 @@ function Row({ label, value, strong = false, accent = false }) {
   );
 }
 
-export default function FeeSimulator({ audience = "attendee", tiers, tiersStatus }) {
-  const copy = COPY[audience];
+export default function FeeSimulator({ tiers, tiersStatus }) {
   const inputId = useId();
   const [digits, setDigits] = useState("");
 
@@ -59,7 +37,7 @@ export default function FeeSimulator({ audience = "attendee", tiers, tiersStatus
       className="smarticket-neon-surface rounded-2xl p-4 sm:p-6"
     >
       <h3 id={`${inputId}-title`} className="text-lg font-bold text-white light:text-slate-900 sm:text-xl">
-        {copy.title}
+        Simulá cómo lo verá tu comprador
       </h3>
 
       <label htmlFor={inputId} className="mt-4 block text-sm font-medium text-slate-300 light:text-slate-600">
@@ -90,7 +68,7 @@ export default function FeeSimulator({ audience = "attendee", tiers, tiersStatus
       </div>
 
       <div aria-live="polite" className="mt-5 rounded-xl border border-white/10 bg-black/30 p-4 light:border-slate-200 light:bg-white sm:p-5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 light:text-slate-500">{copy.totalLabel}</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 light:text-slate-500">Tu comprador paga</p>
         <p
           className={`mt-1 font-extrabold leading-tight text-white tabular-nums light:text-slate-900 ${
             totalText.length > 12 ? "text-2xl [overflow-wrap:anywhere] min-[360px]:text-3xl" : "text-4xl sm:text-5xl"
@@ -111,24 +89,20 @@ export default function FeeSimulator({ audience = "attendee", tiers, tiersStatus
         )}
 
         <dl className="mt-4 divide-y divide-white/5 border-t border-white/10 light:divide-slate-200 light:border-slate-200">
-          <Row label={copy.priceLabel} value={result ? money(result.price) : "—"} />
-          {audience === "organizer" && (
-            <Row label="Comisión Smarticket al organizador" value={formatCurrencyARS(0)} accent />
-          )}
+          <Row label="Precio entrada" value={result ? money(result.price) : "—"} />
+          <Row label="Comisión Smarticket al organizador" value={formatCurrencyARS(0)} accent />
           <Row
-            label={copy.feeLabel}
+            label="Cargo Smarticket al comprador"
             value={!result || loadingFee ? "—" : result.feeAvailable ? money(result.serviceFee) : "No disponible"}
             accent={result?.serviceFee === 0}
           />
-          <Row label={audience === "organizer" ? "Total comprador" : "Total"} value={totalText} strong />
+          <Row label="Total comprador" value={totalText} strong />
         </dl>
 
         {result && result.price > 0 && (
-          <p className="mt-3 text-xs text-slate-400 light:text-slate-500">{copy.afterNote}</p>
+          <p className="mt-3 text-xs text-slate-400 light:text-slate-500">Smarticket no descuenta comisión al organizador. El comprador paga un cargo fijo según el valor de la entrada.</p>
         )}
       </div>
-
-      {copy.footnote && <p className="mt-3 text-xs text-slate-400 light:text-slate-500">{copy.footnote}</p>}
     </section>
   );
 }

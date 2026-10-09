@@ -118,7 +118,7 @@ const INFO_LINKS = [
     to: "/costos-y-comisiones",
     icon: Wallet,
     title: "Costos y comisiones",
-    subtitle: "Qué se cobra a asistentes y a organizadores.",
+    subtitle: "$0 de comisión para organizadores. Cargos fijos, sin porcentajes.",
   },
 ];
 
