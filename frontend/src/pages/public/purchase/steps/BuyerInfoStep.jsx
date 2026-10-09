@@ -23,7 +23,7 @@ function normalizeDocument(rawValue) {
 // contacto (ahí van a llegar los QR más adelante) y su DNI, que hoy sólo se
 // guarda como preparación para la futura recuperación segura de entradas
 // (todavía no existe esa pantalla).
-export default function BuyerInfoStep({ buyer, onChange, onBack, onConfirm, cardVariant, feeBreakdown }) {
+export default function BuyerInfoStep({ buyer, onChange, onBack, onConfirm, cardVariant, feeBreakdown, submitting = false }) {
   const [documentTouched, setDocumentTouched] = useState(false);
 
   const normalizedDocument = normalizeDocument(buyer.document || "");
@@ -128,7 +128,7 @@ export default function BuyerInfoStep({ buyer, onChange, onBack, onConfirm, card
           <ChevronLeft className="h-4 w-4" />
           Volver
         </Button>
-        <Button disabled={!isValid} onClick={onConfirm} className="flex-1 justify-center">
+        <Button disabled={!isValid || submitting} onClick={onConfirm} className="flex-1 justify-center">
           Pagar
         </Button>
       </div>

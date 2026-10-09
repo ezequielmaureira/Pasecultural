@@ -31,10 +31,6 @@ export async function processPayment({ eventId, functionId, items, buyer }, { id
         confirmedServiceFee: confirmedTotals?.serviceFee,
         confirmedTotal: confirmedTotals?.total,
     };
-    console.log("paymentGateway.processPayment before createMercadoPagoCheckout", {
-        ...requestBody,
-        buyerDocument: requestBody.buyerDocument ? "[present]" : undefined,
-    });
     const result = await createMercadoPagoCheckout(requestBody);
     console.log("paymentGateway.processPayment after createMercadoPagoCheckout", {
         hasCheckoutUrl: Boolean(result?.checkoutUrl),

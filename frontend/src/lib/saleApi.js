@@ -103,10 +103,6 @@ export async function createMercadoPagoCheckout({
         confirmedServiceFee,
         confirmedTotal,
     };
-    console.log("saleApi.createMercadoPagoCheckout request body", {
-        ...requestBody,
-        buyerDocument: buyerDocument ? "[present]" : undefined,
-    });
     const result = await apiFetch("/api/sales/mercadopago/checkout", {
         method: "POST",
         body: JSON.stringify(requestBody),

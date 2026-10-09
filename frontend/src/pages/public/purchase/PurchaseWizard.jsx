@@ -9,6 +9,7 @@ import { getSaleStatus } from "../../../lib/saleApi.js";
 import { getPublicServiceFeeTiers } from "../../../lib/serviceFeeApi.js";
 import { estimateBuyerServiceFeeUnit } from "../../../lib/serviceFee.js";
 import { processPayment } from "../../../lib/payment/paymentGateway.js";
+import { redirectToCheckout } from "../../../lib/payment/checkoutRedirect.js";
 import PurchaseOverlay from "./PurchaseOverlay.jsx";
 import SelectFunctionStep from "./steps/SelectFunctionStep.jsx";
 import SelectTicketsStep from "./steps/SelectTicketsStep.jsx";
@@ -235,6 +236,26 @@ export default function PurchaseWizard() {
   // resetea: eso sí cuenta como un intento nuevo. Ver
   // lib/payment/paymentGateway.js.
   const idempotencyKeyRef = useRef(null);
+
+  // Un solo checkout en vuelo por pantalla: corta un segundo "Pagar" aunque
+  // llegue antes de que React monte el overlay. Se libera sólo en error (en
+  // éxito la página se va a Mercado Pago).
+  const checkoutInFlightRef = useRef(false);
+
+  // Si el comprador vuelve con "atrás" desde Mercado Pago y el navegador
+  // restaura esta página desde su caché (bfcache), React no se vuelve a
+  // montar: el overlay seguiría abierto. Se apaga para que pueda reintentar
+  // (misma idempotencyKey => el backend devuelve el mismo checkout).
+  useEffect(() => {
+    function handlePageShow(e) {
+      if (!e.persisted) return;
+      checkoutInFlightRef.current = false;
+      publishFlow.setPublishing(false);
+    }
+    window.addEventListener("pageshow", handlePageShow);
+    return () => window.removeEventListener("pageshow", handlePageShow);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Desde MP-2, este efecto también es lo que retoma una compra cuando el
   // navegador vuelve de Checkout Pro (back_urls llevan ?saleToken=, ver
@@ -618,6 +639,8 @@ export default function PurchaseWizard() {
   // recibe de vuelta el mismo checkoutUrl de siempre, o termina de crearlo
   // si el primer intento nunca había llegado a hacerlo.
   async function handleConfirmPurchase() {
+    if (checkoutInFlightRef.current) return;
+    checkoutInFlightRef.current = true;
     setPurchaseError("");
     if (!idempotencyKeyRef.current) idempotencyKeyRef.current = crypto.randomUUID();
     const idempotencyKey = idempotencyKeyRef.current;
@@ -630,27 +653,29 @@ export default function PurchaseWizard() {
       total: displayedTotal,
     };
 
-    const action = () => {
-      console.log("PurchaseWizard.handleConfirmPurchase action starting", {
-        eventId: event.id,
-        functionId: selectedFunctionId,
-        items,
-        buyer,
-      });
-      return processPayment({ eventId: event.id, functionId: selectedFunctionId, items, buyer }, { idempotencyKey, confirmedTotals });
-    };
+    const action = () =>
+      processPayment({ eventId: event.id, functionId: selectedFunctionId, items, buyer }, { idempotencyKey, confirmedTotals });
 
     try {
-      const result = await publishFlow.run(action, { checkOutcome: action, unresolvedMessage: UNRESOLVED_PURCHASE_MESSAGE });
-      console.log("PurchaseWizard.handleConfirmPurchase after publishFlow.run", {
-        hasCheckoutUrl: Boolean(result?.checkoutUrl),
+      // keepPublishingOnSuccess: el overlay "Confirmando tu compra..." NO se
+      // cierra al recibir el checkoutUrl — cerrarlo acá volvía a mostrar
+      // "Datos del comprador" (con "Pagar" habilitado) durante el instante
+      // que tarda el navegador en salir hacia Mercado Pago.
+      const result = await publishFlow.run(action, {
+        checkOutcome: action,
+        unresolvedMessage: UNRESOLVED_PURCHASE_MESSAGE,
+        keepPublishingOnSuccess: true,
       });
       // Navegación real de nivel superior hacia Mercado Pago — nunca dentro
       // de la llamada fetch, y nunca en un iframe. El comprador vuelve
       // eventualmente por back_urls (?saleToken=...), que retoma el mismo
       // polling de arriba; esta pantalla no confirma nada por su cuenta.
-      window.location.href = result.checkoutUrl;
+      redirectToCheckout(result);
     } catch (err) {
+      // Error de la operación (run ya apagó el overlay) o respuesta sin
+      // checkoutUrl (run lo dejó prendido): en ambos casos se cierra.
+      publishFlow.setPublishing(false);
+      checkoutInFlightRef.current = false;
       console.error("PurchaseWizard.handleConfirmPurchase caught error", err);
       console.error(err.response);
       console.error(err.data);
@@ -737,6 +762,7 @@ export default function PurchaseWizard() {
           onChange={setBuyer}
           onBack={() => setPhase("summary")}
           onConfirm={handleConfirmPurchase}
+          submitting={publishFlow.publishing}
         />
       )}
 

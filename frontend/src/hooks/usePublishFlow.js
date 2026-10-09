@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { DEFAULT_TIMEOUT_MS } from "../lib/api.js";
+import { createPublishRunner } from "./publishRunner.js";
 
 // Cuánto y cada cuánto reintentar confirmar el resultado real después de un
 // timeout durante una publicación: 15 intentos cada 2s = hasta 30s extra de
@@ -8,13 +9,6 @@ import { DEFAULT_TIMEOUT_MS } from "../lib/api.js";
 // verificación, después, de qué pasó realmente.
 const POLL_ATTEMPTS = 15;
 const POLL_INTERVAL_MS = 2000;
-
-const UNRESOLVED_MESSAGE =
-  "No pudimos confirmar si se guardó. Revisá la lista de tus eventos antes de reintentar para no duplicarlo.";
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 // Estado y lógica compartida de "publicar algo que puede tardar": un
 // spinner mientras se espera la respuesta y, si la operación se cae por
@@ -29,81 +23,19 @@ function sleep(ms) {
 // hace 1 request, el wizard clásico hace varios, así que la misma
 // DEFAULT_TIMEOUT_MS individual nunca se sentía igual de lejos), `run()`
 // trata toda la operación —sin importar cuántos requests haga `action()``
-// por dentro— como una sola unidad de tiempo con un único timer.
+// por dentro— como una sola unidad de tiempo con un único timer. La lógica
+// vive en publishRunner.js (testeable sin React).
 export function usePublishFlow() {
   const [publishing, setPublishing] = useState(false);
   const [checkingOutcome, setCheckingOutcome] = useState(false);
 
-  async function confirmAfterTimeout(checkOutcome) {
-    setCheckingOutcome(true);
-    try {
-      for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
-        await sleep(POLL_INTERVAL_MS);
-        let outcome;
-        try {
-          outcome = await checkOutcome();
-        } catch (error) {
-          console.error("usePublishFlow.confirmAfterTimeout checkOutcome error", error);
-          console.error(error.response);
-          console.error(error.data);
-          console.error(error.stack);
-          continue; // problema de red puntual en el chequeo: reintenta en la próxima vuelta
-        }
-        if (outcome) return outcome;
-      }
-      return null;
-    } finally {
-      setCheckingOutcome(false);
-    }
-  }
-
-  // action(): la operación real (uno o varios fetches encadenados).
-  // checkOutcome(): cómo confirmar, después de un timeout, si terminó igual.
-  // unresolvedMessage(): opcional — el mensaje del error final si ni la
-  // operación ni la confirmación por timeout resolvieron nada. Por default
-  // el mensaje de "evento" (primer caso de uso del hook); otros llamadores
-  // (ej. compra de entradas) pasan el suyo sin tener que duplicar `run()`.
-  //
-  // Devuelve lo que resuelva `action()`. Si el timer propio gana la carrera
-  // antes que `action()`, pasa a confirmar el resultado real: si lo
-  // encuentra, resuelve igual (con `recovered: true`); si no, tira un error
-  // `isTimeout` con el mensaje unificado para que el llamador lo muestre.
-  async function run(action, { checkOutcome, unresolvedMessage = UNRESOLVED_MESSAGE }) {
-    setPublishing(true);
-    try {
-      let timeoutId;
-      const timeout = new Promise((_, reject) => {
-        timeoutId = setTimeout(() => {
-          const err = new Error("La operación está tardando más de lo esperado.");
-          err.isTimeout = true;
-          reject(err);
-        }, DEFAULT_TIMEOUT_MS);
-      });
-
-      try {
-        const result = await Promise.race([action(), timeout]);
-        return result;
-      } catch (err) {
-        console.error("usePublishFlow.run caught error", err);
-        console.error(err.response);
-        console.error(err.data);
-        console.error(err.stack);
-        if (!err.isTimeout) throw err;
-
-        const outcome = await confirmAfterTimeout(checkOutcome);
-        if (outcome) return outcome;
-
-        const unresolvedError = new Error(unresolvedMessage);
-        unresolvedError.isTimeout = true;
-        unresolvedError.unresolved = true;
-        throw unresolvedError;
-      } finally {
-        clearTimeout(timeoutId);
-      }
-    } finally {
-      setPublishing(false);
-    }
-  }
+  const { confirmAfterTimeout, run } = createPublishRunner({
+    setPublishing,
+    setCheckingOutcome,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    pollAttempts: POLL_ATTEMPTS,
+    pollIntervalMs: POLL_INTERVAL_MS,
+  });
 
   return { publishing, setPublishing, checkingOutcome, confirmAfterTimeout, run };
 }

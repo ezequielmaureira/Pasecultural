@@ -5,6 +5,7 @@ import { apiFetch } from "../../lib/api.js";
 import { formatEventDateTime } from "../../lib/eventFormat.js";
 import { usePublishFlow } from "../../hooks/usePublishFlow.js";
 import { processPayment } from "../../lib/payment/paymentGateway.js";
+import { redirectToCheckout } from "../../lib/payment/checkoutRedirect.js";
 import { getPublicServiceFeeTiers } from "../../lib/serviceFeeApi.js";
 import { estimateBuyerServiceFeeUnit } from "../../lib/serviceFee.js";
 import { isEventFinished } from "../../lib/eventFinished.js";
@@ -165,6 +166,21 @@ export default function QuickPass() {
   const [purchaseError, setPurchaseError] = useState("");
   const publishFlow = usePublishFlow();
   const idempotencyKeyRef = useRef(null);
+  // Mismo criterio que PurchaseWizard: un solo checkout en vuelo, y el
+  // overlay se apaga si el navegador restaura la página desde bfcache al
+  // volver con "atrás" desde Mercado Pago.
+  const checkoutInFlightRef = useRef(false);
+
+  useEffect(() => {
+    function handlePageShow(e) {
+      if (!e.persisted) return;
+      checkoutInFlightRef.current = false;
+      publishFlow.setPublishing(false);
+    }
+    window.addEventListener("pageshow", handlePageShow);
+    return () => window.removeEventListener("pageshow", handlePageShow);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -259,6 +275,8 @@ export default function QuickPass() {
   }
 
   async function handleConfirmPurchase(fullEvent, selectedFunction, lineItems, totals) {
+    if (checkoutInFlightRef.current) return;
+    checkoutInFlightRef.current = true;
     setPurchaseError("");
     if (!idempotencyKeyRef.current) idempotencyKeyRef.current = crypto.randomUUID();
     const idempotencyKey = idempotencyKeyRef.current;
@@ -276,11 +294,15 @@ export default function QuickPass() {
       );
 
     try {
-      const result = await publishFlow.run(action, { checkOutcome: action });
+      // El overlay queda abierto hasta que el navegador sale hacia Mercado
+      // Pago (ver keepPublishingOnSuccess en hooks/publishRunner.js).
+      const result = await publishFlow.run(action, { checkOutcome: action, keepPublishingOnSuccess: true });
       // Mismo circuito real de siempre: navegación de nivel superior hacia
       // Mercado Pago, nunca dentro de la fetch ni en un iframe.
-      window.location.href = result.checkoutUrl;
+      redirectToCheckout(result);
     } catch (err) {
+      publishFlow.setPublishing(false);
+      checkoutInFlightRef.current = false;
       idempotencyKeyRef.current = null;
       if (err.code === "SERVICE_FEE_CHANGED" && err.errors) {
         // Sin un paso de Resumen propio en Fest Pass: se avisa y se pide
@@ -608,6 +630,7 @@ export default function QuickPass() {
                 handleConfirmPurchase(fullEvent, selectedFunction, lineItems, { ticketsSubtotal, serviceFeeTotal, total })
               }
               cardVariant="glass"
+              submitting={publishFlow.publishing}
               feeBreakdown={{
                 ticketsSubtotalLabel: currency(ticketsSubtotal),
                 serviceFeeLabel: currency(serviceFeeTotal),
