@@ -1505,3 +1505,108 @@ testWithDb("33) a transient failure fetching the payment (5xx) for an already-li
         await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
     }
 });
+
+// ==================================================================
+// Ronda de preparación para producción — pagos APROBADOS que no se pueden
+// convertir en entradas nunca quedan en silencio: marca paymentRef (caso a
+// reconciliar en Developer > Ventas) + UNA alerta por payment/motivo
+// (DeveloperAlertCooldown), sin reembolsar ni cancelar nada.
+// ==================================================================
+
+async function reviewCooldownCount(paymentId) {
+    return prisma.developerAlertCooldown.count({ where: { key: { startsWith: `APPROVED_PAYMENT_REVIEW:${paymentId}:` } } });
+}
+
+testWithDb("REVIEW-A: AMOUNT_MISMATCH aprobado => paymentRef + una sola alerta aunque Mercado Pago reenvíe la notificación", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const connection = await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id, { price: 10000 });
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+    const payment = paymentPayload(sale, connection, { transaction_amount: 1 });
+    const restore = mockPaymentGet(async () => jsonResponse(200, payment));
+    try {
+        for (let i = 0; i < 3; i++) {
+            const outcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: payment.id, bodyUserId: connection.mercadoPagoUserId });
+            assert.equal(outcome.reason, "AMOUNT_MISMATCH");
+        }
+        const after = await prisma.sale.findUnique({ where: { id: sale.id } });
+        assert.equal(after.status, "PENDING", "nunca se confirma");
+        assert.equal(after.paymentRef, String(payment.id), "queda marcada para reconciliación");
+        assert.equal(await prisma.ticket.count({ where: { saleId: sale.id } }), 0);
+        assert.equal(await reviewCooldownCount(payment.id), 1, "una sola alerta por payment+motivo");
+    } finally {
+        restore();
+        await prisma.developerAlertCooldown.deleteMany({ where: { key: { startsWith: `APPROVED_PAYMENT_REVIEW:${payment.id}:` } } });
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("REVIEW-B: pago aprobado sobre una Sale CANCELLED => no confirma, marca y alerta (antes: sólo un warn)", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const connection = await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+    await prisma.sale.update({ where: { id: sale.id }, data: { status: "CANCELLED" } });
+    const payment = paymentPayload(sale, connection);
+    const restore = mockPaymentGet(async () => jsonResponse(200, payment));
+    try {
+        const outcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: payment.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(outcome.action, "unresolvable");
+        assert.equal(outcome.reason, "SALE_STATUS_CANCELLED");
+        const after = await prisma.sale.findUnique({ where: { id: sale.id } });
+        assert.equal(after.status, "CANCELLED", "nunca se reactiva ni se reembolsa automáticamente");
+        assert.equal(after.paymentRef, String(payment.id));
+        assert.equal(await prisma.ticket.count({ where: { saleId: sale.id } }), 0);
+        assert.equal(await reviewCooldownCount(payment.id), 1);
+    } finally {
+        restore();
+        await prisma.developerAlertCooldown.deleteMany({ where: { key: { startsWith: `APPROVED_PAYMENT_REVIEW:${payment.id}:` } } });
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("REVIEW-C: un pago RECHAZADO sobre una Sale CANCELLED no alerta (no hay plata cobrada)", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const connection = await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+    await prisma.sale.update({ where: { id: sale.id }, data: { status: "CANCELLED" } });
+    const payment = paymentPayload(sale, connection, { status: "rejected" });
+    const restore = mockPaymentGet(async () => jsonResponse(200, payment));
+    try {
+        await processMercadoPagoWebhookNotification({ type: "payment", dataId: payment.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal((await prisma.sale.findUnique({ where: { id: sale.id } })).paymentRef, null);
+        assert.equal(await reviewCooldownCount(payment.id), 0);
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("REVIEW-D: rechazo de negocio al confirmar (maxPerPurchase bajado con la venta PENDING) => 200 + marca + alerta, nunca un 500 que Mercado Pago reintenta para siempre", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const connection = await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id, { maxPerPurchase: 4 });
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 3 });
+    await prisma.ticketType.update({ where: { id: ticketType.id }, data: { maxPerPurchase: 2 } });
+    const payment = paymentPayload(sale, connection);
+    const restore = mockPaymentGet(async () => jsonResponse(200, payment));
+    try {
+        const outcome = await processMercadoPagoWebhookNotification({ type: "payment", dataId: payment.id, bodyUserId: connection.mercadoPagoUserId });
+        assert.equal(outcome.ok, true);
+        assert.equal(outcome.reason, "CONFIRMATION_REJECTED_MAX_PER_PURCHASE_EXCEEDED");
+        const after = await prisma.sale.findUnique({ where: { id: sale.id } });
+        assert.equal(after.status, "PENDING");
+        assert.equal(after.paymentRef, String(payment.id));
+        assert.equal(await prisma.ticket.count({ where: { saleId: sale.id } }), 0, "ninguna entrada sin una confirmación válida");
+        assert.equal(await reviewCooldownCount(payment.id), 1);
+    } finally {
+        restore();
+        await prisma.developerAlertCooldown.deleteMany({ where: { key: { startsWith: `APPROVED_PAYMENT_REVIEW:${payment.id}:` } } });
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});

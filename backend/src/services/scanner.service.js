@@ -46,12 +46,12 @@ function buildTicketInclude() {
         qr: true,
         buyer: { select: { firstName: true, lastName: true } },
         ticketType: { select: { name: true } },
-        event: { select: { title: true } },
+        event: { select: { title: true, status: true, cancelledAt: true } },
         // Sólo lo usa scanTicketService (fecha/lugar de la función a mostrar
         // antes de confirmar) — buildResult (VALID/ALREADY_USED/CANCELLED)
         // nunca lo lee, así que agregarlo acá no cambia ninguna respuesta
         // existente.
-        function: { select: { date: true, venue: true, doorsOpenAt: true, endAt: true } },
+        function: { select: { date: true, venue: true, doorsOpenAt: true, endAt: true, status: true } },
     };
 }
 
@@ -174,6 +174,13 @@ async function resolveScanOutcome(client, { ticketId, providedSecret, eventId, f
     }
 
     if (ticket.status === "CANCELLED" || ticket.status === "REFUNDED") {
+        return { status: "CANCELLED", ticket };
+    }
+
+    // Función o evento cancelados: la entrada sigue ACTIVE (cancelar un
+    // evento no toca tickets — ver el informe de la ronda), pero nunca da
+    // ingreso. Mismo resultado que una entrada cancelada.
+    if (ticket.function?.status === "CANCELLED" || ticket.event?.status === "CANCELLED" || ticket.event?.cancelledAt) {
         return { status: "CANCELLED", ticket };
     }
 

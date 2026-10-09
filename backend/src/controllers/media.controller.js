@@ -1,11 +1,22 @@
+import { getAuth } from "@clerk/express";
 import {
     uploadImageService,
-    deleteImageService,
     uploadVideoService,
     deleteVideoService,
+    deleteMediaForUserService,
     isVideoDurationWithinLimit,
     MAX_VIDEO_DURATION_SECONDS,
 } from "../services/media.service.js";
+import { getUserByClerkId } from "../utils/getUserByClerkId.js";
+import { AppError } from "../errors/AppError.js";
+
+// requireAuth ya validó la sesión de Clerk; acá sólo se resuelve la fila
+// User (puede no existir todavía si nunca sincronizó — la subida sigue
+// funcionando igual, sólo que sin dueño registrado).
+async function getRequestUser(req) {
+    const { userId } = getAuth(req);
+    return userId ? getUserByClerkId(userId) : null;
+}
 
 export const uploadImage = async (req, res) => {
     try {
@@ -13,7 +24,8 @@ export const uploadImage = async (req, res) => {
             return res.status(400).json({ message: "No se envió ninguna imagen" });
         }
 
-        const result = await uploadImageService(req.file.buffer);
+        const user = await getRequestUser(req);
+        const result = await uploadImageService(req.file.buffer, { uploaderUserId: user?.id ?? null });
 
         res.status(201).json({
             url: result.secure_url,
@@ -43,7 +55,8 @@ export const uploadVideo = async (req, res) => {
             return res.status(400).json({ message: "No se envió ningún video" });
         }
 
-        const result = await uploadVideoService(req.file.buffer);
+        const user = await getRequestUser(req);
+        const result = await uploadVideoService(req.file.buffer, { uploaderUserId: user?.id ?? null });
 
         if (!isVideoDurationWithinLimit(result.duration)) {
             try {
@@ -75,8 +88,10 @@ export const uploadVideo = async (req, res) => {
 // Despacha por resource_type (imagen por default — mismo comportamiento
 // exacto que el deleteImage original para cualquier caller que no mande
 // `?type=`) — único endpoint de borrado, reusado para imagen y video en vez
-// de duplicar la ruta/controller entero sólo por el resource_type.
-export const deleteMedia = async (req, res) => {
+// de duplicar la ruta/controller entero sólo por el resource_type. La
+// autorización (carpeta + dueño o DEVELOPER) vive en
+// deleteMediaForUserService.
+export const deleteMedia = async (req, res, next) => {
     try {
         const publicId = Array.isArray(req.params.publicId)
             ? req.params.publicId.join("/")
@@ -87,7 +102,8 @@ export const deleteMedia = async (req, res) => {
         }
 
         const isVideo = req.query.type === "video";
-        const result = isVideo ? await deleteVideoService(publicId) : await deleteImageService(publicId);
+        const user = await getRequestUser(req);
+        const result = await deleteMediaForUserService(user, publicId, isVideo ? "video" : "image");
 
         if (result.result !== "ok" && result.result !== "not found") {
             return res.status(500).json({ message: isVideo ? "No se pudo eliminar el video" : "No se pudo eliminar la imagen" });
@@ -95,6 +111,7 @@ export const deleteMedia = async (req, res) => {
 
         res.status(200).json({ message: isVideo ? "Video eliminado" : "Imagen eliminada", publicId });
     } catch (error) {
+        if (error instanceof AppError) return next(error);
         console.error(error);
 
         res.status(500).json({

@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import { buildCorsOptions } from "./config/corsOptions.js";
 
 import userRoutes from "./routes/user.routes.js";
 import authRoutes from "./routes/auth.routes.js";
@@ -43,7 +44,7 @@ const app = express();
 // que es el proxy delante de la app.
 app.set("trust proxy", 1);
 
-app.use(cors());
+app.use(cors(buildCorsOptions()));
 // Verificación de teléfono de Organizaciones — captura los bytes CRUDOS de
 // cada request (req.rawBody) además del body ya parseado, sin cambiar el
 // comportamiento de parseo para NADIE: sólo agrega un buffer extra en

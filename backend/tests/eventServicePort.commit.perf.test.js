@@ -104,7 +104,9 @@ async function cleanup({ eventIds = [], organizationIds = [], userIds = [] }) {
 
 function buildDraft(overrides = {}) {
     return {
-        title: "Fiesta de Prueba",
+        // Título único por corrida: un slug ya ocupado (restos de otra corrida
+        // sobre la misma base) suma una lectura Event.findUnique más.
+        title: `Fiesta de Prueba ${uniqueSuffix()}`,
         description: "Descripción de prueba",
         category: "MUSICA",
         coverImage: null,
@@ -393,6 +395,14 @@ testWithDb("syncEventScheduleService: default (sin opciones) sigue devolviendo e
 //     UNA sola vez y la reenvía a las dos, mismo patrón exacto que
 //     `context` (Fase 8.1) — sin cambiar ningún umbral/cooldown/condición
 //     de ninguna alerta.
+// Ronda de preparación para producción (2026-10-09) — el presupuesto
+// volvió a subir por operaciones nuevas y legítimas, nunca por una
+// regresión: OrganizationPlanLimits.findUnique (límites de plan Premium,
+// Fase 2B: tope de tipos de entrada/funciones al sincronizar la agenda y,
+// al publicar, tope de eventos activos) y, sólo al PUBLICAR, el beneficio
+// para compradores de la primera publicación (recordFirstEventPublication:
+// Organization.findUnique + Event.aggregate + ServiceFeeSettings.findFirst +
+// Organization.updateMany). Se fija el conteo exacto de cada una abajo.
 testWithDb("FASE 8.1/8.2/9) commit(DRAFT) with links: User+Organization+DeveloperAlertConfig se resuelven UNA sola vez y los deletes de agenda se saltean — 20 -> 14 -> 16", async () => {
     const owner = await createUser();
     const org = await createOrganization(owner.id);
@@ -402,7 +412,7 @@ testWithDb("FASE 8.1/8.2/9) commit(DRAFT) with links: User+Organization+Develope
         event = result.event;
         const { dbCalls } = result;
 
-        assert.equal(dbCalls.length, 16, `dbCallCount esperado 16, dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
+        assert.equal(dbCalls.length, 17, `dbCallCount esperado 17, dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
         assert.equal(countCalls(dbCalls, "User.findUnique"), 1, "un único getMyOrganization para TODO commit(), reutilizado por las 4 llamadas");
         assert.equal(countCalls(dbCalls, "Organization.findUnique"), 1);
         assert.equal(countCalls(dbCalls, "DeveloperAlertConfig.findFirst"), 1, "Fase 9 — 2A y 2C comparten UN solo fetch (antes 2), ver el comentario de arriba");
@@ -414,6 +424,7 @@ testWithDb("FASE 8.1/8.2/9) commit(DRAFT) with links: User+Organization+Develope
         assert.equal(countCalls(dbCalls, "EventLink.deleteMany"), 1, "el deleteMany de links NO forma parte de 8.2 — sigue ejecutándose sin cambios");
         assert.equal(countCalls(dbCalls, "Event.findMany"), 0, "el self-heal de archivado ya no se ejecuta para un evento recién creado");
         assert.equal(countCalls(dbCalls, "Event.create"), 1);
+        assert.equal(countCalls(dbCalls, "OrganizationPlanLimits.findUnique"), 1, "límites de plan al sincronizar la agenda");
 
         assert.equal(event.status, "DRAFT");
         assert.equal(event.organizationId, org.id);
@@ -434,7 +445,7 @@ testWithDb("FASE 8.1/8.2/9) commit(DRAFT) without links: mismo ahorro sin la ram
         event = result.event;
         const { dbCalls } = result;
 
-        assert.equal(dbCalls.length, 13, `dbCallCount esperado 13, dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
+        assert.equal(dbCalls.length, 14, `dbCallCount esperado 14, dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
         assert.equal(countCalls(dbCalls, "User.findUnique"), 1, "un único getMyOrganization para TODO commit()");
         assert.equal(countCalls(dbCalls, "Organization.findUnique"), 1);
         assert.equal(countCalls(dbCalls, "DeveloperAlertConfig.findFirst"), 1, "Fase 9 — 2A y 2C comparten UN solo fetch (antes 2)");
@@ -444,6 +455,7 @@ testWithDb("FASE 8.1/8.2/9) commit(DRAFT) without links: mismo ahorro sin la ram
         assert.equal(countCalls(dbCalls, "EventFunction.deleteMany"), 0);
         assert.equal(countCalls(dbCalls, "TicketType.deleteMany"), 0);
         assert.equal(countCalls(dbCalls, "Event.findMany"), 0);
+        assert.equal(countCalls(dbCalls, "OrganizationPlanLimits.findUnique"), 1, "límites de plan al sincronizar la agenda");
     } finally {
         await cleanup({ eventIds: event ? [event.id] : [], organizationIds: [org.id], userIds: [owner.id] });
     }
@@ -460,9 +472,12 @@ testWithDb("FASE 8.1/8.2/9) commit(PUBLISH): mismo ahorro en la rama de publicac
         event = result.event;
         const { dbCalls } = result;
 
-        assert.equal(dbCalls.length, 17, `PREVIEW_PUBLISH esperado 17 operaciones (antes 23, después 15), dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
+        assert.equal(dbCalls.length, 23, `PREVIEW_PUBLISH esperado 23 operaciones (17 + 2 de límites de plan + 4 del beneficio de primera publicación), dbCalls: ${JSON.stringify(dbCalls.map((c) => c.label))}`);
         assert.equal(countCalls(dbCalls, "User.findUnique"), 1, "un único getMyOrganization para TODO commit(), incluyendo updateMyEventService");
-        assert.equal(countCalls(dbCalls, "Organization.findUnique"), 1);
+        assert.equal(countCalls(dbCalls, "Organization.findUnique"), 2, "contexto de commit() + la lectura de recordFirstEventPublication (beneficio de primera publicación)");
+        assert.equal(countCalls(dbCalls, "OrganizationPlanLimits.findUnique"), 2, "límites de plan: agenda + tope de eventos activos al publicar");
+        assert.equal(countCalls(dbCalls, "ServiceFeeSettings.findFirst"), 1, "duración del beneficio para compradores");
+        assert.equal(countCalls(dbCalls, "Organization.updateMany"), 1, "fija serviceFeeWaivedUntil una sola vez");
         assert.equal(countCalls(dbCalls, "DeveloperAlertConfig.findFirst"), 1, "Fase 9 — 2A y 2C comparten UN solo fetch (antes 2)");
         assert.equal(countCalls(dbCalls, "geocoding.requestGeocode"), 1, "geocodificación de la ubicación del evento — sin relación con Alertas Developer");
         assert.equal(countCalls(dbCalls, "Event.count"), 1, "Alertas Developer 2C — ventana de eventos de la organización");

@@ -11,6 +11,16 @@ import { formatCurrencyARS, formatDateTime } from "../../lib/format.js";
 const SALE_STATUS_LABEL = { PENDING: "Pendiente", CONFIRMED: "Confirmada", CANCELLED: "Cancelada", EXPIRED: "Vencida" };
 const SALE_STATUS_TONE = { PENDING: "warning", CONFIRMED: "success", CANCELLED: "danger", EXPIRED: "neutral" };
 
+// Venta confirmada que después se devolvió (reembolso/contracargo de
+// Mercado Pago, o devolución por arrepentimiento) — `sale.revenue` lo calcula
+// el backend (saleRevenue.service.js). Se distingue de "Confirmada" para que
+// el organizador no la cuente como recaudación vigente.
+function saleStatusBadge(sale) {
+  if (sale.status === "CONFIRMED" && sale.revenue?.reversed) return { label: "Reembolsada", tone: "danger" };
+  if (sale.status === "CONFIRMED" && sale.revenue?.refundedAmount > 0) return { label: "Devolución parcial", tone: "warning" };
+  return { label: SALE_STATUS_LABEL[sale.status] ?? sale.status, tone: SALE_STATUS_TONE[sale.status] ?? "neutral" };
+}
+
 export default function SalesTable({ sales, loading = false, emptyMessage = "Todavía no registrás ventas." }) {
   if (loading) {
     const widths = ["w-full", "w-11/12", "w-full", "w-10/12"];
@@ -61,14 +71,12 @@ export default function SalesTable({ sales, loading = false, emptyMessage = "Tod
                 {formatCurrencyARS(sale.ticketsSubtotal ?? sale.total)}
                 {sale.ticketsSubtotal != null && sale.serviceFee > 0 && (
                   <span className="block text-xs text-slate-500">
-                    + {formatCurrencyARS(sale.serviceFee)} comisión (total {formatCurrencyARS(sale.total)})
+                    + {formatCurrencyARS(sale.serviceFee)} cargo Smarticket (total {formatCurrencyARS(sale.total)})
                   </span>
                 )}
               </td>
               <td className="py-2.5 pr-3">
-                <Badge tone={SALE_STATUS_TONE[sale.status] ?? "neutral"}>
-                  {SALE_STATUS_LABEL[sale.status] ?? sale.status}
-                </Badge>
+                <Badge tone={saleStatusBadge(sale).tone}>{saleStatusBadge(sale).label}</Badge>
               </td>
               <td className="py-2.5 text-slate-500">{formatDateTime(sale.createdAt)}</td>
             </tr>

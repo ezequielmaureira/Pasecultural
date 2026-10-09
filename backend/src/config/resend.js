@@ -41,7 +41,18 @@ export function getEmailConfig() {
 // mercadoPagoWebhook.service.js y sendMercadoPagoReconciliationAlert.service.js).
 // Mismo criterio LAZY que el resto de este archivo — sólo se exige al
 // momento de mandar esa alerta puntual, nunca al arrancar el servidor.
-export function getReconciliationAlertEmail() {
+// Ronda de preparación para producción — producción (Fly) no tiene
+// MERCADOPAGO_RECONCILIATION_ALERT_EMAIL configurada: sin fallback, TODA
+// alerta de conciliación ("pagó y no hay stock", reembolsos/contracargos,
+// credencial de Mercado Pago muerta) fallaba en silencio (sólo un log).
+// Si falta, se usa la casilla de Alertas Developer (DEVELOPER_ALERT_EMAIL,
+// sí configurada) — nunca se pierde una alerta financiera por un nombre de
+// variable. Configurarla aparte sigue funcionando igual que antes.
+export function getReconciliationAlertEmail(env = process.env) {
+    const dedicated = env.MERCADOPAGO_RECONCILIATION_ALERT_EMAIL?.trim();
+    if (dedicated) return dedicated;
+    const fallback = env.DEVELOPER_ALERT_EMAIL?.trim();
+    if (fallback) return fallback;
     return getRequiredEnv("MERCADOPAGO_RECONCILIATION_ALERT_EMAIL");
 }
 

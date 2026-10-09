@@ -32,7 +32,7 @@ async function createOrganizationWithOwner() {
 async function createEvent(organizationId, title) {
     const suffix = uniqueSuffix();
     return prisma.event.create({
-        data: { title, slug: `${title.toLowerCase().replace(/\s+/g, "-")}-${suffix}`, organizationId, status: "PUBLISHED" },
+        data: { title, slug: `${title.toLowerCase().replace(/\s+/g, "-")}-${suffix}`, organizationId, status: "PUBLISHED", createdBy: "test" },
     });
 }
 

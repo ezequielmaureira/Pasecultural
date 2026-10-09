@@ -25,8 +25,16 @@ test("classifyDatabaseUrl: ausente/vacío/null/undefined -> ABSENT", () => {
     assert.equal(classifyDatabaseUrl(""), "ABSENT");
 });
 
-test("classifyDatabaseUrl: una URL real pero de ningún proyecto conocido -> OTHER (nunca habilita tests con DB, pero tampoco aborta)", () => {
-    assert.equal(classifyDatabaseUrl("postgresql://u:p@localhost:5432/mi_postgres_local"), "OTHER");
+test("classifyDatabaseUrl: una URL remota de ningún proyecto conocido -> OTHER (nunca habilita tests con DB, pero tampoco aborta)", () => {
+    assert.equal(classifyDatabaseUrl("postgresql://u:p@db.example.com:5432/otra_base"), "OTHER");
+    // un hostname que sólo EMPIEZA como loopback no cuenta
+    assert.equal(classifyDatabaseUrl("postgresql://u:p@127.0.0.1.example.com:5432/x"), "OTHER");
+    assert.equal(classifyDatabaseUrl("postgresql://u:p@localhost.evil.com:5432/x"), "OTHER");
+});
+
+test("classifyDatabaseUrl: Postgres en loopback -> LOCAL", () => {
+    assert.equal(classifyDatabaseUrl("postgresql://postgres@127.0.0.1:55432/smarticket_test"), "LOCAL");
+    assert.equal(classifyDatabaseUrl("postgresql://u:p@localhost:5432/mi_postgres_local"), "LOCAL");
 });
 
 // ==================================================================
@@ -95,8 +103,25 @@ test("CASO C — DATABASE_URL ausente: el import se completa pero los tests con 
 });
 
 test("CASO C (variante) — DATABASE_URL presente pero de un proyecto desconocido: nunca escribe, igual que ausente", () => {
-    const result = probeDbGuard({ DATABASE_URL: "postgresql://u:p@localhost:5432/otra_cosa", DIRECT_URL: "" });
+    const result = probeDbGuard({ DATABASE_URL: "postgresql://u:p@db.example.com:5432/otra_cosa", DIRECT_URL: "" });
     assert.equal(result.imported, true);
     assert.equal(result.hasDatabase, false);
     assert.equal(result.status, "OTHER");
+});
+
+test("CASO D — Postgres local (127.0.0.1): habilita los tests con DB", () => {
+    const url = "postgresql://postgres@127.0.0.1:55432/smarticket_test";
+    const result = probeDbGuard({ DATABASE_URL: url, DIRECT_URL: url });
+    assert.equal(result.imported, true);
+    assert.equal(result.hasDatabase, true);
+    assert.equal(result.status, "LOCAL");
+});
+
+test("CASO D (variante) — DATABASE_URL local pero DIRECT_URL remota desconocida: nunca habilita", () => {
+    const result = probeDbGuard({
+        DATABASE_URL: "postgresql://postgres@127.0.0.1:55432/smarticket_test",
+        DIRECT_URL: "postgresql://u:p@db.example.com:5432/otra",
+    });
+    assert.equal(result.imported, true);
+    assert.equal(result.hasDatabase, false);
 });

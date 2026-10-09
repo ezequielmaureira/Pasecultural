@@ -350,14 +350,20 @@ testWithDb("H) cambio de admissionType sólo permitido en DRAFT, sin ventas real
         { functions: [{ date: "2099-01-01T20:00:00-03:00", venue: "V" }], ticketTypes: [{ name: "General", price: 1000, quantity: 10 }] },
         org.id
     );
-    await withPublicLaunchEnabled(() =>
-        createSaleForBuyer(buyer, {
+    // Fila armada a mano: desde la ronda de preparación para producción el
+    // checkout ya no vende sobre un DRAFT (EVENT_NOT_ON_SALE) — una Sale real
+    // en un DRAFT sólo puede venir de antes (evento despublicado después de
+    // vender), que es exactamente el caso que este guard protege.
+    await prisma.sale.create({
+        data: {
+            status: "PENDING",
+            total: 1000,
+            buyerId: buyer.id,
             eventId: eventC.id,
             functionId: syncedC.functions[0].id,
-            items: [{ ticketTypeId: syncedC.ticketTypes[0].id, quantity: 1 }],
-            buyerDocument: "30111222",
-        })
-    );
+            items: { create: [{ ticketTypeId: syncedC.ticketTypes[0].id, quantity: 1, unitPrice: 1000, subtotal: 1000 }] },
+        },
+    });
     await assert.rejects(
         () => updateMyEventService(owner.clerkId, eventC.id, { admissionType: "FREE_ENTRY" }, org.id),
         (error) => {

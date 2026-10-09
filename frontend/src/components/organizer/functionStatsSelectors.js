@@ -57,15 +57,18 @@ export function selectFunctionCapacityStats(functionStats, functionId) {
     : EMPTY_CAPACITY_STATS;
 }
 
-// Recaudación: suma de `total` de ventas CONFIRMED (GET /api/sales), nunca
-// se mueve al backend por decisión explícita — es aritmética sobre valores
-// ya finales (cada `sale.total` quedó congelado en sale.service.js al
-// confirmarse la venta), no una regla de negocio reimplementada.
+// Recaudación del organizador: suma de `sale.revenue.netRevenue` que ya
+// calcula el backend por venta (GET /api/sales, ver
+// backend/src/services/saleRevenue.service.js) — importe de las entradas,
+// SIN el cargo de servicio Smarticket que paga el comprador y SIN lo ya
+// devuelto (reembolso/contracargo o arrepentimiento). Nunca `sale.total`:
+// ese es lo que pagó el comprador, cargo incluido. El fallback sólo cubre
+// una respuesta vieja sin `revenue` (deploy de frontend antes que backend).
 export function selectRevenue(sales, functionId) {
   return sales
     .filter((sale) => sale.status === "CONFIRMED")
     .filter((sale) => isAllFunctions(functionId) || sale.functionId === functionId)
-    .reduce((sum, sale) => sum + Number(sale.total ?? 0), 0);
+    .reduce((sum, sale) => sum + Number(sale.revenue?.netRevenue ?? sale.ticketsSubtotal ?? sale.total ?? 0), 0);
 }
 
 export function buildEventStatsKpis({ functionStats, sales, functionId }) {

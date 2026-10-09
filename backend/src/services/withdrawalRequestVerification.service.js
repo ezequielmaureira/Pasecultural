@@ -4,7 +4,7 @@ import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { isValidEmail } from "../utils/validateEmail.js";
 import { normalizeBuyerDocument, isValidBuyerDocument } from "../utils/validateBuyerDocument.js";
 import { maskEmail } from "../utils/maskEmail.js";
-import { generateVerificationCode, hashVerificationCode, verificationCodeMatchesHash } from "../utils/verificationCode.js";
+import { generateVerificationCode, hashVerificationCode, verificationCodeMatchesHash, reserveVerificationAttempt } from "../utils/verificationCode.js";
 import { findWithdrawalEligibleSales } from "./sale.service.js";
 import { sendWithdrawalRequestOtpEmail } from "./email/sendWithdrawalRequestOtp.service.js";
 import { logger } from "../logging/logger.js";
@@ -140,20 +140,28 @@ export const verifyWithdrawalRequestOtpService = async ({ email, buyerDocument, 
     if (session.attempts >= MAX_VERIFICATION_ATTEMPTS) {
         throw new AppError(ErrorCodes.WITHDRAWAL_VERIFICATION_TOO_MANY_ATTEMPTS);
     }
+    if (!session.codeHash) throw new AppError(ErrorCodes.WITHDRAWAL_VERIFICATION_CODE_INVALID);
 
-    if (!session.codeHash || !verificationCodeMatchesHash(submittedCode, session.codeHash)) {
-        await prisma.withdrawalRequestVerification.updateMany({
-            where: { id: session.id },
-            data: { attempts: { increment: 1 } },
-        });
+    // Intento reservado atómicamente antes de comparar — ver
+    // reserveVerificationAttempt (utils/verificationCode.js).
+    const reserved = await reserveVerificationAttempt(prisma.withdrawalRequestVerification, {
+        where: { id: session.id },
+        codeHash: session.codeHash,
+        max: MAX_VERIFICATION_ATTEMPTS,
+    });
+    if (!reserved) throw new AppError(ErrorCodes.WITHDRAWAL_VERIFICATION_TOO_MANY_ATTEMPTS);
+
+    if (!verificationCodeMatchesHash(submittedCode, session.codeHash)) {
         throw new AppError(ErrorCodes.WITHDRAWAL_VERIFICATION_CODE_INVALID);
     }
 
-    // Código correcto: se invalida (no reusable) antes de devolver nada.
-    await prisma.withdrawalRequestVerification.updateMany({
-        where: { id: session.id },
+    // Código correcto: se invalida (no reusable) antes de devolver nada —
+    // sólo una verificación simultánea puede consumirlo.
+    const consumed = await prisma.withdrawalRequestVerification.updateMany({
+        where: { id: session.id, codeHash: session.codeHash },
         data: { codeHash: null, codeExpiresAt: null, attempts: 0, lastSentAt: null },
     });
+    if (consumed.count !== 1) throw new AppError(ErrorCodes.WITHDRAWAL_VERIFICATION_CODE_INVALID);
 
     const sales = await findWithdrawalEligibleSales(normalizedEmail, normalizedDocument);
     logger.info("verifyWithdrawalRequestOtpService completed", { matchCount: sales.length });

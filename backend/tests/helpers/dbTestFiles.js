@@ -45,4 +45,26 @@ export const DB_TEST_FILES = [
     "salePaymentGuard.test.js",
     "ticketRefundGuard.test.js",
     "selfServiceDeletion.test.js",
+    // Usan Prisma real (importan dbGuard) pero estaban fuera de esta lista:
+    // bajo test:unit abortaban o se salteaban en vez de correr.
+    "eventAdmissionType.test.js",
+    "eventCreationEngine.admissionType.test.js",
+    "eventFinishedGuard.test.js",
+    "fastOrganizationPublicExperience.test.js",
+    "featuredOrganizations.test.js",
+    "maxTicketsPerEvent.test.js",
+    "media.video.test.js",
+    "organizationCategoryOwnership.test.js",
+    "organizationPlan.test.js",
+    "publicLaunchSettings.test.js",
+    "quickPass.test.js",
+    "scheduleLegacyCompat.test.js",
+    "scheduleSafeSync.test.js",
+    "whatsappFestPass.test.js",
+    // Ronda de preparación para producción (2026-10-09).
+    "checkoutGuards.test.js",
+    "saleEmailRetry.test.js",
+    "saleRevenue.test.js",
+    "scannerFlow.test.js",
+    "authSync.test.js",
 ];

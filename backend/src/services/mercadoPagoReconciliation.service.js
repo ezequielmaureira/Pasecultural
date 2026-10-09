@@ -220,13 +220,24 @@ export async function reconcileMercadoPagoSaleService(saleId, { source = "RECONC
 // webhook (INSUFFICIENT_STOCK, nunca se resuelve sola) o (b) con la reserva
 // de stock vencida hace más del margen de seguridad (nunca se toca una
 // compra todavía en curso).
-export async function findMercadoPagoReconciliationCandidateSaleIds() {
-    const cutoff = new Date(Date.now() - RECONCILIATION_GRACE_MS);
+//
+// Ronda de preparación para producción — ventana máxima: sólo ventas
+// creadas en los últimos RECONCILIATION_MAX_AGE_DAYS. Sin esto, cada compra
+// abandonada seguía siendo candidata PARA SIEMPRE y cada sweep consultaba a
+// Mercado Pago por todas — una lista que sólo crece. Las más viejas quedan
+// para el endpoint manual de Developer (reconcileMercadoPagoSaleService),
+// nunca se tocan solas.
+export const RECONCILIATION_MAX_AGE_DAYS = 7;
+
+export async function findMercadoPagoReconciliationCandidateSaleIds(now = new Date()) {
+    const cutoff = new Date(now.getTime() - RECONCILIATION_GRACE_MS);
+    const oldest = new Date(now.getTime() - RECONCILIATION_MAX_AGE_DAYS * 24 * 60 * 60 * 1000);
     const sales = await prisma.sale.findMany({
         where: {
             status: "PENDING",
             paymentMethod: "MERCADO_PAGO",
             mercadoPagoPaymentId: null,
+            createdAt: { gte: oldest },
             OR: [{ paymentRef: { not: null } }, { mercadoPagoPreferenceId: { not: null }, stockReservedUntil: { lt: cutoff } }],
         },
         select: { id: true },
@@ -234,17 +245,45 @@ export async function findMercadoPagoReconciliationCandidateSaleIds() {
     return sales.map((sale) => sale.id);
 }
 
-// Sweep completo — pensado para un futuro job/scheduler externo (ver
-// backend/scripts/reconcileMercadoPagoPendingSales.js), todavía no
-// desplegado. Un fallo reconciliando una Sale puntual nunca interrumpe el
+// Compra abandonada: reserva vencida hace más de ABANDONED_AFTER_MS, sin
+// ningún pago aprobado encontrado en Mercado Pago (lo acaba de confirmar
+// reconcileMercadoPagoSaleService en esta misma vuelta) y sin paymentRef
+// (nunca un caso marcado para revisión manual). Pasa a EXPIRED — el estado
+// que ya existía en SaleStatus y que nada usaba. No libera ni reembolsa
+// nada: la reserva ya no contaba para el stock desde que venció. Si Mercado
+// Pago aprobara algo después igual (la preferencia ya vence con la reserva,
+// así que no debería), confirmMercadoPagoPaymentIfEligible lo marca y alerta
+// para revisión manual — nunca emite entradas sobre una venta EXPIRED.
+// 48 h: más que cualquier revisión manual de una tarjeta "in_process".
+export const ABANDONED_AFTER_MS = 48 * 60 * 60 * 1000;
+
+async function expireIfAbandoned(saleId, now) {
+    const expired = await prisma.sale.updateMany({
+        where: {
+            id: saleId,
+            status: "PENDING",
+            paymentMethod: "MERCADO_PAGO",
+            mercadoPagoPaymentId: null,
+            paymentRef: null,
+            stockReservedUntil: { lt: new Date(now.getTime() - ABANDONED_AFTER_MS) },
+        },
+        data: { status: "EXPIRED" },
+    });
+    return expired.count === 1;
+}
+
+// Sweep completo — lo corre src/jobs/backgroundJobs.js (desactivado por
+// default, BACKGROUND_JOBS_ENABLED) o a mano
+// backend/scripts/reconcileMercadoPagoPendingSales.js. Un fallo reconciliando una Sale puntual nunca interrumpe el
 // resto del sweep.
-export async function reconcilePendingMercadoPagoSalesService() {
-    const saleIds = await findMercadoPagoReconciliationCandidateSaleIds();
+export async function reconcilePendingMercadoPagoSalesService({ now = new Date() } = {}) {
+    const saleIds = await findMercadoPagoReconciliationCandidateSaleIds(now);
     const results = [];
     for (const saleId of saleIds) {
         try {
             const outcome = await reconcileMercadoPagoSaleService(saleId, { source: "RECONCILIATION_AUTO" });
-            results.push({ saleId, ...outcome });
+            const expired = outcome?.action === "no_approved_payment_found" ? await expireIfAbandoned(saleId, now) : false;
+            results.push({ saleId, ...outcome, expired });
         } catch (error) {
             logger.error(error, {
                 context: "mercadopago reconciliation: fallo inesperado reconciliando una Sale candidata (no interrumpe el resto del sweep)",
@@ -262,6 +301,7 @@ export async function reconcilePendingMercadoPagoSalesService() {
         approvedButNoStock: results.filter((r) => r.action === "approved_but_no_stock").length,
         ambiguous: results.filter((r) => r.action === "ambiguous_approved_payments").length,
         errors: results.filter((r) => r.ok === false).length,
+        expired: results.filter((r) => r.expired === true).length,
     };
     logger.info("mercadopago reconciliation: sweep completado", summary);
     return { ...summary, results };

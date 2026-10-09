@@ -2,7 +2,7 @@ import prisma from "../config/prisma.js";
 import { AppError } from "../errors/AppError.js";
 import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { isValidEmail } from "../utils/validateEmail.js";
-import { generateVerificationCode, hashVerificationCode, verificationCodeMatchesHash } from "../utils/verificationCode.js";
+import { generateVerificationCode, hashVerificationCode, verificationCodeMatchesHash, reserveVerificationAttempt } from "../utils/verificationCode.js";
 import { sendScannerVerificationCodeEmail } from "./email/sendScannerVerificationCode.service.js";
 import { signScannerSessionToken } from "../config/scannerSession.js";
 import { logger } from "../logging/logger.js";
@@ -135,16 +135,25 @@ export const verifyScannerLoginCodeService = async ({ email, code }, { userAgent
         throw new AppError(ErrorCodes.SCANNER_VERIFICATION_TOO_MANY_ATTEMPTS);
     }
 
+    // Intento reservado atómicamente antes de comparar — ver
+    // reserveVerificationAttempt (utils/verificationCode.js).
+    const reserved = await reserveVerificationAttempt(prisma.eventScanner, {
+        where: { id: scanner.id, status: "ACTIVE" },
+        attemptsField: "verificationAttempts",
+        hashField: "verificationCodeHash",
+        codeHash: scanner.verificationCodeHash,
+        max: MAX_VERIFICATION_ATTEMPTS,
+    });
+    if (!reserved) throw new AppError(ErrorCodes.SCANNER_VERIFICATION_TOO_MANY_ATTEMPTS);
+
     if (!verificationCodeMatchesHash(submittedCode, scanner.verificationCodeHash)) {
-        await prisma.eventScanner.updateMany({
-            where: { id: scanner.id, status: "ACTIVE" },
-            data: { verificationAttempts: { increment: 1 } },
-        });
         throw new AppError(ErrorCodes.SCANNER_VERIFICATION_CODE_INVALID);
     }
 
-    await prisma.eventScanner.updateMany({
-        where: { id: scanner.id, status: "ACTIVE" },
+    // Consumo condicionado al mismo código: dos verificaciones simultáneas
+    // del mismo código correcto nunca abren dos sesiones.
+    const consumed = await prisma.eventScanner.updateMany({
+        where: { id: scanner.id, status: "ACTIVE", verificationCodeHash: scanner.verificationCodeHash },
         data: {
             verificationCodeHash: null,
             verificationCodeExpiresAt: null,
@@ -154,6 +163,7 @@ export const verifyScannerLoginCodeService = async ({ email, code }, { userAgent
             lastDevice: userAgent ?? null,
         },
     });
+    if (consumed.count !== 1) throw new AppError(ErrorCodes.SCANNER_VERIFICATION_CODE_INVALID);
 
     logger.info("verifyScannerLoginCodeService completed", { eventScannerId: scanner.id, eventId: scanner.eventId });
     return { scannerSessionToken: signScannerSessionToken(scanner.id) };

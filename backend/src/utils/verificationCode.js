@@ -23,3 +23,20 @@ export function verificationCodeMatchesHash(code, storedHash) {
     if (submitted.length !== stored.length) return false;
     return crypto.timingSafeEqual(submitted, stored);
 }
+
+// Reserva atómica de UN intento de verificación ANTES de comparar el código.
+// El patrón anterior (leer attempts, comparar, recién después incrementar)
+// dejaba que una ráfaga de requests en paralelo probara muchos más de `max`
+// códigos: todas leían el mismo attempts < max antes de que llegara el
+// primer incremento. Con esto, el incremento ES el chequeo — sólo `max`
+// requests en total pueden llegar a comparar contra el mismo código.
+// `codeHash` (valor y campo) ata la reserva al código vigente: si se generó
+// uno nuevo o ya se consumió, no reserva nada.
+// `delegate` es el modelo de Prisma (prisma.saleRecoveryVerification, etc.).
+export async function reserveVerificationAttempt(delegate, { where, attemptsField = "attempts", hashField = "codeHash", codeHash, max }) {
+    const reserved = await delegate.updateMany({
+        where: { ...where, [hashField]: codeHash, [attemptsField]: { lt: max } },
+        data: { [attemptsField]: { increment: 1 } },
+    });
+    return reserved.count === 1;
+}

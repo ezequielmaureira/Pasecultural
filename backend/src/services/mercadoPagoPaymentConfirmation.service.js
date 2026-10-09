@@ -1,5 +1,6 @@
 import prisma from "../config/prisma.js";
 import { logger } from "../logging/logger.js";
+import { AppError } from "../errors/AppError.js";
 import { getMercadoPagoPayment } from "./mercadoPago.service.js";
 import { getValidMercadoPagoAccessTokenForConnection } from "./mercadoPagoConnection.service.js";
 import { confirmSaleService } from "./sale.service.js";
@@ -299,6 +300,13 @@ export async function confirmMercadoPagoPaymentIfEligible({ paymentId, candidate
             source,
             saleStatus: sale.status,
         });
+        // Un pago APROBADO sobre una venta que ya no se puede confirmar es
+        // plata cobrada sin entrada: nunca queda en silencio (antes sólo
+        // quedaba un warn en logs). Nunca se reembolsa ni se cancela nada
+        // automáticamente — sólo alerta y marca para revisión manual.
+        if (payment.status === APPROVED_STATUS) {
+            await flagApprovedPaymentForReview({ sale, paymentId: normalizedPaymentId, source, reason: `APPROVED_PAYMENT_ON_${sale.status}_SALE` });
+        }
         return { ok: true, action: "unresolvable", reason: `SALE_STATUS_${sale.status}` };
     }
 
@@ -348,6 +356,13 @@ export async function confirmMercadoPagoPaymentIfEligible({ paymentId, candidate
             expectedAmount,
             paidAmount,
         });
+        await flagApprovedPaymentForReview({
+            sale,
+            paymentId: normalizedPaymentId,
+            source,
+            reason: "AMOUNT_MISMATCH",
+            detail: `esperado ${expectedAmount}, pagado ${paidAmount}`,
+        });
         return { ok: true, action: "unresolvable", reason: "AMOUNT_MISMATCH" };
     }
     if (payment.currencyId !== "ARS") {
@@ -356,6 +371,13 @@ export async function confirmMercadoPagoPaymentIfEligible({ paymentId, candidate
             paymentId: normalizedPaymentId,
             source,
             currencyId: payment.currencyId,
+        });
+        await flagApprovedPaymentForReview({
+            sale,
+            paymentId: normalizedPaymentId,
+            source,
+            reason: "CURRENCY_MISMATCH",
+            detail: `currency_id ${payment.currencyId}`,
         });
         return { ok: true, action: "unresolvable", reason: "CURRENCY_MISMATCH" };
     }
@@ -477,6 +499,72 @@ export async function confirmMercadoPagoPaymentIfEligible({ paymentId, candidate
 
             return { ok: true, action: "unresolvable", reason: "PAYMENT_SALE_CONFLICT" };
         }
+        // Rechazo de NEGOCIO definitivo de confirmSaleService (ej.
+        // MAX_PER_PURCHASE_EXCEEDED porque el organizador bajó el máximo
+        // mientras la venta estaba PENDING, o el evento quedó archivado):
+        // reintentar nunca lo va a resolver. Antes se relanzaba -> HTTP 500
+        // -> Mercado Pago reintentaba el webhook una y otra vez sin que nadie
+        // se enterara. Ahora: alerta + marca para revisión manual, y 200.
+        // Cualquier otro error (red, base, timeout) se sigue relanzando para
+        // que Mercado Pago reintente.
+        if (error instanceof AppError && error.httpStatus >= 400 && error.httpStatus < 500) {
+            logger.error(error, {
+                context: "mercadopago confirmation: pago aprobado rechazado por una regla de negocio al confirmar — requiere revisión manual",
+                saleId: sale.id,
+                paymentId: normalizedPaymentId,
+                source,
+                code: error.code,
+            });
+            await flagApprovedPaymentForReview({ sale, paymentId: normalizedPaymentId, source, reason: `CONFIRMATION_REJECTED_${error.code}` });
+            return { ok: true, action: "unresolvable", reason: `CONFIRMATION_REJECTED_${error.code}` };
+        }
         throw error;
+    }
+}
+
+// Ronda de preparación para producción — "pago aprobado que no se pudo
+// convertir en entradas" fuera del caso de stock (que ya tenía su propia
+// alerta de reconciliación). Best-effort siempre: nunca lanza, nunca
+// cambia el estado de la Sale, nunca reembolsa. Deja:
+//  - paymentRef con el paymentId (si la Sale no tenía uno), igual que
+//    approved_but_no_stock — así aparece en Developer > Ventas como caso a
+//    reconciliar;
+//  - UNA alerta FINANCIAL_INVARIANT_BROKEN por (payment, motivo): Mercado
+//    Pago reenvía la misma notificación varias veces y la reconciliación
+//    puede volver a verla — el cooldown con clave por payment evita un
+//    email por cada reintento.
+// Sin datos personales del comprador: sólo ids.
+const APPROVED_PAYMENT_REVIEW_COOLDOWN_MINUTES = 30 * 24 * 60;
+
+async function flagApprovedPaymentForReview({ sale, paymentId, source, reason, detail = null }) {
+    try {
+        if (!sale.paymentRef) {
+            await prisma.sale.updateMany({ where: { id: sale.id, paymentRef: null }, data: { paymentRef: String(paymentId) } });
+        }
+    } catch (error) {
+        logger.error(error, { context: "mercadopago confirmation: no se pudo marcar paymentRef para revisión", saleId: sale.id, reason });
+    }
+
+    try {
+        const claimed = await tryClaimDeveloperAlertCooldown(`APPROVED_PAYMENT_REVIEW:${paymentId}:${reason}`, APPROVED_PAYMENT_REVIEW_COOLDOWN_MINUTES);
+        if (!claimed) return;
+        const alertResult = await sendDeveloperAlert(DeveloperAlertType.FINANCIAL_INVARIANT_BROKEN, {
+            reason,
+            saleId: sale.id,
+            paymentId,
+            eventId: sale.eventId,
+            organizationId: sale.event?.organizationId ?? null,
+            detail: `Pago aprobado en Mercado Pago sin entradas emitidas (origen: ${source}). Revisar y, si corresponde, devolver manualmente.${detail ? ` ${detail}` : ""}`,
+        });
+        if (!alertResult.sent) {
+            logger.error(new Error("mercadopago confirmation: no se pudo enviar la alerta de pago aprobado para revisión"), {
+                saleId: sale.id,
+                paymentId,
+                reason,
+                alertReason: alertResult.reason,
+            });
+        }
+    } catch (error) {
+        logger.error(error, { context: "mercadopago confirmation: fallo al alertar pago aprobado para revisión", saleId: sale.id, reason });
     }
 }

@@ -30,6 +30,12 @@ export const syncUserService = async ({
     firstName,
     lastName,
     imageUrl,
+    // Ronda de preparación para producción — si Clerk confirma que el email
+    // primario está verificado. Default false (seguro): sin verificación,
+    // la cuenta nueva nunca adopta las compras de invitado de ese email ni
+    // recibe el rol DEVELOPER por coincidencia de email — las dos cosas
+    // dependen de que la persona sea realmente dueña de esa casilla.
+    emailVerified = false,
 }) => {
     let user = await prisma.user.findUnique({
         where: {
@@ -39,18 +45,18 @@ export const syncUserService = async ({
 
     if (user) return shapeUser(user);
 
-    // Alguien pudo haber comprado como invitado con este email antes de
-    // crear una cuenta (el Wizard de compra público genera un User con
-    // clerkId null — ver sale.service.js#getOrCreateGuestBuyer). email es
-    // @unique, así que un create() directo acá chocaría. En vez de eso, se
-    // "adopta" esa misma fila: se le asigna el clerkId real y se actualizan
-    // los datos de perfil. Sus compras anteriores (Sale/Ticket.buyerId ya
-    // apuntan a este User.id) quedan ligadas a la cuenta automáticamente —
-    // es el primer paso de "reclamar cuenta por email" mencionado para más
-    // adelante, sin necesidad de un flujo de reclamo separado.
-    const existingGuest = email ? await prisma.user.findUnique({ where: { email } }) : null;
+    // Mismo formato que guarda el checkout de invitado (getOrCreateGuestBuyer
+    // en sale.service.js: trim + minúsculas) — si no, un email con
+    // mayúsculas nunca encontraba sus compras previas.
+    const normalizedEmail = email?.trim().toLowerCase() || "";
+
+    const existingGuest = normalizedEmail ? await prisma.user.findUnique({ where: { email: normalizedEmail } }) : null;
 
     if (existingGuest && !existingGuest.clerkId) {
+        if (!emailVerified) {
+            logger.warn("syncUserService: email no verificado coincide con un comprador invitado — no se adopta", { clerkId });
+            throw new AppError(ErrorCodes.AUTH_EMAIL_NOT_VERIFIED);
+        }
         user = await prisma.user.update({
             where: { id: existingGuest.id },
             data: { clerkId, firstName, lastName, imageUrl },
@@ -61,11 +67,11 @@ export const syncUserService = async ({
     user = await prisma.user.create({
         data: {
             clerkId,
-            email,
+            email: normalizedEmail,
             firstName,
             lastName,
             imageUrl,
-            role: DEVELOPERS.includes(email)
+            role: emailVerified && DEVELOPERS.includes(normalizedEmail)
                 ? "DEVELOPER"
                 : "CUSTOMER",
         },

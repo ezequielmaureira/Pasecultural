@@ -15,6 +15,7 @@ export const syncUser = async (req, res) => {
         const user = await syncUserService({
             clerkId: clerkUser.id,
             email: clerkUser.primaryEmailAddress?.emailAddress ?? "",
+            emailVerified: clerkUser.primaryEmailAddress?.verification?.status === "verified",
             firstName: clerkUser.firstName,
             lastName: clerkUser.lastName,
             imageUrl: clerkUser.imageUrl,
@@ -22,6 +23,9 @@ export const syncUser = async (req, res) => {
 
         res.status(200).json(user);
     } catch (error) {
+        if (error instanceof AppError) {
+            return res.status(error.httpStatus).json({ code: error.code, message: error.userMessage });
+        }
         console.error(error);
 
         res.status(500).json({

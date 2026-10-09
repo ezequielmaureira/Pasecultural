@@ -69,7 +69,7 @@ async function createDraftEvent(owner, org, title) {
     await syncEventScheduleService(
         owner.clerkId,
         event.id,
-        { functions: [{ date: "2099-08-25T20:00:00-03:00", venue: "Plaza Central" }], ticketTypes: [] },
+        { functions: [{ date: "2099-08-25T20:00:00-03:00", endAt: "2099-08-25T23:00:00-03:00", venue: "Plaza Central" }], ticketTypes: [] },
         org.id
     );
     return event;

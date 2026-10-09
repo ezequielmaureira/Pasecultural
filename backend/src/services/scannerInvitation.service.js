@@ -7,6 +7,7 @@ import {
     generateVerificationCode,
     hashVerificationCode as hashCode,
     verificationCodeMatchesHash as codeMatchesHash,
+    reserveVerificationAttempt,
 } from "../utils/verificationCode.js";
 import { sendScannerVerificationCodeEmail } from "./email/sendScannerVerificationCode.service.js";
 import { signScannerSessionToken } from "../config/scannerSession.js";
@@ -223,11 +224,20 @@ export const verifyScannerInvitationCodeService = async (token, code, { userAgen
     const submittedCode = String(code ?? "").trim();
     if (!submittedCode) throw new AppError(ErrorCodes.SCANNER_VERIFICATION_CODE_REQUIRED);
 
+    // Intento reservado atómicamente antes de comparar — ver
+    // reserveVerificationAttempt (utils/verificationCode.js). El paso a
+    // ACTIVE de más abajo (updateMany ... status "INVITED") ya era de un
+    // solo uso.
+    const reserved = await reserveVerificationAttempt(prisma.eventScanner, {
+        where: { id: scanner.id, status: "INVITED" },
+        attemptsField: "verificationAttempts",
+        hashField: "verificationCodeHash",
+        codeHash: scanner.verificationCodeHash,
+        max: MAX_VERIFICATION_ATTEMPTS,
+    });
+    if (!reserved) throw new AppError(ErrorCodes.SCANNER_VERIFICATION_TOO_MANY_ATTEMPTS);
+
     if (!codeMatchesHash(submittedCode, scanner.verificationCodeHash)) {
-        await prisma.eventScanner.updateMany({
-            where: { id: scanner.id, status: "INVITED" },
-            data: { verificationAttempts: { increment: 1 } },
-        });
         throw new AppError(ErrorCodes.SCANNER_VERIFICATION_CODE_INVALID);
     }
 

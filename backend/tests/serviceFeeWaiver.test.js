@@ -61,6 +61,15 @@ async function createOrg(overrides = {}) {
     return { owner, organization, context: { user: owner, organization } };
 }
 
+// Evento ya publicado para las compras: desde la ronda de preparación para
+// producción, createSaleForBuyer rechaza ventas públicas sobre un DRAFT
+// (EVENT_NOT_ON_SALE). El beneficio depende de la organización
+// (serviceFeeWaivedUntil), nunca del estado del evento — así que esto no
+// cambia nada de lo que estos tests prueban.
+function createSellableEvent(organization, owner, options = {}) {
+    return createDraftEvent(organization, owner, { ...options, status: "PUBLISHED" });
+}
+
 async function createDraftEvent(organization, owner, { price = 10000, status = "DRAFT", publishedAt = null } = {}) {
     const s = suffix();
     const date = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -234,7 +243,7 @@ testWithDb("organización antigua con PUBLISHED sin publishedAt: fallback create
 
 testWithDb("compra dentro del beneficio: Sale y SaleItem con cargo $0, total = entradas", async () => {
     const ctx = await createOrg();
-    const fixture = await createDraftEvent(ctx.organization, ctx.owner, { price: 25000 });
+    const fixture = await createSellableEvent(ctx.organization, ctx.owner, { price: 25000 });
     await setWaiver(ctx.organization.id, new Date(Date.now() + 10 * 24 * 60 * 60 * 1000));
     const sale = await createSaleForBuyer(await buyer(), saleInput(fixture), { applyServiceFee: true });
     assert.equal(Number(sale.ticketsSubtotal), 50000);
@@ -248,7 +257,7 @@ testWithDb("compra dentro del beneficio: Sale y SaleItem con cargo $0, total = e
 
 testWithDb("justo antes del vencimiento: $0", async () => {
     const ctx = await createOrg();
-    const fixture = await createDraftEvent(ctx.organization, ctx.owner, { price: 25000 });
+    const fixture = await createSellableEvent(ctx.organization, ctx.owner, { price: 25000 });
     await setWaiver(ctx.organization.id, new Date(Date.now() + 5000));
     const sale = await createSaleForBuyer(await buyer(), saleInput(fixture, 1), { applyServiceFee: true });
     assert.equal(Number(sale.serviceFee), 0);
@@ -256,7 +265,7 @@ testWithDb("justo antes del vencimiento: $0", async () => {
 
 testWithDb("vencido (ya pasó serviceFeeWaivedUntil): tier normal en Sale y SaleItem", async () => {
     const ctx = await createOrg();
-    const fixture = await createDraftEvent(ctx.organization, ctx.owner, { price: 25000 });
+    const fixture = await createSellableEvent(ctx.organization, ctx.owner, { price: 25000 });
     await setWaiver(ctx.organization.id, new Date(Date.now() - 1));
     const sale = await createSaleForBuyer(await buyer(), saleInput(fixture), { applyServiceFee: true });
     assert.equal(Number(sale.serviceFee), 2000);
@@ -269,7 +278,7 @@ testWithDb("sin beneficio (nunca publicó): usa los rangos — límites de todos
     const ctx = await createOrg();
     const cases = [[1, 1], [999, 1], [1000, 150], [4999, 150], [5000, 200], [9999, 200], [10000, 1000], [49999, 1000], [50000, 2000], [150000, 2000]];
     for (const [price, fee] of cases) {
-        const fixture = await createDraftEvent(ctx.organization, ctx.owner, { price });
+        const fixture = await createSellableEvent(ctx.organization, ctx.owner, { price });
         const sale = await createSaleForBuyer(await buyer(), saleInput(fixture, 1), { applyServiceFee: true });
         assert.equal(Number(sale.serviceFee), fee, `precio ${price}`);
         assert.equal(Number(sale.total), price + fee, `total ${price}`);
@@ -278,7 +287,7 @@ testWithDb("sin beneficio (nunca publicó): usa los rangos — límites de todos
 
 testWithDb("expectedTotals: con beneficio, $0 confirmado pasa; un cargo estimado viejo devuelve SERVICE_FEE_CHANGED con $0", async () => {
     const ctx = await createOrg();
-    const fixture = await createDraftEvent(ctx.organization, ctx.owner, { price: 10000 });
+    const fixture = await createSellableEvent(ctx.organization, ctx.owner, { price: 10000 });
     await setWaiver(ctx.organization.id, new Date(Date.now() + 60 * 60 * 1000));
     const ok = await createSaleForBuyer(await buyer(), saleInput(fixture, 1), {
         applyServiceFee: true,
@@ -296,7 +305,7 @@ testWithDb("expectedTotals: con beneficio, $0 confirmado pasa; un cargo estimado
 
 testWithDb("venta manual / cortesía (applyServiceFee=false) sigue igual: sin desglose de cargo", async () => {
     const ctx = await createOrg();
-    const fixture = await createDraftEvent(ctx.organization, ctx.owner, { price: 10000 });
+    const fixture = await createSellableEvent(ctx.organization, ctx.owner, { price: 10000 });
     await setWaiver(ctx.organization.id, new Date(Date.now() + 60 * 60 * 1000));
     const sale = await createSaleForBuyer(await buyer(), saleInput(fixture, 1));
     assert.equal(sale.serviceFee, null);
@@ -337,7 +346,7 @@ async function checkoutCapturingPreference(ctx, fixture) {
 
 testWithDb("Mercado Pago con beneficio: marketplace_fee 0, sin ítem de comisión, ítems = total", async () => {
     const ctx = await createOrg();
-    const fixture = await createDraftEvent(ctx.organization, ctx.owner, { price: 25000 });
+    const fixture = await createSellableEvent(ctx.organization, ctx.owner, { price: 25000 });
     await setWaiver(ctx.organization.id, new Date(Date.now() + 60 * 60 * 1000));
     const { result, body } = await checkoutCapturingPreference(ctx, fixture);
     assert.equal(result.serviceFee, 0);
@@ -348,7 +357,7 @@ testWithDb("Mercado Pago con beneficio: marketplace_fee 0, sin ítem de comisió
 
 testWithDb("Mercado Pago sin beneficio: marketplace_fee = cargo fijo (nunca % de las entradas → organizador $0)", async () => {
     const ctx = await createOrg();
-    const fixture = await createDraftEvent(ctx.organization, ctx.owner, { price: 25000 });
+    const fixture = await createSellableEvent(ctx.organization, ctx.owner, { price: 25000 });
     const { result, body } = await checkoutCapturingPreference(ctx, fixture);
     assert.equal(result.serviceFee, 2000);
     assert.equal(body.marketplace_fee, 2000);

@@ -234,11 +234,16 @@ testWithDb("EF-04: scanner y check-in manual rechazan un ticket ACTIVE cuando la
         const scanAttemptCount = await prisma.scanAttempt.count({ where: { ticketId: ticket.id } });
         assert.equal(scanAttemptCount, 0, "confirmScanService no debe escribir ningún ScanAttempt para EVENT_FINISHED");
 
-        // Check-in manual del organizador (backoffice) — mismo guard.
+        // Check-in manual del organizador (backoffice) — también rechazado.
+        // Desde la ronda "eventos finalizados a Historial" el evento se
+        // archiva apenas TODAS sus funciones terminan (isEventEligibleForArchive,
+        // sin grace period), y el self-heal que corre en el escaneo de arriba
+        // ya lo archivó: el guard que salta primero es EVENT_ARCHIVED. Las dos
+        // respuestas son un rechazo — nunca un check-in.
         await assert.rejects(
             markTicketUsedManuallyService(owner.clerkId, event.id, ticket.id, { reason: "Test" }),
             (error) => {
-                assert.equal(error.code, "EVENT_FINISHED");
+                assert.ok(["EVENT_FINISHED", "EVENT_ARCHIVED"].includes(error.code), `código inesperado: ${error.code}`);
                 return true;
             }
         );
@@ -340,10 +345,12 @@ testWithDb("EF-06: publicar sin hora de fin en alguna función se rechaza con EV
     }
 });
 
-// 10) operación administrativa histórica (corrección sobre un ticket ya
-// existente) permitida después de que la función finalizó — a diferencia
-// del check-in, nunca es una operación operativa nueva.
-testWithDb("EF-07: cancelTicketService sigue permitido sobre un ticket de una función ya finalizada", async () => {
+// 10) Regla vigente desde la ronda "eventos finalizados a Historial": un
+// evento cuyas funciones ya terminaron todas se archiva de inmediato y
+// queda de sólo lectura — cancelar un ticket ahí es una operación
+// operativa y se rechaza con EVENT_ARCHIVED (antes de esa ronda, con 7 días
+// de gracia, esta corrección todavía estaba permitida).
+testWithDb("EF-07: cancelTicketService sobre un ticket de un evento ya finalizado (archivado) se rechaza con EVENT_ARCHIVED", async () => {
     const owner = await createUser();
     const org = await createOrganization(owner.id);
     const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id, { finished: false });
@@ -371,8 +378,12 @@ testWithDb("EF-07: cancelTicketService sigue permitido sobre un ticket de una fu
     await prisma.eventFunction.update({ where: { id: eventFunction.id }, data: { date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) } });
 
     try {
-        const cancelled = await cancelTicketService(owner.clerkId, event.id, ticket.id, { reason: "Corrección administrativa" });
-        assert.equal(cancelled.status, "CANCELLED", "una corrección administrativa sobre un ticket existente sigue permitida aunque la función ya haya finalizado");
+        await assert.rejects(cancelTicketService(owner.clerkId, event.id, ticket.id, { reason: "Corrección administrativa" }), (error) => {
+            assert.equal(error.code, "EVENT_ARCHIVED");
+            return true;
+        });
+        const unchanged = await prisma.ticket.findUnique({ where: { id: ticket.id } });
+        assert.equal(unchanged.status, "ACTIVE", "el rechazo no toca el ticket");
     } finally {
         await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id, buyer.id] });
     }

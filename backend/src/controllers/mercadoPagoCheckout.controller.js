@@ -28,11 +28,11 @@ export const createMercadoPagoCheckout = async (req, res, next) => {
             confirmedTotal,
             ...saleData
         } = req.body;
+        // Sin datos personales del comprador en logs (nombre, email, DNI).
         logger.info("createMercadoPagoCheckout controller entered", {
-            firstName,
-            lastName,
-            email,
-            saleData: { ...saleData, buyerDocument: saleData.buyerDocument ? "[present]" : undefined },
+            eventId: saleData.eventId,
+            functionId: saleData.functionId,
+            itemCount: Array.isArray(saleData.items) ? saleData.items.length : 0,
             hasIdempotencyKey: Boolean(idempotencyKey),
             hasConfirmedTotals: confirmedTotal !== undefined,
         });

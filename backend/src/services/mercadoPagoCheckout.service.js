@@ -158,11 +158,26 @@ export async function createMercadoPagoCheckoutService(buyerInfo, saleInput, ide
         throw error;
     }
 
+    // Entradas sin costo dentro de un evento con venta: no hay flujo de
+    // emisión gratuita (ver assertSaleConfirmationAuthorized, sale.service.js
+    // — sólo un pago aprobado confirma una venta) y Mercado Pago no acepta
+    // cobrar $0. Antes esto terminaba en un MERCADOPAGO_PREFERENCE_FAILED
+    // genérico; ahora se corta acá, con un mensaje claro, sin llamar a
+    // Mercado Pago. Decisión comercial pendiente: cómo emitir entradas
+    // gratuitas con control de acceso (ver el informe de la ronda).
+    if (round2(Number(sale.total)) <= 0) {
+        await prisma.sale.update({ where: { id: sale.id }, data: { status: "CANCELLED" } });
+        throw new AppError(ErrorCodes.FREE_TICKETS_CHECKOUT_UNSUPPORTED);
+    }
+
     // 4) Items para Mercado Pago — EXCLUSIVAMENTE desde lo que la Sale ya
     // persistió (sale.items, con unitPrice ya recalculado por el backend),
     // nunca desde saleInput.items (que sólo trae ticketTypeId/quantity, sin
     // precio) ni desde nada que haya mandado el frontend.
-    const items = sale.items.map((item) => ({
+    // Líneas de $0 (una entrada gratuita mezclada con entradas pagas) no
+    // viajan a Mercado Pago, que no acepta unit_price 0 — la suma no cambia
+    // y los tickets se emiten igual desde sale.items al confirmar.
+    const items = sale.items.filter((item) => Number(item.unitPrice) > 0).map((item) => ({
         id: item.ticketTypeId,
         title: item.ticketType?.name || "Entrada",
         // Recomendación oficial del panel de Calidad de integración de
@@ -247,6 +262,9 @@ export async function createMercadoPagoCheckoutService(buyerInfo, saleInput, ide
         backUrls,
         notificationUrl: getMercadoPagoNotificationUrl() ?? undefined,
         excludedPaymentTypes: EXCLUDED_PAYMENT_TYPES,
+        // La preferencia vence junto con la reserva de stock de la Sale.
+        expiresAt: sale.stockReservedUntil ? new Date(sale.stockReservedUntil) : null,
+        validFrom: new Date(sale.createdAt),
     });
 
     if (!preference.success) {

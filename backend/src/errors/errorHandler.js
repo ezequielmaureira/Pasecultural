@@ -2,6 +2,7 @@ import { getAuth } from "@clerk/express";
 import { AppError } from "./AppError.js";
 import { ErrorCodes } from "./ErrorCodes.js";
 import { logger } from "../logging/logger.js";
+import { redactPath } from "../logging/redactPath.js";
 
 // Único middleware que arma una respuesta de error para toda la app. Los
 // controllers no vuelven a decidir status ni shape acá: sólo convierten lo
@@ -21,7 +22,7 @@ export function errorHandler(err, req, res, next) {
 
     logger.error(appError, {
         method: req.method,
-        path: req.originalUrl,
+        path: redactPath(req.originalUrl),
         userId,
     });
 

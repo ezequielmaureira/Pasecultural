@@ -63,11 +63,22 @@ if (selected.length === 0) {
 const args = ["--test", ...selected.map((name) => `tests/${name}`)];
 
 if (mode === "db") {
+    // Los tests con DB real son los únicos que pueden ejercitar servicios
+    // completos (emails, Mercado Pago, Cloudinary) — se corren siempre con
+    // las claves de backend/.env (producción) neutralizadas y sin fetch
+    // externo, ver testSafetyPreload.js. Va DESPUÉS de loadTestEnv.js (el
+    // unshift de abajo lo deja primero), así .env.test gana siempre.
+    args.unshift("--import", "./tests/helpers/testSafetyPreload.js");
     // Mismo preload que antes de esta revisión (carga .env.test ANTES de
     // que node:test importe cualquier archivo, que es exactamente cuando
     // dbGuard.js hace su chequeo) — nunca .env, nunca nada que pueda
     // resolver a producción.
     args.unshift("--import", "./tests/helpers/loadTestEnv.js");
+    // Un archivo por vez: varios archivos comparten filas singleton (límites
+    // de plan por OrganizationPlan, PublicLaunchSettings, ServiceFeeTier) y
+    // corriendo en paralelo se pisaban entre sí — fallas que no reproducían
+    // al correr cada archivo solo.
+    args.splice(args.indexOf("--test") + 1, 0, "--test-concurrency=1");
 }
 
 const result = spawnSync(process.execPath, args, { stdio: "inherit", cwd: backendRoot });

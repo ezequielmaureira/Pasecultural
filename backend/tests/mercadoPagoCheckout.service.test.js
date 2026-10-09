@@ -476,13 +476,23 @@ testWithDb("5/6/13/14) the backend recalculates price from the DB, ignores any c
             capturedBody.items[0].description,
             `${event.title} — Platea — ${eventFunction.venue}, ${formatFunctionDateTimeAR(eventFunction.date)}`
         );
-        assert.equal(capturedBody.items[1].title, "Comisión de servicio PaseCultural");
+        assert.equal(capturedBody.items[1].title, "Comisión de servicio Smarticket");
         assert.equal(capturedBody.items[1].quantity, 1);
         assert.equal(capturedBody.items[1].unit_price, 1500);
         assert.equal(capturedBody.items[1].description, `Comisión de servicio — ${event.title}`);
 
         const itemsSum = capturedBody.items.reduce((sum, item) => sum + item.unit_price * item.quantity, 0);
         assert.equal(itemsSum, Number(sale.total), "la suma de los items de la preferencia debe coincidir exacto con el total esperado por el webhook");
+
+        // La preferencia vence exactamente cuando vence la reserva de stock
+        // (mismo instante, escrito en hora de Argentina).
+        assert.equal(capturedBody.expires, true);
+        assert.match(capturedBody.expiration_date_to, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}-03:00$/);
+        assert.equal(new Date(capturedBody.expiration_date_to).getTime(), sale.stockReservedUntil.getTime());
+        // Inicio de vigencia = creación de la Sale, mismo formato documentado.
+        assert.match(capturedBody.expiration_date_from, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}-03:00$/);
+        assert.equal(new Date(capturedBody.expiration_date_from).getTime(), sale.createdAt.getTime());
+        assert.ok(new Date(capturedBody.expiration_date_from) < new Date(capturedBody.expiration_date_to));
     } finally {
         restore();
         await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
@@ -1111,7 +1121,7 @@ testWithDb("mixed cart (two ticket types, two different prices) via Mercado Pago
         // comisión (nunca duplicada, nunca prorrateada dentro de cada
         // entrada) — la suma coincide exacto con el total esperado.
         assert.equal(capturedBody.items.length, 3);
-        const feeLine = capturedBody.items.find((i) => i.title === "Comisión de servicio PaseCultural");
+        const feeLine = capturedBody.items.find((i) => i.title === "Comisión de servicio Smarticket");
         assert.ok(feeLine);
         assert.equal(feeLine.unit_price, 3000);
         assert.equal(feeLine.quantity, 1);
@@ -1297,13 +1307,64 @@ testWithDb("a missing service-fee configuration fails safely (SERVICE_FEE_CONFIG
     await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
 });
 
-testWithDb("a $0-priced ticket keeps a $0 fee through a real Mercado Pago checkout, regardless of the configured tiers", async () => {
+// Ronda de preparación para producción — un carrito de $0 ya no llega a
+// Mercado Pago (FREE_TICKETS_CHECKOUT_UNSUPPORTED, ver FREE-A). Lo que este
+// test protegía sigue intacto y se verifica sobre la Sale fotografiada: un
+// precio $0 nunca genera cargo de servicio, sin importar los rangos.
+testWithDb("a $0-priced ticket keeps a $0 fee regardless of the configured tiers (the $0 cart itself is rejected before Mercado Pago)", async () => {
     const owner = await createUser();
     const org = await createOrganization(owner.id);
     await createMpConnection(org.id);
     const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id, { price: 0, ticketTypeName: "Gratis" });
 
-    let capturedBody;
+    const restore = mockMpFetchMustNotBeCalled();
+    try {
+        const input = saleInput({ ...ticketType, eventId: event.id, functionId: eventFunction.id }, { quantity: 2 });
+        await assert.rejects(createMercadoPagoCheckoutService(BUYER, input, randomUUID()), (error) => error.code === "FREE_TICKETS_CHECKOUT_UNSUPPORTED");
+
+        const [sale] = await prisma.sale.findMany({ where: { eventId: event.id } });
+        assert.equal(Number(sale.ticketsSubtotal), 0);
+        assert.equal(Number(sale.serviceFee), 0, "un precio $0 nunca debe generar comisión, sin importar los rangos configurados");
+        assert.equal(Number(sale.total), 0);
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+// ==================================================================
+// Ronda de preparación para producción — entradas de $0 en un evento con
+// venta (decisión comercial pendiente: no hay flujo de emisión sin pago).
+// ==================================================================
+
+testWithDb("FREE-A: un carrito de $0 se rechaza con FREE_TICKETS_CHECKOUT_UNSUPPORTED sin llamar a Mercado Pago, y la Sale queda CANCELLED", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id, { price: 0 });
+    const restore = mockMpFetchMustNotBeCalled();
+    try {
+        await assert.rejects(
+            createMercadoPagoCheckoutService(BUYER, saleInput({ ...ticketType, eventId: event.id, functionId: eventFunction.id }, { quantity: 1 }), randomUUID()),
+            (error) => error.code === "FREE_TICKETS_CHECKOUT_UNSUPPORTED"
+        );
+        const sales = await prisma.sale.findMany({ where: { eventId: event.id } });
+        assert.equal(sales.length, 1);
+        assert.equal(sales[0].status, "CANCELLED", "nunca queda una reserva colgada");
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("FREE-B: una línea de $0 mezclada con entradas pagas no viaja a Mercado Pago; la suma sigue igual a Sale.total", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id, { price: 8000 });
+    const freeType = await prisma.ticketType.create({ data: { eventId: event.id, name: "Menor", price: 0, quantity: 50, maxPerPurchase: 5 } });
+    await prisma.functionTicketType.create({ data: { functionId: eventFunction.id, ticketTypeId: freeType.id, enabled: true } });
+    let capturedBody = null;
     const restore = mockMpFetch(async (url, options) => {
         if (String(url).includes("/checkout/preferences")) {
             capturedBody = JSON.parse(options.body);
@@ -1311,20 +1372,22 @@ testWithDb("a $0-priced ticket keeps a $0 fee through a real Mercado Pago checko
         }
         throw new Error(`unexpected fetch call to ${url}`);
     });
-
     try {
-        const input = saleInput({ ...ticketType, eventId: event.id, functionId: eventFunction.id }, { quantity: 2 });
+        const input = {
+            eventId: event.id,
+            functionId: eventFunction.id,
+            items: [
+                { ticketTypeId: ticketType.id, quantity: 1 },
+                { ticketTypeId: freeType.id, quantity: 2 },
+            ],
+            buyerDocument: "30111222",
+        };
         const result = await createMercadoPagoCheckoutService(BUYER, input, randomUUID());
-
-        const sale = await prisma.sale.findUnique({ where: { publicRecoveryToken: result.saleToken } });
-        assert.equal(Number(sale.ticketsSubtotal), 0);
-        assert.equal(Number(sale.serviceFee), 0, "un precio $0 nunca debe generar comisión, sin importar los rangos configurados");
-        assert.equal(Number(sale.total), 0);
-
-        // Ninguna línea de comisión cuando es $0 — no tiene sentido
-        // mandarle a Mercado Pago un ítem separado de importe $0.
-        const feeLine = capturedBody.items.find((i) => i.title === "Comisión de servicio PaseCultural");
-        assert.equal(feeLine, undefined);
+        const sale = await prisma.sale.findUnique({ where: { publicRecoveryToken: result.saleToken }, include: { items: true } });
+        assert.equal(sale.items.length, 2, "la Sale conserva las dos líneas (se emiten las 3 entradas al confirmar)");
+        assert.ok(capturedBody.items.every((item) => item.unit_price > 0), "ninguna línea de $0 a Mercado Pago");
+        const itemsSum = capturedBody.items.reduce((sum, item) => sum + item.unit_price * item.quantity, 0);
+        assert.equal(itemsSum, Number(sale.total));
     } finally {
         restore();
         await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });

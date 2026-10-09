@@ -449,7 +449,7 @@ testWithDb("WA-M: PREMIUM con maxActiveEvents alcanzado sigue bloqueado por Fase
         await syncEventScheduleService(
             owner.clerkId,
             existingEvent.id,
-            { functions: [{ date: "2099-08-25T20:00:00-03:00", venue: "Plaza Central" }], ticketTypes: [] },
+            { functions: [{ date: "2099-08-25T20:00:00-03:00", endAt: "2099-08-25T23:00:00-03:00", venue: "Plaza Central" }], ticketTypes: [] },
             org.id
         );
         await updateMyEventService(owner.clerkId, existingEvent.id, { status: "PUBLISHED" }, org.id); // 1/1 activo

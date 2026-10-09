@@ -112,6 +112,54 @@ export const ErrorCatalog = Object.freeze({
         logMessage: "Event function not found or does not belong to the given event.",
         userMessage: "La función seleccionada no existe para este evento.",
     },
+    // Guards de estado de createSaleForBuyer (sale.service.js): el backend
+    // nunca vende sobre un evento/función/organización que el público no
+    // podría ver — sin depender de lo que muestre el frontend.
+    EVENT_NOT_ON_SALE: {
+        httpStatus: 409,
+        logMessage: "Sale attempted for an event that is not PUBLISHED+PUBLIC or whose organization is not APPROVED.",
+        userMessage: "Este evento no tiene la venta de entradas habilitada.",
+    },
+    EVENT_CANCELLED: {
+        httpStatus: 409,
+        logMessage: "Sale/courtesy attempted for a cancelled event.",
+        userMessage: "Este evento fue cancelado.",
+    },
+    FUNCTION_CANCELLED: {
+        httpStatus: 409,
+        logMessage: "Sale/courtesy attempted for a cancelled EventFunction.",
+        userMessage: "Esta función fue cancelada.",
+    },
+    // auth.service.js#syncUserService — una cuenta nueva con email sin
+    // verificar en Clerk nunca adopta compras de invitado de ese email.
+    AUTH_EMAIL_NOT_VERIFIED: {
+        httpStatus: 403,
+        logMessage: "Clerk sign-in with an unverified primary email matching an existing guest buyer.",
+        userMessage: "Verificá tu email para continuar.",
+    },
+    // mercadoPagoCheckout.service.js — una compra de $0 en un evento con
+    // venta (entradas gratuitas): no hay flujo de emisión sin pago.
+    FREE_TICKETS_CHECKOUT_UNSUPPORTED: {
+        httpStatus: 409,
+        logMessage: "Mercado Pago checkout attempted for a $0 cart (free tickets inside a TICKETED event).",
+        userMessage: "Las entradas sin costo de este evento todavía no se pueden obtener online. Consultá al organizador.",
+    },
+    // C3 — media.service.js#deleteMediaForUserService.
+    MEDIA_INVALID_ID: {
+        httpStatus: 400,
+        logMessage: "Media delete attempted with a publicId outside the managed folder or an invalid resource type.",
+        userMessage: "El archivo indicado no es válido.",
+    },
+    MEDIA_FORBIDDEN: {
+        httpStatus: 403,
+        logMessage: "Media delete attempted by a user who did not upload that resource.",
+        userMessage: "No tenés permiso para eliminar este archivo.",
+    },
+    DUPLICATE_SALE_ITEM: {
+        httpStatus: 400,
+        logMessage: "Sale items contain the same ticketTypeId more than once.",
+        userMessage: "Alguna de las entradas elegidas está repetida. Volvé a armar tu compra.",
+    },
     SALE_ITEMS_REQUIRED: {
         httpStatus: 400,
         logMessage: "Sale creation attempted with no items.",

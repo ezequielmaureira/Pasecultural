@@ -4,7 +4,7 @@ import { ErrorCodes } from "../errors/ErrorCodes.js";
 import { isValidEmail } from "../utils/validateEmail.js";
 import { normalizeBuyerDocument, isValidBuyerDocument } from "../utils/validateBuyerDocument.js";
 import { maskEmail } from "../utils/maskEmail.js";
-import { generateVerificationCode, hashVerificationCode, verificationCodeMatchesHash } from "../utils/verificationCode.js";
+import { generateVerificationCode, hashVerificationCode, verificationCodeMatchesHash, reserveVerificationAttempt } from "../utils/verificationCode.js";
 import { findConfirmedRecoverableSales } from "./sale.service.js";
 import { sendSaleRecoveryVerificationCodeEmail } from "./email/sendSaleRecoveryVerificationCode.service.js";
 import { logger } from "../logging/logger.js";
@@ -167,21 +167,31 @@ export const verifySaleRecoveryCodeService = async ({ email, buyerDocument, code
     if (session.attempts >= MAX_VERIFICATION_ATTEMPTS) {
         throw new AppError(ErrorCodes.RECOVER_VERIFICATION_TOO_MANY_ATTEMPTS);
     }
+    if (!session.codeHash) throw new AppError(ErrorCodes.RECOVER_VERIFICATION_CODE_INVALID);
 
-    if (!session.codeHash || !verificationCodeMatchesHash(submittedCode, session.codeHash)) {
-        await prisma.saleRecoveryVerification.updateMany({
-            where: { id: session.id },
-            data: { attempts: { increment: 1 } },
-        });
+    // Intento reservado atómicamente ANTES de comparar (ver
+    // reserveVerificationAttempt): nunca más de MAX_VERIFICATION_ATTEMPTS
+    // comparaciones por código, ni siquiera con requests en paralelo.
+    const reserved = await reserveVerificationAttempt(prisma.saleRecoveryVerification, {
+        where: { id: session.id },
+        codeHash: session.codeHash,
+        max: MAX_VERIFICATION_ATTEMPTS,
+    });
+    if (!reserved) throw new AppError(ErrorCodes.RECOVER_VERIFICATION_TOO_MANY_ATTEMPTS);
+
+    if (!verificationCodeMatchesHash(submittedCode, session.codeHash)) {
         throw new AppError(ErrorCodes.RECOVER_VERIFICATION_CODE_INVALID);
     }
 
     // Código correcto: se invalida (no reusable) y recién ahora se devuelven
-    // los datos reales de la(s) compra(s).
-    await prisma.saleRecoveryVerification.updateMany({
-        where: { id: session.id },
+    // los datos reales de la(s) compra(s). Condicionado al mismo codeHash:
+    // dos verificaciones simultáneas del mismo código correcto — sólo una
+    // lo consume.
+    const consumed = await prisma.saleRecoveryVerification.updateMany({
+        where: { id: session.id, codeHash: session.codeHash },
         data: { codeHash: null, codeExpiresAt: null, attempts: 0, lastSentAt: null },
     });
+    if (consumed.count !== 1) throw new AppError(ErrorCodes.RECOVER_VERIFICATION_CODE_INVALID);
 
     const sales = await findConfirmedRecoverableSales(normalizedEmail, normalizedDocument);
     logger.info("verifySaleRecoveryCodeService completed", { matchCount: sales.length });

@@ -787,3 +787,108 @@ testWithDb("20) discovery falls back to a DISCONNECTED connection when the payme
         await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
     }
 });
+
+// ==================================================================
+// Ronda de preparación para producción — vencimiento de compras
+// abandonadas y ventana máxima del sweep automático.
+// ==================================================================
+
+testWithDb("EXP-A: compra abandonada (reserva vencida hace >48 h, sin pago aprobado) pasa a EXPIRED en el sweep", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+    await expireReservation(sale.id, 49 * 60 * 60 * 1000);
+    const restore = mockReconciliationFetch({});
+    try {
+        const summary = await reconcilePendingMercadoPagoSalesService();
+        const mine = summary.results.find((r) => r.saleId === sale.id);
+        assert.equal(mine.action, "no_approved_payment_found");
+        assert.equal(mine.expired, true);
+        assert.equal((await prisma.sale.findUnique({ where: { id: sale.id } })).status, "EXPIRED");
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("EXP-B: reserva vencida hace poco (<48 h) sigue PENDING — todavía puede llegar un pago", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+    await expireReservation(sale.id, 2 * 60 * 60 * 1000);
+    const restore = mockReconciliationFetch({});
+    try {
+        await reconcilePendingMercadoPagoSalesService();
+        assert.equal((await prisma.sale.findUnique({ where: { id: sale.id } })).status, "PENDING");
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("EXP-C: una venta marcada para revisión (paymentRef) nunca se vence sola", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+    await expireReservation(sale.id, 49 * 60 * 60 * 1000);
+    await prisma.sale.update({ where: { id: sale.id }, data: { paymentRef: "999000111" } });
+    const restore = mockReconciliationFetch({});
+    try {
+        await reconcilePendingMercadoPagoSalesService();
+        assert.equal((await prisma.sale.findUnique({ where: { id: sale.id } })).status, "PENDING");
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("EXP-D: ventas de más de 7 días quedan fuera del sweep automático (nunca se tocan solas)", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+    await prisma.sale.update({
+        where: { id: sale.id },
+        data: { createdAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000), stockReservedUntil: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000) },
+    });
+    const restore = mockReconciliationFetch({});
+    try {
+        const summary = await reconcilePendingMercadoPagoSalesService();
+        assert.equal(summary.results.some((r) => r.saleId === sale.id), false);
+        assert.equal((await prisma.sale.findUnique({ where: { id: sale.id } })).status, "PENDING");
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});
+
+testWithDb("EXP-E: un pago aprobado que aparece en el sweep confirma normalmente y NUNCA se vence", async () => {
+    const owner = await createUser();
+    const org = await createOrganization(owner.id);
+    const connection = await createMpConnection(org.id);
+    const { event, eventFunction, ticketType } = await createEventWithTicketType(org.id, owner.id);
+    const sale = await setupPendingSale({ event, eventFunction, ticketType, quantity: 1 });
+    await expireReservation(sale.id, 49 * 60 * 60 * 1000);
+    const payment = paymentPayload(sale, connection);
+    const restore = mockReconciliationFetch({
+        merchantOrdersByPrefId: { [sale.mercadoPagoPreferenceId]: [merchantOrderWith(sale, [{ id: payment.id, status: "approved" }])] },
+        paymentsById: { [String(payment.id)]: payment },
+    });
+    try {
+        const summary = await reconcilePendingMercadoPagoSalesService();
+        const mine = summary.results.find((r) => r.saleId === sale.id);
+        assert.equal(mine.action, "confirmed");
+        assert.equal(mine.expired, false);
+        assert.equal((await prisma.sale.findUnique({ where: { id: sale.id } })).status, "CONFIRMED");
+    } finally {
+        restore();
+        await cleanup({ eventIds: [event.id], organizationIds: [org.id], userIds: [owner.id] });
+    }
+});

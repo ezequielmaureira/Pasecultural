@@ -16,6 +16,7 @@ import { sendSaleConfirmationEmail, getSaleEmailData } from "./email/sendSaleCon
 import { buildTicketQrImages } from "./email/ticketQrImages.js";
 import { buildTicketsPdfBuffer } from "./email/ticketsPdf.js";
 import { round2 } from "../utils/money.js";
+import { getRevenueBreakdownBySaleId } from "./saleRevenue.service.js";
 import { isTrustedPaymentEvidence, MERCADO_PAGO_CONFIRMATION_SOURCES } from "./paymentEvidence.js";
 import { getValidatedServiceFeeTiersOrThrow, calculateServiceFeeForUnitPrice } from "./serviceFee.service.js";
 import { isServiceFeeWaived } from "./serviceFeeWaiver.service.js";
@@ -105,9 +106,19 @@ async function getOrCreateGuestBuyer({ firstName, lastName, email }) {
     const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (existing) return existing;
 
-    return prisma.user.create({
-        data: { email: normalizedEmail, firstName: firstName.trim(), lastName: lastName.trim(), clerkId: null },
-    });
+    try {
+        return await prisma.user.create({
+            data: { email: normalizedEmail, firstName: firstName.trim(), lastName: lastName.trim(), clerkId: null },
+        });
+    } catch (error) {
+        // Dos compras simultáneas del mismo email nuevo: las dos ven "no
+        // existe" y una pierde la carrera del @unique — se reutiliza la fila
+        // que creó la otra en vez de responder 500.
+        if (error?.code !== "P2002") throw error;
+        const created = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+        if (!created) throw error;
+        return created;
+    }
 }
 
 // Núcleo compartido de creación de venta, ya con el comprador resuelto (con
@@ -184,12 +195,32 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
 
     const event = await prisma.event.findUnique({
         where: { id: input?.eventId },
-        include: { organization: { select: { closedAt: true, serviceFeeWaivedUntil: true } } },
+        include: { organization: { select: { closedAt: true, serviceFeeWaivedUntil: true, status: true } } },
     });
     // Una organización cerrada (legacy closedAt) o eliminada por su
     // propietario (evento histórico desacoplado, organization null) ya no
     // vende ni emite cortesías — mismo error que "no existe".
     if (!event || !event.organization || event.organization.closedAt) throw new AppError(ErrorCodes.EVENT_NOT_FOUND);
+
+    // Estado del evento — guard autoritativo, nunca depende del frontend
+    // (una página abierta antes de una cancelación, o una llamada directa a
+    // la API, llegan igual hasta acá). Un evento cancelado o archivado no
+    // vende ni emite cortesías. La venta pública (origin SALE) exige además
+    // exactamente lo mismo que getPublicEventBySlugService exige para
+    // MOSTRAR el evento: PUBLISHED + PUBLIC + organización APPROVED — lo que
+    // el público no puede ver, tampoco lo puede comprar. Las cortesías
+    // (origin COURTESY) no pasan por esa segunda parte: un organizador puede
+    // invitar a un evento privado o todavía no publicado.
+    if (event.status === "CANCELLED" || event.cancelledAt) throw new AppError(ErrorCodes.EVENT_CANCELLED);
+    if (event.archivedAt) throw new AppError(ErrorCodes.EVENT_ARCHIVED);
+    // Una organización suspendida o rechazada no opera — ni ventas ni
+    // cortesías.
+    if (event.organization.status === "SUSPENDED" || event.organization.status === "REJECTED") {
+        throw new AppError(ErrorCodes.EVENT_NOT_ON_SALE);
+    }
+    if (origin === "SALE" && (event.status !== "PUBLISHED" || event.visibility !== "PUBLIC" || event.organization.status !== "APPROVED")) {
+        throw new AppError(ErrorCodes.EVENT_NOT_ON_SALE);
+    }
 
     // Guard autoritativo de FREE_ENTRY — punto único de choque de los tres
     // caminos que pueden llegar acá (venta manual, Mercado Pago vía
@@ -206,6 +237,9 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
     if (!eventFunction || eventFunction.eventId !== event.id) {
         throw new AppError(ErrorCodes.FUNCTION_NOT_FOUND);
     }
+    if (eventFunction.status === "CANCELLED") {
+        throw new AppError(ErrorCodes.FUNCTION_CANCELLED);
+    }
 
     // Regla "evento finalizado = evento finalizado" — único choke point de
     // creación de Sale (venta manual, guest/Mercado Pago vía
@@ -221,10 +255,20 @@ export async function createSaleForBuyer(buyer, input, options = {}) {
     if (itemsInput.length === 0) {
         throw new AppError(ErrorCodes.SALE_ITEMS_REQUIRED);
     }
+    const seenTicketTypeIds = new Set();
     for (const item of itemsInput) {
-        if (!item?.ticketTypeId || !Number.isInteger(item.quantity) || item.quantity <= 0) {
+        if (typeof item?.ticketTypeId !== "string" || !item.ticketTypeId || !Number.isInteger(item.quantity) || item.quantity <= 0) {
             throw new AppError(ErrorCodes.INVALID_SALE_ITEM);
         }
+        // Un mismo tipo de entrada repetido en dos líneas se rechaza (nunca
+        // se suma en silencio): stock y maxPerPurchase se validan POR LÍNEA
+        // más abajo y en confirmSaleService, así que dos líneas de 5 sobre un
+        // máximo de 6 (o sobre 6 lugares libres) pasaban cada una por
+        // separado — sobreventa real. El Wizard ya manda una línea por tipo.
+        if (seenTicketTypeIds.has(item.ticketTypeId)) {
+            throw new AppError(ErrorCodes.DUPLICATE_SALE_ITEM, { details: { ticketTypeId: item.ticketTypeId } });
+        }
+        seenTicketTypeIds.add(item.ticketTypeId);
     }
 
     // Preparación para la futura recuperación segura de entradas (ver
@@ -515,10 +559,12 @@ export const createSaleService = async (clerkId, input) => {
 // pasa (paymentMethod/checkoutIdempotencyKey quedan en su default de
 // siempre); sólo mercadoPagoCheckout.service.js (MP-2) la usa.
 export const createGuestSaleService = async (buyerInfo, input, options = {}) => {
-    // input.buyerDocument nunca se loguea crudo — sólo si vino presente.
+    // Sin datos personales en logs: ni nombre, ni email, ni DNI del
+    // comprador — sólo qué se intenta comprar.
     logger.info("createGuestSaleService entered", {
-        buyerInfo,
-        input: { ...input, buyerDocument: input?.buyerDocument ? "[present]" : undefined },
+        eventId: input?.eventId,
+        functionId: input?.functionId,
+        itemCount: Array.isArray(input?.items) ? input.items.length : 0,
     });
     const buyer = await getOrCreateGuestBuyer(buyerInfo ?? {});
     const sale = await createSaleForBuyer(buyer, input, options);
@@ -615,7 +661,7 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
         include: {
             items: { include: { ticketType: true } },
             event: { include: { organization: true } },
-            function: { select: { date: true, venue: true } },
+            function: { select: { date: true, venue: true, status: true } },
         },
     });
     // Evento histórico de una organización eliminada: nada que confirmar
@@ -666,6 +712,15 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
         logger.info("confirmSaleService failed: sale not pending", { saleId, status: sale.status });
         throw new AppError(ErrorCodes.SALE_NOT_PENDING);
     }
+
+    // Evento/función cancelados DESPUÉS de reservar (el comprador estaba en
+    // Mercado Pago cuando el organizador canceló): nunca se emiten entradas
+    // para algo que ya no va a ocurrir. Para un pago aprobado esto termina
+    // en confirmMercadoPagoPaymentIfEligible como "pago aprobado para
+    // revisión" (alerta + paymentRef, devolución manual) — nunca en
+    // entradas inválidas.
+    if (sale.event.status === "CANCELLED" || sale.event.cancelledAt) throw new AppError(ErrorCodes.EVENT_CANCELLED);
+    if (sale.function?.status === "CANCELLED") throw new AppError(ErrorCodes.FUNCTION_CANCELLED);
 
     const result = await prisma.$transaction(async (tx) => {
         // 1) Advisory lock por cada (ticketType, function) involucrado: serializa
@@ -721,26 +776,51 @@ export const confirmSaleService = async (clerkId, saleId, options = {}) => {
         // nueva, sólo se retiene.
         const stockSnapshots = [];
 
+        // Cantidad TOTAL por tipo de entrada — nunca por línea: una venta
+        // creada antes de que createSaleForBuyer rechazara líneas repetidas
+        // (DUPLICATE_SALE_ITEM) podría tener el mismo ticketTypeId dos veces,
+        // y validar cada línea por separado dejaba pasar sobreventa.
+        const quantityByTicketTypeId = new Map();
         for (const item of sale.items) {
-            const assignment = assignmentByTicketTypeId.get(item.ticketTypeId);
+            quantityByTicketTypeId.set(item.ticketTypeId, (quantityByTicketTypeId.get(item.ticketTypeId) ?? 0) + item.quantity);
+        }
+        const itemByTicketTypeId = new Map(sale.items.map((item) => [item.ticketTypeId, item]));
+        const now = new Date();
+
+        for (const [ticketTypeId, quantity] of quantityByTicketTypeId) {
+            const item = itemByTicketTypeId.get(ticketTypeId);
+            const assignment = assignmentByTicketTypeId.get(ticketTypeId);
             const capacity = assignment ? effectiveCapacity(assignment) : item.ticketType.quantity;
             // Re-chequeado acá también, no sólo en createSale: si el organizador
             // baja el maxPerPurchase de un tipo de entrada mientras la venta
             // sigue PENDING, la confirmación no debe dejarla pasar igual.
             const maxPerPurchase = assignment ? assignment.ticketType.maxPerPurchase : item.ticketType.maxPerPurchase;
-            if (item.quantity > maxPerPurchase) {
-                throw new AppError(ErrorCodes.MAX_PER_PURCHASE_EXCEEDED, { details: { ticketTypeId: item.ticketTypeId } });
+            if (quantity > maxPerPurchase) {
+                throw new AppError(ErrorCodes.MAX_PER_PURCHASE_EXCEEDED, { details: { ticketTypeId } });
             }
-            const sold = await getSoldCount(tx, item.ticketTypeId, sale.functionId);
-            if (sold + item.quantity > capacity) {
-                throw new AppError(ErrorCodes.INSUFFICIENT_STOCK, { details: { ticketTypeId: item.ticketTypeId } });
+            // Vendidas + reservas PENDING vigentes de OTROS compradores (esta
+            // venta ya pasó a CONFIRMED en el paso 2, así que nunca se cuenta
+            // a sí misma). Con la reserva propia todavía vigente da lo mismo
+            // que contar sólo vendidas (al reservar ya se validó contra todo
+            // esto); la diferencia es el pago TARDÍO: si la reserva de esta
+            // venta venció y otro comprador reservó ese lugar mientras tanto,
+            // el lugar es de quien lo tiene reservado — esta confirmación
+            // termina en INSUFFICIENT_STOCK (approved_but_no_stock, alerta y
+            // devolución manual) en vez de dejar sin entrada a alguien que
+            // todavía está dentro de su ventana de pago.
+            const unavailable = await getUnavailableCount(tx, ticketTypeId, sale.functionId, now);
+            if (unavailable + quantity > capacity) {
+                throw new AppError(ErrorCodes.INSUFFICIENT_STOCK, { details: { ticketTypeId } });
             }
+            // Notificaciones de stock: siguen midiendo VENDIDAS (como siempre),
+            // nunca reservas temporales que pueden vencer.
+            const sold = await getSoldCount(tx, ticketTypeId, sale.functionId);
             stockSnapshots.push({
-                ticketTypeId: item.ticketTypeId,
+                ticketTypeId,
                 ticketTypeName: assignment ? assignment.ticketType.name : item.ticketType.name,
                 capacity,
                 availableBefore: Math.max(capacity - sold, 0),
-                availableAfter: Math.max(capacity - sold - item.quantity, 0),
+                availableAfter: Math.max(capacity - sold - quantity, 0),
             });
         }
 
@@ -1154,7 +1234,12 @@ export const listSalesOrganizerService = async (clerkId, filters = {}) => {
         ];
     }
 
-    return prisma.sale.findMany({ where, include: SALE_LIST_INCLUDE, orderBy: { createdAt: "desc" } });
+    const sales = await prisma.sale.findMany({ where, include: SALE_LIST_INCLUDE, orderBy: { createdAt: "desc" } });
+    // Recaudación del organizador por venta (sin el cargo Smarticket y sin
+    // lo devuelto) — ver saleRevenue.service.js. Es lo que suman los KPIs
+    // "Recaudación" del panel; `total` sigue siendo lo que pagó el comprador.
+    const revenueBySaleId = await getRevenueBreakdownBySaleId(sales);
+    return sales.map((sale) => ({ ...sale, revenue: revenueBySaleId.get(sale.id) }));
 };
 
 export const listSalesBuyerService = async (clerkId) => {

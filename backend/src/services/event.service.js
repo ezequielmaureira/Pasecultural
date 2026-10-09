@@ -12,6 +12,7 @@ import { sendDeveloperAlert, DeveloperAlertType, tryClaimDeveloperAlertCooldown 
 import { getDeveloperAlertConfigOrDefaults } from "./developerAlertConfig.service.js";
 import { getLimitForOrganization, PlanLimitKey } from "./organizationPlanPolicy.js";
 import { isServiceFeeWaived, recordFirstEventPublication } from "./serviceFeeWaiver.service.js";
+import { getNetRevenueByEventId } from "./saleRevenue.service.js";
 
 // Premium — Fase 2B. "Evento activo" (lo único que consume cupo de
 // maxActiveEvents) = status PUBLISHED && archivedAt IS NULL. Advisory lock
@@ -1533,11 +1534,10 @@ async function attachArchivedEventsSummary(events) {
             where: { eventId: { in: eventIds }, status: { in: SOLD_TICKET_STATUSES }, origin: "SALE" },
             _count: { _all: true },
         }),
-        prisma.sale.groupBy({
-            by: ["eventId"],
-            where: { eventId: { in: eventIds }, status: "CONFIRMED", origin: "SALE" },
-            _sum: { total: true },
-        }),
+        // Recaudación neta del organizador (sin cargo Smarticket ni lo
+        // devuelto) — misma regla que el listado de ventas, ver
+        // saleRevenue.service.js.
+        getNetRevenueByEventId(eventIds),
     ]);
 
     const capacityByEvent = new Map();
@@ -1547,7 +1547,7 @@ async function attachArchivedEventsSummary(events) {
     }
     const checkedInByEvent = new Map(checkedInGroups.map((g) => [g.eventId, g._count._all]));
     const soldByEvent = new Map(soldGroups.map((g) => [g.eventId, g._count._all]));
-    const revenueByEvent = new Map(revenueGroups.map((g) => [g.eventId, Number(g._sum.total ?? 0)]));
+    const revenueByEvent = revenueGroups;
 
     return events.map((event) => ({
         ...event,

@@ -102,7 +102,32 @@ npm run test:db   # sólo los tests que sí usan Prisma real, contra la DB de TE
 npm run dev       # Vite dev server
 npm run build     # build de producción (lo que Vercel despliega)
 npm run preview   # sirve el build localmente
+npm test          # tests de lógica pura (node:test, sin dependencias)
 ```
+
+### Tests con DB contra un Postgres local
+
+`test:db` acepta, además del proyecto Supabase de TEST, un Postgres en
+`127.0.0.1`/`localhost` (`tests/helpers/dbGuard.js` — producción sigue
+bloqueada siempre). Las variables de la terminal ganan sobre `.env.test`:
+
+```
+# una vez: base vacía + migraciones
+createdb -h 127.0.0.1 -p 55432 -U postgres smarticket_test
+DATABASE_URL=postgresql://postgres@127.0.0.1:55432/smarticket_test DIRECT_URL=postgresql://postgres@127.0.0.1:55432/smarticket_test   npx prisma migrate deploy
+psql -h 127.0.0.1 -p 55432 -U postgres -d smarticket_test   -c 'update public_launch_settings set "publicLaunchEnabled"=true;'
+
+# cada corrida
+DATABASE_URL=... DIRECT_URL=... npm run test:db
+```
+
+En modo `db`, `tests/helpers/testSafetyPreload.js` deja vacías todas las
+claves de `backend/.env` (producción) que no vengan de `.env.test` o de la
+terminal, usa valores de test propios (clave de QR aleatoria, remitente
+`.invalid`) y bloquea cualquier `fetch` a un host que no sea local: ningún
+test puede mandar un email real ni hablar con Mercado Pago, Clerk o
+Cloudinary. Los archivos se corren de a uno (`--test-concurrency=1`)
+porque comparten filas singleton.
 
 ## Variables de entorno
 

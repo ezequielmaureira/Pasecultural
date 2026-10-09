@@ -1,5 +1,6 @@
 import { clerkMiddleware } from "@clerk/express";
 import { logger } from "../logging/logger.js";
+import { redactPath } from "../logging/redactPath.js";
 
 // clerkMiddleware con un único ajuste: un `Authorization: Bearer` con forma
 // de JWT pero con segmentos que no son base64url/JSON válidos hace que
@@ -18,7 +19,7 @@ export function clerkAuth(options) {
 
             logger.warn("clerkAuth: Authorization header malformado, la request sigue sin sesión", {
                 method: req.method,
-                path: req.originalUrl,
+                path: redactPath(req.originalUrl),
             });
             delete req.headers.authorization;
             return middleware(req, res, next);

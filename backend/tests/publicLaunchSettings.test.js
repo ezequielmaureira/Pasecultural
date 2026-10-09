@@ -121,7 +121,7 @@ testWithDb("A) publicLaunchEnabled=false: el guard bloquea el listado público d
 
         assert.equal(nextCalled, false);
         assert.equal(state.statusCode, 503);
-        assert.equal(state.jsonBody.message, "PaseCultural todavía no está disponible públicamente.");
+        assert.equal(state.jsonBody.message, "Smarticket todavía no está disponible públicamente.");
     });
 });
 

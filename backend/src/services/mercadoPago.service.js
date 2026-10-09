@@ -251,6 +251,15 @@ export async function refreshMercadoPagoAccessToken(refreshToken) {
 
 const PREFERENCES_URL = "https://api.mercadopago.com/checkout/preferences";
 
+// Formato de fecha de la documentación de preferencias
+// (yyyy-MM-ddTHH:mm:ss.SSS±hh:mm), en hora de Argentina (UTC-3 fijo, sin
+// horario de verano) — mismo instante que `date`, sólo cambia cómo se
+// escribe.
+export function formatMercadoPagoDate(date) {
+    const AR_OFFSET_MS = -3 * 60 * 60 * 1000;
+    return new Date(date.getTime() + AR_OFFSET_MS).toISOString().replace("Z", "-03:00");
+}
+
 // No reintenta ante error transitorio (a diferencia de postToTokenEndpoint):
 // a diferencia del authorization code de OAuth, crear una preferencia no
 // consume ningún secreto de un solo uso — si esta llamada falla, el
@@ -271,9 +280,30 @@ export async function createMercadoPagoPreference({
     // excluir, este módulo sólo lo transporta tal cual dentro de
     // payment_methods.excluded_payment_types.
     excludedPaymentTypes,
+    // Ronda de preparación para producción — Date hasta la que la
+    // preferencia acepta pagos (expires + expiration_date_to, campos
+    // oficiales de la preferencia de Checkout Pro). El caller pasa
+    // Sale.stockReservedUntil: pasado ese momento Mercado Pago ya no deja
+    // iniciar un pago, así un comprador que vuelve tarde a la pestaña no paga
+    // por un lugar que ya no tiene reservado. null = sin vencimiento.
+    expiresAt = null,
+    // Inicio de vigencia (expiration_date_from) — la documentación oficial
+    // ("Configurar vigencia de la preferencia", Checkout Pro) indica enviar
+    // expires + expiration_date_from + expiration_date_to juntos, con el
+    // formato del ejemplo (2017-02-01T12:00:00.000-04:00). Default: ahora.
+    validFrom = new Date(),
 }) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), OAUTH_TIMEOUT_MS);
+
+    const expiration =
+        expiresAt instanceof Date && !Number.isNaN(expiresAt.getTime())
+            ? {
+                  expires: true,
+                  expiration_date_from: formatMercadoPagoDate(validFrom instanceof Date && validFrom < expiresAt ? validFrom : new Date(expiresAt.getTime() - 60 * 1000)),
+                  expiration_date_to: formatMercadoPagoDate(expiresAt),
+              }
+            : {};
 
     let response;
     try {
@@ -295,6 +325,7 @@ export async function createMercadoPagoPreference({
                     Array.isArray(excludedPaymentTypes) && excludedPaymentTypes.length > 0
                         ? { excluded_payment_types: excludedPaymentTypes }
                         : undefined,
+                ...expiration,
             }),
             signal: controller.signal,
         });

@@ -27,7 +27,20 @@ export function classifyDatabaseUrl(rawUrl) {
     if (!rawUrl) return "ABSENT";
     if (rawUrl.includes(PRODUCTION_PROJECT_REF)) return "PRODUCTION";
     if (rawUrl.includes(TEST_PROJECT_REF)) return "TEST";
+    if (isLoopbackDatabaseUrl(rawUrl)) return "LOCAL";
     return "OTHER";
+}
+
+// Postgres descartable en la propia máquina (ver tests/helpers/
+// testSafetyPreload.js y el README de tests): sólo el host loopback
+// literal cuenta — nunca un hostname que pudiera resolver a otra cosa.
+function isLoopbackDatabaseUrl(rawUrl) {
+    try {
+        const { hostname } = new URL(rawUrl);
+        return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "[::1]";
+    } catch {
+        return false;
+    }
 }
 
 function assertNeverProduction(rawUrl, sourceName) {
@@ -50,11 +63,16 @@ const databaseUrlStatus = assertNeverProduction(process.env.DATABASE_URL, "DATAB
 // DATABASE_URL esté bien configurada.
 assertNeverProduction(process.env.DIRECT_URL, "DIRECT_URL");
 
-// Sólo TEST habilita los tests con DB real. ABSENT y OTHER (ej. un Postgres
-// local personal que no es ninguno de los dos proyectos conocidos) se
-// tratan igual: los tests con DB se saltan — nunca escriben — porque no hay
-// forma de confirmar que ese destino es seguro.
-export const hasDatabase = databaseUrlStatus === "TEST";
+// TEST (proyecto Supabase de test) y LOCAL (Postgres en 127.0.0.1/localhost)
+// habilitan los tests con DB real. ABSENT y OTHER (cualquier host remoto que
+// no es ninguno de los dos proyectos conocidos) se tratan igual: los tests
+// con DB se saltan — nunca escriben — porque no hay forma de confirmar que
+// ese destino es seguro. DIRECT_URL tiene que ser igual de segura: un
+// DATABASE_URL local con DIRECT_URL remota nunca habilita nada.
+const directUrlStatus = classifyDatabaseUrl(process.env.DIRECT_URL);
+const SAFE_STATUSES = new Set(["TEST", "LOCAL"]);
+export const hasDatabase =
+    SAFE_STATUSES.has(databaseUrlStatus) && (directUrlStatus === "ABSENT" || SAFE_STATUSES.has(directUrlStatus));
 
 // Expuesto para diagnóstico/tests del guard mismo — nunca es "PRODUCTION"
 // en este punto: si lo fuera, el `throw` de arriba ya habría abortado el
